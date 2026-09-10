@@ -1,0 +1,171 @@
+import assert from 'node:assert/strict';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+
+const repoRoot = path.resolve(import.meta.dirname, '../..');
+const exporter = path.join(repoRoot, 'tools/public-source/export.mjs');
+const isPublicSnapshot = existsSync(
+  path.join(repoRoot, 'PUBLIC-SOURCE-MANIFEST.json'),
+);
+const privateHistoryOnly = {
+  skip: isPublicSnapshot
+    ? 'exporter contracts require the private release repository history'
+    : false,
+};
+
+function git(...args) {
+  return execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8' }).trim();
+}
+
+function exportSnapshot(commit) {
+  const output = mkdtempSync(path.join(tmpdir(), 'ztapi-public-source-'));
+  const result = spawnSync(
+    process.execPath,
+    [exporter, '--commit', commit, '--output', output],
+    { cwd: repoRoot, encoding: 'utf8' },
+  );
+  return { output, result };
+}
+
+test('exports a buildable public snapshot from an exact commit', privateHistoryOnly, () => {
+  const commit = git('rev-parse', 'HEAD');
+  const { output, result } = exportSnapshot(commit);
+
+  try {
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+
+    for (const relativePath of [
+      'package.json',
+      'pnpm-lock.yaml',
+      'server/go.mod',
+      'server/LICENSE',
+      'server/NOTICE',
+      'server/THIRD-PARTY-LICENSES.md',
+      'LICENSE',
+      'NOTICE',
+      'THIRD-PARTY-LICENSES.md',
+      'server/Dockerfile.ztapi',
+      'deploy/docker/docker-compose.prod.yml',
+      'deploy/nginx/ztapi.conf',
+      '.github/workflows/ztapi-financial-ci.yml',
+      '.github/workflows/ztapi-deploy.yml',
+      'README.md',
+      'MODIFICATIONS.md',
+      'SOURCE-OFFER.md',
+      'PUBLIC-SOURCE-MANIFEST.json',
+    ]) {
+      assert.equal(existsSync(path.join(output, relativePath)), true, relativePath);
+    }
+
+    for (const relativePath of [
+      '.git',
+      '.superpowers',
+      'docs/operations',
+      'docs/superpowers',
+      'test-results',
+      '.env',
+    ]) {
+      assert.equal(existsSync(path.join(output, relativePath)), false, relativePath);
+    }
+
+    const offer = readFileSync(path.join(output, 'SOURCE-OFFER.md'), 'utf8');
+    assert.match(offer, new RegExp(commit));
+    assert.match(offer, new RegExp(`production-${commit}`));
+    assert.match(offer, /github\.com\/ffff582\/ztapi-source/);
+
+    const readme = readFileSync(path.join(output, 'README.md'), 'utf8');
+    const stubIndex = readme.indexOf('mkdir -p web/default/dist web/classic/dist');
+    const goBuildIndex = readme.indexOf('go build ./...');
+    assert.notEqual(stubIndex, -1, 'README must create embedded web stubs');
+    assert.notEqual(goBuildIndex, -1, 'README must document the Go build');
+    assert.ok(stubIndex < goBuildIndex, 'embedded web stubs must precede go build');
+    assert.match(readme, /Bun 1\.3\.14/);
+    assert.match(readme, /docker build[\s\S]*deploy\/nginx\/Dockerfile/);
+
+    const manifest = JSON.parse(
+      readFileSync(path.join(output, 'PUBLIC-SOURCE-MANIFEST.json'), 'utf8'),
+    );
+    assert.equal(manifest.schema_version, 1);
+    assert.equal(manifest.release_commit, commit);
+    assert.equal(manifest.source_repository, 'https://github.com/ffff582/ztapi-source');
+    assert.equal(manifest.source_tag, `production-${commit}`);
+    assert.ok(manifest.files.length > 100);
+    assert.deepEqual(
+      manifest.files.map((file) => file.path),
+      [...manifest.files.map((file) => file.path)].sort(),
+    );
+    assert.ok(
+      manifest.files.every(
+        (file) =>
+          /^[a-f0-9]{64}$/.test(file.sha256) &&
+          Number.isInteger(file.size) &&
+          file.size >= 0,
+      ),
+    );
+    assert.equal(
+      manifest.files.some((file) => file.path === 'PUBLIC-SOURCE-MANIFEST.json'),
+      false,
+    );
+  } finally {
+    rmSync(output, { recursive: true, force: true });
+  }
+});
+
+test('rejects invalid or nonexistent release commits', privateHistoryOnly, () => {
+  for (const commit of ['HEAD', 'not-a-commit', '0'.repeat(40)]) {
+    const { output, result } = exportSnapshot(commit);
+    try {
+      assert.notEqual(result.status, 0, commit);
+      assert.match(result.stderr, /exact 40-character commit|does not exist/);
+    } finally {
+      rmSync(output, { recursive: true, force: true });
+    }
+  }
+});
+
+test('derives publication metadata from the immutable commit timestamp', privateHistoryOnly, () => {
+  const commits = git(
+    'log',
+    '--format=%H',
+    '--',
+    'server/THIRD-PARTY-LICENSES.md',
+  ).split(/\r?\n/);
+  const commit = commits.at(-1);
+  const expectedDate = git('show', '-s', '--format=%cI', commit).slice(0, 10);
+  const { output, result } = exportSnapshot(commit);
+
+  try {
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const offer = readFileSync(path.join(output, 'SOURCE-OFFER.md'), 'utf8');
+    const modifications = readFileSync(
+      path.join(output, 'MODIFICATIONS.md'),
+      'utf8',
+    );
+    assert.match(offer, new RegExp('Publication date: `' + expectedDate + '`'));
+    assert.match(modifications, new RegExp('prepared on `' + expectedDate + '`'));
+  } finally {
+    rmSync(output, { recursive: true, force: true });
+  }
+});
+
+test('refuses to overwrite a non-empty output directory', privateHistoryOnly, () => {
+  const output = mkdtempSync(path.join(tmpdir(), 'ztapi-public-source-'));
+  const marker = path.join(output, 'keep.txt');
+  execFileSync(process.execPath, ['-e', `require('fs').writeFileSync(${JSON.stringify(marker)}, 'keep')`]);
+
+  try {
+    const result = spawnSync(
+      process.execPath,
+      [exporter, '--commit', git('rev-parse', 'HEAD'), '--output', output],
+      { cwd: repoRoot, encoding: 'utf8' },
+    );
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /output directory must be empty/);
+    assert.equal(readFileSync(marker, 'utf8'), 'keep');
+  } finally {
+    rmSync(output, { recursive: true, force: true });
+  }
+});

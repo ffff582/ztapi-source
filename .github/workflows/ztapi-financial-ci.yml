@@ -1,0 +1,271 @@
+name: ZTAPI financial integrity
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - feature/ztapi-phase1
+      - feature/ganapi-phase1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ztapi-financial-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  media-commercial-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ztapi_media_ci_only
+          MYSQL_DATABASE: ztapi_commercial_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pztapi_media_ci_only"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli -a ztapi_media_ci_only ping || redis-cli ping"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.13.1
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install web dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install classic administration dependencies
+        working-directory: server/web
+        run: bun install --frozen-lockfile --filter react-template
+
+      - name: Prepare clean Go embed placeholders
+        working-directory: server
+        run: |
+          mkdir -p web/default/dist web/classic/dist
+          printf '<!doctype html><title>ZTAPI test</title>' > web/default/dist/index.html
+          cp web/default/dist/index.html web/classic/dist/index.html
+
+      - name: Secure the isolated Redis service
+        run: |
+          docker exec "${{ job.services.redis.id }}" redis-cli CONFIG SET requirepass ztapi_media_ci_only
+          docker exec "${{ job.services.redis.id }}" redis-cli -a ztapi_media_ci_only ping
+
+      - name: Run mandatory commercial media MySQL races
+        working-directory: server
+        env:
+          ZTAPI_COMMERCIAL_MYSQL_TEST_DSN: root:ztapi_media_ci_only@tcp(127.0.0.1:3306)/ztapi_commercial_test?charset=utf8mb4
+          ZTAPI_REQUIRE_COMMERCIAL_MYSQL: true
+        run: go test ./model -run '^TestZTAPICommercialMySQL' -count=1 -v -timeout=5m
+
+      - name: Run mandatory real Redis authentication isolation
+        working-directory: server
+        env:
+          ZTAPI_REDIS_TEST_URL: redis://:ztapi_media_ci_only@127.0.0.1:6379/13
+          ZTAPI_REQUIRE_REDIS_INTEGRATION: true
+        run: go test ./router -run '^TestZTAPIRealRedisAuthAdmissionIsolation$' -count=1 -v -timeout=2m
+
+      - name: Run offline media Go suites
+        working-directory: server
+        run: go test ./... -run 'ZTAPI.*(Media|Image|Video)' -count=1 -timeout=8m
+
+      - name: Run offline UI suites
+        run: |
+          pnpm --filter @ztapi/console test -- --run
+          pnpm --dir server/web/classic test:ztapi:run
+          pnpm lint:web
+
+      - name: Run production runtime configuration tests
+        run: npm run test:runtime
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run responsive media browser acceptance
+        run: pnpm exec playwright test tests/e2e/media-models-and-guide.spec.ts
+
+      - name: Upload browser acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: media-browser-acceptance
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  commercial-finance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ztapi_commercial_ci_only
+          MYSQL_DATABASE: ztapi_commercial_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pztapi_commercial_ci_only"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: Run mandatory commercial billing and refund lifecycle
+        working-directory: server
+        env:
+          ZTAPI_COMMERCIAL_MYSQL_TEST_DSN: root:ztapi_commercial_ci_only@tcp(127.0.0.1:3306)/ztapi_commercial_test?charset=utf8mb4
+          ZTAPI_REQUIRE_COMMERCIAL_MYSQL: true
+        run: go test ./model -run '^TestZTAPICommercialMySQL' -count=1 -v -timeout=3m
+
+  financial-integrity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ztapi_test_root_2026
+          MYSQL_DATABASE: ztapi_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pztapi_test_root_2026"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: Run MySQL financial integrity tests
+        working-directory: server
+        env:
+          ZTAPI_BALANCE_LEDGER_MYSQL_TEST_DSN: root:ztapi_test_root_2026@tcp(127.0.0.1:3306)/ztapi_test?charset=utf8mb4
+          ZTAPI_USDT_MYSQL_TEST_DSN: root:ztapi_test_root_2026@tcp(127.0.0.1:3306)/ztapi_test?charset=utf8mb4
+          ZTAPI_REQUIRE_MYSQL_INTEGRATION: true
+        run: |
+          go test ./model -run '^(TestBalanceLedgerMySQLIntegration|TestUSDT.*MySQL)$' -count=1 -v
+          go test ./service -run '^TestWalletFundingLedgerMySQLIntegration$' -count=1 -v
+
+  usdt-settled-replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ztapi_replay_ci_only
+          MYSQL_DATABASE: ztapi_usdt_replay_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pztapi_replay_ci_only"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: Verify synthetic fixture and mandatory replay configuration
+        working-directory: server
+        run: go test ./model -run '^TestUSDTSettledReplay(SyntheticFixture|ConfigurationGate)$' -count=1 -v -timeout=2m
+
+      - name: Run mandatory already-settled replay regression
+        working-directory: server
+        env:
+          ZTAPI_USDT_REPLAY_MYSQL_TEST_DSN: root:ztapi_replay_ci_only@tcp(127.0.0.1:3306)/ztapi_usdt_replay_test?charset=utf8mb4
+          ZTAPI_REQUIRE_USDT_REPLAY_TEST: true
+        run: go test ./model -run '^TestUSDTAlreadySettledReplayMySQL$' -count=1 -v -timeout=2m
+
+  health-integrity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ztapi_health_ci_only
+          MYSQL_DATABASE: ztapi_health_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pztapi_health_ci_only"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: Run mandatory MySQL health integrity test
+        working-directory: server
+        env:
+          ZTAPI_HEALTH_MYSQL_TEST_DSN: root:ztapi_health_ci_only@tcp(127.0.0.1:3306)/ztapi_health_test?charset=utf8mb4
+          ZTAPI_REQUIRE_HEALTH_MYSQL_INTEGRATION: true
+        run: go test ./model -run '^TestZTAPIHealthMySQLDurableConcurrentTrip$' -count=1 -v

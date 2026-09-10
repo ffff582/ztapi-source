@@ -1,0 +1,109 @@
+.public-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  min-height: 72px;
+  color: var(--text-on-ink);
+  background: var(--surface-ink);
+  border-bottom: 1px solid transparent;
+}
+
+.public-shell {
+  width: min(calc(100% - 48px), 1180px);
+  margin-inline: auto;
+}
+
+.public-header[data-scrolled="true"] {
+  border-bottom-color: var(--rule-dark);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.18);
+}
+
+.public-header__inner {
+  display: flex;
+  min-height: 72px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.public-header__brand,
+.public-header__nav,
+.public-header__link {
+  display: inline-flex;
+  align-items: center;
+}
+
+.public-header__brand,
+.public-header__link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.public-header__nav { gap: 24px; }
+.public-header__mark { width: 30px; height: 30px; object-fit: contain; }
+.public-header__menu {
+  display: none;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border: 1px solid var(--rule-dark);
+  border-radius: 6px;
+  color: var(--text-on-ink);
+  background: transparent;
+}
+.public-header__link--strong {
+  min-height: 40px;
+  padding-inline: 14px;
+  border: 1px solid var(--action-blue);
+  border-radius: 6px;
+  background: var(--action-blue);
+}
+
+.public-header__brand:focus-visible,
+.public-header__link:focus-visible,
+.public-header__menu:focus-visible {
+  outline: 2px solid var(--state-cyan);
+  outline-offset: 3px;
+}
+
+@media (max-width: 640px) {
+  .public-shell {
+    width: min(calc(100% - 32px), 1180px);
+  }
+
+  .public-header__inner {
+    position: relative;
+  }
+
+  .public-header__menu {
+    display: inline-grid;
+  }
+
+  .public-header__nav {
+    display: none;
+    position: absolute;
+    top: 72px;
+    right: 0;
+    left: 0;
+    grid-template-columns: 1fr;
+    gap: 0;
+    padding: 12px 0;
+    border: 1px solid var(--rule-dark);
+    border-top: 0;
+    background: var(--surface-ink-raised);
+    box-shadow: 0 16px 28px rgba(0, 0, 0, 0.24);
+  }
+
+  .public-header__nav[data-open="true"] {
+    display: grid;
+  }
+
+  .public-header__link {
+    min-height: 44px;
+    padding-inline: 14px;
+  }
+
+  .public-header__link--strong {
+    justify-content: center;
+    margin: 6px 14px 0;
+  }
+}

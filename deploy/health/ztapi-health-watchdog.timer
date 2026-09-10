@@ -1,0 +1,11 @@
+[Unit]
+Description=Check ZTAPI worker heartbeat every minute outside the server
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=1s
+Unit=ztapi-health-watchdog.service
+
+[Install]
+WantedBy=timers.target

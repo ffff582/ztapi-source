@@ -1,0 +1,132 @@
+name: ztapi
+
+services:
+  nginx:
+    image: "${ZTAPI_NGINX_IMAGE:?set ZTAPI_NGINX_IMAGE}"
+    build:
+      context: ../..
+      dockerfile: deploy/nginx/Dockerfile
+      args:
+        VITE_REACT_APP_VERSION: ${ZTAPI_RELEASE_VERSION:-}
+        ZTAPI_RELEASE_VERSION: ${ZTAPI_RELEASE_VERSION:?set ZTAPI_RELEASE_VERSION}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "127.0.0.1:18081:8081"
+    volumes:
+      - "${ZTAPI_TLS_DIR:?set ZTAPI_TLS_DIR}:/etc/nginx/tls:ro"
+    depends_on:
+      server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+    networks:
+      - edge
+      - app
+
+  server:
+    image: "${ZTAPI_SERVER_IMAGE:?set ZTAPI_SERVER_IMAGE}"
+    build:
+      context: ../../server
+      dockerfile: Dockerfile.ztapi
+    env_file:
+      - path: /etc/ztapi/health.env
+        required: false
+    environment:
+      ZTAPI_ENV: production
+      ZTAPI_RELEASE_VERSION: ${ZTAPI_RELEASE_VERSION:?set ZTAPI_RELEASE_VERSION}
+      ZTAPI_SOURCE_REPOSITORY: https://github.com/ffff582/ztapi-source
+      ZTAPI_SOURCE_TAG: production-${ZTAPI_RELEASE_VERSION:?set ZTAPI_RELEASE_VERSION}
+      ZTAPI_PUBLIC_ORIGIN: https://ztapi.vip
+      ZTAPI_API_ORIGIN: http://server:3000
+      ZTAPI_SESSION_SIGNING_KEY: ${ZTAPI_SESSION_SIGNING_KEY:?set ZTAPI_SESSION_SIGNING_KEY}
+      ZTAPI_UPSTREAM_MASTER_KEY: ${ZTAPI_UPSTREAM_MASTER_KEY:?set ZTAPI_UPSTREAM_MASTER_KEY}
+      ZTAPI_TRUSTED_PROXY_CIDRS: ${ZTAPI_TRUSTED_PROXY_CIDRS:?set ZTAPI_TRUSTED_PROXY_CIDRS}
+      ZTAPI_DROP_LEGACY_TOKEN_KEY: ${ZTAPI_DROP_LEGACY_TOKEN_KEY:-false}
+      ZTAPI_LEGACY_PAYMENT_ENABLED: ${ZTAPI_LEGACY_PAYMENT_ENABLED:-false}
+      USDT_TRC20_TOPUP_ENABLED: "true"
+      USDT_TRC20_RECEIVING_ADDRESS: "TJSdKoxvYJofK6CQBNnXwMM9kS1t4Sj3V2"
+      TRONGRID_API_KEY: ${TRONGRID_API_KEY:?set TRONGRID_API_KEY}
+      USDT_TRC20_MIN_TOPUP: "10"
+      USDT_TRC20_ORDER_TTL_SECONDS: "600"
+      USDT_TRC20_POLL_INTERVAL_SECONDS: "5"
+      USDT_TRC20_SUFFIX_COOLDOWN_SECONDS: "86400"
+      CRYPTO_SECRET: ${CRYPTO_SECRET:?set CRYPTO_SECRET}
+      SQL_DSN: ${MYSQL_USER:?set MYSQL_USER}:${MYSQL_PASSWORD:?set MYSQL_PASSWORD}@tcp(mysql:3306)/${MYSQL_DATABASE:?set MYSQL_DATABASE}?charset=utf8mb4&parseTime=True&loc=Local
+      REDIS_CONN_STRING: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD}@redis:6379
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - ztapi_data:/data
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/api/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - app
+      - data
+      - egress
+
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?set MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER:?set MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD}
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p\"$${MYSQL_ROOT_PASSWORD}\" --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - data
+
+  redis:
+    image: redis:7.4-alpine
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\""]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+    networks:
+      - data
+
+volumes:
+  mysql_data: {}
+  redis_data: {}
+  ztapi_data: {}
+
+networks:
+  edge:
+  app:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+  data:
+    internal: true
+  egress:

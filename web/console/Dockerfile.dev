@@ -1,0 +1,12 @@
+FROM node:24-alpine
+
+RUN corepack enable
+WORKDIR /workspace
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY web/console/package.json web/console/package.json
+RUN pnpm install --frozen-lockfile --filter @ztapi/console...
+
+COPY web/console web/console
+EXPOSE 5173
+CMD ["pnpm", "--filter", "@ztapi/console", "dev", "--host", "0.0.0.0", "--port", "5173"]
