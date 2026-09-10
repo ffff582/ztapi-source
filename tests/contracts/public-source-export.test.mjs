@@ -20,15 +20,61 @@ function git(...args) {
   return execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8' }).trim();
 }
 
-function exportSnapshot(commit) {
+function exportSnapshot(commit, env = process.env) {
   const output = mkdtempSync(path.join(tmpdir(), 'ztapi-public-source-'));
   const result = spawnSync(
     process.execPath,
     [exporter, '--commit', commit, '--output', output],
-    { cwd: repoRoot, encoding: 'utf8' },
+    { cwd: repoRoot, encoding: 'utf8', env },
   );
   return { output, result };
 }
+
+test('exports identical bytes regardless of the caller line-ending settings', privateHistoryOnly, () => {
+  const commit = git('rev-parse', 'HEAD');
+  const gitConfigEnv = (autocrlf, eol) => ({
+    ...process.env,
+    GIT_CONFIG_COUNT: '2',
+    GIT_CONFIG_KEY_0: 'core.autocrlf',
+    GIT_CONFIG_VALUE_0: autocrlf,
+    GIT_CONFIG_KEY_1: 'core.eol',
+    GIT_CONFIG_VALUE_1: eol,
+  });
+  const withWindowsEndings = exportSnapshot(
+    commit,
+    gitConfigEnv('true', 'crlf'),
+  );
+  const withUnixEndings = exportSnapshot(
+    commit,
+    gitConfigEnv('false', 'lf'),
+  );
+
+  try {
+    assert.equal(
+      withWindowsEndings.result.status,
+      0,
+      withWindowsEndings.result.stderr || withWindowsEndings.result.stdout,
+    );
+    assert.equal(
+      withUnixEndings.result.status,
+      0,
+      withUnixEndings.result.stderr || withUnixEndings.result.stdout,
+    );
+    assert.equal(
+      readFileSync(
+        path.join(withWindowsEndings.output, 'PUBLIC-SOURCE-MANIFEST.json'),
+        'utf8',
+      ),
+      readFileSync(
+        path.join(withUnixEndings.output, 'PUBLIC-SOURCE-MANIFEST.json'),
+        'utf8',
+      ),
+    );
+  } finally {
+    rmSync(withWindowsEndings.output, { recursive: true, force: true });
+    rmSync(withUnixEndings.output, { recursive: true, force: true });
+  }
+});
 
 test('exports a buildable public snapshot from an exact commit', privateHistoryOnly, () => {
   const commit = git('rev-parse', 'HEAD');
@@ -131,7 +177,7 @@ test('derives publication metadata from the immutable commit timestamp', private
     'log',
     '--format=%H',
     '--',
-    'server/THIRD-PARTY-LICENSES.md',
+    'tools/public-source/templates/SOURCE-OFFER.md',
   ).split(/\r?\n/);
   const commit = commits.at(-1);
   const expectedDate = git('show', '-s', '--format=%cI', commit).slice(0, 10);
@@ -146,6 +192,37 @@ test('derives publication metadata from the immutable commit timestamp', private
     );
     assert.match(offer, new RegExp('Publication date: `' + expectedDate + '`'));
     assert.match(modifications, new RegExp('prepared on `' + expectedDate + '`'));
+  } finally {
+    rmSync(output, { recursive: true, force: true });
+  }
+});
+
+test('renders publication templates from the requested release commit', privateHistoryOnly, () => {
+  const commits = git(
+    'log',
+    '--format=%H',
+    '--',
+    'tools/public-source/templates/README.md',
+  ).split(/\r?\n/);
+  const commit = commits.at(-1);
+  const releaseDate = git('show', '-s', '--format=%cI', commit).slice(0, 10);
+  const sourceTag = `production-${commit}`;
+  const sourceRepository = 'https://github.com/ffff582/ztapi-source';
+  const releaseTemplate = execFileSync(
+    'git',
+    ['show', `${commit}:tools/public-source/templates/README.md`],
+    { cwd: repoRoot, encoding: 'utf8' },
+  );
+  const expected = releaseTemplate
+    .replaceAll('{{RELEASE_COMMIT}}', commit)
+    .replaceAll('{{RELEASE_DATE}}', releaseDate)
+    .replaceAll('{{SOURCE_REPOSITORY}}', sourceRepository)
+    .replaceAll('{{SOURCE_TAG}}', sourceTag);
+  const { output, result } = exportSnapshot(commit);
+
+  try {
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(readFileSync(path.join(output, 'README.md'), 'utf8'), expected);
   } finally {
     rmSync(output, { recursive: true, force: true });
   }

@@ -17,7 +17,6 @@ import { EXCLUDED_PATHS, SOURCE_REPOSITORY } from './policy.mjs';
 
 const toolDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(toolDir, '../..');
-const templatesDir = path.join(toolDir, 'templates');
 
 function fail(message) {
   process.stderr.write(`${message}\n`);
@@ -61,7 +60,7 @@ function prepareOutput(output) {
   }
 }
 
-function renderTemplate(name, values) {
+function renderTemplate(templatesDir, name, values) {
   let content = readFileSync(path.join(templatesDir, name), 'utf8');
   for (const [key, value] of Object.entries(values)) {
     content = content.replaceAll(`{{${key}}}`, value);
@@ -111,10 +110,24 @@ const scratch = mkdtempSync(path.join(tmpdir(), 'ztapi-source-export-'));
 const archive = path.join(scratch, 'source.tar');
 
 try {
-  execFileSync('git', ['archive', '--format=tar', '--output', archive, args.commit], {
-    cwd: repoRoot,
-    stdio: 'inherit',
-  });
+  execFileSync(
+    'git',
+    [
+      '-c',
+      'core.autocrlf=false',
+      '-c',
+      'core.eol=lf',
+      'archive',
+      '--format=tar',
+      '--output',
+      archive,
+      args.commit,
+    ],
+    {
+      cwd: repoRoot,
+      stdio: 'inherit',
+    },
+  );
   execFileSync('tar', ['-xf', archive, '-C', output], { stdio: 'inherit' });
 
   for (const excluded of EXCLUDED_PATHS) {
@@ -133,8 +146,18 @@ try {
     SOURCE_REPOSITORY,
     SOURCE_TAG: sourceTag,
   };
+  const releaseTemplatesDir = path.join(
+    output,
+    'tools',
+    'public-source',
+    'templates',
+  );
   for (const name of ['README.md', 'MODIFICATIONS.md', 'SOURCE-OFFER.md']) {
-    writeFileSync(path.join(output, name), renderTemplate(name, values), 'utf8');
+    writeFileSync(
+      path.join(output, name),
+      renderTemplate(releaseTemplatesDir, name, values),
+      'utf8',
+    );
   }
 
   for (const name of ['LICENSE', 'NOTICE', 'THIRD-PARTY-LICENSES.md']) {
