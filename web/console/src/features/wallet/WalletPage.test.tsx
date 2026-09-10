@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clearAuthSession, setAuthSession } from '../../api/client';
 import { WalletPage } from './WalletPage';
 
-const address = 'TJSdKoxvYJofK6CQBNnXwMM9kS1t4Sj3V2';
+const address = 'T111111111111111111111111111111111';
 
 function jsonResponse(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {

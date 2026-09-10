@@ -154,6 +154,8 @@ test('production secrets and trusted proxy CIDRs have no defaults', () => {
     'ZTAPI_SESSION_SIGNING_KEY',
     'ZTAPI_UPSTREAM_MASTER_KEY',
     'TRONGRID_API_KEY',
+    'ZTAPI_SOURCE_COMMIT',
+    'ZTAPI_USDT_RECEIVING_ADDRESS',
     'CRYPTO_SECRET',
     'ZTAPI_TRUSTED_PROXY_CIDRS',
   ];
@@ -183,13 +185,14 @@ test('production enables only the fixed USDT TRC-20 top-up contract', () => {
   assert.equal(environment.USDT_TRC20_TOPUP_ENABLED, 'true');
   assert.equal(
     environment.USDT_TRC20_RECEIVING_ADDRESS,
-    'TJSdKoxvYJofK6CQBNnXwMM9kS1t4Sj3V2',
+    '${ZTAPI_USDT_RECEIVING_ADDRESS:?set ZTAPI_USDT_RECEIVING_ADDRESS}',
   );
   assert.equal(environment.USDT_TRC20_MIN_TOPUP, '10');
   assert.equal(environment.USDT_TRC20_ORDER_TTL_SECONDS, '600');
   assert.equal(environment.USDT_TRC20_POLL_INTERVAL_SECONDS, '5');
   assert.equal(environment.USDT_TRC20_SUFFIX_COOLDOWN_SECONDS, '86400');
   assert.match(source, /TRONGRID_API_KEY:\s*\$\{TRONGRID_API_KEY:\?[^}]+\}/);
+  assert.match(source, /USDT_TRC20_RECEIVING_ADDRESS:\s*\$\{ZTAPI_USDT_RECEIVING_ADDRESS:\?[^}]+\}/);
   assert.doesNotMatch(source, /TRONGRID_API_KEY:\s*[A-Za-z0-9_-]{20,}/);
   assert.equal(environment.ZTAPI_LEGACY_PAYMENT_ENABLED, '${ZTAPI_LEGACY_PAYMENT_ENABLED:-false}');
 });
@@ -211,6 +214,8 @@ test('production compose accepts a synthetic TronGrid key without exposing defau
     ZTAPI_SERVER_IMAGE: `sha256:${'a'.repeat(64)}`,
     ZTAPI_NGINX_IMAGE: `sha256:${'b'.repeat(64)}`,
     ZTAPI_RELEASE_VERSION: '0123456789abcdef0123456789abcdef01234567',
+    ZTAPI_SOURCE_COMMIT: 'abcdef0123456789abcdef0123456789abcdef01',
+    ZTAPI_USDT_RECEIVING_ADDRESS: 'T111111111111111111111111111111111',
     TRONGRID_API_KEY: syntheticKey,
   };
   const result = spawnSync(
@@ -223,6 +228,7 @@ test('production compose accepts a synthetic TronGrid key without exposing defau
   const rendered = JSON.parse(result.stdout);
   const serverEnvironment = rendered.services.server.environment;
   assert.equal(serverEnvironment.TRONGRID_API_KEY, syntheticKey);
+  assert.equal(serverEnvironment.USDT_TRC20_RECEIVING_ADDRESS, env.ZTAPI_USDT_RECEIVING_ADDRESS);
   assert.equal(serverEnvironment.USDT_TRC20_TOPUP_ENABLED, 'true');
   assert.equal(serverEnvironment.ZTAPI_LEGACY_PAYMENT_ENABLED, 'false');
 });
@@ -233,6 +239,8 @@ test('production environment example contains placeholders only', () => {
   assert.match(example, /^ZTAPI_SERVER_IMAGE=sha256:<server-image-id>$/m);
   assert.match(example, /^ZTAPI_NGINX_IMAGE=sha256:<nginx-image-id>$/m);
   assert.match(example, /^TRONGRID_API_KEY=replace_with_your_trongrid_api_key$/m);
+  assert.match(example, /^ZTAPI_USDT_RECEIVING_ADDRESS=replace_with_your_tron_receiving_address$/m);
+  assert.match(example, /^ZTAPI_SOURCE_COMMIT=$/m);
   assert.doesNotMatch(example, /^TRONGRID_API_KEY=[0-9a-f]{8}-[0-9a-f-]{27}$/im);
   assert.match(example, /^ZTAPI_LEGACY_PAYMENT_ENABLED=false$/m);
 });
@@ -252,6 +260,8 @@ test('production compose interpolation fails without ZTAPI_TLS_DIR', () => {
     ZTAPI_SERVER_IMAGE: `sha256:${'a'.repeat(64)}`,
     ZTAPI_NGINX_IMAGE: `sha256:${'b'.repeat(64)}`,
     ZTAPI_RELEASE_VERSION: '0123456789abcdef0123456789abcdef01234567',
+    ZTAPI_SOURCE_COMMIT: 'abcdef0123456789abcdef0123456789abcdef01',
+    ZTAPI_USDT_RECEIVING_ADDRESS: 'T111111111111111111111111111111111',
     TRONGRID_API_KEY: 'contract-test-trongrid-key-000000000000',
   };
   delete env.ZTAPI_TLS_DIR;

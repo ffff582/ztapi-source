@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-const receivingAddress = 'TJSdKoxvYJofK6CQBNnXwMM9kS1t4Sj3V2';
+const receivingAddress = 'T111111111111111111111111111111111';
 
 function authSession() {
   return {

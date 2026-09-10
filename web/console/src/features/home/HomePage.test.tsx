@@ -122,7 +122,7 @@ describe('ZTAPI public homepage', () => {
 
     expect(screen.getByRole('link', { name: 'ZTAPI 对应源码' })).toHaveAttribute(
       'href',
-      'https://github.com/ffff582/ztapi-source',
+      '/.well-known/source',
     );
   });
 

@@ -223,7 +223,7 @@ describe('ZTAPI administration shell', () => {
     ).toHaveAttribute('href', 'https://github.com/QuantumNous/new-api');
     expect(
       screen.getByRole('link', { name: '查看 ZTAPI 对应源码' }),
-    ).toHaveAttribute('href', 'https://github.com/ffff582/ztapi-source');
+    ).toHaveAttribute('href', '/.well-known/source');
 
     fireEvent.click(accountButton);
     expect(

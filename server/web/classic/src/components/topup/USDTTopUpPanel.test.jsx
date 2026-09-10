@@ -9,7 +9,7 @@ vi.mock('qrcode.react', () => ({
   ),
 }));
 
-const address = 'TJSdKoxvYJofK6CQBNnXwMM9kS1t4Sj3V2';
+const address = 'T111111111111111111111111111111111';
 const pendingOrder = {
   id: 17,
   trade_no: 'ZT-USDT-17',

@@ -12,6 +12,8 @@ import './home.css';
 export function HomePage() {
   const [selectedFamily, setSelectedFamily] = useState<ModelFamily>('openai');
   const { hash } = useLocation();
+  const sourceUrl =
+    import.meta.env.VITE_ZTAPI_SOURCE_URL || '/.well-known/source';
 
   useEffect(() => {
     if (!hash) {
@@ -115,7 +117,7 @@ export function HomePage() {
           <span>统一模型 API</span>
           <a
             className="footer-link"
-            href="https://github.com/ffff582/ztapi-source"
+            href={sourceUrl}
             target="_blank"
             rel="noreferrer"
           >

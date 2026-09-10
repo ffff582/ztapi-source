@@ -30,6 +30,8 @@ const secretValues = [
 const baseEnvironment = {
   ...process.env,
   ZTAPI_RELEASE_VERSION: '0123456789abcdef0123456789abcdef01234567',
+  ZTAPI_SOURCE_COMMIT: 'abcdef0123456789abcdef0123456789abcdef01',
+  ZTAPI_USDT_RECEIVING_ADDRESS: 'T111111111111111111111111111111111',
   MYSQL_DATABASE: 'ztapi',
   MYSQL_USER: 'ztapi',
   MYSQL_PASSWORD: secretValues[0],
@@ -352,9 +354,9 @@ test('production edge enforces TLS and keeps stateful ports private', { timeout:
       secure.headers['strict-transport-security'] ?? '',
       /max-age=/,
     );
-    assert.match(
+    assert.equal(
       secure.headers['x-ztapi-source'] ?? '',
-      /^https:\/\/github\.com\/ffff582\/ztapi-source\/tree\/production-[0-9a-f]{40}$/,
+      `https://github.com/ffff582/ztapi-source/tree/${baseEnvironment.ZTAPI_SOURCE_COMMIT}`,
     );
     assert.equal(
       secure.headers.link,

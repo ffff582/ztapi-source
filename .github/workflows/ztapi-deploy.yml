@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: ztapi-production
@@ -34,11 +35,34 @@ jobs:
       - name: Verify and record checked out release
         env:
           ZTAPI_RELEASE_COMMIT: ${{ inputs.release_commit }}
+          ZTAPI_RELEASE_EXECUTION_ID: ${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -euo pipefail
           [[ "$ZTAPI_RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$ZTAPI_RELEASE_EXECUTION_ID" =~ ^[0-9]+-[0-9]+$ ]]
           test "$(git rev-parse HEAD)" = "$ZTAPI_RELEASE_COMMIT"
           echo "ZTAPI_RELEASE_VERSION=$ZTAPI_RELEASE_COMMIT" >> "$GITHUB_ENV"
+          echo "ZTAPI_RELEASE_EXECUTION_ID=$ZTAPI_RELEASE_EXECUTION_ID" >> "$GITHUB_ENV"
+
+      - name: Verify mandatory CI for exact release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ZTAPI_RELEASE_COMMIT: ${{ inputs.release_commit }}
+        run: |
+          set -euo pipefail
+          ci_runs=$(curl --fail --silent --show-error \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/ffff582/kuaiyi-assistant-candidate/actions/workflows/ztapi-financial-ci.yml/runs?head_sha=$ZTAPI_RELEASE_COMMIT&event=workflow_dispatch&per_page=10")
+          echo "$ci_runs" | jq -e \
+            --arg release_commit "$ZTAPI_RELEASE_COMMIT" '
+              [.workflow_runs[] | select(
+                .head_sha == $release_commit
+                and .status == "completed"
+                and .conclusion == "success"
+                and .path == ".github/workflows/ztapi-financial-ci.yml"
+                and .event == "workflow_dispatch"
+              )] | length > 0' >/dev/null
 
       - name: Verify corresponding public source
         env:
@@ -52,14 +76,30 @@ jobs:
           public_source_commit=$(echo "$tag_ref" | jq -er \
             'select(.object.type == "commit") | .object.sha')
           [[ "$public_source_commit" =~ ^[0-9a-f]{40}$ ]]
-          raw_source="https://raw.githubusercontent.com/ffff582/ztapi-source/$public_source_commit"
           verification_root=$(mktemp -d)
           trap 'rm -rf "$verification_root"' EXIT
-          public_manifest="$verification_root/public-manifest.json"
+          public_archive="$verification_root/public-source.tar.gz"
+          archive_entries="$verification_root/archive-entries.txt"
+          public_tree="$verification_root/public-tree"
           source_export="$verification_root/export"
+          mkdir -p "$public_tree"
           curl --fail --silent --show-error \
-            --output "$public_manifest" \
-            "https://raw.githubusercontent.com/ffff582/ztapi-source/$public_source_commit/PUBLIC-SOURCE-MANIFEST.json"
+            --output "$public_archive" \
+            "https://codeload.github.com/ffff582/ztapi-source/tar.gz/$public_source_commit"
+          tar -tzf "$public_archive" > "$archive_entries"
+          if grep -Eq '(^/|(^|/)\.\.(/|$))' "$archive_entries"; then
+            echo "::error::Public source archive contains an unsafe path."
+            exit 1
+          fi
+          grep -Eq '^[^/]+/PUBLIC-SOURCE-MANIFEST\.json$' "$archive_entries"
+          tar -xzf "$public_archive" \
+            --directory "$public_tree" \
+            --strip-components=1 \
+            --no-same-owner \
+            --no-same-permissions
+          test -z "$(find "$public_tree" -type l -print -quit)"
+          public_manifest="$public_tree/PUBLIC-SOURCE-MANIFEST.json"
+          test -s "$public_manifest"
           jq -e \
             --arg release_commit "$ZTAPI_RELEASE_VERSION" \
             --arg source_tag "$source_tag" \
@@ -74,15 +114,37 @@ jobs:
             --commit "$ZTAPI_RELEASE_VERSION" \
             --output "$source_export" >/dev/null
           cmp -s "$source_export/PUBLIC-SOURCE-MANIFEST.json" "$public_manifest"
+          expected_paths="$verification_root/expected-paths.txt"
+          actual_paths="$verification_root/actual-paths.txt"
+          {
+            jq -r '.files[].path' "$public_manifest"
+            echo PUBLIC-SOURCE-MANIFEST.json
+          } | LC_ALL=C sort > "$expected_paths"
+          find "$public_tree" -type f -printf '%P\n' | LC_ALL=C sort > "$actual_paths"
+          cmp -s "$expected_paths" "$actual_paths"
+          while IFS=$'\t' read -r source_path expected_size expected_sha256; do
+            [[ "$source_path" != /* && "$source_path" != *".."* ]]
+            public_file="$public_tree/$source_path"
+            test "$(stat -c %s "$public_file")" = "$expected_size"
+            test "$(sha256sum "$public_file" | cut -d ' ' -f 1)" = "$expected_sha256"
+          done < <(jq -r '.files[] | [.path, (.size | tostring), .sha256] | @tsv' "$public_manifest")
           for required_source_file in \
             LICENSE NOTICE THIRD-PARTY-LICENSES.md MODIFICATIONS.md SOURCE-OFFER.md; do
-            curl --fail --silent --show-error \
-              "$raw_source/$required_source_file" >/dev/null
-            jq -e \
-              --arg path "$required_source_file" \
-              'any(.files[]; .path == $path and (.sha256 | test("^[0-9a-f]{64}$")))' \
-              "$public_manifest" >/dev/null
+            grep -Fxq "$required_source_file" "$expected_paths"
           done
+          git clone --quiet --filter=blob:none --no-checkout \
+            https://github.com/ffff582/ztapi-source.git "$verification_root/public-history"
+          test "$(git -C "$verification_root/public-history" rev-parse "refs/tags/$source_tag^{commit}")" = "$public_source_commit"
+          git -C "$verification_root/public-history" show -s --format='%P' "$public_source_commit" \
+            > "$verification_root/public-parent-shas.txt"
+          parent_count=$(wc -w < "$verification_root/public-parent-shas.txt" | tr -d ' ')
+          echo "Verified public parent_count=$parent_count"
+          echo "Verified public parent SHAs: $(cat "$verification_root/public-parent-shas.txt")"
+          if git -C "$verification_root/public-history" cat-file -e "$ZTAPI_RELEASE_VERSION^{commit}" 2>/dev/null; then
+            echo "::error::Private production commit is reachable from public history."
+            exit 1
+          fi
+          echo "ZTAPI_SOURCE_COMMIT=$public_source_commit" >> "$GITHUB_ENV"
 
       - name: Install SSH tooling
         run: |
@@ -113,6 +175,7 @@ jobs:
             -czf /tmp/ztapi-source.tgz .
 
       - name: Deploy ZTAPI
+        id: deploy_ztapi
         env:
           ZTAPI_MYSQL_PASSWORD: ${{ secrets.ZTAPI_MYSQL_PASSWORD }}
           ZTAPI_MYSQL_ROOT_PASSWORD: ${{ secrets.ZTAPI_MYSQL_ROOT_PASSWORD }}
@@ -121,9 +184,11 @@ jobs:
           ZTAPI_CRYPTO_SECRET: ${{ secrets.ZTAPI_CRYPTO_SECRET }}
           ZTAPI_UPSTREAM_MASTER_KEY: ${{ secrets.ZTAPI_UPSTREAM_MASTER_KEY }}
           TRONGRID_API_KEY: ${{ secrets.TRONGRID_API_KEY }}
+          ZTAPI_USDT_RECEIVING_ADDRESS: ${{ secrets.ZTAPI_USDT_RECEIVING_ADDRESS }}
           ZTAPI_ADMIN_USERNAME: ${{ secrets.ZTAPI_ADMIN_USERNAME }}
           ZTAPI_ADMIN_PASSWORD: ${{ secrets.ZTAPI_ADMIN_PASSWORD }}
           ZTAPI_DROP_LEGACY_TOKEN_KEY: ${{ inputs.drop_legacy_token_key }}
+          ZTAPI_RELEASE_EXECUTION_ID: ${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -euo pipefail
           umask 077
@@ -138,6 +203,13 @@ jobs:
               exit 1
             fi
           }
+          validate_tron_address() {
+            local value=$1
+            if [[ ! "$value" =~ ^T[1-9A-HJ-NP-Za-km-z]{33}$ ]]; then
+              echo "::error::ZTAPI_USDT_RECEIVING_ADDRESS must be a plausible Tron base58 address."
+              exit 1
+            fi
+          }
           validate_secret ZTAPI_MYSQL_PASSWORD "$ZTAPI_MYSQL_PASSWORD" 24 128
           validate_secret ZTAPI_MYSQL_ROOT_PASSWORD "$ZTAPI_MYSQL_ROOT_PASSWORD" 24 128
           validate_secret ZTAPI_REDIS_PASSWORD "$ZTAPI_REDIS_PASSWORD" 24 128
@@ -145,12 +217,14 @@ jobs:
           validate_secret ZTAPI_CRYPTO_SECRET "$ZTAPI_CRYPTO_SECRET" 32 128
           validate_secret ZTAPI_UPSTREAM_MASTER_KEY "$ZTAPI_UPSTREAM_MASTER_KEY" 32 128
           validate_secret TRONGRID_API_KEY "$TRONGRID_API_KEY" 32 128
+          validate_tron_address "$ZTAPI_USDT_RECEIVING_ADDRESS"
           validate_secret ZTAPI_ADMIN_USERNAME "$ZTAPI_ADMIN_USERNAME" 3 12
           validate_secret ZTAPI_ADMIN_PASSWORD "$ZTAPI_ADMIN_PASSWORD" 16 128
           if [[ "$ZTAPI_DROP_LEGACY_TOKEN_KEY" != true && "$ZTAPI_DROP_LEGACY_TOKEN_KEY" != false ]]; then
             echo "::error::ZTAPI_DROP_LEGACY_TOKEN_KEY must be true or false."
             exit 1
           fi
+          [[ "$ZTAPI_RELEASE_EXECUTION_ID" =~ ^[0-9]+-[0-9]+$ ]]
 
           deploy_env=/tmp/ztapi-deploy.env
           {
@@ -161,10 +235,13 @@ jobs:
             printf 'ZTAPI_CRYPTO_SECRET=%q\n' "$ZTAPI_CRYPTO_SECRET"
             printf 'ZTAPI_UPSTREAM_MASTER_KEY=%q\n' "$ZTAPI_UPSTREAM_MASTER_KEY"
             printf 'TRONGRID_API_KEY=%q\n' "$TRONGRID_API_KEY"
+            printf 'ZTAPI_USDT_RECEIVING_ADDRESS=%q\n' "$ZTAPI_USDT_RECEIVING_ADDRESS"
             printf 'ZTAPI_ADMIN_USERNAME=%q\n' "$ZTAPI_ADMIN_USERNAME"
             printf 'ZTAPI_ADMIN_PASSWORD=%q\n' "$ZTAPI_ADMIN_PASSWORD"
             printf 'ZTAPI_DROP_LEGACY_TOKEN_KEY=%q\n' "$ZTAPI_DROP_LEGACY_TOKEN_KEY"
             printf 'ZTAPI_RELEASE_VERSION=%q\n' "$ZTAPI_RELEASE_VERSION"
+            printf 'ZTAPI_SOURCE_COMMIT=%q\n' "$ZTAPI_SOURCE_COMMIT"
+            printf 'ZTAPI_RELEASE_EXECUTION_ID=%q\n' "$ZTAPI_RELEASE_EXECUTION_ID"
           } > "$deploy_env"
           trap 'rm -f "$deploy_env"' EXIT
 
@@ -191,11 +268,12 @@ jobs:
           . "$deploy_env"
           set +a
           rm -f "$deploy_env"
-          receipt_dir="/opt/ztapi/release-receipts/$ZTAPI_RELEASE_VERSION"
+          receipt_dir="/opt/ztapi/release-receipts/$ZTAPI_RELEASE_VERSION/$ZTAPI_RELEASE_EXECUTION_ID"
           host_nginx_was_active=false
           docker_nginx_was_active=false
           deployment_completed=false
           release_mutated=false
+          had_previous_release=false
           release_backup=""
           env_backup=""
           rollback_server_image=""
@@ -209,8 +287,17 @@ jobs:
           acceptance_user_id=""
           acceptance_user_access_token=""
           acceptance_token_id=""
+          acceptance_token_deleted=false
           acceptance_cleanup_ledger_id=""
           acceptance_cleanup_done=false
+          acceptance_outstanding_trade_no=""
+          registration_options_mutated=false
+          previous_register_enabled=""
+          previous_password_register_enabled=""
+          watchdog_unit=""
+          active_execution_file="/opt/ztapi/release-receipts/active-execution.env"
+          global_control_lock="/opt/ztapi/release-receipts/release-control.lock"
+          release_execution_claimed=false
           write_receipt() {
             phase=$1
             detail=${2:-}
@@ -218,6 +305,7 @@ jobs:
             receipt_tmp="$receipt_dir/$phase.receipt.tmp"
             {
               printf 'commit=%s\n' "$ZTAPI_RELEASE_VERSION"
+              printf 'execution_id=%s\n' "$ZTAPI_RELEASE_EXECUTION_ID"
               printf 'phase=%s\n' "$phase"
               printf 'at_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
               printf 'detail=%s\n' "$detail"
@@ -230,7 +318,40 @@ jobs:
             receipt="$receipt_dir/$phase.receipt"
             test -s "$receipt"
             grep -Fxq "commit=$ZTAPI_RELEASE_VERSION" "$receipt"
+            grep -Fxq "execution_id=$ZTAPI_RELEASE_EXECUTION_ID" "$receipt"
             grep -Fxq "phase=$phase" "$receipt"
+          }
+          claim_release_execution() {
+            mkdir -p /opt/ztapi/release-receipts "$receipt_dir"
+            exec 8>"$global_control_lock"
+            flock 8
+            systemctl stop 'ztapi-release-watchdog-*.timer' >/dev/null 2>&1 || true
+            systemctl reset-failed \
+              'ztapi-release-watchdog-*.timer' \
+              'ztapi-release-watchdog-*.service' >/dev/null 2>&1 || true
+            active_execution_tmp="$active_execution_file.$ZTAPI_RELEASE_EXECUTION_ID.tmp"
+            {
+              printf 'commit=%s\n' "$ZTAPI_RELEASE_VERSION"
+              printf 'execution_id=%s\n' "$ZTAPI_RELEASE_EXECUTION_ID"
+            } > "$active_execution_tmp"
+            chmod 0600 "$active_execution_tmp"
+            mv "$active_execution_tmp" "$active_execution_file"
+            release_execution_claimed=true
+            flock -u 8
+            exec 8>&-
+          }
+          release_execution_claim() {
+            [ "$release_execution_claimed" = true ] || return 0
+            exec 8>"$global_control_lock"
+            flock 8
+            if [ -s "$active_execution_file" ] &&
+              grep -Fxq "commit=$ZTAPI_RELEASE_VERSION" "$active_execution_file" &&
+              grep -Fxq "execution_id=$ZTAPI_RELEASE_EXECUTION_ID" "$active_execution_file"; then
+              rm -f "$active_execution_file"
+            fi
+            release_execution_claimed=false
+            flock -u 8
+            exec 8>&-
           }
           snapshot_unrelated_containers() {
             docker inspect deploy-api-1 deploy-database-1 kuaiyi-database-1 |
@@ -286,7 +407,7 @@ jobs:
             )
           }
           restore_previous_release() {
-            if [ "$release_mutated" = true ]; then
+            if [ "$release_mutated" = true ] && [ "$had_previous_release" = true ]; then
               test -s "$release_backup" || return 1
               test -s "$env_backup" || return 1
               rm -rf /tmp/ztapi-rollback || return 1
@@ -311,6 +432,15 @@ jobs:
               if [ "$compose_restore_status" -ne 0 ]; then
                 echo "ZTAPI rollback Compose returned $compose_restore_status, but final runtime health verification passed." >&2
               fi
+            elif [ "$release_mutated" = true ]; then
+              if [ -s /opt/ztapi/.env ] && [ -s /opt/ztapi/deploy/docker/docker-compose.prod.yml ]; then
+                docker compose --env-file /opt/ztapi/.env \
+                  -f /opt/ztapi/deploy/docker/docker-compose.prod.yml \
+                  down --remove-orphans || return 1
+              fi
+              if [ "$host_nginx_was_active" = true ]; then
+                systemctl enable --now nginx || return 1
+              fi
             elif [ "$docker_nginx_was_active" = true ]; then
               compose_restore_status=0
               (
@@ -325,18 +455,59 @@ jobs:
               systemctl enable --now nginx
             fi
           }
+          restore_registration_options() {
+            if [ "$registration_options_mutated" != true ]; then
+              return 0
+            fi
+            [[ "$previous_register_enabled" == true || "$previous_register_enabled" == false ]]
+            [[ "$previous_password_register_enabled" == true || "$previous_password_register_enabled" == false ]]
+            printf "INSERT INTO options (\`key\`, \`value\`) VALUES ('RegisterEnabled','%s'),('PasswordRegisterEnabled','%s') ON DUPLICATE KEY UPDATE \`value\`=VALUES(\`value\`);\n" \
+              "$previous_register_enabled" "$previous_password_register_enabled" |
+              "${compose[@]}" exec -T mysql sh -c \
+                'exec mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE"'
+            registration_options_mutated=false
+          }
           cleanup_synthetic_acceptance() {
             if [ -z "$acceptance_user_id" ] || [ "$acceptance_cleanup_done" = true ]; then
               return 0
             fi
             cleanup_status=0
-            if [ -n "$acceptance_token_id" ] && [ -n "$acceptance_user_access_token" ]; then
-              curl --fail --silent --show-error \
-                --request DELETE \
-                --header "Authorization: Bearer $acceptance_user_access_token" \
-                --header "New-API-User: $acceptance_user_id" \
-                "$acceptance_origin/api/token/$acceptance_token_id" |
-                jq -e '.success == true' >/dev/null || cleanup_status=1
+            if [ -n "$acceptance_outstanding_trade_no" ] && [ -n "$acceptance_user_access_token" ]; then
+              acceptance_order_cancelled=false
+              if acceptance_cancel_result=$(curl --fail --silent --show-error \
+                  --request POST \
+                  --header "Authorization: Bearer $acceptance_user_access_token" \
+                  --header "New-API-User: $acceptance_user_id" \
+                  "$acceptance_origin/api/user/topup/usdt-trc20/orders/$acceptance_outstanding_trade_no/cancel") &&
+                echo "$acceptance_cancel_result" |
+                  jq -e '.success == true and .data.status == "expired"' >/dev/null; then
+                acceptance_order_cancelled=true
+              elif acceptance_cancel_probe=$(curl --fail --silent --show-error \
+                  --header "Authorization: Bearer $acceptance_user_access_token" \
+                  --header "New-API-User: $acceptance_user_id" \
+                  "$acceptance_origin/api/user/topup/usdt-trc20/orders/$acceptance_outstanding_trade_no") &&
+                echo "$acceptance_cancel_probe" |
+                  jq -e '.success == true and .data.status == "expired"' >/dev/null; then
+                acceptance_order_cancelled=true
+              fi
+              if [ "$acceptance_order_cancelled" = true ]; then
+                acceptance_outstanding_trade_no=""
+              else
+                return 1
+              fi
+            fi
+            if [ -n "$acceptance_token_id" ] && [ "$acceptance_token_deleted" != true ] && \
+              [ -n "$acceptance_user_access_token" ]; then
+              if curl --fail --silent --show-error \
+                  --request DELETE \
+                  --header "Authorization: Bearer $acceptance_user_access_token" \
+                  --header "New-API-User: $acceptance_user_id" \
+                  "$acceptance_origin/api/token/$acceptance_token_id" |
+                jq -e '.success == true' >/dev/null; then
+                acceptance_token_deleted=true
+              else
+                cleanup_status=1
+              fi
             fi
             if [ -n "${admin_access_token:-}" ] && [ -n "${admin_user_id:-}" ]; then
               acceptance_user_loaded=false
@@ -409,14 +580,30 @@ jobs:
             fi
             return "$cleanup_status"
           }
+          cleanup_synthetic_acceptance_with_retry() {
+            for cleanup_attempt in 1 2 3; do
+              if cleanup_synthetic_acceptance; then
+                return 0
+              fi
+              if [ "$cleanup_attempt" -lt 3 ]; then
+                sleep 2
+              fi
+            done
+            return 1
+          }
           cleanup_and_restore() {
             status=$?
             trap - EXIT
             rm -f "$deploy_env" /tmp/ztapi-source.tgz
+            if [ "$status" -ne 0 ] && [ -n "$watchdog_unit" ]; then
+              systemctl stop "$watchdog_unit.timer" >/dev/null 2>&1 || true
+              systemctl reset-failed "$watchdog_unit.timer" "$watchdog_unit.service" >/dev/null 2>&1 || true
+            fi
             acceptance_cleanup_status=0
-            cleanup_synthetic_acceptance || acceptance_cleanup_status=$?
+            cleanup_synthetic_acceptance_with_retry || acceptance_cleanup_status=$?
             if [ "$status" -ne 0 ] && [ "$deployment_completed" != true ]; then
               rollback_status=0
+              restore_registration_options || rollback_status=$?
               restore_previous_release || rollback_status=$?
               if [ -s "$unrelated_before" ]; then
                 snapshot_unrelated_containers > "$unrelated_after" || rollback_status=1
@@ -433,11 +620,18 @@ jobs:
             if [ "$deployment_completed" = true ] || [ "$release_mutated" != true ]; then
               remove_rollback_image_tags
             fi
+            if [ "$status" -ne 0 ] &&
+              { [ "$release_mutated" != true ] || [ "${rollback_status:-1}" -eq 0 ]; }; then
+              release_execution_claim
+            fi
             exit "$status"
           }
           trap cleanup_and_restore EXIT
 
           command -v docker >/dev/null
+          command -v flock >/dev/null
+          command -v systemctl >/dev/null
+          claim_release_execution
           docker compose version
           apt-get update
           apt-get install -y argon2 certbot jq rsync
@@ -446,25 +640,36 @@ jobs:
           mkdir -p /tmp/ztapi-release /opt/ztapi/tls /opt/ztapi/backups "$receipt_dir"
           tar -xzf /tmp/ztapi-source.tgz -C /tmp/ztapi-release
           test -s /tmp/ztapi-release/deploy/docker/docker-compose.prod.yml
-          test -s /opt/ztapi/.env
-          test -s /opt/ztapi/deploy/docker/docker-compose.prod.yml
-          verify_ztapi_runtime
+          if [ -s /opt/ztapi/.env ] && \
+            [ -s /opt/ztapi/deploy/docker/docker-compose.prod.yml ] && \
+            docker inspect ztapi-server-1 >/dev/null 2>&1; then
+            had_previous_release=true
+            verify_ztapi_runtime
+            capture_existing_compose
+          else
+            for partial_container in ztapi-server-1 ztapi-nginx-1 ztapi-mysql-1 ztapi-redis-1; do
+              if docker inspect "$partial_container" >/dev/null 2>&1; then
+                echo "Incomplete first-unlock state contains $partial_container" >&2
+                exit 1
+              fi
+            done
+          fi
           for required_container in deploy-api-1 deploy-database-1 kuaiyi-database-1; do
             test "$(docker inspect --format '{{.State.Status}}' "$required_container")" = running
             test "$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$required_container")" = healthy
           done
-          capture_existing_compose
           unrelated_before="$receipt_dir/unrelated-containers.before.json"
           unrelated_after="$receipt_dir/unrelated-containers.after.json"
           snapshot_unrelated_containers > "$unrelated_before"
           chmod 0600 "$unrelated_before"
           df -P /opt/ztapi >/dev/null
-          write_receipt preflight "compose_layers=${#old_compose_paths[@]}"
+          write_receipt preflight "had_previous_release=$had_previous_release compose_layers=${#old_compose_paths[@]}"
 
           require_receipt preflight
           backup_stamp=$(date -u +%Y%m%dT%H%M%SZ)
           release_backup="/opt/ztapi/backups/release-$backup_stamp.tgz"
           env_backup="/opt/ztapi/backups/env-$backup_stamp"
+          if [ "$had_previous_release" = true ]; then
           old_server_image_id=$(docker inspect --format '{{.Image}}' ztapi-server-1)
           old_nginx_image_id=$(docker inspect --format '{{.Image}}' ztapi-nginx-1)
           [[ "$old_server_image_id" =~ ^sha256:[0-9a-f]{64}$ ]]
@@ -505,17 +710,36 @@ jobs:
           chmod 0600 "$database_backup" "$database_backup.sha256" "$database_backup.stat"
           database_backup_sha256=$(cut -d ' ' -f 1 "$database_backup.sha256")
           write_receipt backup "database=$database_backup sha256=$database_backup_sha256 release=$release_backup env=$env_backup"
+          else
+            release_backup=""
+            env_backup=""
+            write_receipt backup "first_unlock=true no_previous_database=true"
+          fi
 
           require_receipt backup
           build_env=/tmp/ztapi-release/.ztapi-build.env
-          grep -Ev '^(ZTAPI_RELEASE_VERSION|ZTAPI_SERVER_IMAGE|ZTAPI_NGINX_IMAGE)=' \
-            /opt/ztapi/.env > "$build_env"
+          cat > "$build_env" <<EOF
+          MYSQL_DATABASE=ztapi
+          MYSQL_USER=ztapi
+          MYSQL_PASSWORD=$ZTAPI_MYSQL_PASSWORD
+          MYSQL_ROOT_PASSWORD=$ZTAPI_MYSQL_ROOT_PASSWORD
+          REDIS_PASSWORD=$ZTAPI_REDIS_PASSWORD
+          ZTAPI_SESSION_SIGNING_KEY=$ZTAPI_SESSION_SIGNING_KEY
+          CRYPTO_SECRET=$ZTAPI_CRYPTO_SECRET
+          ZTAPI_UPSTREAM_MASTER_KEY=$ZTAPI_UPSTREAM_MASTER_KEY
+          TRONGRID_API_KEY=$TRONGRID_API_KEY
+          ZTAPI_USDT_RECEIVING_ADDRESS=$ZTAPI_USDT_RECEIVING_ADDRESS
+          ZTAPI_TRUSTED_PROXY_CIDRS=172.30.0.0/24
+          ZTAPI_DROP_LEGACY_TOKEN_KEY=$ZTAPI_DROP_LEGACY_TOKEN_KEY
+          ZTAPI_LEGACY_PAYMENT_ENABLED=false
+          ZTAPI_TLS_DIR=/opt/ztapi/tls
+          ZTAPI_RELEASE_VERSION=$ZTAPI_RELEASE_VERSION
+          ZTAPI_SOURCE_COMMIT=$ZTAPI_SOURCE_COMMIT
+          ZTAPI_SERVER_IMAGE=ztapi-server:$ZTAPI_RELEASE_VERSION
+          ZTAPI_NGINX_IMAGE=ztapi-nginx:$ZTAPI_RELEASE_VERSION
+          TZ=Asia/Shanghai
+          EOF
           chmod 0600 "$build_env"
-          {
-            printf 'ZTAPI_RELEASE_VERSION=%s\n' "$ZTAPI_RELEASE_VERSION"
-            printf 'ZTAPI_SERVER_IMAGE=ztapi-server:%s\n' "$ZTAPI_RELEASE_VERSION"
-            printf 'ZTAPI_NGINX_IMAGE=ztapi-nginx:%s\n' "$ZTAPI_RELEASE_VERSION"
-          } >> "$build_env"
           build_compose=(docker compose --env-file "$build_env" -f /tmp/ztapi-release/deploy/docker/docker-compose.prod.yml)
           "${build_compose[@]}" config >/dev/null
           "${build_compose[@]}" build server nginx
@@ -546,11 +770,13 @@ jobs:
           CRYPTO_SECRET=$ZTAPI_CRYPTO_SECRET
           ZTAPI_UPSTREAM_MASTER_KEY=$ZTAPI_UPSTREAM_MASTER_KEY
           TRONGRID_API_KEY=$TRONGRID_API_KEY
+          ZTAPI_USDT_RECEIVING_ADDRESS=$ZTAPI_USDT_RECEIVING_ADDRESS
           ZTAPI_TRUSTED_PROXY_CIDRS=172.30.0.0/24
           ZTAPI_DROP_LEGACY_TOKEN_KEY=$ZTAPI_DROP_LEGACY_TOKEN_KEY
           ZTAPI_LEGACY_PAYMENT_ENABLED=false
           ZTAPI_TLS_DIR=/opt/ztapi/tls
           ZTAPI_RELEASE_VERSION=$ZTAPI_RELEASE_VERSION
+          ZTAPI_SOURCE_COMMIT=$ZTAPI_SOURCE_COMMIT
           ZTAPI_SERVER_IMAGE=$server_image_id
           ZTAPI_NGINX_IMAGE=$nginx_image_id
           TZ=Asia/Shanghai
@@ -886,6 +1112,12 @@ jobs:
           echo 'Production-code Telegram receipt:'
           cat "$receipt_dir/telegram-alert-production-code.json"
 
+          previous_registration_status=$(curl --fail --silent --show-error \
+            --resolve ztapi.vip:443:127.0.0.1 \
+            https://ztapi.vip/api/status)
+          previous_register_enabled=$(echo "$previous_registration_status" | jq -er '.data.register_enabled | select(type == "boolean")')
+          previous_password_register_enabled=$(echo "$previous_registration_status" | jq -er '.data.password_register_enabled | select(type == "boolean")')
+          registration_options_mutated=true
           for registration_option in RegisterEnabled PasswordRegisterEnabled; do
             registration_update=$(jq -cn --arg key "$registration_option" \
               '{key:$key,value:true}' |
@@ -898,7 +1130,6 @@ jobs:
                 https://admin.ztapi.vip/api/option/)
             echo "$registration_update" | jq -e '.success == true' >/dev/null
           done
-
           registration_status=$(curl --fail --silent --show-error \
             --resolve ztapi.vip:443:127.0.0.1 \
             https://ztapi.vip/api/status)
@@ -963,6 +1194,51 @@ jobs:
             'select(.success == true and (.data.key | startswith("sk-zt-"))) | .data.id')
           acceptance_api_key=$(echo "$acceptance_token_result" | jq -er '.data.key')
 
+          acceptance_pre_order_quota=$(curl --fail --silent --show-error \
+            --resolve admin.ztapi.vip:443:127.0.0.1 \
+            --header "Authorization: Bearer $admin_access_token" \
+            --header "New-API-User: $admin_user_id" \
+            "https://admin.ztapi.vip/api/admin/users/$acceptance_user_id" | jq -er '.data.quota')
+          acceptance_usdt_create_result=$(jq -cn '{amount:10}' |
+            curl --fail --silent --show-error \
+              --request POST \
+              --header 'Content-Type: application/json' \
+              --header "Authorization: Bearer $acceptance_user_access_token" \
+              --header "New-API-User: $acceptance_user_id" \
+              --data-binary @- \
+              "$acceptance_origin/api/user/topup/usdt-trc20/orders")
+          acceptance_outstanding_trade_no=$(echo "$acceptance_usdt_create_result" | jq -er '
+            select(.success == true
+              and .data.status == "pending"
+              and .data.credit_units == 10
+              and (.data.pay_amount | test("^10\\.[0-9]{2}$"))
+              and (.data.receiving_address | test("^T[1-9A-HJ-NP-Za-km-z]{33}$"))
+              and .data.expires_at > now)
+            | .data.trade_no')
+          acceptance_usdt_get_result=$(curl --fail --silent --show-error \
+            --header "Authorization: Bearer $acceptance_user_access_token" \
+            --header "New-API-User: $acceptance_user_id" \
+            "$acceptance_origin/api/user/topup/usdt-trc20/orders/$acceptance_outstanding_trade_no")
+          echo "$acceptance_usdt_get_result" | jq -e \
+            --arg trade_no "$acceptance_outstanding_trade_no" \
+            '.success == true and .data.trade_no == $trade_no and .data.status == "pending"' >/dev/null
+          acceptance_usdt_cancel_result=$(curl --fail --silent --show-error \
+            --request POST \
+            --header "Authorization: Bearer $acceptance_user_access_token" \
+            --header "New-API-User: $acceptance_user_id" \
+            "$acceptance_origin/api/user/topup/usdt-trc20/orders/$acceptance_outstanding_trade_no/cancel")
+          echo "$acceptance_usdt_cancel_result" | jq -e \
+            --arg trade_no "$acceptance_outstanding_trade_no" \
+            '.success == true and .data.trade_no == $trade_no and .data.status == "expired"' >/dev/null
+          acceptance_usdt_trade_no="$acceptance_outstanding_trade_no"
+          acceptance_outstanding_trade_no=""
+          acceptance_post_cancel_quota=$(curl --fail --silent --show-error \
+            --resolve admin.ztapi.vip:443:127.0.0.1 \
+            --header "Authorization: Bearer $admin_access_token" \
+            --header "New-API-User: $admin_user_id" \
+            "https://admin.ztapi.vip/api/admin/users/$acceptance_user_id" | jq -er '.data.quota')
+          test "$acceptance_post_cancel_quota" = "$acceptance_pre_order_quota"
+
           acceptance_seed_result=$(jq -cn \
             --arg key "ordinary-seed-$acceptance_user_id" \
             '{delta:500000,reason:"commercial acceptance temporary credit",idempotency_key:$key}' |
@@ -982,8 +1258,6 @@ jobs:
             "$acceptance_origin/api/user/models")
           echo "$acceptance_catalog" | jq -e '
             .success == true
-            and (.catalog | length) == 37
-            and ([.catalog[].model_name] | unique | length) == 37
             and (all(.catalog[];
               (.input_price_per_million | tonumber) >= 0
               and (.output_price_per_million | tonumber) >= 0
@@ -991,17 +1265,32 @@ jobs:
             and ([.catalog[] | select(.modality == "image" or .modality == "video")] | length) == 0
             and ([.. | objects | keys[] | select(. == "source_model" or . == "channel_id")] | length) == 0' >/dev/null
           acceptance_catalog_count=$(echo "$acceptance_catalog" | jq -er '.catalog | length')
-          test "$(jq -r '.entries | length' /opt/ztapi/server/model/ztapi_quotation_v1.json)" = 46
-          test "$(jq -r '[.entries[] | select(.modality == "image" or .modality == "video")] | length' /opt/ztapi/server/model/ztapi_quotation_v1.json)" = 5
+          pricing_baseline=/opt/ztapi/server/model/testdata/ztapi_public_pricing_baseline_v1.json
+          quotation=/opt/ztapi/server/model/ztapi_quotation_v1.json
+          expected_published_models=$(mktemp /tmp/ztapi-expected-published.XXXXXX)
+          expected_unpublished_models=$(mktemp /tmp/ztapi-expected-unpublished.XXXXXX)
+          user_catalog_models=$(mktemp /tmp/ztapi-user-catalog.XXXXXX)
+          openai_catalog_models=$(mktemp /tmp/ztapi-openai-catalog.XXXXXX)
+          jq -r '.[].model_name' "$pricing_baseline" | LC_ALL=C sort -u > "$expected_published_models"
+          test "$(wc -l < "$expected_published_models" | tr -d ' ')" = 37
+          jq -r --slurpfile baseline "$pricing_baseline" '
+            [.entries[] as $entry | select($entry.public_name != "" and ([ $baseline[0][].model_name ] | index($entry.public_name) | not)) | $entry.public_name]
+            | unique[]' "$quotation" | LC_ALL=C sort > "$expected_unpublished_models"
+          test "$(jq -r '.entries | length' "$quotation")" = 46
+          test "$(jq -r '[.entries[] | select(.modality == "image" or .modality == "video")] | length' "$quotation")" = 5
+          echo "$acceptance_catalog" | jq -r '.catalog[].model_name' | LC_ALL=C sort -u > "$user_catalog_models"
+          cmp -s "$expected_published_models" "$user_catalog_models"
+          test ! -s <(comm -12 "$expected_unpublished_models" "$user_catalog_models")
 
           acceptance_models=$(curl --fail --silent --show-error \
             --header "Authorization: Bearer $acceptance_api_key" \
             "$acceptance_origin/v1/models")
-          echo "$acceptance_models" | jq -e '
-            .success == true
-            and (.data | length) == 37
-            and any(.data[]; .id == "zt-gpt-4.1-nano")
-            and any(.data[]; .id == "zt-text-embedding-3-small")' >/dev/null
+          echo "$acceptance_models" | jq -e '.success == true' >/dev/null
+          echo "$acceptance_models" | jq -r '.data[].id' | LC_ALL=C sort -u > "$openai_catalog_models"
+          cmp -s "$expected_published_models" "$openai_catalog_models"
+          test ! -s <(comm -12 "$expected_unpublished_models" "$openai_catalog_models")
+          rm -f "$expected_published_models" "$expected_unpublished_models" \
+            "$user_catalog_models" "$openai_catalog_models"
 
           test "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
             "$acceptance_origin/wallet")" = 200
@@ -1104,7 +1393,7 @@ jobs:
               and any(.data.items[]; .id == $seed_id and .user_id == $user_id and .delta == 500000)
               and all(.data.items[]; .user_id == $user_id)' >/dev/null
 
-          cleanup_synthetic_acceptance
+          cleanup_synthetic_acceptance_with_retry
           test "$acceptance_cleanup_done" = true
           acceptance_final_ledger=$(curl --fail --silent --show-error \
             --resolve admin.ztapi.vip:443:127.0.0.1 \
@@ -1140,14 +1429,16 @@ jobs:
             --argjson embedding_billed_amount "$embedding_billed_amount" \
             --argjson seed_ledger_id "$acceptance_seed_ledger_id" \
             --argjson cleanup_ledger_id "$acceptance_cleanup_ledger_id" \
+            --arg usdt_trade_no "$acceptance_usdt_trade_no" \
             '{
               release_commit:$release_commit,
               synthetic_user_id:$user_id,
               synthetic_token_id:$token_id,
-              public_registration:"passed",
+              production_main_domain_registration:"passed",
               login:"passed",
               api_key_creation:"passed",
               wallet_navigation:"passed",
+              unpaid_usdt_order:{trade_no:$usdt_trade_no,created:"pending",cancelled_by_user:true,final:"expired",balance_credited:false},
               quotation_allowlist_count:46,
               public_catalog_count:$catalog_count,
               published_media_count:0,
@@ -1166,13 +1457,43 @@ jobs:
           require_receipt ordinary_user
           echo 'Ordinary-user production receipt:'
           cat "$receipt_dir/ordinary-user-production-code.json"
-          deployment_completed=true
+          control_script="$receipt_dir/release-control.sh"
+          install -m 0700 /opt/ztapi/deploy/scripts/ztapi-release-control.sh "$control_script"
+          rollback_state="$receipt_dir/rollback-state.env"
+          {
+            printf 'ZTAPI_RELEASE_VERSION=%q\n' "$ZTAPI_RELEASE_VERSION"
+            printf 'ZTAPI_RELEASE_EXECUTION_ID=%q\n' "$ZTAPI_RELEASE_EXECUTION_ID"
+            printf 'had_previous_release=%q\n' "$had_previous_release"
+            printf 'release_backup=%q\n' "$release_backup"
+            printf 'env_backup=%q\n' "$env_backup"
+            printf 'rollback_server_image=%q\n' "$rollback_server_image"
+            printf 'rollback_nginx_image=%q\n' "$rollback_nginx_image"
+            printf 'previous_register_enabled=%q\n' "$previous_register_enabled"
+            printf 'previous_password_register_enabled=%q\n' "$previous_password_register_enabled"
+            printf 'host_nginx_was_active=%q\n' "$host_nginx_was_active"
+            printf 'unrelated_before=%q\n' "$unrelated_before"
+          } > "$rollback_state"
+          chmod 0600 "$rollback_state"
+          watchdog_unit="ztapi-release-watchdog-${ZTAPI_RELEASE_VERSION:0:12}-$ZTAPI_RELEASE_EXECUTION_ID"
+          command -v systemd-run >/dev/null
+          systemctl stop "$watchdog_unit.timer" >/dev/null 2>&1 || true
+          systemctl reset-failed "$watchdog_unit.timer" "$watchdog_unit.service" >/dev/null 2>&1 || true
+          write_receipt external_acceptance_pending "public_endpoint_verification=pending watchdog=$watchdog_unit.timer"
           "${compose[@]}" ps
+          systemd-run --quiet \
+            --unit="$watchdog_unit" \
+            --on-active=10m \
+            --timer-property=AccuracySec=1s \
+            --property=Type=oneshot \
+            "$control_script" rollback "$ZTAPI_RELEASE_VERSION" "$ZTAPI_RELEASE_EXECUTION_ID"
+          systemctl is-active --quiet "$watchdog_unit.timer"
           }
           deploy_ztapi </dev/null
           REMOTE
+          echo "rollback_ready=true" >> "$GITHUB_OUTPUT"
 
       - name: Verify public endpoints
+        id: verify_public_endpoints
         run: |
           public_curl() {
             curl --silent --show-error \
@@ -1198,11 +1519,14 @@ jobs:
             --resolve ztapi.vip:443:123.254.104.157 \
             https://ztapi.vip/.well-known/source)
           echo "$public_source" | jq -e \
-            --arg release_commit "$ZTAPI_RELEASE_VERSION" '
+            --arg release_commit "$ZTAPI_RELEASE_VERSION" \
+            --arg source_commit "$ZTAPI_SOURCE_COMMIT" '
               .success == true
               and .data.production_commit == $release_commit
               and .data.source_tag == ("production-" + $release_commit)
-              and .data.source_repository == "https://github.com/ffff582/ztapi-source"' >/dev/null
+              and .data.source_repository == "https://github.com/ffff582/ztapi-source"
+              and .data.source_commit == $source_commit
+              and .data.source_url == ("https://github.com/ffff582/ztapi-source/tree/" + $source_commit)' >/dev/null
           public_landing=$(public_curl --fail \
             --resolve ztapi.vip:443:123.254.104.157 \
             https://ztapi.vip/)
@@ -1214,7 +1538,7 @@ jobs:
           public_headers=$(public_curl --fail --head \
             --resolve ztapi.vip:443:123.254.104.157 \
             https://ztapi.vip/)
-          grep -Fqi "X-ZTAPI-Source: https://github.com/ffff582/ztapi-source/tree/production-$ZTAPI_RELEASE_VERSION" <<< "$public_headers"
+          grep -Fqi "X-ZTAPI-Source: https://github.com/ffff582/ztapi-source/tree/$ZTAPI_SOURCE_COMMIT" <<< "$public_headers"
           grep -Fqi 'Link: <https://ztapi.vip/.well-known/source>; rel="source"' <<< "$public_headers"
           admin_headers=$(public_curl --fail --head \
             --resolve admin.ztapi.vip:443:123.254.104.157 \
@@ -1235,3 +1559,25 @@ jobs:
             echo '::error::loopback acceptance port 18081 is externally reachable'
             exit 1
           fi
+
+      - name: Finalize verified deployment
+        id: finalize_deployment
+        run: |
+          set -euo pipefail
+          ssh \
+            -o UserKnownHostsFile="$HOME/.ssh/ztapi_known_hosts" \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=60 \
+            ztapi-deploy@123.254.104.157 \
+            "sudo -n /opt/ztapi/release-receipts/$ZTAPI_RELEASE_VERSION/$ZTAPI_RELEASE_EXECUTION_ID/release-control.sh finalize $ZTAPI_RELEASE_VERSION $ZTAPI_RELEASE_EXECUTION_ID"
+
+      - name: Roll back failed external acceptance
+        if: always() && steps.deploy_ztapi.outputs.rollback_ready == 'true' && steps.finalize_deployment.outcome != 'success'
+        run: |
+          set -euo pipefail
+          ssh \
+            -o UserKnownHostsFile="$HOME/.ssh/ztapi_known_hosts" \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=60 \
+            ztapi-deploy@123.254.104.157 \
+            "sudo -n /opt/ztapi/release-receipts/$ZTAPI_RELEASE_VERSION/$ZTAPI_RELEASE_EXECUTION_ID/release-control.sh rollback $ZTAPI_RELEASE_VERSION $ZTAPI_RELEASE_EXECUTION_ID"

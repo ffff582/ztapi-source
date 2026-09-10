@@ -34,7 +34,7 @@ test('production edge advertises the corresponding source on both hosts', () => 
   ]) {
     assert.match(
       block,
-      /add_header X-ZTAPI-Source "https:\/\/github\.com\/ffff582\/ztapi-source\/tree\/production-__ZTAPI_RELEASE_COMMIT__" always;/,
+      /add_header X-ZTAPI-Source "https:\/\/github\.com\/ffff582\/ztapi-source\/tree\/__ZTAPI_SOURCE_COMMIT__" always;/,
       `${name} host must advertise its exact corresponding source tag`,
     );
     assert.match(
@@ -50,6 +50,7 @@ test('production edge advertises the corresponding source on both hosts', () => 
     'the source metadata endpoint must be reachable without authentication',
   );
   assert.match(dockerfile, /ARG ZTAPI_RELEASE_VERSION/);
+  assert.match(dockerfile, /ARG ZTAPI_SOURCE_COMMIT/);
   assert.match(
     dockerfile,
     /sed[^\n]+__ZTAPI_RELEASE_COMMIT__[^\n]+ZTAPI_RELEASE_VERSION/,
@@ -57,6 +58,10 @@ test('production edge advertises the corresponding source on both hosts', () => 
   assert.match(
     compose,
     /ZTAPI_RELEASE_VERSION:\s*\$\{ZTAPI_RELEASE_VERSION:\?[^}]+\}/,
+  );
+  assert.match(
+    compose,
+    /ZTAPI_SOURCE_COMMIT:\s*\$\{ZTAPI_SOURCE_COMMIT:\?[^}]+\}/,
   );
 });
 

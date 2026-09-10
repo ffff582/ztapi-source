@@ -42,6 +42,8 @@ export default function AdminShell({ user, onLogout, children }) {
   const restoreMenuFocusRef = useRef(false);
   const environment =
     import.meta.env.MODE === 'production' ? '生产环境' : '开发环境';
+  const sourceUrl =
+    import.meta.env.VITE_ZTAPI_SOURCE_URL || '/.well-known/source';
 
   const closeDrawer = () => setDrawerOpen(false);
 
@@ -138,7 +140,7 @@ export default function AdminShell({ user, onLogout, children }) {
             {accountOpen ? (
               <div className='ztapi-admin-account-menu'>
                 <a
-                  href='https://github.com/ffff582/ztapi-source'
+                  href={sourceUrl}
                   target='_blank'
                   rel='noreferrer'
                 >

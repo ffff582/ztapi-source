@@ -15,6 +15,7 @@ func TestZTAPISourceMetadataIsAnonymousAndImmutable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv("ZTAPI_SOURCE_REPOSITORY", "https://github.com/ffff582/ztapi-source")
 	t.Setenv("ZTAPI_SOURCE_TAG", "production-0123456789abcdef0123456789abcdef01234567")
+	t.Setenv("ZTAPI_SOURCE_COMMIT", "abcdef0123456789abcdef0123456789abcdef01")
 	previousVersion := common.Version
 	common.Version = "0123456789abcdef0123456789abcdef01234567"
 	t.Cleanup(func() { common.Version = previousVersion })
@@ -36,6 +37,8 @@ func TestZTAPISourceMetadataIsAnonymousAndImmutable(t *testing.T) {
 			SourceRepository   string `json:"source_repository"`
 			ProductionCommit   string `json:"production_commit"`
 			SourceTag          string `json:"source_tag"`
+			SourceCommit       string `json:"source_commit"`
+			SourceURL          string `json:"source_url"`
 			UpstreamRepository string `json:"upstream_repository"`
 		} `json:"data"`
 	}
@@ -56,6 +59,12 @@ func TestZTAPISourceMetadataIsAnonymousAndImmutable(t *testing.T) {
 	}
 	if response.Data.SourceTag != "production-"+common.Version {
 		t.Fatalf("unexpected source tag: %q", response.Data.SourceTag)
+	}
+	if response.Data.SourceCommit != "abcdef0123456789abcdef0123456789abcdef01" {
+		t.Fatalf("unexpected source commit: %q", response.Data.SourceCommit)
+	}
+	if response.Data.SourceURL != "https://github.com/ffff582/ztapi-source/tree/abcdef0123456789abcdef0123456789abcdef01" {
+		t.Fatalf("unexpected source URL: %q", response.Data.SourceURL)
 	}
 	if response.Data.UpstreamRepository != "https://github.com/QuantumNous/new-api" {
 		t.Fatalf("unexpected upstream repository: %q", response.Data.UpstreamRepository)

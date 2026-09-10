@@ -21,7 +21,7 @@ test('ZTAPI verifies exact anonymous corresponding source before SSH or mutation
   assert.ok(gateStart < sshStart && sshStart < deployStart);
   const gate = source.slice(gateStart, sshStart);
   assert.match(gate, /https:\/\/api\.github\.com\/repos\/ffff582\/ztapi-source\/git\/ref\/tags\/production-\$ZTAPI_RELEASE_VERSION/);
-  assert.match(gate, /https:\/\/raw\.githubusercontent\.com\/ffff582\/ztapi-source\/\$public_source_commit\/PUBLIC-SOURCE-MANIFEST\.json/);
+  assert.match(gate, /https:\/\/codeload\.github\.com\/ffff582\/ztapi-source\/tar\.gz\/\$public_source_commit/);
   assert.match(gate, /\.release_commit == \$release_commit/);
   assert.match(gate, /\.source_tag == \$source_tag/);
   assert.match(gate, /tools\/public-source\/export\.mjs/);
@@ -205,7 +205,7 @@ test('ZTAPI deployment gates public mutation with durable phase receipts', () =>
   assert.match(source, /write_receipt rollback/);
   const postcheckWrite = source.indexOf('write_receipt postcheck');
   const postcheckGate = source.indexOf('require_receipt postcheck', postcheckWrite);
-  const completed = source.indexOf('deployment_completed=true', postcheckWrite);
+  const completed = source.indexOf('- name: Finalize verified deployment', postcheckWrite);
   assert.ok(postcheckWrite >= 0 && postcheckGate > postcheckWrite);
   assert.ok(completed > postcheckGate);
 });
@@ -221,16 +221,19 @@ test('release and rollback copies normalize uploaded file ownership', () => {
   );
 });
 
-test('release build environment replaces stale immutable image variables', () => {
+test('release build environment is regenerated from approved inputs', () => {
   const source = readFileSync(workflowPath, 'utf8');
 
-  assert.match(
-    source,
-    /grep -Ev '\^\(ZTAPI_RELEASE_VERSION\|ZTAPI_SERVER_IMAGE\|ZTAPI_NGINX_IMAGE\)='/,
-  );
+  assert.match(source, /build_env=\/tmp\/ztapi-release\/\.ztapi-build\.env/);
+  assert.match(source, /ZTAPI_SOURCE_COMMIT=\$ZTAPI_SOURCE_COMMIT/);
+  assert.match(source, /ZTAPI_USDT_RECEIVING_ADDRESS=\$ZTAPI_USDT_RECEIVING_ADDRESS/);
   assert.doesNotMatch(
     source,
     /install -m 0600 \/opt\/ztapi\/\.env "\$build_env"/,
+  );
+  assert.doesNotMatch(
+    source,
+    /\/opt\/ztapi\/\.env > "\$build_env"/,
   );
 });
 
@@ -340,7 +343,7 @@ test('ZTAPI deployment initializes privately before publishing Nginx', () => {
   assert.ok(certbot > stopExistingNginx);
   assert.match(source, /cleanup_and_restore/);
   assert.match(source, /systemctl enable --now nginx/);
-  assert.match(source, /deployment_completed=true/);
+  assert.match(source, /release-control\.sh finalize/);
   assert.match(source, /deploy_ztapi <\/dev\/null/);
   assert.match(
     source,
@@ -533,7 +536,7 @@ test('guarded deployment proves public registration and leaves it enabled', () =
 
   const writeGate = source.indexOf('write_receipt registration_gate');
   const requireGate = source.indexOf('require_receipt registration_gate');
-  const completed = source.indexOf('deployment_completed=true');
+  const completed = source.indexOf('- name: Finalize verified deployment');
   assert.ok(writeGate >= 0 && writeGate < requireGate && requireGate < completed);
   assert.doesNotMatch(
     source.slice(requireGate, source.indexOf('\n', requireGate)),

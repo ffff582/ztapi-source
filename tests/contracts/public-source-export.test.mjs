@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -15,6 +16,8 @@ const privateHistoryOnly = {
     ? 'exporter contracts require the private release repository history'
     : false,
 };
+const retiredProductionWalletSHA256 =
+  '1fef8797df6e45adc007100f3624a5c0c4c6dc645720fcd8f33f3d4c1a04d94d';
 
 function git(...args) {
   return execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8' }).trim();
@@ -131,6 +134,21 @@ test('exports a buildable public snapshot from an exact commit', privateHistoryO
     assert.match(readme, /Bun 1\.3\.14/);
     assert.match(readme, /docker build[\s\S]*deploy\/nginx\/Dockerfile/);
 
+    const compose = readFileSync(
+      path.join(output, 'deploy/docker/docker-compose.prod.yml'),
+      'utf8',
+    );
+    assert.match(
+      compose,
+      /USDT_TRC20_RECEIVING_ADDRESS:\s*\$\{ZTAPI_USDT_RECEIVING_ADDRESS:\?[^}]+\}/,
+      'public source must require the deployment-provided wallet address',
+    );
+    assert.doesNotMatch(
+      compose,
+      /USDT_TRC20_RECEIVING_ADDRESS:\s*["']?T[1-9A-HJ-NP-Za-km-z]{33}["']?/,
+      'public source must not contain a production wallet literal',
+    );
+
     const manifest = JSON.parse(
       readFileSync(path.join(output, 'PUBLIC-SOURCE-MANIFEST.json'), 'utf8'),
     );
@@ -151,6 +169,17 @@ test('exports a buildable public snapshot from an exact commit', privateHistoryO
           file.size >= 0,
       ),
     );
+    for (const file of manifest.files) {
+      const content = readFileSync(path.join(output, ...file.path.split('/')));
+      for (const match of content.toString('utf8').matchAll(/T[1-9A-HJ-NP-Za-km-z]{33}/g)) {
+        const digest = createHash('sha256').update(match[0]).digest('hex');
+        assert.notEqual(
+          digest,
+          retiredProductionWalletSHA256,
+          `retired production wallet leaked through ${file.path}`,
+        );
+      }
+    }
     assert.equal(
       manifest.files.some((file) => file.path === 'PUBLIC-SOURCE-MANIFEST.json'),
       false,

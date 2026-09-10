@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	testTronWallet     = "TJSdKoxvYJofK6CQBNnXwMM9kS1t4Sj3V2"
+	testTronWallet     = "T111111111111111111111111111111111"
 	testTronUSDT       = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
 	testTronWindowMS   = int64(1_787_680_000_000)
 	testTronGridAPIKey = "synthetic-secret-key"
@@ -106,7 +106,7 @@ func TestTronGridClientReturnsTypedSanitizedErrors(t *testing.T) {
 		{name: "rate limited", statusCode: http.StatusTooManyRequests, body: `{"error":"quota for synthetic-secret-key"}`, want: ErrTronGridRateLimited},
 		{name: "forbidden", statusCode: http.StatusForbidden, body: `{"error":"synthetic-secret-key forbidden"}`, want: ErrTronGridForbidden},
 		{name: "malformed json", statusCode: http.StatusOK, body: `{"data":[`, want: ErrTronGridMalformed},
-		{name: "non-integer value", statusCode: http.StatusOK, body: `{"success":true,"data":[{"transaction_id":"bad-value","block_timestamp":1787680000001,"from":"TSender","to":"TJSdKoxvYJofK6CQBNnXwMM9kS1t4Sj3V2","type":"Transfer","value":"10.37","confirmed":true,"token_info":{"address":"TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t","decimals":6}}],"meta":{}}`, want: ErrTronGridMalformed},
+		{name: "non-integer value", statusCode: http.StatusOK, body: `{"success":true,"data":[{"transaction_id":"bad-value","block_timestamp":1787680000001,"from":"TSender","to":"T111111111111111111111111111111111","type":"Transfer","value":"10.37","confirmed":true,"token_info":{"address":"TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t","decimals":6}}],"meta":{}}`, want: ErrTronGridMalformed},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

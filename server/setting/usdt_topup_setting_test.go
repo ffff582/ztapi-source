@@ -47,7 +47,7 @@ func TestLoadUSDTTopUpConfigRequiresCompleteEnabledConfiguration(t *testing.T) {
 func TestLoadUSDTTopUpConfigRejectsUnsafeRuntimeValues(t *testing.T) {
 	clearUSDTTopUpEnvironment(t)
 	t.Setenv("USDT_TRC20_TOPUP_ENABLED", "true")
-	t.Setenv("USDT_TRC20_RECEIVING_ADDRESS", "TJSdKoxvYJofK6CQBNnXwMM9kS1t4Sj3V2")
+	t.Setenv("USDT_TRC20_RECEIVING_ADDRESS", "T111111111111111111111111111111111")
 	t.Setenv("TRONGRID_API_KEY", "test-only-key")
 	t.Setenv("USDT_TRC20_POLL_INTERVAL_SECONDS", "0")
 

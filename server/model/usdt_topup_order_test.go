@@ -160,7 +160,7 @@ func setupUSDTTopUpOrderTestDB(t *testing.T) *gorm.DB {
 func testUSDTTopUpConfig() setting.USDTTopUpConfig {
 	return setting.USDTTopUpConfig{
 		Enabled:          true,
-		ReceivingAddress: "TJSdKoxvYJofK6CQBNnXwMM9kS1t4Sj3V2",
+		ReceivingAddress: "T111111111111111111111111111111111",
 		TronGridAPIKey:   "test-only-key",
 		MinTopUp:         10,
 		OrderTTL:         10 * time.Minute,
@@ -178,7 +178,7 @@ func seedReservedUSDTSuffixes(t *testing.T, db *gorm.DB, creditUnits int64, cool
 		order := USDTTopUpOrder{
 			TopUpID: topUp.Id, UserID: 99, TradeNo: tradeNo, Network: USDTTopUpNetworkTronMainnet,
 			Asset: USDTTopUpAssetUSDT, ContractAddress: USDTTopUpContractAddress,
-			ReceivingAddress: "TJSdKoxvYJofK6CQBNnXwMM9kS1t4Sj3V2", CreditUnits: creditUnits,
+			ReceivingAddress: "T111111111111111111111111111111111", CreditUnits: creditUnits,
 			PayAmountMicros: creditUnits*1_000_000 + int64(suffix)*10_000, SuffixCents: suffix,
 			Status: USDTTopUpStatusPending, ExpiresAt: cooldownUntil, CooldownUntil: cooldownUntil,
 			CreatedAt: cooldownUntil - 1, UpdatedAt: cooldownUntil - 1,

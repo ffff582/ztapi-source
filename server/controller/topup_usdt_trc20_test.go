@@ -202,7 +202,7 @@ func setupUSDTTopUpControllerTest(t *testing.T) *gorm.DB {
 func setUSDTTopUpControllerEnv(t *testing.T, enabled bool) {
 	t.Helper()
 	t.Setenv("USDT_TRC20_TOPUP_ENABLED", fmt.Sprintf("%t", enabled))
-	t.Setenv("USDT_TRC20_RECEIVING_ADDRESS", "TJSdKoxvYJofK6CQBNnXwMM9kS1t4Sj3V2")
+	t.Setenv("USDT_TRC20_RECEIVING_ADDRESS", "T111111111111111111111111111111111")
 	t.Setenv("TRONGRID_API_KEY", "test-trongrid-secret")
 	t.Setenv("USDT_TRC20_MIN_TOPUP", "10")
 	t.Setenv("USDT_TRC20_ORDER_TTL_SECONDS", "600")
