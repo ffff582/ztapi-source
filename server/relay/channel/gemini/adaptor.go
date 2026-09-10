@@ -128,6 +128,12 @@ func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
 }
 
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
+	if dispatch := info.GetZTAPIManagedImageDispatch(); dispatch != nil && dispatch.WireProtocol == types.ZTAPIImageWireProtocolGeminiGenerateContent {
+		if dispatch.ProviderPath != info.RequestURLPath || !strings.HasPrefix(dispatch.ProviderPath, "/") {
+			return "", errors.New("frozen Gemini image provider path is invalid")
+		}
+		return strings.TrimRight(info.ChannelBaseUrl, "/") + dispatch.ProviderPath, nil
+	}
 
 	if model_setting.GetGeminiSettings().ThinkingAdapterEnabled &&
 		!model_setting.ShouldPreserveThinkingSuffix(info.OriginModelName) {
@@ -172,6 +178,11 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *relaycommon.RelayInfo) error {
 	channel.SetupApiRequestHeader(info, c, req)
+	if dispatch := info.GetZTAPIManagedImageDispatch(); dispatch != nil && dispatch.WireProtocol == types.ZTAPIImageWireProtocolGeminiGenerateContent {
+		req.Set("Authorization", "Bearer "+info.ApiKey)
+		req.Del("x-goog-api-key")
+		return nil
+	}
 	req.Set("x-goog-api-key", info.ApiKey)
 	return nil
 }
@@ -247,6 +258,9 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 }
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
+	if dispatch := info.GetZTAPIManagedImageDispatch(); dispatch != nil && dispatch.WireProtocol == types.ZTAPIImageWireProtocolGeminiGenerateContent {
+		return GeminiZTAPIImageHandler(c, info, resp)
+	}
 	if info.RelayMode == constant.RelayModeGemini {
 		if strings.Contains(info.RequestURLPath, ":embedContent") ||
 			strings.Contains(info.RequestURLPath, ":batchEmbedContents") {

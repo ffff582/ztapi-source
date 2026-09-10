@@ -21,6 +21,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 	"gorm.io/gorm"
 )
 
@@ -362,6 +363,138 @@ func TestZTAPIMediaTaskSuccessWithoutUsageStaysPendingAndDoesNotRefund(t *testin
 	require.Equal(t, f.user.Quota, user.Quota)
 	require.Equal(t, f.token.RemainQuota, token.RemainQuota)
 	require.JSONEq(t, `{}`, media.UsageJSON)
+}
+
+func TestZTAPIMediaTaskUnresolvedUsageSurvivesRecoveryPollingAndDuplicateTerminal(t *testing.T) {
+	for _, rawUsage := range []string{
+		`{ "completion_tokens": 108900, "total_tokens": 108900 }`,
+		`{"completion_tokens":9007199254740993,"total_tokens":"00108900"}`,
+		`{"completion_tokens":0,"total_tokens":0}`,
+	} {
+		t.Run(rawUsage, func(t *testing.T) {
+			f := setupZTAPIMediaServiceFixture(t)
+			recovered, err := RecoverZTAPIMediaLegacyTasks(context.Background(), 100)
+			require.NoError(t, err)
+			require.Equal(t, 1, recovered)
+			legacy, exists, err := model.GetByOnlyTaskId(f.legacy.TaskID)
+			require.NoError(t, err)
+			require.True(t, exists)
+			result := &relaycommon.TaskInfo{
+				Status: model.TaskStatusSuccess, ProviderStatus: "completed", UpstreamTaskID: "upstream-task-1",
+				UpstreamRequestID: "fetch-unresolved", Url: "https://provider.invalid/video.mp4",
+				// Even an apparent zero in the priced dimension cannot resolve raw supplier semantics.
+				UsageDimensions: map[string]string{"input_tokens": "0"},
+				ResultMetadata:  map[string]string{"resolution": "720p", "duration": "5", "raw_usage_json": rawUsage},
+			}
+			baseURL := "https://provider.invalid"
+			channel := &model.Channel{Id: legacy.ChannelId, BaseURL: &baseURL, Key: "offline"}
+			adaptor := &capturingMediaPollingAdaptor{result: result}
+			require.NoError(t, updateVideoSingleTask(context.Background(), adaptor, channel, legacy.GetUpstreamTaskID(), map[string]*model.Task{legacy.GetUpstreamTaskID(): legacy}))
+			first, settlement, user, token := f.reload(t)
+			require.Equal(t, model.ZTAPISettlementPending, settlement.Status)
+			require.Equal(t, model.ZTAPIMediaTaskSucceeded, first.State)
+			require.Equal(t, model.ZTAPIMediaChargeUnknown, first.ChargeDisposition)
+			require.Equal(t, rawUsage, gjson.Get(first.UsageJSON, "raw_usage_json").String())
+			require.Equal(t, first.UsageJSON, settlement.UsageJSON)
+			require.Equal(t, "[]", first.ChargeDimensionsJSON)
+			require.Equal(t, f.settlement.ReservedQuota, settlement.ReservedQuota)
+			require.Equal(t, f.user.Quota, user.Quota)
+			require.Equal(t, f.token.RemainQuota, token.RemainQuota)
+			var ledgerBefore int64
+			require.NoError(t, model.DB.Model(&model.BalanceLedger{}).Count(&ledgerBefore).Error)
+			// Reload all task state, then replay the same terminal through the event entry point.
+			legacy, exists, err = model.GetByOnlyTaskId(legacy.TaskID)
+			require.NoError(t, err)
+			require.True(t, exists)
+			for replay := 0; replay < 3; replay++ {
+				managed, err := ApplyZTAPIMediaPollingObservation(legacy, result)
+				require.NoError(t, err)
+				require.True(t, managed)
+			}
+			after, afterSettlement, afterUser, afterToken := f.reload(t)
+			require.Equal(t, first.Version, after.Version)
+			require.Equal(t, settlement.Status, afterSettlement.Status)
+			require.Equal(t, first.UsageJSON, after.UsageJSON)
+			require.Equal(t, user.Quota, afterUser.Quota)
+			require.Equal(t, token.RemainQuota, afterToken.RemainQuota)
+			var ledgerAfter, charges, refunds int64
+			require.NoError(t, model.DB.Model(&model.BalanceLedger{}).Count(&ledgerAfter).Error)
+			require.Equal(t, ledgerBefore, ledgerAfter)
+			require.NoError(t, model.DB.Model(&model.ZTAPISupplierRefundCharge{}).Count(&charges).Error)
+			require.NoError(t, model.DB.Model(&model.ZTAPISettlementLogOutbox{}).Count(&refunds).Error)
+			require.Zero(t, charges)
+			require.Zero(t, refunds)
+		})
+	}
+}
+
+func TestZTAPIMediaTaskUnresolvedDimensionsAreNotDiscarded(t *testing.T) {
+	f := setupZTAPIMediaServiceFixture(t)
+	managed, err := ApplyZTAPIMediaPollingObservation(&f.legacy, &relaycommon.TaskInfo{
+		Status: model.TaskStatusSuccess, ProviderStatus: "completed", UpstreamTaskID: "upstream-task-1",
+		UpstreamRequestID: "fetch-unmapped", Url: "https://provider.invalid/video.mp4",
+		UsageDimensions: map[string]string{"completion_tokens": "108900", "total_tokens": "108900"},
+		ResultMetadata:  map[string]string{"resolution": "720p", "duration": "5"},
+	})
+	require.NoError(t, err)
+	require.True(t, managed)
+	media, settlement, user, token := f.reload(t)
+	require.Equal(t, model.ZTAPISettlementPending, settlement.Status)
+	require.JSONEq(t, `{"observed_dimensions":{"completion_tokens":"108900","total_tokens":"108900"}}`, media.UsageJSON)
+	require.NotContains(t, media.UsageJSON, "input_tokens")
+	require.Equal(t, media.UsageJSON, settlement.UsageJSON)
+	require.Equal(t, f.user.Quota, user.Quota)
+	require.Equal(t, f.token.RemainQuota, token.RemainQuota)
+}
+
+func TestZTAPIMediaTaskTerminalNewPollIDConvergesAfterDatabaseReopen(t *testing.T) {
+	for _, pending := range []bool{false, true} {
+		t.Run(fmt.Sprintf("pending=%t", pending), func(t *testing.T) {
+			f := setupZTAPIMediaServiceFixture(t)
+			result := &relaycommon.TaskInfo{
+				Status: model.TaskStatusSuccess, ProviderStatus: "completed", UpstreamTaskID: "upstream-task-1", UpstreamRequestID: "first-terminal-id",
+				Url: "https://provider.invalid/result.mp4", UsageDimensions: map[string]string{"input_tokens": "6"},
+				ResultMetadata: map[string]string{"resolution": "720p", "duration": "5"},
+			}
+			if pending {
+				result.ResultMetadata["raw_usage_json"] = `{"completion_tokens":108900,"total_tokens":108900}`
+			}
+			managed, err := ApplyZTAPIMediaPollingObservation(&f.legacy, result)
+			require.NoError(t, err)
+			require.True(t, managed)
+			first, settlement, user, token := f.reload(t)
+			var ledgerBefore int64
+			require.NoError(t, model.DB.Model(&model.BalanceLedger{}).Count(&ledgerBefore).Error)
+			dialect := model.DB.Dialector
+			oldSQL, err := model.DB.DB()
+			require.NoError(t, err)
+			require.NoError(t, oldSQL.Close())
+			reopened, err := gorm.Open(dialect, &gorm.Config{})
+			require.NoError(t, err)
+			sqlDB, err := reopened.DB()
+			require.NoError(t, err)
+			sqlDB.SetMaxOpenConns(1)
+			model.DB, model.LOG_DB = reopened, reopened
+			t.Cleanup(func() { _ = sqlDB.Close() })
+			result.UpstreamRequestID = "later-poll-id"
+			managed, err = ApplyZTAPIMediaPollingObservation(&f.legacy, result)
+			require.NoError(t, err)
+			require.True(t, managed)
+			after, afterSettlement, afterUser, afterToken := f.reload(t)
+			require.Equal(t, first.Version, after.Version)
+			require.Equal(t, first.ResultMetadataJSON, after.ResultMetadataJSON, "retain the original terminal evidence")
+			require.Equal(t, settlement.Status, afterSettlement.Status)
+			require.Equal(t, settlement.ChargedQuota, afterSettlement.ChargedQuota)
+			require.Equal(t, user.Quota, afterUser.Quota)
+			require.Equal(t, token.RemainQuota, afterToken.RemainQuota)
+			var ledgerAfter int64
+			require.NoError(t, model.DB.Model(&model.BalanceLedger{}).Count(&ledgerAfter).Error)
+			require.Equal(t, ledgerBefore, ledgerAfter)
+			result.ResultMetadata["duration"] = "10"
+			_, err = ApplyZTAPIMediaPollingObservation(&f.legacy, result)
+			require.Error(t, err, "different terminal evidence must still conflict")
+		})
+	}
 }
 
 func TestZTAPIMediaTaskFailureWithBillableUsageStillChargesCustomer(t *testing.T) {

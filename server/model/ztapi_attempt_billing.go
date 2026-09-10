@@ -13,6 +13,8 @@ var (
 	ErrZTAPIAttemptBillingInvalid  = errors.New("invalid attempt billing evidence")
 )
 
+const ZTAPIAttemptBillingUsageSemanticImage = "ztapi_image"
+
 // Quantities are normalized, mutually exclusive token buckets. input_tokens
 // excludes cache buckets; output_tokens includes any billable reasoning once.
 // Supported dimensions: input_tokens, output_tokens, cache_read, cache_write,
@@ -31,10 +33,14 @@ type ZTAPIAttemptBillingSubmission struct {
 	ChannelID              int                           `json:"channel_id"`
 	CredentialVersion      string                        `json:"credential_version"`
 	UpstreamRequestID      string                        `json:"upstream_request_id"`
+	UpstreamTaskID         string                        `json:"upstream_task_id,omitempty"`
 	UpstreamBillID         string                        `json:"upstream_bill_id"`
 	Kind                   string                        `json:"kind"`
 	UsageSemantic          string                        `json:"usage_semantic"`
 	Usage                  []ZTAPIAttemptBillingQuantity `json:"usage"`
+	SelectedRuleID         string                        `json:"selected_rule_id,omitempty"`
+	PriceRuleIDs           map[string]string             `json:"price_rule_ids,omitempty"`
+	RawUsageJSON           string                        `json:"raw_usage_json,omitempty"`
 	EvidenceReference      string                        `json:"evidence_reference"`
 	DistinctUsageReference string                        `json:"distinct_usage_reference"`
 }

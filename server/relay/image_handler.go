@@ -43,8 +43,9 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 		return types.NewError(fmt.Errorf("failed to copy request to ImageRequest: %w", err), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
 	}
 
+	var managedDispatch *relaycommon.ZTAPIManagedImageDispatch
 	if managedImage {
-		request, newAPIError = PrepareZTAPIManagedImageDispatch(c, info)
+		managedDispatch, newAPIError = PrepareZTAPIManagedImageDispatch(c, info)
 		if newAPIError != nil {
 			return newAPIError
 		}
@@ -64,11 +65,7 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 	var requestBody io.Reader
 
 	if managedImage {
-		jsonData, err := common.Marshal(request)
-		if err != nil {
-			return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
-		}
-		body, size, closer, err := relaycommon.NewOutboundJSONBody(jsonData)
+		body, size, closer, err := relaycommon.NewOutboundJSONBody(managedDispatch.Body)
 		if err != nil {
 			return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 		}

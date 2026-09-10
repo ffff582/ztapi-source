@@ -42,6 +42,10 @@ func (*ZTAPIPendingResolution) BeforeUpdate(*gorm.DB) error { return ErrZTAPISet
 func (*ZTAPIPendingResolution) BeforeDelete(*gorm.DB) error { return ErrZTAPISettlementConflict }
 
 func ResolveZTAPIPendingNoCharge(id uint, operatorID int, proof ZTAPINoChargeProof) (*ZTAPIRequestSettlement, error) {
+	return resolveZTAPIPendingNoCharge(id, operatorID, proof, true)
+}
+
+func resolveZTAPIPendingNoCharge(id uint, operatorID int, proof ZTAPINoChargeProof, requireCurrentAuthority bool) (*ZTAPIRequestSettlement, error) {
 	if id == 0 || operatorID <= 0 || strings.TrimSpace(proof.Source) == "" || len(proof.Source) > 128 || strings.TrimSpace(proof.ProofID) == "" || len(proof.ProofID) > 256 || strings.TrimSpace(proof.VerificationReference) == "" || len(proof.VerificationReference) > 512 || len(proof.Attempts) < 1 || len(proof.Attempts) > 2 {
 		return nil, ErrZTAPISettlementInvalid
 	}
@@ -66,7 +70,7 @@ func ResolveZTAPIPendingNoCharge(id uint, operatorID int, proof ZTAPINoChargePro
 		if err := tx.First(&operator, operatorID).Error; err != nil {
 			return err
 		}
-		if operator.Status != common.UserStatusEnabled || !common.HasAdminPermission(operator.Role, common.PermissionFinanceWrite) {
+		if requireCurrentAuthority && (operator.Status != common.UserStatusEnabled || !common.HasAdminPermission(operator.Role, common.PermissionFinanceWrite)) {
 			return ErrZTAPISupplierRefundUnauthorized
 		}
 		var existing ZTAPIPendingResolution

@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	ZTAPIVideoProtocolContractVersion = uint64(1)
-	ZTAPIVideoEvidenceVersion         = uint64(1)
+	ZTAPIVideoProtocolContractVersion   = uint64(1)
+	ZTAPIVideoProtocolContractVersionV2 = uint64(2)
+	ZTAPIVideoEvidenceVersion           = uint64(1)
 )
 
 type ZTAPIVideoProtocolContract struct {
@@ -44,10 +45,12 @@ type ZTAPIVideoAuthContract struct {
 }
 
 type ZTAPIVideoEndpointContract struct {
-	Method         string `json:"method"`
-	Path           string `json:"path"`
-	TaskIDField    string `json:"task_id_field"`
-	RequestIDField string `json:"request_id_field"`
+	Method          string `json:"method"`
+	Path            string `json:"path"`
+	TaskIDField     string `json:"task_id_field"`
+	RequestIDField  string `json:"request_id_field,omitempty"`
+	RequestIDSource string `json:"request_id_source,omitempty"`
+	RequestIDKey    string `json:"request_id_key,omitempty"`
 }
 
 type ZTAPIVideoCallbackContract struct {
@@ -167,6 +170,9 @@ func ParseZTAPIVideoProtocolContract(raw string) (ZTAPIVideoProtocolContract, st
 		}
 		return contract, "", errors.New("video protocol contract must contain one valid JSON value")
 	}
+	if err := validateZTAPIVideoResponseIDJSONFields([]byte(raw)); err != nil {
+		return contract, "", err
+	}
 	decoder := json.NewDecoder(strings.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&contract); err != nil {
@@ -192,6 +198,46 @@ func ParseZTAPIVideoProtocolContract(raw string) (ZTAPIVideoProtocolContract, st
 	return sealed.Clone(), canonical, nil
 }
 
+func validateZTAPIVideoResponseIDJSONFields(raw []byte) error {
+	var root map[string]json.RawMessage
+	if common.Unmarshal(raw, &root) != nil {
+		return nil
+	}
+	var version uint64
+	if common.Unmarshal(root["version"], &version) != nil {
+		return nil
+	}
+	for _, endpointName := range []string{"create", "fetch"} {
+		var endpoint map[string]json.RawMessage
+		if common.Unmarshal(root[endpointName], &endpoint) != nil {
+			continue
+		}
+		switch version {
+		case ZTAPIVideoProtocolContractVersion:
+			if _, exists := endpoint["request_id_source"]; exists {
+				return fmt.Errorf("video %s endpoint response-ID source contains forbidden field %q", endpointName, "request_id_source")
+			}
+			if _, exists := endpoint["request_id_key"]; exists {
+				return fmt.Errorf("video %s endpoint response-ID source contains forbidden field %q", endpointName, "request_id_key")
+			}
+			if _, exists := endpoint["request_id_field"]; !exists {
+				return fmt.Errorf("video %s endpoint response-ID source is missing field %q", endpointName, "request_id_field")
+			}
+		case ZTAPIVideoProtocolContractVersionV2:
+			if _, exists := endpoint["request_id_field"]; exists {
+				return fmt.Errorf("video %s endpoint response-ID source contains forbidden field %q", endpointName, "request_id_field")
+			}
+			if _, exists := endpoint["request_id_source"]; !exists {
+				return fmt.Errorf("video %s endpoint response-ID source is missing field %q", endpointName, "request_id_source")
+			}
+			if _, exists := endpoint["request_id_key"]; !exists {
+				return fmt.Errorf("video %s endpoint response-ID source is missing field %q", endpointName, "request_id_key")
+			}
+		}
+	}
+	return nil
+}
+
 func ensureZTAPIVideoJSONEOF(decoder *json.Decoder) error {
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {
@@ -201,7 +247,7 @@ func ensureZTAPIVideoJSONEOF(decoder *json.Decoder) error {
 }
 
 func normalizeAndValidateZTAPIVideoProtocolContract(contract *ZTAPIVideoProtocolContract) error {
-	if contract == nil || contract.Version != ZTAPIVideoProtocolContractVersion || contract.EvidenceVersion != ZTAPIVideoEvidenceVersion {
+	if contract == nil || (contract.Version != ZTAPIVideoProtocolContractVersion && contract.Version != ZTAPIVideoProtocolContractVersionV2) || contract.EvidenceVersion != ZTAPIVideoEvidenceVersion {
 		return errors.New("unsupported video protocol or evidence version")
 	}
 	if contract.Provider != "aihub" {
@@ -213,10 +259,10 @@ func normalizeAndValidateZTAPIVideoProtocolContract(contract *ZTAPIVideoProtocol
 	if contract.Auth.Method != "header" || contract.Auth.Header != "Authorization" || contract.Auth.Scheme != "Bearer" {
 		return errors.New("unsupported video protocol authentication")
 	}
-	if err := validateZTAPIVideoEndpoint(contract.Create, "POST", false); err != nil {
+	if err := validateZTAPIVideoEndpoint(contract.Create, "POST", false, contract.Version); err != nil {
 		return fmt.Errorf("video create endpoint: %w", err)
 	}
-	if err := validateZTAPIVideoEndpoint(contract.Fetch, "GET", true); err != nil {
+	if err := validateZTAPIVideoEndpoint(contract.Fetch, "GET", true, contract.Version); err != nil {
 		return fmt.Errorf("video fetch endpoint: %w", err)
 	}
 	if contract.Callback.Enabled || contract.Callback.SignatureHeader != "" || contract.Callback.SignatureMethod != "" {
@@ -240,7 +286,7 @@ func normalizeAndValidateZTAPIVideoProtocolContract(contract *ZTAPIVideoProtocol
 	return normalizeAndValidateZTAPIVideoReservations(contract)
 }
 
-func validateZTAPIVideoEndpoint(endpoint ZTAPIVideoEndpointContract, method string, fetch bool) error {
+func validateZTAPIVideoEndpoint(endpoint ZTAPIVideoEndpointContract, method string, fetch bool, version uint64) error {
 	if endpoint.Method != method || !ztapiVideoPathPattern.MatchString(strings.ReplaceAll(endpoint.Path, "{task_id}", "task-id")) || strings.ContainsAny(endpoint.Path, "?#") {
 		return errors.New("method or path is invalid")
 	}
@@ -248,8 +294,29 @@ func validateZTAPIVideoEndpoint(endpoint ZTAPIVideoEndpointContract, method stri
 	if (fetch && placeholderCount != 1) || (!fetch && placeholderCount != 0) || strings.ContainsAny(strings.ReplaceAll(endpoint.Path, "{task_id}", ""), "{}") {
 		return errors.New("task placeholder is invalid")
 	}
-	if !validZTAPIVideoField(endpoint.TaskIDField) || !validZTAPIVideoField(endpoint.RequestIDField) || endpoint.TaskIDField == endpoint.RequestIDField {
-		return errors.New("task or request ID field is invalid")
+	if !validZTAPIVideoField(endpoint.TaskIDField) {
+		return errors.New("video task ID field is invalid")
+	}
+	if version == ZTAPIVideoProtocolContractVersion {
+		if !validZTAPIVideoField(endpoint.RequestIDField) || endpoint.TaskIDField == endpoint.RequestIDField || endpoint.RequestIDSource != "" || endpoint.RequestIDKey != "" {
+			return errors.New("video response-ID source is invalid")
+		}
+		return nil
+	}
+	if endpoint.RequestIDField != "" {
+		return errors.New("video response-ID source is invalid")
+	}
+	switch endpoint.RequestIDSource {
+	case ZTAPIResponseIDSourceBodyField:
+		if !validZTAPIVideoField(endpoint.RequestIDKey) || endpoint.TaskIDField == endpoint.RequestIDKey {
+			return errors.New("video response-ID source is invalid")
+		}
+	case ZTAPIResponseIDSourceHeader:
+		if !validZTAPIResponseIDHeader(endpoint.RequestIDKey) {
+			return errors.New("video response-ID source is invalid")
+		}
+	default:
+		return errors.New("video response-ID source is invalid")
 	}
 	return nil
 }

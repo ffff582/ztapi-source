@@ -446,11 +446,14 @@ func equalZTAPIStringMaps(left, right map[string]string) bool {
 }
 
 func calculateZTAPIImageCharge(contractJSON, quotaPerUnitRaw string, evidence relaycommon.ZTAPIMediaUsageEvidence) (int64, []model.ZTAPISupplierRefundDimension, []ztapiMediaLogDimension, error) {
+	return calculateZTAPIImageChargeDimensions(contractJSON, quotaPerUnitRaw, evidence.SelectedRuleID, evidence.GetDimensions(), evidence.GetPriceRuleIDs())
+}
+
+func calculateZTAPIImageChargeDimensions(contractJSON, quotaPerUnitRaw, selectedRuleID string, dimensions map[string]decimal.Decimal, ruleIDs map[string]string) (int64, []model.ZTAPISupplierRefundDimension, []ztapiMediaLogDimension, error) {
 	contract, err := types.ParseZTAPIMediaPriceContract(contractJSON)
 	if err != nil {
 		return 0, nil, nil, err
 	}
-	dimensions, ruleIDs := evidence.GetDimensions(), evidence.GetPriceRuleIDs()
 	if len(dimensions) == 0 || len(dimensions) != len(ruleIDs) {
 		return 0, nil, nil, model.ErrZTAPISettlementInvalid
 	}
@@ -458,7 +461,7 @@ func calculateZTAPIImageCharge(contractJSON, quotaPerUnitRaw string, evidence re
 	for _, rule := range contract.Rules {
 		rules[rule.ID] = rule
 	}
-	if err := validateZTAPIImageEvidenceRuleIdentity(contract, evidence.SelectedRuleID, dimensions, ruleIDs); err != nil {
+	if err := validateZTAPIImageEvidenceRuleIdentity(contract, selectedRuleID, dimensions, ruleIDs); err != nil {
 		return 0, nil, nil, err
 	}
 	quotaPerUnit, err := parseCanonicalZTAPIQuotaPerUnit(quotaPerUnitRaw)
@@ -481,7 +484,7 @@ func calculateZTAPIImageCharge(contractJSON, quotaPerUnitRaw string, evidence re
 		ruleID, ok := ruleIDs[name]
 		rule, ruleOK := rules[ruleID]
 		saleRaw, priceOK := rule.SaleUSD[name]
-		if !ok || !ruleOK || !priceOK || (evidence.SelectedRuleID != "" && evidence.SelectedRuleID != ruleID) {
+		if !ok || !ruleOK || !priceOK || (selectedRuleID != "" && selectedRuleID != ruleID) {
 			return 0, nil, nil, model.ErrZTAPISettlementInvalid
 		}
 		sale, parseErr := decimal.NewFromString(saleRaw)

@@ -37,7 +37,7 @@ func sanitizeZTAPISettlementLogMetadata(log *Log) error {
 	}
 	if (metadata.BillingSource != "" && metadata.BillingSource != "wallet") ||
 		(metadata.BillingStatus != "" && metadata.BillingStatus != "settled") ||
-		(metadata.UsageSemantic != "" && metadata.UsageSemantic != "openai" && metadata.UsageSemantic != "anthropic") ||
+		(metadata.UsageSemantic != "" && metadata.UsageSemantic != "openai" && metadata.UsageSemantic != "anthropic" && metadata.UsageSemantic != ZTAPIAttemptBillingUsageSemanticImage) ||
 		len(metadata.BillingDimensions) > 128 {
 		return ErrZTAPISettlementLogInvalid
 	}

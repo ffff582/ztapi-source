@@ -169,6 +169,7 @@ type RelayInfo struct {
 	ZTAPIPublicationSnapshot    *ZTAPIPublicationSnapshot
 	ztapiValidatedImageResponse *ZTAPIValidatedImageResponse
 	ztapiMediaUsageEvidence     *ZTAPIMediaUsageEvidence
+	ztapiManagedImageDispatch   *ZTAPIManagedImageDispatch
 	ztapiImageResponseMu        sync.Mutex
 	ztapiImageAttemptSequence   uint64
 	ztapiImageResponseAttempt   *ZTAPIImageResponseAttempt
@@ -198,6 +199,42 @@ type RelayInfo struct {
 	*TaskRelayInfo
 }
 
+// ZTAPIManagedImageDispatch is the immutable, contract-derived provider
+// request. Public admission is complete before this value is installed.
+type ZTAPIManagedImageDispatch struct {
+	Body         []byte
+	ProviderPath string
+	WireProtocol string
+}
+
+func cloneZTAPIManagedImageDispatch(source *ZTAPIManagedImageDispatch) *ZTAPIManagedImageDispatch {
+	if source == nil {
+		return nil
+	}
+	clone := *source
+	clone.Body = append([]byte(nil), source.Body...)
+	return &clone
+}
+
+func (info *RelayInfo) SetZTAPIManagedImageDispatch(dispatch *ZTAPIManagedImageDispatch) bool {
+	if info == nil || dispatch == nil || len(dispatch.Body) == 0 || dispatch.ProviderPath == "" || dispatch.WireProtocol == "" {
+		return false
+	}
+	info.ztapiImageResponseMu.Lock()
+	defer info.ztapiImageResponseMu.Unlock()
+	info.ztapiManagedImageDispatch = cloneZTAPIManagedImageDispatch(dispatch)
+	return true
+}
+
+func (info *RelayInfo) GetZTAPIManagedImageDispatch() *ZTAPIManagedImageDispatch {
+	if info == nil {
+		return nil
+	}
+	info.ztapiImageResponseMu.Lock()
+	defer info.ztapiImageResponseMu.Unlock()
+	return cloneZTAPIManagedImageDispatch(info.ztapiManagedImageDispatch)
+}
+
 // ZTAPIValidatedImageResponse is the strict, in-memory handoff to the later
 // usage normalizer. It deliberately carries raw evidence rather than inferred
 // billing quantities.
@@ -208,6 +245,7 @@ type ZTAPIValidatedImageResponse struct {
 	ResultCount        int
 	RawResponse        []byte
 	RawUsageJSON       []byte
+	CanonicalResponse  []byte
 	UsagePendingReason string
 }
 
@@ -244,6 +282,7 @@ func cloneZTAPIValidatedImageResponse(source *ZTAPIValidatedImageResponse) *ZTAP
 	clone := *source
 	clone.RawResponse = append([]byte(nil), source.RawResponse...)
 	clone.RawUsageJSON = append([]byte(nil), source.RawUsageJSON...)
+	clone.CanonicalResponse = append([]byte(nil), source.CanonicalResponse...)
 	return &clone
 }
 

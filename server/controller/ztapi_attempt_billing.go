@@ -128,7 +128,7 @@ func SubmitZTAPIAttemptBilling(c *gin.Context) {
 	if !ztapiSupplierRefundPermission(c, common.PermissionFinanceWrite) {
 		return
 	}
-	body, ok := ztapiSupplierRefundReadBody(c, "source|proof_id|request_id|user_id|attempt|channel_id|credential_version|upstream_request_id|upstream_bill_id|kind|usage_semantic|usage|evidence_reference|distinct_usage_reference")
+	body, ok := ztapiSupplierRefundReadBody(c, "source|proof_id|request_id|user_id|attempt|channel_id|credential_version|upstream_request_id|upstream_task_id|upstream_bill_id|kind|usage_semantic|usage|selected_rule_id|price_rule_ids|raw_usage_json|evidence_reference|distinct_usage_reference")
 	var input model.ZTAPIAttemptBillingSubmission
 	if !ok || common.Unmarshal(body, &input) != nil || (input.Kind != "billed" && input.Kind != "nocharge") {
 		ztapiAttemptBillingHTTPError(c, model.ErrZTAPIAttemptBillingInvalid)

@@ -87,6 +87,25 @@ func TestZTAPIAttemptBillingHTTPVerifiedUsageIsPricedAndAppliedOnce(t *testing.T
 	require.Len(t, logs, 2, "two distinct billed attempts, one logical request")
 }
 
+func TestZTAPIAttemptBillingHTTPAcceptsImageUsageEvidenceFields(t *testing.T) {
+	db, engine := setupBalanceLedgerControllerTest(t)
+	require.NoError(t, model.MigrateZTAPIAttemptBilling(db))
+	finance, auth := createBalanceLedgerOperator(t, db, "attempt-image-finance", common.RoleFinanceUser)
+	body := `{"source":"supplier-image","proof_id":"supplier-image-line-1","request_id":"image-request-1","user_id":1,"attempt":1,"channel_id":2,"credential_version":"enterprise-v1","upstream_request_id":"image-wire-1","upstream_task_id":"image-task-1","upstream_bill_id":"image-bill-1","kind":"billed","usage_semantic":"ztapi_image","usage":[{"dimension":"input_tokens","quantity":10},{"dimension":"output_tokens","quantity":2}],"selected_rule_id":"lte_200k","price_rule_ids":{"input_tokens":"lte_200k","output_tokens":"lte_200k"},"raw_usage_json":"{\"input_tokens\":10,\"output_tokens\":2,\"total_tokens\":12}","evidence_reference":"supplier-statement-row-1","distinct_usage_reference":"separate-attempt-line"}`
+
+	response := performBalanceLedgerRequest(t, engine, http.MethodPost, "/api/admin/attempt-billing/proofs", finance, auth, body)
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+
+	var stored model.ZTAPIAttemptBillingProof
+	require.NoError(t, db.Where("source = ? AND proof_id = ?", "supplier-image", "supplier-image-line-1").Take(&stored).Error)
+	var submission model.ZTAPIAttemptBillingSubmission
+	require.NoError(t, common.UnmarshalJsonStr(stored.SubmissionJSON, &submission))
+	require.Equal(t, "image-task-1", submission.UpstreamTaskID)
+	require.Equal(t, "lte_200k", submission.SelectedRuleID)
+	require.Equal(t, map[string]string{"input_tokens": "lte_200k", "output_tokens": "lte_200k"}, submission.PriceRuleIDs)
+	require.JSONEq(t, `{"input_tokens":10,"output_tokens":2,"total_tokens":12}`, submission.RawUsageJSON)
+}
+
 func TestZTAPIAttemptBillingHTTPRejectsCallerPricesAndApprovalIdentity(t *testing.T) {
 	db, engine := setupBalanceLedgerControllerTest(t)
 	finance, key := createBalanceLedgerOperator(t, db, "attempt-finance-input", common.RoleFinanceUser)

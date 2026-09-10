@@ -4,6 +4,7 @@ import (
 	"errors"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -57,11 +58,14 @@ type ZTAPISupplierLedgerRecord struct {
 }
 
 type ZTAPISupplierLedgerDimensions struct {
-	UsageSemantic string                        `json:"usage_semantic,omitempty"`
-	Usage         []ZTAPIAttemptBillingQuantity `json:"usage,omitempty"`
-	Metering      []ZTAPISupplierRefundUnits    `json:"metering,omitempty"`
-	RefundMode    string                        `json:"refund_mode,omitempty"`
-	RefundUnits   []ZTAPISupplierRefundUnits    `json:"refund_units,omitempty"`
+	UsageSemantic  string                        `json:"usage_semantic,omitempty"`
+	Usage          []ZTAPIAttemptBillingQuantity `json:"usage,omitempty"`
+	SelectedRuleID string                        `json:"selected_rule_id,omitempty"`
+	PriceRuleIDs   map[string]string             `json:"price_rule_ids,omitempty"`
+	RawUsageJSON   string                        `json:"raw_usage_json,omitempty"`
+	Metering       []ZTAPISupplierRefundUnits    `json:"metering,omitempty"`
+	RefundMode     string                        `json:"refund_mode,omitempty"`
+	RefundUnits    []ZTAPISupplierRefundUnits    `json:"refund_units,omitempty"`
 }
 
 type ZTAPISupplierReconciliationImport struct {
@@ -129,6 +133,27 @@ func (*ZTAPISupplierReconciliationEntry) BeforeDelete(*gorm.DB) error {
 	return ErrZTAPISupplierReconciliationConflict
 }
 
+// ZTAPISupplierReconciliationChargeClaim is the durable one-to-one ownership
+// of an existing customer charge by a supplier bill record.
+type ZTAPISupplierReconciliationChargeClaim struct {
+	ChargeID         uint      `gorm:"primaryKey" json:"charge_id"`
+	Supplier         string    `gorm:"type:varchar(128);not null" json:"supplier"`
+	SupplierRecordID string    `gorm:"type:varchar(128);not null" json:"supplier_record_id"`
+	CreatedAt        time.Time `json:"created_at"`
+}
+
+func (ZTAPISupplierReconciliationChargeClaim) TableName() string {
+	return "ztapi_supplier_reconciliation_charge_claims"
+}
+
+func (*ZTAPISupplierReconciliationChargeClaim) BeforeUpdate(*gorm.DB) error {
+	return ErrZTAPISupplierReconciliationConflict
+}
+
+func (*ZTAPISupplierReconciliationChargeClaim) BeforeDelete(*gorm.DB) error {
+	return ErrZTAPISupplierReconciliationConflict
+}
+
 type ZTAPISupplierReconciliationAction struct {
 	ID             uint      `gorm:"primaryKey" json:"id"`
 	EntryID        uint      `gorm:"not null;uniqueIndex" json:"entry_id"`
@@ -168,7 +193,29 @@ func MigrateZTAPISupplierReconciliation(db *gorm.DB) error {
 	if db == nil {
 		return ErrZTAPISupplierReconciliationInvalid
 	}
-	return db.AutoMigrate(&ZTAPISupplierReconciliationBatch{}, &ZTAPISupplierReconciliationEntry{}, &ZTAPISupplierReconciliationAction{}, &ZTAPISupplierReconciliationBatchEntry{})
+	if err := db.AutoMigrate(&ZTAPISupplierReconciliationBatch{}, &ZTAPISupplierReconciliationEntry{}, &ZTAPISupplierReconciliationChargeClaim{}, &ZTAPISupplierReconciliationAction{}, &ZTAPISupplierReconciliationBatchEntry{}); err != nil {
+		return err
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		var entries []ZTAPISupplierReconciliationEntry
+		if err := tx.Where("charge_id > 0 AND action_kind = ?", ZTAPISupplierReconciliationActionExistingCharge).Order("id").Find(&entries).Error; err != nil {
+			return err
+		}
+		for _, entry := range entries {
+			claim := ZTAPISupplierReconciliationChargeClaim{ChargeID: entry.ChargeID, Supplier: entry.Supplier, SupplierRecordID: entry.SupplierRecordID}
+			if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&claim).Error; err != nil {
+				return err
+			}
+			var saved ZTAPISupplierReconciliationChargeClaim
+			if err := tx.First(&saved, entry.ChargeID).Error; err != nil {
+				return err
+			}
+			if saved.Supplier != entry.Supplier || saved.SupplierRecordID != entry.SupplierRecordID {
+				return ErrZTAPISupplierReconciliationConflict
+			}
+		}
+		return nil
+	})
 }
 
 func ParseZTAPISupplierLedgerDimensions(raw string) (ZTAPISupplierLedgerDimensions, error) {
@@ -177,7 +224,7 @@ func ParseZTAPISupplierLedgerDimensions(raw string) (ZTAPISupplierLedgerDimensio
 		common.DecodeJsonStrict(strings.NewReader(raw), &dimensions) != nil {
 		return dimensions, ErrZTAPISupplierReconciliationInvalid
 	}
-	if dimensions.UsageSemantic != "" && dimensions.UsageSemantic != "openai" && dimensions.UsageSemantic != "anthropic" {
+	if dimensions.UsageSemantic != "" && dimensions.UsageSemantic != "openai" && dimensions.UsageSemantic != "anthropic" && dimensions.UsageSemantic != ZTAPIAttemptBillingUsageSemanticImage {
 		return dimensions, ErrZTAPISupplierReconciliationInvalid
 	}
 	if len(dimensions.Usage) > 0 && dimensions.UsageSemantic == "" {
@@ -186,14 +233,32 @@ func ParseZTAPISupplierLedgerDimensions(raw string) (ZTAPISupplierLedgerDimensio
 	seen := make(map[string]bool, len(dimensions.Usage))
 	for _, quantity := range dimensions.Usage {
 		switch quantity.Dimension {
-		case "input_tokens", "output_tokens", "cache_read", "cache_write", "cache_write_5m", "cache_write_1h":
+		case "input_tokens", "output_tokens", "cache_read", "cache_write", "cache_write_5m", "cache_write_1h",
+			"text_input", "text_cached_input", "image_input", "image_cached_input", "image_output":
 		default:
 			return dimensions, ErrZTAPISupplierReconciliationInvalid
 		}
-		if seen[quantity.Dimension] || quantity.Quantity <= 0 || quantity.Quantity > maxBalanceLedgerQuota {
+		imageUsage := dimensions.UsageSemantic == ZTAPIAttemptBillingUsageSemanticImage
+		if seen[quantity.Dimension] || quantity.Quantity < 0 || (!imageUsage && quantity.Quantity == 0) || quantity.Quantity > maxBalanceLedgerQuota {
 			return dimensions, ErrZTAPISupplierReconciliationInvalid
 		}
 		seen[quantity.Dimension] = true
+	}
+	if dimensions.UsageSemantic == ZTAPIAttemptBillingUsageSemanticImage {
+		if !validZTAPIImageAttemptDimensions(seen) || len(dimensions.PriceRuleIDs) != len(dimensions.Usage) || !validZTAPICanonicalRawUsage(dimensions.RawUsageJSON) {
+			return dimensions, ErrZTAPISupplierReconciliationInvalid
+		}
+		for dimension := range seen {
+			if !ztapiSupplierCodePattern.MatchString(dimensions.PriceRuleIDs[dimension]) {
+				return dimensions, ErrZTAPISupplierReconciliationInvalid
+			}
+		}
+		if dimensions.SelectedRuleID != "" && !ztapiSupplierCodePattern.MatchString(dimensions.SelectedRuleID) {
+			return dimensions, ErrZTAPISupplierReconciliationInvalid
+		}
+	} else if dimensions.SelectedRuleID != "" || len(dimensions.PriceRuleIDs) != 0 || dimensions.RawUsageJSON != "" ||
+		seen["text_input"] || seen["text_cached_input"] || seen["image_input"] || seen["image_cached_input"] || seen["image_output"] {
+		return dimensions, ErrZTAPISupplierReconciliationInvalid
 	}
 	if dimensions.RefundMode != "" && dimensions.RefundMode != "full" && dimensions.RefundMode != "partial" {
 		return dimensions, ErrZTAPISupplierReconciliationInvalid
@@ -407,7 +472,43 @@ func supplierRecordSourceModel(priceJSON string) string {
 	return ""
 }
 
-func matchZTAPISupplierRecord(tx *gorm.DB, supplier string, item ztapiSupplierNormalizedRecord) (ZTAPISupplierReconciliationEntry, error) {
+func claimZTAPIExistingCharge(tx *gorm.DB, chargeID uint, supplier, supplierRecordID string, apply bool, batchClaims map[uint]string) (bool, error) {
+	identity := supplier + "\x00" + supplierRecordID
+	var saved ZTAPISupplierReconciliationChargeClaim
+	load := func() error {
+		query := tx
+		if apply {
+			query = query.Clauses(clause.Locking{Strength: "UPDATE"})
+		}
+		return query.First(&saved, chargeID).Error
+	}
+	err := load()
+	if err == nil {
+		return saved.Supplier == supplier && saved.SupplierRecordID == supplierRecordID, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, err
+	}
+	if prior, exists := batchClaims[chargeID]; exists {
+		return prior == identity, nil
+	}
+	if apply {
+		claim := ZTAPISupplierReconciliationChargeClaim{ChargeID: chargeID, Supplier: supplier, SupplierRecordID: supplierRecordID}
+		if err = tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&claim).Error; err != nil {
+			return false, err
+		}
+		if err = load(); err != nil {
+			return false, err
+		}
+		if saved.Supplier != supplier || saved.SupplierRecordID != supplierRecordID {
+			return false, nil
+		}
+	}
+	batchClaims[chargeID] = identity
+	return true, nil
+}
+
+func matchZTAPISupplierRecord(tx *gorm.DB, supplier string, item ztapiSupplierNormalizedRecord, apply bool, batchClaims map[uint]string) (ZTAPISupplierReconciliationEntry, error) {
 	if item.existing != nil {
 		return *item.existing, nil
 	}
@@ -473,9 +574,13 @@ func matchZTAPISupplierRecord(tx *gorm.DB, supplier string, item ztapiSupplierNo
 	}
 	entry.SettlementID, entry.UserID, entry.Attempt, entry.ChannelID = matched.settlement.ID, matched.settlement.UserID, matched.attempt.Attempt, matched.attempt.ChannelID
 	var charge ZTAPISupplierRefundCharge
-	chargeErr := tx.Where("request_id = ? AND attempt = ?", matched.settlement.RequestID, matched.attempt.Attempt).Take(&charge).Error
+	chargeQuery := tx.Where("request_id = ? AND attempt = ?", matched.settlement.RequestID, matched.attempt.Attempt)
+	if apply {
+		chargeQuery = chargeQuery.Clauses(clause.Locking{Strength: "UPDATE"})
+	}
+	chargeErr := chargeQuery.Take(&charge).Error
 	if chargeErr == nil {
-		if charge.SettlementID != matched.settlement.ID || charge.UserID != matched.settlement.UserID || charge.ChannelID != matched.attempt.ChannelID || charge.CredentialVersion != matched.attempt.CredentialVersion {
+		if charge.SettlementID != matched.settlement.ID || charge.UserID != matched.settlement.UserID || charge.ChannelID != matched.attempt.ChannelID || charge.CredentialVersion != matched.attempt.CredentialVersion || charge.UpstreamRequestID != matched.attempt.UpstreamRequestID {
 			return entry, ErrZTAPISupplierReconciliationLineage
 		}
 		entry.ChargeID = charge.ID
@@ -495,6 +600,26 @@ func matchZTAPISupplierRecord(tx *gorm.DB, supplier string, item ztapiSupplierNo
 			entry.ActionKind, entry.MatchReason = ZTAPISupplierReconciliationActionUnmatched, "supplier_nocharge_conflicts_existing_charge"
 			return entry, nil
 		}
+		if charge.UpstreamBillID != "" && item.record.SupplierRecordID != charge.UpstreamBillID {
+			entry.ActionKind, entry.MatchReason = ZTAPISupplierReconciliationActionUnmatched, "supplier_bill_conflicts_existing_charge"
+			return entry, nil
+		}
+		if item.record.TaskID != charge.UpstreamTaskID {
+			entry.ActionKind, entry.MatchReason = ZTAPISupplierReconciliationActionUnmatched, "supplier_task_conflicts_existing_charge"
+			return entry, nil
+		}
+		if !ztapiSupplierUsageMatchesCharge(item.dimensions.Usage, charge.DimensionsJSON) {
+			entry.ActionKind, entry.MatchReason = ZTAPISupplierReconciliationActionUnmatched, "supplier_usage_conflicts_existing_charge"
+			return entry, nil
+		}
+		claimed, claimErr := claimZTAPIExistingCharge(tx, charge.ID, supplier, item.record.SupplierRecordID, apply, batchClaims)
+		if claimErr != nil {
+			return entry, claimErr
+		}
+		if !claimed {
+			entry.ActionKind, entry.MatchReason = ZTAPISupplierReconciliationActionUnmatched, "supplier_bill_conflicts_existing_charge"
+			return entry, nil
+		}
 		entry.ActionKind, entry.MatchReason = ZTAPISupplierReconciliationActionExistingCharge, "matched"
 		return entry, nil
 	}
@@ -508,6 +633,33 @@ func matchZTAPISupplierRecord(tx *gorm.DB, supplier string, item ztapiSupplierNo
 	}
 	entry.ActionKind, entry.MatchReason = ZTAPISupplierReconciliationActionAttemptBilling, "matched"
 	return entry, nil
+}
+
+func ztapiSupplierUsageMatchesCharge(usage []ZTAPIAttemptBillingQuantity, dimensionsJSON string) bool {
+	if len(usage) == 0 {
+		return false
+	}
+	var dimensions []ZTAPISupplierRefundDimension
+	if common.UnmarshalJsonStr(dimensionsJSON, &dimensions) != nil {
+		return false
+	}
+	expected := make(map[string]string, len(usage))
+	for _, item := range usage {
+		if item.Quantity > 0 {
+			expected[item.Dimension] = strconv.FormatInt(item.Quantity, 10)
+		}
+	}
+	if len(expected) != len(dimensions) {
+		return false
+	}
+	for _, dimension := range dimensions {
+		units, ok := expected[dimension.Dimension]
+		if !ok || units != dimension.Units {
+			return false
+		}
+		delete(expected, dimension.Dimension)
+	}
+	return len(expected) == 0
 }
 
 func loadZTAPISupplierImportResult(tx *gorm.DB, batch ZTAPISupplierReconciliationBatch) (*ZTAPISupplierReconciliationResult, error) {
@@ -547,9 +699,10 @@ func PrepareZTAPISupplierReconciliation(db *gorm.DB, input ZTAPISupplierReconcil
 			return err
 		}
 		matches := make([]ZTAPISupplierReconciliationEntry, 0, len(normalized))
+		batchClaims := make(map[uint]string)
 		matched, unmatched, reversals := 0, 0, 0
 		for _, item := range normalized {
-			entry, matchErr := matchZTAPISupplierRecord(tx, input.Supplier, item)
+			entry, matchErr := matchZTAPISupplierRecord(tx, input.Supplier, item, !input.DryRun, batchClaims)
 			if matchErr != nil {
 				return matchErr
 			}

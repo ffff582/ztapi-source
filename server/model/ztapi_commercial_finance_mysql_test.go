@@ -422,6 +422,302 @@ func commercialConcurrent(t *testing.T, count int, fn func() error) {
 	}
 }
 
+func commercialMySQLApprovedNoChargeConcurrentRelease(t *testing.T) {
+	f := newCommercialMySQLFixture(t, DB, 1000)
+	row, err := BeginZTAPIRequestSettlement(f.input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.prepareAttempt(t)
+	if _, err = PendZTAPIRequestSettlement(f.input.OperationID, "{}", `["upstream_usage_missing"]`); err != nil {
+		t.Fatal(err)
+	}
+	if err = DB.First(row, row.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err = DB.Transaction(func(tx *gorm.DB) error { return EnsureZTAPIAttemptBillingReviewsTx(tx, row) }); err != nil {
+		t.Fatal(err)
+	}
+
+	input := ZTAPIAttemptBillingSubmission{
+		Source: "test-supplier", ProofID: f.input.RequestID + ":no-charge", RequestID: f.input.RequestID,
+		UserID: f.user.Id, Attempt: 1, ChannelID: f.channel.Id, CredentialVersion: "test-credential-v1",
+		UpstreamRequestID: "wire-" + f.input.RequestID, Kind: "nocharge", EvidenceReference: "synthetic-statement:no-charge",
+	}
+	proof, err := SubmitZTAPIAttemptBilling(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commercialConcurrent(t, 16, func() error {
+		return ApproveZTAPIAttemptBilling(proof.ID, f.admin.Id, "synthetic-finance-review:no-charge", nil)
+	})
+
+	// Simulate a crash after durable approval and customer release but before the
+	// proof status was closed, then race manual and background recovery paths.
+	if err = DB.Model(&ZTAPIAttemptBillingProof{}).Where("id = ?", proof.ID).Updates(map[string]any{
+		"status": "approved", "pending_reason": "nocharge_release_pending",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	errs := make(chan error, 16)
+	for i := 0; i < 8; i++ {
+		wg.Add(2)
+		go func() { defer wg.Done(); errs <- ProcessZTAPIAttemptBilling(proof.ID, nil) }()
+		go func() { defer wg.Done(); errs <- RetryZTAPIAttemptBillings(100, nil) }()
+	}
+	wg.Wait()
+	close(errs)
+	for err = range errs {
+		if err != nil && !errors.Is(err, ErrBalanceLedgerCacheSync) {
+			t.Fatal(err)
+		}
+	}
+
+	assertZTAPISettlementBalances(t, DB, *row, 1000, 1000)
+	var saved ZTAPIRequestSettlement
+	var savedProof ZTAPIAttemptBillingProof
+	if err = DB.First(&saved, row.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err = DB.First(&savedProof, proof.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if saved.Status != ZTAPISettlementReleased || savedProof.Status != "completed" || savedProof.PendingReason != "" {
+		t.Fatalf("no-charge recovery incomplete settlement=%+v proof=%+v", saved, savedProof)
+	}
+	for _, check := range []struct {
+		model any
+		query string
+		args  []any
+		want  int64
+	}{
+		{&BalanceLedger{}, "request_id = ?", []any{f.input.RequestID}, 2},
+		{&BalanceLedger{}, "request_id = ? AND source_type = ?", []any{f.input.RequestID, BalanceLedgerSourceBillingRefund}, 1},
+		{&ZTAPIPendingResolution{}, "settlement_id = ?", []any{row.ID}, 1},
+		{&ZTAPIAttemptBillingApproval{}, "proof_id = ?", []any{proof.ID}, 1},
+	} {
+		var count int64
+		if err = DB.Model(check.model).Where(check.query, check.args...).Count(&count).Error; err != nil || count != check.want {
+			t.Fatalf("%T count=%d want=%d err=%v", check.model, count, check.want, err)
+		}
+	}
+}
+
+func commercialMySQLApprovedNoChargePreReleaseReconnect(t *testing.T, open func() *gorm.DB) {
+	f := newCommercialMySQLFixture(t, DB, 1000)
+	row, err := BeginZTAPIRequestSettlement(f.input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.prepareAttempt(t)
+	if _, err = PendZTAPIRequestSettlement(f.input.OperationID, "{}", `["upstream_usage_missing"]`); err != nil {
+		t.Fatal(err)
+	}
+	if err = DB.First(row, row.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err = DB.Transaction(func(tx *gorm.DB) error { return EnsureZTAPIAttemptBillingReviewsTx(tx, row) }); err != nil {
+		t.Fatal(err)
+	}
+	input := ZTAPIAttemptBillingSubmission{
+		Source: "test-supplier", ProofID: f.input.RequestID + ":pre-release-no-charge", RequestID: f.input.RequestID,
+		UserID: f.user.Id, Attempt: 1, ChannelID: f.channel.Id, CredentialVersion: "test-credential-v1",
+		UpstreamRequestID: "wire-" + f.input.RequestID, Kind: "nocharge", EvidenceReference: "synthetic-statement:pre-release",
+	}
+	proof, err := SubmitZTAPIAttemptBilling(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	faultDB := DB
+	callback := "commercial-test:fail-nocharge-resolution"
+	injected := errors.New("injected no-charge resolution failure")
+	if err = faultDB.Callback().Create().Before("gorm:create").Register(callback, func(tx *gorm.DB) {
+		if _, ok := tx.Statement.Dest.(*ZTAPIPendingResolution); ok {
+			_ = tx.AddError(injected)
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	registered := true
+	t.Cleanup(func() {
+		if registered {
+			_ = faultDB.Callback().Create().Remove(callback)
+		}
+	})
+	if err = ApproveZTAPIAttemptBilling(proof.ID, f.admin.Id, "synthetic-finance-review:pre-release", nil); !errors.Is(err, injected) {
+		t.Fatalf("approval did not stop in the pre-release window: %v", err)
+	}
+	if err = faultDB.Callback().Create().Remove(callback); err != nil {
+		t.Fatal(err)
+	}
+	registered = false
+
+	assertZTAPISettlementBalances(t, DB, *row, 900, 900)
+	var pending ZTAPIRequestSettlement
+	var approved ZTAPIAttemptBillingProof
+	if err = DB.First(&pending, row.ID).Error; err != nil || pending.Status != ZTAPISettlementPending {
+		t.Fatalf("approval failure did not preserve pending hold: %+v err=%v", pending, err)
+	}
+	if err = DB.First(&approved, proof.ID).Error; err != nil || approved.Status != "approved" || approved.PendingReason != "nocharge_release_pending" {
+		t.Fatalf("approval was not durably recorded: %+v err=%v", approved, err)
+	}
+
+	sqlDB, err := DB.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = sqlDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+	DB = open()
+	start := make(chan struct{})
+	errs := make(chan error, 16)
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(2)
+		go func() { defer wg.Done(); <-start; errs <- ProcessZTAPIAttemptBilling(proof.ID, nil) }()
+		go func() { defer wg.Done(); <-start; errs <- RetryZTAPIAttemptBillings(100, nil) }()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err = range errs {
+		if err != nil && !errors.Is(err, ErrBalanceLedgerCacheSync) {
+			t.Fatal(err)
+		}
+	}
+
+	assertZTAPISettlementBalances(t, DB, *row, 1000, 1000)
+	if err = DB.First(&pending, row.ID).Error; err != nil || pending.Status != ZTAPISettlementReleased {
+		t.Fatalf("restart did not release pending reservation: %+v err=%v", pending, err)
+	}
+	if err = DB.First(&approved, proof.ID).Error; err != nil || approved.Status != "completed" || approved.PendingReason != "" {
+		t.Fatalf("restart did not close approved proof: %+v err=%v", approved, err)
+	}
+	for _, check := range []struct {
+		model any
+		query string
+		args  []any
+		want  int64
+	}{
+		{&BalanceLedger{}, "request_id = ?", []any{f.input.RequestID}, 2},
+		{&ZTAPIPendingResolution{}, "settlement_id = ?", []any{row.ID}, 1},
+		{&ZTAPIAttemptBillingApproval{}, "proof_id = ?", []any{proof.ID}, 1},
+	} {
+		var count int64
+		if err = DB.Model(check.model).Where(check.query, check.args...).Count(&count).Error; err != nil || count != check.want {
+			t.Fatalf("%T count=%d want=%d err=%v", check.model, count, check.want, err)
+		}
+	}
+}
+
+func commercialMySQLConcurrentSupplierChargeClaim(t *testing.T) {
+	f := newCommercialMySQLFixture(t, DB, 1000)
+	if _, err := BeginZTAPIRequestSettlement(f.input); err != nil {
+		t.Fatal(err)
+	}
+	f.prepareAttempt(t)
+	if _, err := f.finalize(40); err != nil {
+		t.Fatal(err)
+	}
+	var charge ZTAPISupplierRefundCharge
+	if err := DB.Where("request_id = ? AND attempt = 1", f.input.RequestID).Take(&charge).Error; err != nil {
+		t.Fatal(err)
+	}
+	if charge.UpstreamBillID != "" {
+		t.Fatal("fixture charge must be unclaimed")
+	}
+	charge.DimensionsJSON = `[{"dimension":"input_tokens","units":"40","unit_quota":"1","charged_quota":40}]`
+	if err := DB.Model(&ZTAPISupplierRefundCharge{}).Where("id = ?", charge.ID).UpdateColumn("dimensions_json", charge.DimensionsJSON).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	inputs := make([]ZTAPISupplierReconciliationImport, 2)
+	for i := range inputs {
+		record := validZTAPISupplierLedgerRecord(fmt.Sprintf("concurrent-bill-%d-%s", i+1, f.input.RequestID))
+		record.RequestID = "wire-" + f.input.RequestID
+		record.CredentialRef = "test-credential-v1"
+		input := validZTAPISupplierImport(record)
+		input.OperatorID = f.admin.Id
+		input.IdempotencyKey = fmt.Sprintf("concurrent-claim-%d-%s", i+1, f.input.RequestID)
+		input.FileChecksum = ztapiSupplierRefundHash(input.IdempotencyKey + ":file")
+		input.PayloadHash = ztapiSupplierRefundHash(input.IdempotencyKey + ":payload")
+		preview, err := PrepareZTAPISupplierReconciliation(DB, input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if preview.Matched != 1 || preview.Unmatched != 0 {
+			t.Fatalf("invalid concurrent claim preview: %+v", preview)
+		}
+		input.DryRun = false
+		inputs[i] = input
+	}
+
+	start := make(chan struct{})
+	results := make(chan *ZTAPISupplierReconciliationResult, 2)
+	errs := make(chan error, 2)
+	var wg sync.WaitGroup
+	for i := range inputs {
+		wg.Add(1)
+		go func(input ZTAPISupplierReconciliationImport) {
+			defer wg.Done()
+			<-start
+			result, err := PrepareZTAPISupplierReconciliation(DB, input)
+			results <- result
+			errs <- err
+		}(inputs[i])
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+	close(errs)
+	conflicts := 0
+	for err := range errs {
+		if errors.Is(err, ErrZTAPISupplierReconciliationConflict) {
+			conflicts++
+		} else if err != nil {
+			t.Fatal(err)
+		}
+	}
+	existing := 0
+	for result := range results {
+		if result == nil {
+			continue
+		}
+		if len(result.Entries) != 1 {
+			t.Fatalf("invalid successful reconciliation result: %+v", result)
+		}
+		switch result.Entries[0].ActionKind {
+		case ZTAPISupplierReconciliationActionExistingCharge:
+			existing++
+		default:
+			t.Fatalf("unexpected action: %+v", result.Entries[0])
+		}
+	}
+	if existing != 1 || conflicts != 1 {
+		t.Fatalf("charge claim results existing=%d conflicts=%d", existing, conflicts)
+	}
+	var claim ZTAPISupplierReconciliationChargeClaim
+	if err := DB.First(&claim, charge.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	loser := inputs[0].Records[0]
+	if loser.SupplierRecordID == claim.SupplierRecordID {
+		loser = inputs[1].Records[0]
+	}
+	recheck := validZTAPISupplierImport(loser)
+	recheck.OperatorID = f.admin.Id
+	recheck.IdempotencyKey = "concurrent-claim-recheck-" + f.input.RequestID
+	recheck.FileChecksum = ztapiSupplierRefundHash(recheck.IdempotencyKey + ":file")
+	recheck.PayloadHash = ztapiSupplierRefundHash(recheck.IdempotencyKey + ":payload")
+	classified, err := PrepareZTAPISupplierReconciliation(DB, recheck)
+	if err != nil || classified.Matched != 0 || classified.Unmatched != 1 {
+		t.Fatalf("losing supplier bill not classified as unmatched: %+v err=%v", classified, err)
+	}
+}
+
 func (f commercialMySQLFixture) twoAttempts(t *testing.T, pending bool) (ZTAPIRequestSettlement, ZTAPISettlementEvidence, ZTAPIAttemptBillingSubmission) {
 	t.Helper()
 	row, err := BeginZTAPIRequestSettlement(f.input)
@@ -811,10 +1107,13 @@ func TestZTAPICommercialMySQLIntegration(t *testing.T) {
 	if err := MigrateZTAPIFinanceAlerts(db); err != nil {
 		t.Fatal(err)
 	}
+	if err := MigrateZTAPISupplierReconciliation(db); err != nil {
+		t.Fatal(err)
+	}
 	if err := registerZTAPIMediaTaskMutationGuard(db); err != nil {
 		t.Fatal(err)
 	}
-	for _, table := range []string{"users", "tokens", "channels", "balance_ledgers", "ztapi_request_settlements", "ztapi_media_tasks", "ztapi_request_attempts", "ztapi_supplier_refund_charges", "ztapi_supplier_refunds", "ztapi_supplier_refund_approvals", "ztapi_settlement_log_outboxes", "ztapi_settlement_finalization_intents", "ztapi_pending_resolutions", "ztapi_attempt_billing_reviews", "ztapi_attempt_billing_proofs", "ztapi_attempt_billing_approvals", "ztapi_finance_alert_outboxes", "logs", "ztapi_settlement_log_receipts"} {
+	for _, table := range []string{"users", "tokens", "channels", "balance_ledgers", "ztapi_request_settlements", "ztapi_media_tasks", "ztapi_request_attempts", "ztapi_supplier_refund_charges", "ztapi_supplier_refunds", "ztapi_supplier_refund_approvals", "ztapi_settlement_log_outboxes", "ztapi_settlement_finalization_intents", "ztapi_pending_resolutions", "ztapi_attempt_billing_reviews", "ztapi_attempt_billing_proofs", "ztapi_attempt_billing_approvals", "ztapi_finance_alert_outboxes", "ztapi_supplier_reconciliation_batches", "ztapi_supplier_reconciliation_entries", "ztapi_supplier_reconciliation_charge_claims", "ztapi_supplier_reconciliation_actions", "ztapi_supplier_reconciliation_batch_entries", "logs", "ztapi_settlement_log_receipts"} {
 		var engine string
 		if err := db.Raw("SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?", table).Scan(&engine).Error; err != nil {
 			t.Fatal(err)
@@ -824,6 +1123,9 @@ func TestZTAPICommercialMySQLIntegration(t *testing.T) {
 		}
 	}
 	t.Run("attempt_concurrent_approve_apply_and_independent_refund_caps", commercialMySQLAttemptCharges)
+	t.Run("approved_nocharge_concurrent_release_and_recovery", commercialMySQLApprovedNoChargeConcurrentRelease)
+	t.Run("approved_nocharge_pre_release_crash_reconnect", func(t *testing.T) { commercialMySQLApprovedNoChargePreReleaseReconnect(t, open) })
+	t.Run("concurrent_supplier_batches_claim_charge_once", commercialMySQLConcurrentSupplierChargeClaim)
 	t.Run("approved_pending_final_crash_reconnect_intent", func(t *testing.T) { commercialMySQLApprovedFinalReconnect(t, open) })
 	t.Run("legacy_single_unique_to_composite_and_log_width_migration", commercialMySQLLegacyMigration)
 	t.Run("approved_final_late_wire_overlap_blocks_generic_retry", commercialMySQLLateWireOverlap)

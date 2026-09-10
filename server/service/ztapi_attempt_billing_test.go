@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
@@ -37,6 +39,251 @@ func changeAttemptBillingSnapshot(t *testing.T, parent *model.ZTAPIRequestSettle
 	raw, err := common.Marshal(snapshot)
 	require.NoError(t, err)
 	parent.PriceSnapshotJSON = string(raw)
+}
+
+func imageAttemptBillingPriceFixture(t *testing.T, contract types.ZTAPIMediaPriceContract, usage []model.ZTAPIAttemptBillingQuantity) (model.ZTAPIRequestSettlement, model.ZTAPIAttemptBillingSubmission) {
+	t.Helper()
+	rawContract, err := common.Marshal(contract)
+	require.NoError(t, err)
+	contractJSON, err := types.CanonicalizeZTAPIMediaPriceContract(string(rawContract))
+	require.NoError(t, err)
+	publication := relaycommon.ZTAPIPublicationSnapshot{
+		PublicationID: 31, Version: 7, PublicName: "zt-image-proof", SourceModel: "provider-image-proof", Modality: "image",
+		PriceSourceID: 41, PriceSourceVersion: 11, MediaPriceContractJSON: contractJSON,
+	}
+	fields := make(map[string]string)
+	maximum := make(map[string]string)
+	cacheSemantics := "not_reported"
+	for _, rule := range contract.Rules {
+		for dimension := range rule.SaleUSD {
+			fields[dimension] = dimension
+			maximum[dimension] = "300000"
+			if strings.Contains(dimension, "cached") {
+				cacheSemantics = "separate_dimension"
+			}
+		}
+	}
+	protocol, protocolJSON, err := types.SealZTAPIImageProtocolContract(types.ZTAPIImageProtocolContract{
+		Version: types.ZTAPIImageProtocolContractVersion, ProviderModel: publication.SourceModel,
+		EndpointType: types.ZTAPIImageEndpointGeneration, Method: "POST", Path: "/v1/images/generations",
+		Capabilities:   types.ZTAPIImageCapabilities{Sizes: []string{"1024x1024"}, Qualities: []string{"standard"}, ResponseFormats: []string{"b64_json"}, MinCount: 1, MaxCount: 1},
+		Response:       types.ZTAPIImageResponseContract{Schema: "object_results_array", ResultsField: "data", ResultFields: map[string]string{"b64_json": "b64_json"}},
+		Usage:          types.ZTAPIImageUsageContract{UsageField: "usage", Fields: fields, TotalField: "total_tokens", TotalSemantics: "sum_of_dimensions", CacheSemantics: cacheSemantics},
+		Reservations:   []types.ZTAPIImageReservationAuthority{{Size: "1024x1024", Quality: "standard", ResponseFormat: "b64_json", N: 1, MaximumDimensions: maximum}},
+		RequestIDField: "request_id", EvidenceVersion: types.ZTAPIImageEvidenceVersion,
+	})
+	require.NoError(t, err)
+	publication.ImageProtocolContract = &protocol
+	frozen, err := common.Marshal(ztapiFrozenMediaReservation{
+		ZTAPIPublicationSnapshot:  publication,
+		SelectorJSON:              `{"modality":"image","n":1,"quality":"standard","response_format":"b64_json","size":"1024x1024"}`,
+		ImageProtocolContractJSON: protocolJSON,
+		ProtocolEvidenceHash:      protocol.EvidenceHash,
+		QuotaPerUnit:              "500000",
+		MaximumDimensions:         maximum,
+		MaximumQuota:              math.MaxInt32,
+	})
+	require.NoError(t, err)
+	parent := model.ZTAPIRequestSettlement{
+		ID: 1, OperationID: "image-original-operation", RequestID: "image-canonical-request", UserID: 11, TokenID: 12,
+		PublicModel: publication.PublicName, PriceSnapshotJSON: string(frozen), Status: model.ZTAPISettlementPending,
+		CreatedAt: time.Unix(1788790000, 0),
+	}
+	submission := model.ZTAPIAttemptBillingSubmission{
+		Source: "offline-supplier", ProofID: "image-billed-proof", RequestID: parent.RequestID, UserID: parent.UserID,
+		Attempt: 1, ChannelID: 13, CredentialVersion: "credential-version", UpstreamRequestID: "wire-first",
+		UpstreamBillID: "bill-line", Kind: "billed", UsageSemantic: "ztapi_image", Usage: usage,
+		EvidenceReference: "reviewed-image-statement", DistinctUsageReference: "separate-image-attempt-usage",
+	}
+	rawUsage := make(map[string]int64, len(usage))
+	submission.PriceRuleIDs = make(map[string]string, len(usage))
+	for _, quantity := range usage {
+		rawUsage[quantity.Dimension] = quantity.Quantity
+		rawUsage["total_tokens"] += quantity.Quantity
+	}
+	if _, tiered := contract.Rules[0].Conditions["prompt_tokens_tier"]; tiered {
+		tier := "lte_200k"
+		if rawUsage["input_tokens"] > 200000 {
+			tier = "gt_200k"
+		}
+		submission.SelectedRuleID = tier
+		for _, quantity := range usage {
+			submission.PriceRuleIDs[quantity.Dimension] = tier
+		}
+	} else {
+		for _, quantity := range usage {
+			submission.PriceRuleIDs[quantity.Dimension] = quantity.Dimension
+		}
+	}
+	rawUsageJSON, err := common.Marshal(rawUsage)
+	require.NoError(t, err)
+	submission.RawUsageJSON = string(rawUsageJSON)
+	return parent, submission
+}
+
+func TestZTAPIAttemptBillingPricesGPTImageFiveBucketsFromFrozenMediaContract(t *testing.T) {
+	prices := map[string]string{"text_input": "1", "text_cached_input": "0.2", "image_input": "2", "image_cached_input": "0.4", "image_output": "4"}
+	costs := map[string]string{"text_input": "0.6", "text_cached_input": "0.12", "image_input": "1.2", "image_cached_input": "0.24", "image_output": "2.4"}
+	rules := make([]types.ZTAPIMediaPriceRule, 0, len(prices))
+	for index, dimension := range []string{"text_input", "text_cached_input", "image_input", "image_cached_input", "image_output"} {
+		rules = append(rules, types.ZTAPIMediaPriceRule{
+			ID: dimension, Conditions: map[string]string{"token_bucket": dimension}, BillingUnit: types.ZTAPIMediaBillingUnitUSDPerMillionTokens,
+			CostUSD: map[string]string{dimension: costs[dimension]}, SaleUSD: map[string]string{dimension: prices[dimension]},
+			SourceCells: map[string]string{dimension: fmt.Sprintf("A%d", index+1)},
+		})
+	}
+	parent, submission := imageAttemptBillingPriceFixture(t, types.ZTAPIMediaPriceContract{Version: 1, Modality: "image", Rules: rules}, []model.ZTAPIAttemptBillingQuantity{
+		{Dimension: "text_input", Quantity: 2}, {Dimension: "text_cached_input", Quantity: 10},
+		{Dimension: "image_input", Quantity: 3}, {Dimension: "image_cached_input", Quantity: 5}, {Dimension: "image_output", Quantity: 2},
+	})
+
+	priced, err := PriceZTAPIAttemptBilling(parent, submission)
+	require.NoError(t, err)
+	require.Equal(t, 10, priced.ConsumeLog.Quota)
+	require.Len(t, priced.Dimensions, 5)
+}
+
+func TestZTAPIAttemptBillingFreezesGeminiImageTierBoundary(t *testing.T) {
+	contract := types.ZTAPIMediaPriceContract{Version: 1, Modality: "image", Rules: []types.ZTAPIMediaPriceRule{
+		{ID: "lte_200k", Conditions: map[string]string{"prompt_tokens_tier": "lte_200k"}, BillingUnit: types.ZTAPIMediaBillingUnitUSDPerMillionTokens,
+			CostUSD: map[string]string{"input_tokens": "0.6", "output_tokens": "1.2"}, SaleUSD: map[string]string{"input_tokens": "1", "output_tokens": "2"}, SourceCells: map[string]string{"input_tokens": "A1", "output_tokens": "B1"}},
+		{ID: "gt_200k", Conditions: map[string]string{"prompt_tokens_tier": "gt_200k"}, BillingUnit: types.ZTAPIMediaBillingUnitUSDPerMillionTokens,
+			CostUSD: map[string]string{"input_tokens": "1.8", "output_tokens": "2.4"}, SaleUSD: map[string]string{"input_tokens": "3", "output_tokens": "4"}, SourceCells: map[string]string{"input_tokens": "A2", "output_tokens": "B2"}},
+	}}
+	for _, tc := range []struct {
+		name  string
+		input int64
+		want  int
+	}{{"low_at_200000", 200000, 100001}, {"high_at_200001", 200001, 300004}} {
+		t.Run(tc.name, func(t *testing.T) {
+			parent, submission := imageAttemptBillingPriceFixture(t, contract, []model.ZTAPIAttemptBillingQuantity{{Dimension: "input_tokens", Quantity: tc.input}, {Dimension: "output_tokens", Quantity: 1}})
+			priced, err := PriceZTAPIAttemptBilling(parent, submission)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, priced.ConsumeLog.Quota)
+		})
+	}
+}
+
+func TestZTAPIGeminiImageTierBoundaryCompletesLateBillAndFullRefund(t *testing.T) {
+	contract := types.ZTAPIMediaPriceContract{Version: 1, Modality: "image", Rules: []types.ZTAPIMediaPriceRule{
+		{ID: "lte_200k", Conditions: map[string]string{"prompt_tokens_tier": "lte_200k"}, BillingUnit: types.ZTAPIMediaBillingUnitUSDPerMillionTokens,
+			CostUSD: map[string]string{"input_tokens": "0.6", "output_tokens": "1.2"}, SaleUSD: map[string]string{"input_tokens": "1", "output_tokens": "2"}, SourceCells: map[string]string{"input_tokens": "A1", "output_tokens": "B1"}},
+		{ID: "gt_200k", Conditions: map[string]string{"prompt_tokens_tier": "gt_200k"}, BillingUnit: types.ZTAPIMediaBillingUnitUSDPerMillionTokens,
+			CostUSD: map[string]string{"input_tokens": "1.8", "output_tokens": "2.4"}, SaleUSD: map[string]string{"input_tokens": "3", "output_tokens": "4"}, SourceCells: map[string]string{"input_tokens": "A2", "output_tokens": "B2"}},
+	}}
+	for _, tc := range []struct {
+		name, tier string
+		input      int64
+		want       int
+	}{{"low_at_200000", "lte_200k", 200000, 100001}, {"high_at_200001", "gt_200k", 200001, 300004}} {
+		t.Run(tc.name, func(t *testing.T) {
+			oldDB, oldLogDB := model.DB, model.LOG_DB
+			t.Cleanup(func() { model.DB, model.LOG_DB = oldDB, oldLogDB })
+			db, user, token := setupServiceTokenQuotaTest(t)
+			model.LOG_DB = db
+			require.NoError(t, db.Model(user).Update("quota", 1000000).Error)
+			require.NoError(t, db.Model(token).Updates(map[string]any{"unlimited_quota": false, "remain_quota": 1000000}).Error)
+			require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Log{}, &model.ZTAPIRequestSettlement{}, &model.ZTAPIRequestAttempt{}, &model.ZTAPISettlementFinalizationIntent{}, &model.ZTAPISettlementLogOutbox{}, &model.ZTAPISettlementLogReceipt{}))
+			require.NoError(t, model.MigrateZTAPISupplierRefund(db))
+			require.NoError(t, model.MigrateZTAPIAttemptBilling(db))
+			require.NoError(t, db.Create(&model.Channel{Id: 23, Name: "gemini-image-proof-channel", Status: common.ChannelStatusEnabled, Type: 1}).Error)
+
+			input, submission := imageAttemptBillingPriceFixture(t, contract, []model.ZTAPIAttemptBillingQuantity{{Dimension: "input_tokens", Quantity: tc.input}, {Dimension: "output_tokens", Quantity: 1}})
+			input.ID, input.UserID, input.TokenID, input.ReservedQuota = 0, user.Id, token.Id, 400000
+			input.OperationID, input.RequestID = "gemini-tier-op-"+tc.name, "gemini-tier-request-"+tc.name
+			parent, err := model.BeginZTAPIRequestSettlement(input)
+			require.NoError(t, err)
+			attempt, err := model.BeginZTAPIRequestAttempt(parent.OperationID, 23, submission.CredentialVersion, "/v1beta/models/generateContent")
+			require.NoError(t, err)
+			require.NoError(t, model.RecordZTAPIRequestAttemptResponse(parent.OperationID, attempt.Attempt, attempt.ChannelID, 200, submission.UpstreamRequestID))
+			parent, err = model.PendZTAPIRequestSettlement(parent.OperationID, "{}", `["upstream_usage_missing"]`)
+			require.NoError(t, err)
+			require.NoError(t, db.Transaction(func(tx *gorm.DB) error { return model.EnsureZTAPIAttemptBillingReviewsTx(tx, parent) }))
+			operator := model.User{Username: "gemini-tier-finance-" + tc.name, Status: common.UserStatusEnabled, Role: common.RoleFinanceUser, AffCode: "gemini-tier-finance-" + tc.name}
+			require.NoError(t, db.Create(&operator).Error)
+
+			submission.RequestID, submission.UserID, submission.Attempt = parent.RequestID, parent.UserID, attempt.Attempt
+			submission.ChannelID = attempt.ChannelID
+			proof, err := model.SubmitZTAPIAttemptBilling(submission)
+			require.NoError(t, err)
+			require.NoError(t, model.ApproveZTAPIAttemptBilling(proof.ID, operator.Id, "verified Gemini tier bill", PriceZTAPIAttemptBilling))
+			require.NoError(t, model.ProcessZTAPIAttemptBilling(proof.ID, EnqueueZTAPIAttemptBillingLogTx))
+
+			var settled model.ZTAPIRequestSettlement
+			require.NoError(t, db.First(&settled, parent.ID).Error)
+			require.Equal(t, model.ZTAPISettlementSettled, settled.Status)
+			require.EqualValues(t, tc.want, settled.ChargedQuota)
+			var charge model.ZTAPISupplierRefundCharge
+			require.NoError(t, db.Where("request_id = ?", parent.RequestID).Take(&charge).Error)
+			var storedProof model.ZTAPIAttemptBillingProof
+			require.NoError(t, db.First(&storedProof, proof.ID).Error)
+			var stored model.ZTAPIAttemptBillingSubmission
+			require.NoError(t, common.UnmarshalJsonStr(storedProof.SubmissionJSON, &stored))
+			require.Equal(t, tc.tier, stored.SelectedRuleID)
+			require.Equal(t, tc.tier, stored.PriceRuleIDs["input_tokens"])
+			require.Equal(t, tc.tier, stored.PriceRuleIDs["output_tokens"])
+
+			refund, err := model.SubmitZTAPISupplierRefund(model.ZTAPISupplierRefundSubmission{Source: "offline-supplier", ProofID: "gemini-tier-refund-" + tc.name, RequestID: parent.RequestID, UserID: parent.UserID, Attempt: charge.Attempt, ChannelID: charge.ChannelID, CredentialVersion: charge.CredentialVersion, UpstreamRequestID: charge.UpstreamRequestID, UpstreamBillID: charge.UpstreamBillID, Mode: "full", EvidenceReference: "verified full Gemini reversal"})
+			require.NoError(t, err)
+			require.NoError(t, model.ApproveZTAPISupplierRefund(refund.ID, operator.Id, "reviewed Gemini reversal"))
+			require.NoError(t, model.ProcessZTAPISupplierRefund(refund.ID))
+			require.NoError(t, model.ProcessZTAPISupplierRefund(refund.ID))
+			var account model.User
+			require.NoError(t, db.First(&account, user.Id).Error)
+			require.Equal(t, 1000000, account.Quota)
+			assertServiceTokenQuota(t, db, token.Id, 1000000, 11)
+		})
+	}
+}
+
+func TestZTAPIAttemptBillingRejectsImageRuleAndRawUsageDrift(t *testing.T) {
+	contract := types.ZTAPIMediaPriceContract{Version: 1, Modality: "image", Rules: []types.ZTAPIMediaPriceRule{
+		{ID: "lte_200k", Conditions: map[string]string{"prompt_tokens_tier": "lte_200k"}, BillingUnit: types.ZTAPIMediaBillingUnitUSDPerMillionTokens,
+			CostUSD: map[string]string{"input_tokens": "0.6", "output_tokens": "1.2"}, SaleUSD: map[string]string{"input_tokens": "1", "output_tokens": "2"}, SourceCells: map[string]string{"input_tokens": "A1", "output_tokens": "B1"}},
+		{ID: "gt_200k", Conditions: map[string]string{"prompt_tokens_tier": "gt_200k"}, BillingUnit: types.ZTAPIMediaBillingUnitUSDPerMillionTokens,
+			CostUSD: map[string]string{"input_tokens": "1.8", "output_tokens": "2.4"}, SaleUSD: map[string]string{"input_tokens": "3", "output_tokens": "4"}, SourceCells: map[string]string{"input_tokens": "A2", "output_tokens": "B2"}},
+	}}
+	for _, tc := range []struct {
+		name   string
+		mutate func(*model.ZTAPIAttemptBillingSubmission)
+	}{
+		{"wrong_selected_tier", func(s *model.ZTAPIAttemptBillingSubmission) { s.SelectedRuleID = "gt_200k" }},
+		{"wrong_dimension_rule", func(s *model.ZTAPIAttemptBillingSubmission) { s.PriceRuleIDs["output_tokens"] = "gt_200k" }},
+		{"missing_raw_usage", func(s *model.ZTAPIAttemptBillingSubmission) { s.RawUsageJSON = "" }},
+		{"raw_usage_mismatch", func(s *model.ZTAPIAttemptBillingSubmission) {
+			s.RawUsageJSON = `{"input_tokens":199999,"output_tokens":1}`
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			parent, submission := imageAttemptBillingPriceFixture(t, contract, []model.ZTAPIAttemptBillingQuantity{{Dimension: "input_tokens", Quantity: 200000}, {Dimension: "output_tokens", Quantity: 1}})
+			tc.mutate(&submission)
+			_, err := PriceZTAPIAttemptBilling(parent, submission)
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestZTAPIAttemptBillingRequiresExplicitZeroGPTImageBuckets(t *testing.T) {
+	prices := map[string]string{"text_input": "1", "text_cached_input": "0.2", "image_input": "2", "image_cached_input": "0.4", "image_output": "4"}
+	costs := map[string]string{"text_input": "0.6", "text_cached_input": "0.12", "image_input": "1.2", "image_cached_input": "0.24", "image_output": "2.4"}
+	rules := make([]types.ZTAPIMediaPriceRule, 0, 5)
+	for index, dimension := range []string{"text_input", "text_cached_input", "image_input", "image_cached_input", "image_output"} {
+		rules = append(rules, types.ZTAPIMediaPriceRule{ID: dimension, Conditions: map[string]string{"token_bucket": dimension}, BillingUnit: types.ZTAPIMediaBillingUnitUSDPerMillionTokens,
+			CostUSD: map[string]string{dimension: costs[dimension]}, SaleUSD: map[string]string{dimension: prices[dimension]}, SourceCells: map[string]string{dimension: fmt.Sprintf("A%d", index+1)}})
+	}
+	parent, submission := imageAttemptBillingPriceFixture(t, types.ZTAPIMediaPriceContract{Version: 1, Modality: "image", Rules: rules}, []model.ZTAPIAttemptBillingQuantity{
+		{Dimension: "text_input", Quantity: 2}, {Dimension: "text_cached_input", Quantity: 0}, {Dimension: "image_input", Quantity: 3}, {Dimension: "image_cached_input", Quantity: 0}, {Dimension: "image_output", Quantity: 2},
+	})
+	priced, err := PriceZTAPIAttemptBilling(parent, submission)
+	require.NoError(t, err)
+	require.Equal(t, 8, priced.ConsumeLog.Quota)
+	require.Len(t, priced.Dimensions, 3, "zero buckets are explicit evidence but not refundable charge dimensions")
+
+	omitted := submission
+	omitted.Usage = append([]model.ZTAPIAttemptBillingQuantity(nil), submission.Usage[:4]...)
+	delete(omitted.PriceRuleIDs, "image_output")
+	_, err = PriceZTAPIAttemptBilling(parent, omitted)
+	require.Error(t, err)
 }
 
 func TestZTAPIAttemptBillingPricesFrozenExclusiveBuckets(t *testing.T) {
@@ -418,4 +665,122 @@ func TestZTAPIAttemptBillingServiceApprovalChargeLogsAndIndependentRefunds(t *te
 	var logs int64
 	require.NoError(t, db.Model(&model.Log{}).Where("request_id = ?", parent.RequestID).Count(&logs).Error)
 	require.EqualValues(t, 2, logs)
+}
+
+func TestZTAPIImagePendingFinalLateBillUsesFrozenPriceAndRefundsOriginalCustomerExactly(t *testing.T) {
+	oldDB, oldLogDB := model.DB, model.LOG_DB
+	t.Cleanup(func() { model.DB, model.LOG_DB = oldDB, oldLogDB })
+	db, user, token := setupServiceTokenQuotaTest(t)
+	model.LOG_DB = db
+	require.NoError(t, db.Model(token).Update("unlimited_quota", false).Error)
+	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Log{}, &model.ZTAPIRequestSettlement{}, &model.ZTAPIRequestAttempt{}, &model.ZTAPISettlementFinalizationIntent{}, &model.ZTAPISettlementLogOutbox{}, &model.ZTAPISettlementLogReceipt{}))
+	require.NoError(t, model.MigrateZTAPISupplierRefund(db))
+	require.NoError(t, model.MigrateZTAPIAttemptBilling(db))
+	require.NoError(t, model.MigrateZTAPIFinanceAlerts(db))
+	require.NoError(t, db.Create(&model.Channel{Id: 13, Name: "image-proof-channel", Status: common.ChannelStatusEnabled, Type: 1}).Error)
+
+	prices := map[string]string{"text_input": "1", "text_cached_input": "0.2", "image_input": "2", "image_cached_input": "0.4", "image_output": "4"}
+	costs := map[string]string{"text_input": "0.6", "text_cached_input": "0.12", "image_input": "1.2", "image_cached_input": "0.24", "image_output": "2.4"}
+	rules := make([]types.ZTAPIMediaPriceRule, 0, len(prices))
+	for index, dimension := range []string{"text_input", "text_cached_input", "image_input", "image_cached_input", "image_output"} {
+		rules = append(rules, types.ZTAPIMediaPriceRule{
+			ID: dimension, Conditions: map[string]string{"token_bucket": dimension}, BillingUnit: types.ZTAPIMediaBillingUnitUSDPerMillionTokens,
+			CostUSD: map[string]string{dimension: costs[dimension]}, SaleUSD: map[string]string{dimension: prices[dimension]},
+			SourceCells: map[string]string{dimension: fmt.Sprintf("A%d", index+1)},
+		})
+	}
+	input, submission := imageAttemptBillingPriceFixture(t, types.ZTAPIMediaPriceContract{Version: 1, Modality: "image", Rules: rules}, []model.ZTAPIAttemptBillingQuantity{
+		{Dimension: "text_input", Quantity: 2}, {Dimension: "text_cached_input", Quantity: 0},
+		{Dimension: "image_input", Quantity: 3}, {Dimension: "image_cached_input", Quantity: 0}, {Dimension: "image_output", Quantity: 2},
+	})
+	input.ID, input.UserID, input.TokenID, input.ReservedQuota = 0, user.Id, token.Id, 20
+	parent, err := model.BeginZTAPIRequestSettlement(input)
+	require.NoError(t, err)
+	attempt, err := model.BeginZTAPIRequestAttempt(parent.OperationID, submission.ChannelID, submission.CredentialVersion, "/v1/images/generations")
+	require.NoError(t, err)
+	require.NoError(t, model.RecordZTAPIRequestAttemptResponse(parent.OperationID, attempt.Attempt, attempt.ChannelID, 200, submission.UpstreamRequestID))
+	parent, err = model.PendZTAPIRequestSettlement(parent.OperationID, "{}", `["upstream_usage_missing"]`)
+	require.NoError(t, err)
+	require.NoError(t, db.Transaction(func(tx *gorm.DB) error { return model.EnsureZTAPIAttemptBillingReviewsTx(tx, parent) }))
+	operator := model.User{Username: "image-attempt-finance", Status: common.UserStatusEnabled, Role: common.RoleFinanceUser, AffCode: "image-attempt-finance-aff"}
+	require.NoError(t, db.Create(&operator).Error)
+
+	submission.RequestID, submission.UserID, submission.Attempt = parent.RequestID, parent.UserID, attempt.Attempt
+	pricedPreview, err := PriceZTAPIAttemptBilling(*parent, submission)
+	require.NoError(t, err)
+	require.Equal(t, 8, pricedPreview.ConsumeLog.Quota)
+	proof, err := model.SubmitZTAPIAttemptBilling(submission)
+	require.NoError(t, err)
+	if approvalErr := model.ApproveZTAPIAttemptBilling(proof.ID, operator.Id, "verified frozen image bill", PriceZTAPIAttemptBilling); approvalErr != nil {
+		var pendingProof model.ZTAPIAttemptBillingProof
+		require.NoError(t, db.First(&pendingProof, proof.ID).Error)
+		t.Fatalf("approve image late bill: %v (pending_reason=%s priced=%+v)", approvalErr, pendingProof.PendingReason, pricedPreview)
+	}
+	for i := 0; i < 2; i++ {
+		require.NoError(t, model.ProcessZTAPIAttemptBilling(proof.ID, EnqueueZTAPIAttemptBillingLogTx))
+	}
+
+	var settled model.ZTAPIRequestSettlement
+	require.NoError(t, db.First(&settled, parent.ID).Error)
+	require.Equal(t, model.ZTAPISettlementSettled, settled.Status)
+	require.EqualValues(t, 8, settled.ChargedQuota)
+	require.Equal(t, attempt.Attempt, settled.FinalAttempt)
+	var account model.User
+	require.NoError(t, db.First(&account, user.Id).Error)
+	require.Equal(t, 92, account.Quota)
+	require.Equal(t, 8, account.UsedQuota)
+	require.Equal(t, 1, account.RequestCount)
+	assertServiceTokenQuota(t, db, token.Id, 92, 19)
+
+	var charge model.ZTAPISupplierRefundCharge
+	require.NoError(t, db.Where("request_id = ? AND attempt = ?", parent.RequestID, attempt.Attempt).Take(&charge).Error)
+	require.Equal(t, parent.UserID, charge.UserID)
+	require.Equal(t, parent.TokenID, charge.TokenID)
+	require.Equal(t, parent.PriceSnapshotJSON, charge.PriceSnapshotJSON)
+	require.Equal(t, submission.ChannelID, charge.ChannelID)
+	require.Equal(t, submission.CredentialVersion, charge.CredentialVersion)
+	require.Equal(t, submission.UpstreamRequestID, charge.UpstreamRequestID)
+	require.Equal(t, submission.UpstreamBillID, charge.UpstreamBillID)
+	require.JSONEq(t, `[
+		{"dimension":"image_input","units":"3","unit_quota":"1","charged_quota":3,"token_charged_quota":3},
+		{"dimension":"image_output","units":"2","unit_quota":"2","charged_quota":4,"token_charged_quota":4},
+		{"dimension":"text_input","units":"2","unit_quota":"0.5","charged_quota":1,"token_charged_quota":1}
+	]`, charge.DimensionsJSON)
+	var storedProof model.ZTAPIAttemptBillingProof
+	require.NoError(t, db.First(&storedProof, proof.ID).Error)
+	var storedSubmission model.ZTAPIAttemptBillingSubmission
+	require.NoError(t, common.UnmarshalJsonStr(storedProof.SubmissionJSON, &storedSubmission))
+	require.Equal(t, submission.PriceRuleIDs, storedSubmission.PriceRuleIDs)
+	require.JSONEq(t, submission.RawUsageJSON, storedSubmission.RawUsageJSON)
+
+	partial, err := model.SubmitZTAPISupplierRefund(model.ZTAPISupplierRefundSubmission{
+		Source: "offline-supplier", ProofID: "image-partial-refund", RequestID: parent.RequestID, UserID: parent.UserID,
+		Attempt: charge.Attempt, ChannelID: charge.ChannelID, CredentialVersion: charge.CredentialVersion,
+		UpstreamRequestID: charge.UpstreamRequestID, UpstreamBillID: charge.UpstreamBillID,
+		Mode: "partial", Units: []model.ZTAPISupplierRefundUnits{{Dimension: "image_output", Units: "1"}}, EvidenceReference: "verified partial reversal",
+	})
+	require.NoError(t, err)
+	require.NoError(t, model.ApproveZTAPISupplierRefund(partial.ID, operator.Id, "reviewed partial image reversal"))
+	for i := 0; i < 2; i++ {
+		require.NoError(t, model.ProcessZTAPISupplierRefund(partial.ID))
+	}
+	require.NoError(t, db.First(&account, user.Id).Error)
+	require.Equal(t, 94, account.Quota)
+
+	full, err := model.SubmitZTAPISupplierRefund(model.ZTAPISupplierRefundSubmission{
+		Source: "offline-supplier", ProofID: "image-full-refund", RequestID: parent.RequestID, UserID: parent.UserID,
+		Attempt: charge.Attempt, ChannelID: charge.ChannelID, CredentialVersion: charge.CredentialVersion,
+		UpstreamRequestID: charge.UpstreamRequestID, UpstreamBillID: charge.UpstreamBillID,
+		Mode: "full", EvidenceReference: "verified full reversal",
+	})
+	require.NoError(t, err)
+	require.NoError(t, model.ApproveZTAPISupplierRefund(full.ID, operator.Id, "reviewed full image reversal"))
+	for i := 0; i < 2; i++ {
+		require.NoError(t, model.ProcessZTAPISupplierRefund(full.ID))
+	}
+	require.NoError(t, db.First(&account, user.Id).Error)
+	require.Equal(t, 100, account.Quota)
+	require.NoError(t, db.First(&settled, parent.ID).Error)
+	require.EqualValues(t, 8, settled.RefundedQuota)
+	assertServiceTokenQuota(t, db, token.Id, 100, 11)
 }

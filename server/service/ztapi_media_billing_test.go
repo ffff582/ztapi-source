@@ -595,3 +595,74 @@ func TestPendZTAPIImageBillingBindsSuccessfulAttemptAfterPriorFailure(t *testing
 	require.NoError(t, db.Where("settlement_id = ? AND attempt = ?", row.ID, second.Attempt).Take(&storedAttempt).Error)
 	require.Equal(t, evidence.UpstreamRequestID, storedAttempt.UpstreamRequestID)
 }
+
+func TestZTAPIGPTImageObservedMissingCachesRetainsReservation(t *testing.T) {
+	db, user, token := setupServiceTokenQuotaTest(t)
+	migrateZTAPIMediaBillingTestTables(t)
+	require.NoError(t, db.Model(user).Update("quota", 1000).Error)
+	input := ztapiImageReservationFixture(t, 20)
+	input.OperationID, input.RequestID = "gpt-image-pending", "gpt-image-request"
+	input.UserID, input.TokenID = user.Id, token.Id
+	var snapshot relaycommon.ZTAPIPublicationSnapshot
+	require.NoError(t, common.UnmarshalJsonStr(input.PriceSnapshotJSON, &snapshot))
+	protocol, _, err := types.ParseZTAPIImageProtocolContract(input.ProtocolContractJSON)
+	require.NoError(t, err)
+	protocol.Version, protocol.ProviderModel, protocol.RequestIDField = 2, "gpt-image-2", ""
+	protocol.RequestIDSource, protocol.RequestIDKey = "header", "X-Synthetic-Request-ID"
+	protocol.UpstreamRequestFields = map[string]string{"model": "required", "prompt": "required", "n": "required", "size": "required", "quality": "required", "response_format": "omit"}
+	protocol.Capabilities = types.ZTAPIImageCapabilities{Sizes: []string{"1024x1024"}, Qualities: []string{"low"}, ResponseFormats: []string{"b64_json"}, MinCount: 1, MaxCount: 1}
+	protocol.Response.ResultFields = map[string]string{"b64_json": "b64_json"}
+	// Missing cache paths are synthetic test authority, not inferred provider fields.
+	protocol.Usage.Fields = map[string]string{"text_input": "input_tokens_details.text_tokens", "image_input": "input_tokens_details.image_tokens", "image_output": "output_tokens_details.image_tokens", "text_cached_input": "synthetic_text_cache", "image_cached_input": "synthetic_image_cache"}
+	protocol.Usage.CacheSemantics = "separate_dimension"
+	maximum := map[string]string{"text_input": "20", "image_input": "20", "image_output": "200", "text_cached_input": "20", "image_cached_input": "20"}
+	protocol.Reservations = []types.ZTAPIImageReservationAuthority{{Size: "1024x1024", Quality: "low", ResponseFormat: "b64_json", N: 1, MaximumDimensions: maximum}}
+	sealed, canonical, err := types.SealZTAPIImageProtocolContract(protocol)
+	require.NoError(t, err)
+	rules := []types.ZTAPIMediaPriceRule{}
+	for _, dimension := range []string{"text_input", "text_cached_input", "image_input", "image_cached_input", "image_output"} {
+		rules = append(rules, types.ZTAPIMediaPriceRule{ID: dimension, Conditions: map[string]string{"token_bucket": dimension}, BillingUnit: types.ZTAPIMediaBillingUnitUSDPerMillionTokens, CostUSD: map[string]string{dimension: "0.6"}, SaleUSD: map[string]string{dimension: "1"}, SourceCells: map[string]string{dimension: "A1"}})
+	}
+	rawPrice, err := common.Marshal(types.ZTAPIMediaPriceContract{Version: 1, Modality: "image", Rules: rules})
+	require.NoError(t, err)
+	snapshot.MediaPriceContractJSON, err = types.CanonicalizeZTAPIMediaPriceContract(string(rawPrice))
+	require.NoError(t, err)
+	snapshot.SourceModel, snapshot.ImageProtocolContract = "gpt-image-2", &sealed
+	rawSnapshot, err := common.Marshal(snapshot)
+	require.NoError(t, err)
+	input.PriceSnapshotJSON, input.ProtocolContractJSON, input.ProtocolEvidenceHash = string(rawSnapshot), canonical, sealed.EvidenceHash
+	input.SelectorJSON = `{"modality":"image","n":1,"quality":"low","response_format":"b64_json","size":"1024x1024"}`
+	input.MaximumDimensions, input.MaximumQuota = maximum, 140
+	row, err := BeginZTAPIMediaReservation(input)
+	require.NoError(t, err)
+	attempt, err := model.BeginZTAPIRequestAttempt(row.OperationID, 42, "synthetic-version", "/v1/images/generations")
+	require.NoError(t, err)
+	require.NoError(t, model.RecordZTAPIRequestAttemptResponse(row.OperationID, attempt.Attempt, 42, 200, ""))
+	const rawUsage = `{"input_tokens":18,"input_tokens_details":{"image_tokens":0,"text_tokens":18},"output_tokens":196,"output_tokens_details":{"image_tokens":196,"text_tokens":0},"total_tokens":214}`
+	body := []byte(`{"data":[{"b64_json":"c3ludGhldGljLWltYWdl"}],"usage":` + rawUsage + `}`)
+	candidate := &relaycommon.ZTAPIValidatedImageResponse{ContractVersion: 2, EvidenceHash: sealed.EvidenceHash, UpstreamRequestID: "synthetic-provider-header-id", ResultCount: 1, RawResponse: body, RawUsageJSON: []byte(rawUsage)}
+	info := &relaycommon.RelayInfo{ZTAPIPublicationSnapshot: &snapshot}
+	info.Billing = &ztapiDurableBilling{row: row, info: info, attempt: attempt}
+	evidence, err := relaycommon.NormalizeZTAPIImageUsageCandidate(info, candidate, body)
+	require.ErrorIs(t, err, relaycommon.ErrZTAPIMediaUsagePending)
+	require.True(t, evidence.Pending)
+	require.True(t, evidence.ResultAvailable)
+	require.Empty(t, evidence.GetDimensions(), "missing cache evidence must not become zero-valued billing buckets")
+	require.NoError(t, PendZTAPIImageBilling(info, evidence, "image_usage_untrusted"))
+	require.NoError(t, PendZTAPIImageBilling(info, evidence, "image_usage_untrusted"))
+	var stored model.ZTAPIRequestSettlement
+	require.NoError(t, db.First(&stored, row.ID).Error)
+	require.Equal(t, model.ZTAPISettlementPending, stored.Status)
+	require.Equal(t, attempt.Attempt, stored.FinalAttempt)
+	require.Zero(t, stored.ChargedQuota)
+	require.Contains(t, stored.UsageJSON, `"upstream_request_id":"synthetic-provider-header-id"`)
+	require.Contains(t, stored.UsageJSON, `\"input_tokens_details\"`)
+	var storedAttempt model.ZTAPIRequestAttempt
+	require.NoError(t, db.First(&storedAttempt, attempt.ID).Error)
+	require.Equal(t, "synthetic-provider-header-id", storedAttempt.UpstreamRequestID)
+	var ledgerCount int64
+	require.NoError(t, db.Model(&model.BalanceLedger{}).Where("request_id = ?", row.RequestID).Count(&ledgerCount).Error)
+	require.EqualValues(t, 1, ledgerCount, "pending delivery retains the reservation, without a final charge or refund")
+	_, err = model.ReleaseZTAPIRequestSettlement(row.OperationID)
+	require.ErrorIs(t, err, model.ErrZTAPISettlementPending)
+}

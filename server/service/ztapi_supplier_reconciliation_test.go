@@ -11,6 +11,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -134,6 +135,105 @@ func TestZTAPISupplierReconciliationApplyCreatesReviewProofWithoutChangingCustom
 	replayed, err := ImportZTAPISupplierReconciliation(context.Background(), 7, request)
 	require.NoError(t, err)
 	require.Equal(t, result.Actions[0].BillingProofID, replayed.Actions[0].BillingProofID)
+}
+
+func TestZTAPISupplierReconciliationNoChargeProofReleasesSinglePendingAttemptAfterApproval(t *testing.T) {
+	db := setupZTAPISupplierReconciliationServiceTest(t)
+	require.NoError(t, model.MigrateZTAPIAttemptBilling(db))
+	require.NoError(t, db.AutoMigrate(&model.ZTAPIPendingResolution{}, &model.ZTAPISettlementFinalizationIntent{}))
+	user := model.User{Username: "recon-nocharge-user", Password: "unused", Status: common.UserStatusEnabled, Role: common.RoleCommonUser, AffCode: "recon-nocharge-aff", Quota: 1000}
+	require.NoError(t, db.Create(&user).Error)
+	token := model.Token{UserId: user.Id, KeyHash: "recon-nocharge-token", Status: common.TokenStatusEnabled, ExpiredTime: -1, RemainQuota: 1000}
+	require.NoError(t, db.Create(&token).Error)
+	settlement, err := model.BeginZTAPIRequestSettlement(model.ZTAPIRequestSettlement{OperationID: "recon-nocharge-op", RequestID: "recon-nocharge-request", UserID: user.Id, TokenID: token.Id, PublicModel: "public-model", PriceSnapshotJSON: `{"source_model":"provider-model"}`, ReservedQuota: 200})
+	require.NoError(t, err)
+	_, err = model.BeginZTAPIRequestAttempt(settlement.OperationID, 31, "cred-v1", "chat")
+	require.NoError(t, err)
+	require.NoError(t, model.RecordZTAPIRequestAttemptResponse(settlement.OperationID, 1, 31, 503, "supplier-wire-1"))
+	_, err = model.PendZTAPIRequestSettlement(settlement.OperationID, "{}", `["upstream_usage_missing"]`)
+	require.NoError(t, err)
+
+	record := ztapiSupplierServiceRecord("supplier-nocharge-1")
+	nocharge := false
+	record.Billable = &nocharge
+	record.DimensionsJSON = `{}`
+	record.DebitAmount = "0"
+	request := ztapiSupplierImportRequest(t, "apply-nocharge", record)
+	_, err = ImportZTAPISupplierReconciliation(context.Background(), 7, request)
+	require.NoError(t, err)
+	request.DryRun = false
+	result, err := ImportZTAPISupplierReconciliation(context.Background(), 7, request)
+	require.NoError(t, err)
+	require.Len(t, result.Actions, 1)
+	require.Equal(t, "submitted", result.Actions[0].Status)
+	require.NotZero(t, result.Actions[0].BillingProofID)
+
+	require.NoError(t, model.ApproveZTAPIAttemptBilling(result.Actions[0].BillingProofID, 7, "supplier statement confirms no charge", nil))
+	var saved model.ZTAPIRequestSettlement
+	require.NoError(t, db.First(&saved, settlement.ID).Error)
+	require.Equal(t, model.ZTAPISettlementReleased, saved.Status)
+	var savedUser model.User
+	var savedToken model.Token
+	require.NoError(t, db.First(&savedUser, user.Id).Error)
+	require.NoError(t, db.First(&savedToken, token.Id).Error)
+	require.Equal(t, 1000, savedUser.Quota)
+	require.Equal(t, 1000, savedToken.RemainQuota)
+	require.NoError(t, model.ApproveZTAPIAttemptBilling(result.Actions[0].BillingProofID, 7, "supplier statement confirms no charge", nil))
+}
+
+func TestZTAPISupplierReconciliationPreservesImagePricingAndUsageLineage(t *testing.T) {
+	db := setupZTAPISupplierReconciliationServiceTest(t)
+	user := model.User{Username: "recon-image-user", Password: "unused", Status: common.UserStatusEnabled, Role: common.RoleCommonUser, AffCode: "recon-image-aff", Quota: 1000}
+	require.NoError(t, db.Create(&user).Error)
+	token := model.Token{UserId: user.Id, KeyHash: "recon-image-token", Status: common.TokenStatusEnabled, ExpiredTime: -1, RemainQuota: 1000}
+	require.NoError(t, db.Create(&token).Error)
+	contract := types.ZTAPIMediaPriceContract{Version: 1, Modality: "image", Rules: []types.ZTAPIMediaPriceRule{
+		{ID: "lte_200k", Conditions: map[string]string{"prompt_tokens_tier": "lte_200k"}, BillingUnit: types.ZTAPIMediaBillingUnitUSDPerMillionTokens,
+			CostUSD: map[string]string{"input_tokens": "0.6", "output_tokens": "1.2"}, SaleUSD: map[string]string{"input_tokens": "1", "output_tokens": "2"}, SourceCells: map[string]string{"input_tokens": "A1", "output_tokens": "B1"}},
+		{ID: "gt_200k", Conditions: map[string]string{"prompt_tokens_tier": "gt_200k"}, BillingUnit: types.ZTAPIMediaBillingUnitUSDPerMillionTokens,
+			CostUSD: map[string]string{"input_tokens": "1.8", "output_tokens": "2.4"}, SaleUSD: map[string]string{"input_tokens": "3", "output_tokens": "4"}, SourceCells: map[string]string{"input_tokens": "A2", "output_tokens": "B2"}},
+	}}
+	parent, imageSubmission := imageAttemptBillingPriceFixture(t, contract, []model.ZTAPIAttemptBillingQuantity{{Dimension: "input_tokens", Quantity: 200000}, {Dimension: "output_tokens", Quantity: 1}})
+	parent.UserID, parent.TokenID, parent.Status, parent.FinalAttempt = user.Id, token.Id, model.ZTAPISettlementPending, 0
+	require.NoError(t, db.Create(&parent).Error)
+	attempt := model.ZTAPIRequestAttempt{SettlementID: parent.ID, Attempt: 1, ChannelID: 21, CredentialVersion: "cred-image-v1", Protocol: "image", UpstreamRequestID: "supplier-image-wire", HTTPStatus: 200}
+	require.NoError(t, db.Create(&attempt).Error)
+	dimensionsJSON, err := common.Marshal(model.ZTAPISupplierLedgerDimensions{
+		UsageSemantic: imageSubmission.UsageSemantic, Usage: imageSubmission.Usage, SelectedRuleID: imageSubmission.SelectedRuleID,
+		PriceRuleIDs: imageSubmission.PriceRuleIDs, RawUsageJSON: imageSubmission.RawUsageJSON,
+	})
+	require.NoError(t, err)
+	_, err = model.ParseZTAPISupplierLedgerDimensions(string(dimensionsJSON))
+	require.NoError(t, err, string(dimensionsJSON))
+	billable := true
+	record := model.ZTAPISupplierLedgerRecord{
+		SupplierRecordID: "supplier-image-bill", RequestID: attempt.UpstreamRequestID, CredentialRef: attempt.CredentialVersion,
+		ProviderModel: "provider-image-proof", ResourceType: "enterprise", OccurredAt: time.Now().UTC().Unix(), Billable: &billable,
+		DimensionsJSON: string(dimensionsJSON), DebitAmount: "0.1", Currency: "USD", RawEvidenceHash: strings.Repeat("d", 64),
+	}
+	request := ztapiSupplierImportRequest(t, "apply-image-billing", record)
+	_, err = ImportZTAPISupplierReconciliation(context.Background(), 7, request)
+	require.NoError(t, err)
+	request.DryRun = false
+	result, err := ImportZTAPISupplierReconciliation(context.Background(), 7, request)
+	require.NoError(t, err)
+	require.Len(t, result.Actions, 1)
+	require.Equal(t, "submitted", result.Actions[0].Status)
+	var proof model.ZTAPIAttemptBillingProof
+	require.NoError(t, db.First(&proof, result.Actions[0].BillingProofID).Error)
+	var stored model.ZTAPIAttemptBillingSubmission
+	require.NoError(t, common.UnmarshalJsonStr(proof.SubmissionJSON, &stored))
+	require.Equal(t, imageSubmission.UsageSemantic, stored.UsageSemantic)
+	require.Equal(t, imageSubmission.SelectedRuleID, stored.SelectedRuleID)
+	require.Equal(t, imageSubmission.PriceRuleIDs, stored.PriceRuleIDs)
+	require.JSONEq(t, imageSubmission.RawUsageJSON, stored.RawUsageJSON)
+	require.Equal(t, parent.RequestID, stored.RequestID)
+	require.Equal(t, user.Id, stored.UserID)
+	require.Equal(t, token.Id, parent.TokenID)
+	require.Equal(t, attempt.ChannelID, stored.ChannelID)
+	require.Equal(t, attempt.CredentialVersion, stored.CredentialVersion)
+	require.Equal(t, attempt.UpstreamRequestID, stored.UpstreamRequestID)
+	require.Equal(t, record.SupplierRecordID, stored.UpstreamBillID)
 }
 
 func TestZTAPISupplierReconciliationRefundCreatesExactCustomerProofWithoutApplyingIt(t *testing.T) {

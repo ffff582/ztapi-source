@@ -179,6 +179,87 @@ func TestZTAPISupplierReconciliationPreviewApplyMatchesExactAttemptAndIsIdempote
 	require.EqualValues(t, 1, entryCount)
 }
 
+func TestZTAPISupplierReconciliationDoesNotLinkDifferentBillToExistingCharge(t *testing.T) {
+	db := setupZTAPISupplierReconciliationTest(t)
+	user := User{Username: "recon-existing-user", Password: "unused", Status: common.UserStatusEnabled, Role: common.RoleCommonUser, AffCode: "recon-existing-user-aff"}
+	require.NoError(t, db.Create(&user).Error)
+	token := Token{UserId: user.Id, KeyHash: "recon-existing-token", Status: common.TokenStatusEnabled, ExpiredTime: -1, RemainQuota: 1000}
+	require.NoError(t, db.Create(&token).Error)
+	settlement := ZTAPIRequestSettlement{OperationID: "recon-existing-operation", RequestID: "recon-existing-request", UserID: user.Id, TokenID: token.Id, PublicModel: "public-model", PriceSnapshotJSON: `{"source_model":"provider-model"}`, Status: ZTAPISettlementSettled, FinalAttempt: 1, ChargedQuota: 40, TokenChargedQuota: 40, UsageJSON: `{}`, ChargeDimensionsJSON: `[]`, MissingDimensionsJSON: `[]`}
+	require.NoError(t, db.Create(&settlement).Error)
+	attempt := ZTAPIRequestAttempt{SettlementID: settlement.ID, Attempt: 1, ChannelID: 11, CredentialVersion: "credential-v1", Protocol: "chat", UpstreamRequestID: "upstream-request-1", HTTPStatus: 200}
+	require.NoError(t, db.Create(&attempt).Error)
+	require.NoError(t, db.Create(&ZTAPISupplierRefundCharge{RequestID: settlement.RequestID, SettlementID: settlement.ID, UserID: user.Id, TokenID: token.Id, Attempt: 1, ChannelID: attempt.ChannelID, CredentialVersion: attempt.CredentialVersion, UpstreamRequestID: attempt.UpstreamRequestID, UpstreamBillID: "bill-original", DimensionsJSON: `[{"dimension":"input_tokens","units":"40","unit_quota":"1","charged_quota":40}]`, ChargedQuota: 40, TokenChargedQuota: 40, ProgressJSON: `[]`}).Error)
+
+	record := validZTAPISupplierLedgerRecord("bill-different")
+	input := validZTAPISupplierImport(record)
+	_, err := PrepareZTAPISupplierReconciliation(db, input)
+	require.NoError(t, err)
+	input.DryRun = false
+	result, err := PrepareZTAPISupplierReconciliation(db, input)
+	require.NoError(t, err)
+	require.Len(t, result.Entries, 1)
+	require.Equal(t, ZTAPISupplierReconciliationActionUnmatched, result.Entries[0].ActionKind)
+	require.Equal(t, "supplier_bill_conflicts_existing_charge", result.Entries[0].MatchReason)
+}
+
+func TestZTAPISupplierReconciliationClaimsExistingChargeOnceWithinBatch(t *testing.T) {
+	db := setupZTAPISupplierReconciliationTest(t)
+	user := User{Username: "recon-batch-claim-user", Password: "unused", Status: common.UserStatusEnabled, Role: common.RoleCommonUser, AffCode: "recon-batch-claim-aff"}
+	require.NoError(t, db.Create(&user).Error)
+	token := Token{UserId: user.Id, KeyHash: "recon-batch-claim-token", Status: common.TokenStatusEnabled, ExpiredTime: -1, RemainQuota: 1000}
+	require.NoError(t, db.Create(&token).Error)
+	settlement := ZTAPIRequestSettlement{OperationID: "recon-batch-claim-operation", RequestID: "recon-batch-claim-request", UserID: user.Id, TokenID: token.Id, PublicModel: "public-model", PriceSnapshotJSON: `{"source_model":"provider-model"}`, Status: ZTAPISettlementSettled, FinalAttempt: 1, ChargedQuota: 40, TokenChargedQuota: 40, UsageJSON: `{}`, ChargeDimensionsJSON: `[]`, MissingDimensionsJSON: `[]`}
+	require.NoError(t, db.Create(&settlement).Error)
+	attempt := ZTAPIRequestAttempt{SettlementID: settlement.ID, Attempt: 1, ChannelID: 11, CredentialVersion: "credential-v1", Protocol: "chat", UpstreamRequestID: "upstream-request-1", HTTPStatus: 200}
+	require.NoError(t, db.Create(&attempt).Error)
+	charge := ZTAPISupplierRefundCharge{RequestID: settlement.RequestID, SettlementID: settlement.ID, UserID: user.Id, TokenID: token.Id, Attempt: 1, ChannelID: attempt.ChannelID, CredentialVersion: attempt.CredentialVersion, UpstreamRequestID: attempt.UpstreamRequestID, DimensionsJSON: `[{"dimension":"input_tokens","units":"40","unit_quota":"1","charged_quota":40}]`, ChargedQuota: 40, TokenChargedQuota: 40, ProgressJSON: `[]`}
+	require.NoError(t, db.Create(&charge).Error)
+
+	first := validZTAPISupplierLedgerRecord("bill-batch-first")
+	second := validZTAPISupplierLedgerRecord("bill-batch-second")
+	invalid := validZTAPISupplierLedgerRecord("bill-batch-invalid")
+	invalid.DimensionsJSON = `{"usage_semantic":"openai","usage":[{"dimension":"input_tokens","quantity":41}]}`
+	input := validZTAPISupplierImport(invalid, first, second)
+	input.IdempotencyKey = "same-batch-two-bills"
+	preview, err := PrepareZTAPISupplierReconciliation(db, input)
+	require.NoError(t, err)
+	require.Equal(t, 1, preview.Matched)
+	require.Equal(t, 2, preview.Unmatched)
+
+	input.DryRun = false
+	result, err := PrepareZTAPISupplierReconciliation(db, input)
+	require.NoError(t, err)
+	require.Len(t, result.Entries, 3)
+	byRecord := make(map[string]ZTAPISupplierReconciliationEntry, len(result.Entries))
+	for _, entry := range result.Entries {
+		byRecord[entry.SupplierRecordID] = entry
+	}
+	require.Equal(t, ZTAPISupplierReconciliationActionUnmatched, byRecord[invalid.SupplierRecordID].ActionKind)
+	require.Equal(t, "supplier_usage_conflicts_existing_charge", byRecord[invalid.SupplierRecordID].MatchReason)
+	require.Equal(t, ZTAPISupplierReconciliationActionExistingCharge, byRecord[first.SupplierRecordID].ActionKind)
+	require.Equal(t, ZTAPISupplierReconciliationActionUnmatched, byRecord[second.SupplierRecordID].ActionKind)
+	require.Equal(t, "supplier_bill_conflicts_existing_charge", byRecord[second.SupplierRecordID].MatchReason)
+
+	var claims int64
+	require.NoError(t, db.Model(&ZTAPISupplierReconciliationChargeClaim{}).Where("charge_id = ?", charge.ID).Count(&claims).Error)
+	require.EqualValues(t, 1, claims)
+}
+
+func TestZTAPISupplierReconciliationMigrationBackfillsAndRejectsDuplicateLegacyClaims(t *testing.T) {
+	db := setupZTAPISupplierReconciliationTest(t)
+	first := ZTAPISupplierReconciliationEntry{BatchID: 1, Supplier: "yunxin", SupplierRecordID: "legacy-bill-first", PayloadHash: strings.Repeat("a", 64), RecordJSON: `{}`, ChargeID: 123, ActionKind: ZTAPISupplierReconciliationActionExistingCharge, MatchReason: "matched"}
+	require.NoError(t, db.Create(&first).Error)
+	require.NoError(t, MigrateZTAPISupplierReconciliation(db))
+	var claim ZTAPISupplierReconciliationChargeClaim
+	require.NoError(t, db.First(&claim, 123).Error)
+	require.Equal(t, first.SupplierRecordID, claim.SupplierRecordID)
+
+	second := ZTAPISupplierReconciliationEntry{BatchID: 2, Supplier: "yunxin", SupplierRecordID: "legacy-bill-second", PayloadHash: strings.Repeat("b", 64), RecordJSON: `{}`, ChargeID: 123, ActionKind: ZTAPISupplierReconciliationActionExistingCharge, MatchReason: "matched"}
+	require.NoError(t, db.Create(&second).Error)
+	require.ErrorIs(t, MigrateZTAPISupplierReconciliation(db), ErrZTAPISupplierReconciliationConflict)
+}
+
 func TestZTAPISupplierReconciliationRejectsDuplicateRecordWithDifferentPayload(t *testing.T) {
 	db := setupZTAPISupplierReconciliationTest(t)
 	record := validZTAPISupplierLedgerRecord("same-supplier-record")
@@ -252,4 +333,26 @@ func TestZTAPISupplierReconciliationAcceptsCanonicalMediaMeteringButDoesNotInven
 	require.NoError(t, err)
 	require.Equal(t, 0, result.Matched)
 	require.Equal(t, 1, result.Unmatched)
+}
+
+func TestZTAPISupplierReconciliationParsesCanonicalImageBillingEvidence(t *testing.T) {
+	raw := `{"usage_semantic":"ztapi_image","usage":[{"dimension":"input_tokens","quantity":200000},{"dimension":"output_tokens","quantity":1}],"selected_rule_id":"lte_200k","price_rule_ids":{"input_tokens":"lte_200k","output_tokens":"lte_200k"},"raw_usage_json":"{\"input_tokens\":200000,\"output_tokens\":1,\"total_tokens\":200001}"}`
+	dimensions, err := ParseZTAPISupplierLedgerDimensions(raw)
+	require.NoError(t, err)
+	require.Equal(t, "ztapi_image", dimensions.UsageSemantic)
+	require.Len(t, dimensions.Usage, 2)
+}
+
+func TestZTAPISupplierReconciliationParsesCanonicalGPTImageFiveBucketEvidence(t *testing.T) {
+	raw := `{"usage_semantic":"ztapi_image","usage":[{"dimension":"text_input","quantity":2},{"dimension":"text_cached_input","quantity":0},{"dimension":"image_input","quantity":3},{"dimension":"image_cached_input","quantity":0},{"dimension":"image_output","quantity":2}],"price_rule_ids":{"image_cached_input":"image_cached_input","image_input":"image_input","image_output":"image_output","text_cached_input":"text_cached_input","text_input":"text_input"},"raw_usage_json":"{\"image_cached_input\":0,\"image_input\":3,\"image_output\":2,\"text_cached_input\":0,\"text_input\":2,\"total_tokens\":7}"}`
+	dimensions, err := ParseZTAPISupplierLedgerDimensions(raw)
+	require.NoError(t, err)
+	require.Equal(t, ZTAPIAttemptBillingUsageSemanticImage, dimensions.UsageSemantic)
+	require.Len(t, dimensions.Usage, 5)
+}
+
+func TestZTAPISupplierReconciliationRejectsImageDimensionsUnderTextSemantic(t *testing.T) {
+	raw := `{"usage_semantic":"openai","usage":[{"dimension":"text_input","quantity":2}]}`
+	_, err := ParseZTAPISupplierLedgerDimensions(raw)
+	require.ErrorIs(t, err, ErrZTAPISupplierReconciliationInvalid)
 }

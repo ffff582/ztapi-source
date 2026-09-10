@@ -5,16 +5,266 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
+	"gorm.io/gorm"
 )
+
+func TestZTAPISeedanceUnavailableVariantsCannotCreatePublicationEvidence(t *testing.T) {
+	fixtures := []struct {
+		label        string
+		providerID   string
+		requestID    string
+		responseBody string
+	}{
+		{
+			label:        "Seedance 2.0 Fast",
+			providerID:   "doubao-seedance-2.0-fast",
+			requestID:    "req_7c971ed07668385c",
+			responseBody: `{"error":{"code":"model_route_unavailable","message":"model route unavailable","param":"model","reason_codes":["no_candidate"],"request_id":"req_7c971ed07668385c","type":"service_unavailable"}}`,
+		},
+		{
+			label:        "Seedance 2.0 Mini",
+			providerID:   "doubao-seedance-2.0-mini",
+			requestID:    "req_cfd6341c0748c227",
+			responseBody: `{"error":{"code":"model_route_unavailable","message":"model route unavailable","param":"model","reason_codes":["no_candidate"],"request_id":"req_cfd6341c0748c227","type":"service_unavailable"}}`,
+		},
+	}
+	entries, err := model.ZTAPIQuotationEntries()
+	require.NoError(t, err)
+	for _, fixture := range fixtures {
+		t.Run(fixture.providerID, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			response := &http.Response{
+				StatusCode: http.StatusServiceUnavailable,
+				Body:       io.NopCloser(strings.NewReader(fixture.responseBody)),
+			}
+			providerError := gjson.Get(fixture.responseBody, "error")
+			require.Equal(t, fixture.requestID, providerError.Get("request_id").String())
+			require.Equal(t, "model", providerError.Get("param").String())
+			require.Equal(t, "service_unavailable", providerError.Get("type").String())
+			taskID, successBody, taskErr := (&TaskAdaptor{}).DoResponse(c, response, nil)
+			require.Empty(t, taskID)
+			require.Nil(t, successBody)
+			require.NotNil(t, taskErr)
+			require.Equal(t, http.StatusServiceUnavailable, taskErr.StatusCode)
+			require.Equal(t, "model_route_unavailable", taskErr.Code)
+			require.Equal(t, "model route unavailable", taskErr.Message)
+			require.ErrorContains(t, taskErr.Error, "model route unavailable")
+			reasonEvidence, marshalErr := common.Marshal(taskErr.Data)
+			require.NoError(t, marshalErr)
+			require.JSONEq(t, `{"reason_codes":["no_candidate"]}`, string(reasonEvidence))
+			require.Empty(t, recorder.Body.String(), "an upstream error must not emit a successful task response")
+
+			var quoted *model.ZTAPIQuotationEntry
+			for index := range entries {
+				if entries[index].Label == fixture.label {
+					quoted = &entries[index]
+					break
+				}
+			}
+			require.NotNil(t, quoted)
+			require.Equal(t, "mapping_pending", quoted.Status)
+			require.Empty(t, quoted.SourceModel)
+			require.Empty(t, quoted.PublicName)
+			require.Empty(t, quoted.Protocol)
+			require.Empty(t, quoted.ProviderFamily)
+			require.ErrorIs(t, model.ValidateZTAPIQuotationIdentity(
+				quoted.Label, "", "", "", model.ZTAPIQuotationSHA256,
+			), model.ErrZTAPIQuotationMappingPending)
+			require.ErrorIs(t, model.ValidateZTAPIQuotationIdentity(
+				fixture.providerID, "", "", "", model.ZTAPIQuotationSHA256,
+			), model.ErrZTAPIQuotationModelNotQuoted)
+		})
+	}
+}
+
+func TestZTAPISeedanceV2CreateUsesOnlyFrozenResponseIDSource(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		source  string
+		key     string
+		headers http.Header
+		body    string
+		want    string
+	}{
+		{"mixed case header", "header", "X-Offline-Create-ID", http.Header{"x-OFFLINE-create-id": {"create-header-1"}}, `{"data":{"task_id":"task-1","status":"queued"}}`, "create-header-1"},
+		{"explicit body", "body_field", "data.trace", nil, `{"data":{"task_id":"task-1","status":"queued","trace":"body-v2"}}`, "body-v2"},
+		{"no guessed default", "header", "X-Offline-Create-ID", http.Header{"X-Request-Id": {"wrong"}}, `{"request_id":"wrong","data":{"task_id":"task-1"}}`, ""},
+		{"empty", "header", "X-Offline-Create-ID", http.Header{"X-Offline-Create-ID": {" "}}, `{"data":{"task_id":"task-1"}}`, ""},
+		{"multiple values", "header", "X-Offline-Create-ID", http.Header{"X-Offline-Create-ID": {"one", "two"}}, `{"data":{"task_id":"task-1"}}`, ""},
+		{"case collision", "header", "X-Offline-Create-ID", http.Header{"X-Offline-Create-ID": {"one"}, "x-offline-create-id": {"two"}}, `{"data":{"task_id":"task-1"}}`, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			contract := ztapiAIHubVideoContract(t)
+			contract.Version = types.ZTAPIVideoProtocolContractVersionV2
+			contract.Create.RequestIDField = ""
+			contract.Create.RequestIDSource, contract.Create.RequestIDKey = tc.source, tc.key
+			contract.Fetch.RequestIDField = ""
+			contract.Fetch.RequestIDSource, contract.Fetch.RequestIDKey = "header", "X-Offline-Fetch-ID"
+			adaptor, err := NewTaskAdaptor(contract)
+			require.NoError(t, err)
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			resp := &http.Response{StatusCode: http.StatusAccepted, Header: tc.headers, Body: io.NopCloser(strings.NewReader(tc.body))}
+			taskID, raw, taskErr := adaptor.DoResponse(c, resp, ztapiAIHubVideoInfo(t, "https://provider.invalid"))
+			if tc.want == "" {
+				require.NotNil(t, taskErr)
+				require.Empty(t, taskID)
+				require.Empty(t, recorder.Body.String())
+				return
+			}
+			require.Nil(t, taskErr)
+			require.Equal(t, "task-1", taskID)
+			require.Equal(t, tc.body, string(raw))
+			require.Equal(t, tc.want, c.GetString(common.UpstreamRequestIdKey))
+			require.NotContains(t, recorder.Body.String(), tc.want)
+		})
+	}
+}
+
+func TestZTAPISeedanceV2FetchBindsHeaderToExactResponse(t *testing.T) {
+	contract := ztapiAIHubVideoContract(t)
+	contract.Version = types.ZTAPIVideoProtocolContractVersionV2
+	contract.Create.RequestIDField, contract.Fetch.RequestIDField = "", ""
+	contract.Create.RequestIDSource, contract.Create.RequestIDKey = "header", "X-Offline-Create-ID"
+	contract.Fetch.RequestIDSource, contract.Fetch.RequestIDKey = "header", "X-Offline-Fetch-ID"
+	adaptor, err := NewTaskAdaptor(contract)
+	require.NoError(t, err)
+	const body = `{"data":{"task_id":"task-1","status":"completed","result":{"url":"https://cdn.invalid/video.mp4","resolution":"720p","duration":5}}}`
+	headers := http.Header{"x-OFFLINE-fetch-id": {"fetch-header-1"}}
+	client := service.GetHttpClient()
+	if client == nil {
+		client = http.DefaultClient
+	}
+	previous := client.Transport
+	client.Transport = seedanceOfflineTransport(func(r *http.Request) (*http.Response, error) {
+		require.Equal(t, "https://provider.invalid/hub/v1/video/tasks/task-1", r.URL.String())
+		return &http.Response{StatusCode: http.StatusOK, Header: headers, Body: io.NopCloser(strings.NewReader(body))}, nil
+	})
+	t.Cleanup(func() { client.Transport = previous })
+	fetch := func() []byte {
+		resp, err := adaptor.FetchTask("https://provider.invalid", "offline", map[string]any{"task_id": "task-1"}, "")
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		raw, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		require.Equal(t, body, string(raw))
+		return raw
+	}
+	result, err := adaptor.ParseTaskResult(fetch())
+	require.NoError(t, err)
+	require.Equal(t, "fetch-header-1", result.UpstreamRequestID)
+	require.Equal(t, model.TaskStatusSuccess, result.Status)
+	_, err = adaptor.ParseTaskResult([]byte(body))
+	require.Error(t, err, "a consumed header must not authenticate a later body-only event")
+	fetch()
+	_, err = adaptor.ParseTaskResult([]byte(strings.Replace(body, "task-1", "other-task", 1)))
+	require.Error(t, err, "header evidence must be bound to the fetched body")
+	headers = http.Header{"X-Request-Id": {"guessed-default"}}
+	_, err = adaptor.ParseTaskResult(fetch())
+	require.Error(t, err, "a missing configured header must not reuse prior evidence")
+}
+
+type seedanceOfflineTransport func(*http.Request) (*http.Response, error)
+
+func (f seedanceOfflineTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestZTAPISeedancePreservesUnresolvedProviderUsageWithoutTokenMapping(t *testing.T) {
+	for _, rawUsage := range []string{
+		`{ "completion_tokens": 108900, "total_tokens": 108900 }`,
+		`{"completion_tokens":9007199254740993,"total_tokens":"00108900"}`,
+	} {
+		adaptor := newZTAPIAIHubVideoAdaptor(t)
+		body := `{"request_id":"fetch-raw","data":{"task_id":"task-raw","status":"completed","result":{"url":"https://cdn.invalid/video.mp4","resolution":"720p","duration":5}},"provider_result":{"volcengine":{"usage":` + rawUsage + `}}}`
+		result, err := adaptor.ParseTaskResult([]byte(body))
+		require.NoError(t, err)
+		require.Equal(t, rawUsage, result.ResultMetadata["raw_usage_json"])
+		require.Empty(t, result.UsageDimensions)
+		require.Zero(t, result.CompletionTokens)
+		require.Zero(t, result.TotalTokens)
+	}
+}
+
+func TestZTAPISeedanceRawUsageCannotBeRelabeledAsQuotationInput(t *testing.T) {
+	for _, field := range []string{"completion_tokens", "total_tokens"} {
+		t.Run(field, func(t *testing.T) {
+			contract := ztapiAIHubVideoContract(t)
+			contract.Usage.Fields["input_tokens"] = "provider_result.volcengine.usage." + field
+			adaptor, err := NewTaskAdaptor(contract)
+			require.NoError(t, err)
+			result, err := adaptor.ParseTaskResult([]byte(`{"request_id":"fetch-raw","data":{"task_id":"task-raw","status":"completed","result":{"url":"https://cdn.invalid/video.mp4","resolution":"720p","duration":5}},"provider_result":{"volcengine":{"usage":{"completion_tokens":108900,"total_tokens":108900}}}}`))
+			require.NoError(t, err)
+			require.Empty(t, result.UsageDimensions, "a field binding is not evidence of quotation semantics")
+			require.Equal(t, `{"completion_tokens":108900,"total_tokens":108900}`, result.ResultMetadata["raw_usage_json"])
+		})
+	}
+}
+
+func TestZTAPISeedanceCreatePersistsConfiguredIDBeforeReturningSuccess(t *testing.T) {
+	previousRedis := common.RedisEnabled
+	common.RedisEnabled = false
+	t.Cleanup(func() { common.RedisEnabled = previousRedis })
+	previousDB := model.DB
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "seedance.db")), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	model.DB = db
+	t.Cleanup(func() { model.DB = previousDB; _ = sqlDB.Close() })
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}, &model.BalanceLedger{}, &model.ZTAPIRequestSettlement{}, &model.ZTAPIRequestAttempt{}, &model.ZTAPISettlementFinalizationIntent{}))
+	user := model.User{Username: "seedance-offline", AffCode: "seedance-offline", Quota: 10000, Status: common.UserStatusEnabled}
+	require.NoError(t, db.Create(&user).Error)
+	token := model.Token{UserId: user.Id, KeyHash: "offline-seedance", RemainQuota: 10000, Status: common.TokenStatusEnabled, ExpiredTime: -1}
+	require.NoError(t, db.Create(&token).Error)
+	info := ztapiAIHubVideoInfo(t, "https://provider.invalid")
+	info.UserId, info.TokenId, info.RequestId, info.ChannelId = user.Id, token.Id, "create-offline", 7
+	contract := info.ZTAPIPublicationSnapshot.VideoProtocolContract.Clone()
+	contract.Version = types.ZTAPIVideoProtocolContractVersionV2
+	contract.Create.RequestIDField, contract.Fetch.RequestIDField = "", ""
+	contract.Create.RequestIDSource, contract.Create.RequestIDKey = "header", "X-Offline-Create-ID"
+	contract.Fetch.RequestIDSource, contract.Fetch.RequestIDKey = "header", "X-Offline-Fetch-ID"
+	info.ZTAPIPublicationSnapshot.VideoProtocolContract = &contract
+	info.ZTAPIPublicationSnapshot.PublicName = info.OriginModelName
+	adaptor, err := NewTaskAdaptor(contract)
+	require.NoError(t, err)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", nil)
+	require.Nil(t, service.PreConsumeBilling(c, 100, info))
+	require.NoError(t, service.BeginZTAPIBillingAttempt(info, "/hub/v1/video/tasks"))
+	// Generic transport observation has no knowledge of this contract's header.
+	require.NoError(t, service.ObserveZTAPIBillingResponse(info, &http.Response{StatusCode: 202}))
+	resp := &http.Response{StatusCode: 202, Header: http.Header{"x-OFFLINE-create-id": {"configured-create-id"}}, Body: io.NopCloser(strings.NewReader(`{"data":{"task_id":"provider-task-1"}}`))}
+	_, _, taskErr := adaptor.DoResponse(c, resp, info)
+	require.Nil(t, taskErr)
+	var attempt model.ZTAPIRequestAttempt
+	require.NoError(t, db.Take(&attempt).Error)
+	require.Equal(t, "configured-create-id", attempt.UpstreamRequestID)
+	require.Equal(t, 202, attempt.HTTPStatus)
+	require.NotContains(t, recorder.Body.String(), "configured-create-id")
+	resp.Body = io.NopCloser(strings.NewReader(`{"data":{"task_id":"provider-task-1"}}`))
+	resp.Header = http.Header{"X-Offline-Create-ID": {"conflicting-create-id"}}
+	recorder = httptest.NewRecorder()
+	c, _ = gin.CreateTestContext(recorder)
+	_, _, taskErr = adaptor.DoResponse(c, resp, info)
+	require.NotNil(t, taskErr)
+	require.Empty(t, recorder.Body.String())
+}
 
 func TestZTAPISeedanceAdapterBuildsOnlyFrozenContractFields(t *testing.T) {
 	adaptor := newZTAPIAIHubVideoAdaptor(t)

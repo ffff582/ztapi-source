@@ -181,7 +181,8 @@ func processZTAPISupplierReconciliationEntry(ctx context.Context, entry model.ZT
 		proof, submitErr := model.SubmitZTAPIAttemptBilling(model.ZTAPIAttemptBillingSubmission{
 			Source: entry.Supplier, ProofID: record.SupplierRecordID, RequestID: settlement.RequestID, UserID: settlement.UserID,
 			Attempt: attempt.Attempt, ChannelID: attempt.ChannelID, CredentialVersion: attempt.CredentialVersion,
-			UpstreamRequestID: attempt.UpstreamRequestID, UpstreamBillID: billID, Kind: kind, UsageSemantic: semantic, Usage: usage,
+			UpstreamRequestID: attempt.UpstreamRequestID, UpstreamTaskID: record.TaskID, UpstreamBillID: billID, Kind: kind, UsageSemantic: semantic, Usage: usage,
+			SelectedRuleID: dimensions.SelectedRuleID, PriceRuleIDs: dimensions.PriceRuleIDs, RawUsageJSON: dimensions.RawUsageJSON,
 			EvidenceReference: reference, DistinctUsageReference: distinct,
 		})
 		if submitErr != nil {

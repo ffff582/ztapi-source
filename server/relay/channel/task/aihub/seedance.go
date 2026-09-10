@@ -25,10 +25,12 @@ import (
 )
 
 type TaskAdaptor struct {
-	contract types.ZTAPIVideoProtocolContract
-	baseURL  string
-	apiKey   string
-	initErr  error
+	contract     types.ZTAPIVideoProtocolContract
+	baseURL      string
+	apiKey       string
+	initErr      error
+	fetchBody    []byte
+	fetchHeaders http.Header
 }
 
 func NewTaskAdaptor(contract types.ZTAPIVideoProtocolContract) (*TaskAdaptor, error) {
@@ -40,6 +42,7 @@ func NewTaskAdaptor(contract types.ZTAPIVideoProtocolContract) (*TaskAdaptor, er
 }
 
 func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
+	a.fetchBody, a.fetchHeaders = nil, nil
 	a.initErr = nil
 	if info == nil || info.ChannelMeta == nil || info.ZTAPIPublicationSnapshot == nil || info.ZTAPIPublicationSnapshot.VideoProtocolContract == nil {
 		a.initErr = errors.New("frozen AIHub video protocol contract is required")
@@ -155,19 +158,32 @@ func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, req
 }
 
 func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (string, []byte, *dto.TaskError) {
+	if a.initErr != nil {
+		return "", nil, service.TaskErrorWrapperLocal(a.initErr, "video_contract_unavailable", http.StatusServiceUnavailable)
+	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", nil, service.TaskErrorWrapper(err, "read_response_body_failed", http.StatusInternalServerError)
 	}
 	_ = resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		if taskErr := observedAIHubVideoUnavailableError(resp.StatusCode, body); taskErr != nil {
+			return "", nil, taskErr
+		}
+		return "", nil, service.TaskErrorWrapper(errors.New("AIHub video request failed"), "upstream_error", resp.StatusCode)
+	}
 	if !gjson.ValidBytes(body) {
 		return "", nil, service.TaskErrorWrapper(errors.New("AIHub video response is invalid JSON"), "invalid_response", http.StatusBadGateway)
 	}
 	taskID := strings.TrimSpace(gjson.GetBytes(body, a.contract.Create.TaskIDField).String())
-	requestID := strings.TrimSpace(gjson.GetBytes(body, a.contract.Create.RequestIDField).String())
+	requestID := a.responseRequestID(a.contract.Create, body, resp.Header)
 	if !validProviderIdentity(taskID) || !validProviderIdentity(requestID) {
 		return "", nil, service.TaskErrorWrapper(errors.New("AIHub video response identity is missing"), "invalid_response", http.StatusBadGateway)
 	}
+	if err := service.RecordZTAPIMediaSubmissionIdentity(info, resp.StatusCode, requestID); err != nil {
+		return "", nil, service.TaskErrorWrapperLocal(err, "media_task_identity_persistence_failed", http.StatusServiceUnavailable)
+	}
+	c.Set(common.UpstreamRequestIdKey, requestID)
 	response := dto.NewOpenAIVideo()
 	response.ID = info.PublicTaskID
 	response.TaskID = info.PublicTaskID
@@ -176,7 +192,28 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 	return taskID, body, nil
 }
 
+func observedAIHubVideoUnavailableError(status int, body []byte) *dto.TaskError {
+	if status != http.StatusServiceUnavailable || !gjson.ValidBytes(body) {
+		return nil
+	}
+	providerError := gjson.GetBytes(body, "error")
+	code := providerError.Get("code").String()
+	message := providerError.Get("message").String()
+	reasons := providerError.Get("reason_codes").Array()
+	if code != "model_route_unavailable" || message != "model route unavailable" || len(reasons) != 1 || reasons[0].String() != "no_candidate" {
+		return nil
+	}
+	return &dto.TaskError{
+		Code:       code,
+		Message:    message,
+		Data:       map[string]any{"reason_codes": []string{"no_candidate"}},
+		StatusCode: status,
+		Error:      errors.New(message),
+	}
+}
+
 func (a *TaskAdaptor) FetchTask(baseURL, key string, body map[string]any, proxy string) (*http.Response, error) {
+	a.fetchBody, a.fetchHeaders = nil, nil
 	if a.initErr != nil {
 		return nil, a.initErr
 	}
@@ -199,10 +236,25 @@ func (a *TaskAdaptor) FetchTask(baseURL, key string, body map[string]any, proxy 
 	if client == nil {
 		client = http.DefaultClient
 	}
-	return client.Do(request)
+	resp, err := client.Do(request)
+	if err != nil || a.contract.Fetch.RequestIDSource != types.ZTAPIResponseIDSourceHeader {
+		return resp, err
+	}
+	// The polling interface hands only bytes to ParseTaskResult. Retain a
+	// single response-bound header snapshot, never a last-seen request ID.
+	raw, err := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+	a.fetchBody, a.fetchHeaders = bytes.Clone(raw), resp.Header.Clone()
+	resp.Body = io.NopCloser(bytes.NewReader(raw))
+	return resp, nil
 }
 
 func (a *TaskAdaptor) ParseTaskResult(body []byte) (*relaycommon.TaskInfo, error) {
+	fetchBody, fetchHeaders := a.fetchBody, a.fetchHeaders
+	a.fetchBody, a.fetchHeaders = nil, nil
 	if a.initErr != nil {
 		return nil, a.initErr
 	}
@@ -210,7 +262,10 @@ func (a *TaskAdaptor) ParseTaskResult(body []byte) (*relaycommon.TaskInfo, error
 		return nil, errors.New("AIHub video task response is invalid JSON")
 	}
 	taskID := strings.TrimSpace(gjson.GetBytes(body, a.contract.Fetch.TaskIDField).String())
-	requestID := strings.TrimSpace(gjson.GetBytes(body, a.contract.Fetch.RequestIDField).String())
+	if a.contract.Fetch.RequestIDSource == types.ZTAPIResponseIDSourceHeader && !bytes.Equal(body, fetchBody) {
+		return nil, errors.New("AIHub video response header evidence does not match body")
+	}
+	requestID := a.responseRequestID(a.contract.Fetch, body, fetchHeaders)
 	providerStatus := strings.TrimSpace(gjson.GetBytes(body, a.contract.States.Field).String())
 	if !validProviderIdentity(taskID) || !validProviderIdentity(requestID) || providerStatus == "" {
 		return nil, errors.New("AIHub video task response identity or status is missing")
@@ -218,6 +273,11 @@ func (a *TaskAdaptor) ParseTaskResult(body []byte) (*relaycommon.TaskInfo, error
 	result := &relaycommon.TaskInfo{
 		Code: 0, ProviderStatus: providerStatus, UpstreamTaskID: taskID, UpstreamRequestID: requestID,
 		UsageDimensions: map[string]string{}, ResultMetadata: map[string]string{},
+	}
+	// This observed provider usage is audit evidence, not the quotation's
+	// input_tokens dimension. Keep its original JSON representation intact.
+	if usage := gjson.GetBytes(body, "provider_result.volcengine.usage"); usage.Exists() {
+		result.ResultMetadata["raw_usage_json"] = usage.Raw
 	}
 	switch {
 	case contains(a.contract.States.Accepted, providerStatus):
@@ -249,6 +309,9 @@ func (a *TaskAdaptor) ParseTaskResult(body []byte) (*relaycommon.TaskInfo, error
 		result.Progress = ""
 		result.Reason = "unknown_provider_state"
 	}
+	if _, unresolved := result.ResultMetadata["raw_usage_json"]; unresolved {
+		return result, nil
+	}
 	for dimension, field := range a.contract.Usage.Fields {
 		value := gjson.GetBytes(body, field)
 		if !value.Exists() {
@@ -261,6 +324,32 @@ func (a *TaskAdaptor) ParseTaskResult(body []byte) (*relaycommon.TaskInfo, error
 		result.UsageDimensions[dimension] = strings.TrimSpace(raw)
 	}
 	return result, nil
+}
+
+func (a *TaskAdaptor) responseRequestID(endpoint types.ZTAPIVideoEndpointContract, body []byte, headers http.Header) string {
+	if a.contract.Version == types.ZTAPIVideoProtocolContractVersion {
+		return strings.TrimSpace(gjson.GetBytes(body, endpoint.RequestIDField).String())
+	}
+	if endpoint.RequestIDSource == types.ZTAPIResponseIDSourceBodyField {
+		value := gjson.GetBytes(body, endpoint.RequestIDKey)
+		if value.Type == gjson.String && validProviderIdentity(value.String()) {
+			return value.String()
+		}
+		return ""
+	}
+	if endpoint.RequestIDSource != types.ZTAPIResponseIDSourceHeader {
+		return ""
+	}
+	var values []string
+	for name, entries := range headers {
+		if strings.EqualFold(name, endpoint.RequestIDKey) {
+			values = append(values, entries...)
+		}
+	}
+	if len(values) != 1 || !validProviderIdentity(values[0]) {
+		return ""
+	}
+	return values[0]
 }
 
 func (a *TaskAdaptor) ConvertToOpenAIVideo(task *model.Task) ([]byte, error) {

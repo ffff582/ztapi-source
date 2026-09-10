@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +20,7 @@ import (
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 )
 
 // OpenaiImageHandler handles non-streaming OpenAI image responses
@@ -64,6 +67,10 @@ func OpenaiImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 		if candidate == nil {
 			return nil, types.NewErrorWithStatusCode(fmt.Errorf("managed image response does not match the current private candidate"), types.ErrorCodeBadResponseBody, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
 		}
+		contract := info.ZTAPIPublicationSnapshot.ImageProtocolContract
+		if contract != nil && contract.ProviderModel == "gpt-image-2" && candidate.UsagePendingReason == "" {
+			candidate.UsagePendingReason = gptImageUsagePendingReason(candidate.RawUsageJSON, contract)
+		}
 		evidence, normalizeErr := relaycommon.NormalizeZTAPIImageUsageCandidate(info, candidate, responseBody)
 		if normalizeErr != nil && !errors.Is(normalizeErr, relaycommon.ErrZTAPIMediaUsagePending) {
 			return nil, types.NewErrorWithStatusCode(normalizeErr, types.ErrorCodeBadResponseBody, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
@@ -87,6 +94,48 @@ func OpenaiImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 	normalizeOpenAIUsage(&usageResp.Usage)
 	applyUsagePostProcessing(info, &usageResp.Usage, responseBody)
 	return &usageResp.Usage, nil
+}
+
+// Aggregate/detail agreement is additional evidence, not authority to invent
+// missing cache buckets. The frozen five-bucket normalizer remains decisive.
+func gptImageUsagePendingReason(raw []byte, contract *types.ZTAPIImageProtocolContract) string {
+	if contract == nil || contract.Usage.CacheSemantics != "separate_dimension" {
+		return "gpt-image-2 usage requires separate five-bucket cache semantics"
+	}
+	paths := []string{
+		contract.Usage.Fields["text_input"], contract.Usage.Fields["text_cached_input"],
+		contract.Usage.Fields["image_input"], contract.Usage.Fields["image_cached_input"],
+		contract.Usage.Fields["image_output"],
+	}
+	for _, path := range paths {
+		if path == "" {
+			return "gpt-image-2 usage requires all five frozen billing buckets"
+		}
+	}
+	fields := append([]string{"input_tokens", "output_tokens", "output_tokens_details.text_tokens", "total_tokens"}, paths...)
+	values := make([]int64, len(fields))
+	for index, field := range fields {
+		value := gjson.GetBytes(raw, field)
+		quantity, err := strconv.ParseInt(value.Raw, 10, 64)
+		if value.Type != gjson.Number || err != nil || quantity < 0 {
+			return fmt.Sprintf("gpt-image-2 usage field %q is missing or malformed", field)
+		}
+		values[index] = quantity
+	}
+	input, output, textOutput, total := values[0], values[1], values[2], values[3]
+	var inputBuckets int64
+	for _, quantity := range values[4:8] {
+		if inputBuckets > math.MaxInt64-quantity {
+			return "gpt-image-2 input usage buckets overflow"
+		}
+		inputBuckets += quantity
+	}
+	imageOutput := values[8]
+	if textOutput != 0 || input != inputBuckets || output != imageOutput ||
+		input > math.MaxInt64-output || total != input+output {
+		return "gpt-image-2 usage aggregates or output text conflict with image-only billing"
+	}
+	return ""
 }
 
 // normalizeOpenAIUsage maps the OpenAI Images usage shape (input_tokens /

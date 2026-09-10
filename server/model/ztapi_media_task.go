@@ -571,8 +571,32 @@ func applyZTAPIMediaTaskTerminalTx(tx *gorm.DB, settlement *ZTAPIRequestSettleme
 
 func ztapiMediaTaskTerminalMatches(task *ZTAPIMediaTask, settlement *ZTAPIRequestSettlement, input ZTAPIMediaTaskObservation, resultHash string) bool {
 	return task.State == input.State && task.SettlementState == settlement.Status && task.ChargeDisposition == input.ChargeDisposition &&
-		task.ActualQuota == input.ActualQuota && task.ResultMetadataHash == resultHash && task.ResultMetadataJSON == input.ResultMetadataJSON &&
+		task.ActualQuota == input.ActualQuota && ztapiMediaTaskResultMatches(task, input.ResultMetadataJSON, resultHash) &&
 		task.UsageJSON == input.UsageJSON && task.ChargeDimensionsJSON == input.ChargeDimensionsJSON && task.FailureReason == input.FailureReason
+}
+
+func ztapiMediaTaskResultMatches(task *ZTAPIMediaTask, metadata, hash string) bool {
+	if task.ResultMetadataHash == hash && task.ResultMetadataJSON == metadata {
+		return true
+	}
+	if task.ResultMetadataHash != ztapiMediaTaskHash(task.ResultMetadataJSON) {
+		return false
+	}
+	var original, observed map[string]json.RawMessage
+	if common.UnmarshalJsonStr(task.ResultMetadataJSON, &original) != nil || common.UnmarshalJsonStr(metadata, &observed) != nil {
+		return false
+	}
+	// A new poll has a new request ID, not a new task outcome. Preserve the
+	// first terminal evidence; every other result and financial field must match.
+	for _, values := range []map[string]json.RawMessage{original, observed} {
+		var requestID string
+		if common.Unmarshal(values["upstream_request_id"], &requestID) != nil || requestID == "" || len(requestID) > 255 ||
+			requestID != strings.TrimSpace(requestID) || strings.ContainsAny(requestID, "\r\n\x00") {
+			return false
+		}
+		delete(values, "upstream_request_id")
+	}
+	return reflect.DeepEqual(original, observed)
 }
 
 func ztapiMediaTaskSettlementState(disposition ZTAPIMediaChargeDisposition) string {

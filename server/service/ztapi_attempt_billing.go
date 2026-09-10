@@ -8,7 +8,9 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/shopspring/decimal"
+	"github.com/tidwall/gjson"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -84,8 +86,13 @@ func PriceZTAPIAttemptBilling(parent model.ZTAPIRequestSettlement, submission mo
 		(parent.Status != model.ZTAPISettlementSettled && parent.Status != model.ZTAPISettlementPending) ||
 		submission.RequestID != parent.RequestID || submission.UserID != parent.UserID || submission.ChannelID <= 0 ||
 		submission.Attempt < 1 || submission.Attempt > 2 || submission.Kind != "billed" ||
-		(submission.UsageSemantic != "openai" && submission.UsageSemantic != "anthropic") ||
 		len(submission.Usage) == 0 || len(submission.Usage) > 6 || len(parent.PriceSnapshotJSON) > 65536 {
+		return invalid, model.ErrZTAPIAttemptBillingInvalid
+	}
+	if submission.UsageSemantic == "ztapi_image" {
+		return priceZTAPIImageAttemptBilling(parent, submission)
+	}
+	if submission.UsageSemantic != "openai" && submission.UsageSemantic != "anthropic" {
 		return invalid, model.ErrZTAPIAttemptBillingInvalid
 	}
 	var snapshot relaycommon.ZTAPIPublicationSnapshot
@@ -153,6 +160,151 @@ func PriceZTAPIAttemptBilling(parent model.ZTAPIRequestSettlement, submission mo
 		ModelName: parent.PublicModel, ChannelId: submission.ChannelID, Quota: quota,
 		PromptTokens: int(input), CompletionTokens: int(output), CreatedAt: parent.CreatedAt.Unix(), Other: string(metadata),
 	}}, nil
+}
+
+func priceZTAPIImageAttemptBilling(parent model.ZTAPIRequestSettlement, submission model.ZTAPIAttemptBillingSubmission) (model.ZTAPIAttemptBillingPriced, error) {
+	invalid := model.ZTAPIAttemptBillingPriced{}
+	var frozen ztapiFrozenMediaReservation
+	if common.RejectDuplicateJsonObjectMembers(strings.NewReader(parent.PriceSnapshotJSON)) != nil ||
+		common.DecodeJsonStrict(strings.NewReader(parent.PriceSnapshotJSON), &frozen) != nil ||
+		frozen.Modality != model.ZTAPIModalityImage || frozen.PublicName != parent.PublicModel ||
+		frozen.PublicationID <= 0 || frozen.Version == 0 || frozen.PriceSourceID <= 0 || frozen.PriceSourceVersion == 0 {
+		return invalid, model.ErrZTAPIAttemptBillingInvalid
+	}
+	canonical, err := types.CanonicalizeZTAPIMediaPriceContract(frozen.MediaPriceContractJSON)
+	if err != nil || canonical != frozen.MediaPriceContractJSON {
+		return invalid, model.ErrZTAPIAttemptBillingInvalid
+	}
+	contract, err := types.ParseZTAPIMediaPriceContract(frozen.MediaPriceContractJSON)
+	if err != nil || contract.Modality != model.ZTAPIModalityImage {
+		return invalid, model.ErrZTAPIAttemptBillingInvalid
+	}
+	protocol, protocolJSON, err := types.ParseZTAPIImageProtocolContract(frozen.ImageProtocolContractJSON)
+	if err != nil || protocolJSON != frozen.ImageProtocolContractJSON || protocol.EvidenceHash != frozen.ProtocolEvidenceHash ||
+		types.ValidateZTAPIImagePriceProtocolCompatibility(contract, protocol) != nil {
+		return invalid, model.ErrZTAPIAttemptBillingInvalid
+	}
+	dimensions := make(map[string]decimal.Decimal, len(submission.Usage))
+	positive := false
+	for _, quantity := range submission.Usage {
+		if quantity.Quantity < 0 || quantity.Quantity > math.MaxInt32 {
+			return invalid, model.ErrZTAPIAttemptBillingInvalid
+		}
+		if _, duplicate := dimensions[quantity.Dimension]; duplicate {
+			return invalid, model.ErrZTAPIAttemptBillingInvalid
+		}
+		dimensions[quantity.Dimension] = decimal.NewFromInt(quantity.Quantity)
+		positive = positive || quantity.Quantity > 0
+	}
+	if !positive || !ztapiImageUsageWithinMaximum(dimensions, frozen.MaximumDimensions) ||
+		!matchesZTAPIImageRawUsage(protocol, submission.RawUsageJSON, dimensions) {
+		return invalid, model.ErrZTAPIAttemptBillingInvalid
+	}
+	selectedRuleID, ruleIDs, err := deriveZTAPIImageAttemptRules(contract, dimensions)
+	if err != nil || submission.SelectedRuleID != selectedRuleID || !equalZTAPIStringMaps(submission.PriceRuleIDs, ruleIDs) {
+		return invalid, model.ErrZTAPIAttemptBillingInvalid
+	}
+	quota, chargeDimensions, logDimensions, err := calculateZTAPIImageChargeDimensions(frozen.MediaPriceContractJSON, frozen.QuotaPerUnit, selectedRuleID, dimensions, ruleIDs)
+	if err != nil {
+		return invalid, model.ErrZTAPIAttemptBillingInvalid
+	}
+	var input, output int64
+	for name, quantity := range dimensions {
+		if name == "output_tokens" || name == "image_output" {
+			output += quantity.IntPart()
+		} else {
+			input += quantity.IntPart()
+		}
+	}
+	metadata, err := common.Marshal(map[string]any{
+		"billing_source": "wallet", "billing_status": "settled", "billing_dimensions": logDimensions,
+		"publication_version": frozen.Version, "price_source_version": frozen.PriceSourceVersion,
+		"usage_semantic": submission.UsageSemantic, "selected_rule_id": selectedRuleID,
+	})
+	if err != nil {
+		return invalid, err
+	}
+	return model.ZTAPIAttemptBillingPriced{Dimensions: chargeDimensions, ConsumeLog: model.Log{
+		Type: model.LogTypeConsume, UserId: parent.UserID, TokenId: parent.TokenID, RequestId: parent.RequestID,
+		ModelName: parent.PublicModel, ChannelId: submission.ChannelID, Quota: int(quota),
+		PromptTokens: int(input), CompletionTokens: int(output), CreatedAt: parent.CreatedAt.Unix(), Other: string(metadata),
+	}}, nil
+}
+
+func matchesZTAPIImageRawUsage(protocol types.ZTAPIImageProtocolContract, raw string, dimensions map[string]decimal.Decimal) bool {
+	if raw == "" || len(raw) > 65536 || common.RejectDuplicateJsonObjectMembers(strings.NewReader(raw)) != nil || !gjson.Valid(raw) {
+		return false
+	}
+	var canonicalValue map[string]any
+	if common.DecodeJsonStrict(strings.NewReader(raw), &canonicalValue) != nil || canonicalValue == nil {
+		return false
+	}
+	canonical, err := common.Marshal(canonicalValue)
+	if err != nil || string(canonical) != raw {
+		return false
+	}
+	var total int64
+	for dimension, field := range protocol.Usage.Fields {
+		quantity, ok := dimensions[dimension]
+		result := gjson.Get(raw, field)
+		if !ok || !result.Exists() || result.Type != gjson.Number {
+			return false
+		}
+		parsed, err := decimal.NewFromString(result.Raw)
+		if err != nil || !parsed.Equal(quantity) || !parsed.Equal(decimal.NewFromInt(parsed.IntPart())) || parsed.IsNegative() || total > math.MaxInt64-parsed.IntPart() {
+			return false
+		}
+		total += parsed.IntPart()
+	}
+	result := gjson.Get(raw, protocol.Usage.TotalField)
+	if !result.Exists() || result.Type != gjson.Number {
+		return false
+	}
+	parsed, err := decimal.NewFromString(result.Raw)
+	return err == nil && parsed.Equal(decimal.NewFromInt(total))
+}
+
+func deriveZTAPIImageAttemptRules(contract types.ZTAPIMediaPriceContract, dimensions map[string]decimal.Decimal) (string, map[string]string, error) {
+	if len(contract.Rules) == 0 || len(dimensions) == 0 {
+		return "", nil, model.ErrZTAPIAttemptBillingInvalid
+	}
+	ruleIDs := make(map[string]string, len(dimensions))
+	if _, tiered := contract.Rules[0].Conditions["prompt_tokens_tier"]; tiered {
+		if len(dimensions) != 2 {
+			return "", nil, model.ErrZTAPIAttemptBillingInvalid
+		}
+		input, inputOK := dimensions["input_tokens"]
+		_, outputOK := dimensions["output_tokens"]
+		if !inputOK || !outputOK {
+			return "", nil, model.ErrZTAPIAttemptBillingInvalid
+		}
+		tier := "lte_200k"
+		if input.GreaterThan(decimal.NewFromInt(200000)) {
+			tier = "gt_200k"
+		}
+		for _, rule := range contract.Rules {
+			if rule.Conditions["prompt_tokens_tier"] == tier {
+				ruleIDs["input_tokens"], ruleIDs["output_tokens"] = rule.ID, rule.ID
+				return rule.ID, ruleIDs, nil
+			}
+		}
+		return "", nil, model.ErrZTAPIAttemptBillingInvalid
+	}
+	if len(dimensions) != len(contract.Rules) {
+		return "", nil, model.ErrZTAPIAttemptBillingInvalid
+	}
+	for _, rule := range contract.Rules {
+		if len(rule.SaleUSD) != 1 {
+			return "", nil, model.ErrZTAPIAttemptBillingInvalid
+		}
+		for dimension := range rule.SaleUSD {
+			if _, ok := dimensions[dimension]; !ok || rule.Conditions["token_bucket"] != dimension {
+				return "", nil, model.ErrZTAPIAttemptBillingInvalid
+			}
+			ruleIDs[dimension] = rule.ID
+		}
+	}
+	return "", ruleIDs, nil
 }
 
 func ztapiAttemptTokenDimension(name string) bool {

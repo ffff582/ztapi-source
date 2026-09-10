@@ -189,17 +189,15 @@ func TestZTAPIImageDispatchForcesFrozenBindingDespitePassThroughInput(t *testing
 	t.Cleanup(func() { *settings = previous })
 	settings.PassThroughRequestEnabled = true
 	info.ChannelMeta = &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenAI, ApiType: constant.APITypeOpenAI, ChannelSetting: dto.ChannelSettings{PassThroughBodyEnabled: true}}
-	request, err := PrepareZTAPIManagedImageDispatch(c, info)
+	dispatch, err := PrepareZTAPIManagedImageDispatch(c, info)
 	require.Nil(t, err)
-	require.Equal(t, "verified-provider-image", request.Model)
+	require.Equal(t, types.ZTAPIImageWireProtocolOpenAIImages, dispatch.WireProtocol)
+	require.Equal(t, "/v1/images/generations", dispatch.ProviderPath)
 	require.Equal(t, "verified-provider-image", info.UpstreamModelName)
 	require.Equal(t, "/v1/images/generations", info.RequestURLPath)
-	require.Empty(t, request.Extra)
 
-	raw, marshalErr := common.Marshal(request)
-	require.NoError(t, marshalErr)
 	var outbound map[string]any
-	require.NoError(t, common.Unmarshal(raw, &outbound))
+	require.NoError(t, common.Unmarshal(dispatch.Body, &outbound))
 	require.Equal(t, "verified-provider-image", outbound["model"])
 	require.NotContains(t, outbound, "provider_model")
 }

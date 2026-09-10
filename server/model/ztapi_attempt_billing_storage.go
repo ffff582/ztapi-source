@@ -185,23 +185,45 @@ func ListZTAPIAttemptBillingReviews(status string, afterID uint, limit int) ([]Z
 }
 
 func normalizeZTAPIAttemptBillingSubmission(input *ZTAPIAttemptBillingSubmission) error {
-	if strings.TrimSpace(input.Source) == "" || len(input.Source) > 128 || strings.TrimSpace(input.ProofID) == "" || len(input.ProofID) > 256 || input.RequestID == "" || len(input.RequestID) > 128 || input.Attempt < 1 || input.Attempt > 2 || input.UserID <= 0 || input.ChannelID <= 0 || input.CredentialVersion == "" || len(input.CredentialVersion) > 128 || len(input.UpstreamRequestID) > 200 || len(input.UpstreamBillID) > 256 || input.EvidenceReference == "" || len(input.EvidenceReference) > 512 || len(input.DistinctUsageReference) > 512 || len(input.Usage) > 6 || (input.Kind != "billed" && input.Kind != "nocharge") {
+	if strings.TrimSpace(input.Source) == "" || len(input.Source) > 128 || strings.TrimSpace(input.ProofID) == "" || len(input.ProofID) > 256 || input.RequestID == "" || len(input.RequestID) > 128 || input.Attempt < 1 || input.Attempt > 2 || input.UserID <= 0 || input.ChannelID <= 0 || input.CredentialVersion == "" || len(input.CredentialVersion) > 128 || len(input.UpstreamRequestID) > 200 || len(input.UpstreamTaskID) > 200 || len(input.UpstreamBillID) > 256 || input.EvidenceReference == "" || len(input.EvidenceReference) > 512 || len(input.DistinctUsageReference) > 512 || len(input.Usage) > 6 || (input.Kind != "billed" && input.Kind != "nocharge") {
 		return ErrZTAPIAttemptBillingInvalid
 	}
-	if input.UsageSemantic != "" && input.UsageSemantic != "openai" && input.UsageSemantic != "anthropic" {
+	if input.UsageSemantic != "" && input.UsageSemantic != "openai" && input.UsageSemantic != "anthropic" && input.UsageSemantic != ZTAPIAttemptBillingUsageSemanticImage {
 		return ErrZTAPIAttemptBillingInvalid
 	}
+	imageUsage := input.UsageSemantic == ZTAPIAttemptBillingUsageSemanticImage
 	seen := map[string]bool{}
+	positive := false
 	for _, u := range input.Usage {
 		switch u.Dimension {
-		case "input_tokens", "output_tokens", "cache_read", "cache_write", "cache_write_5m", "cache_write_1h":
+		case "input_tokens", "output_tokens", "cache_read", "cache_write", "cache_write_5m", "cache_write_1h",
+			"text_input", "text_cached_input", "image_input", "image_cached_input", "image_output":
 		default:
 			return ErrZTAPIAttemptBillingInvalid
 		}
-		if seen[u.Dimension] || u.Quantity <= 0 || u.Quantity > maxBalanceLedgerQuota {
+		if seen[u.Dimension] || u.Quantity < 0 || (!imageUsage && u.Quantity == 0) || u.Quantity > maxBalanceLedgerQuota {
 			return ErrZTAPIAttemptBillingInvalid
 		}
+		positive = positive || u.Quantity > 0
 		seen[u.Dimension] = true
+	}
+	if imageUsage {
+		if input.Kind != "billed" || !positive || !validZTAPIImageAttemptDimensions(seen) ||
+			len(input.PriceRuleIDs) != len(input.Usage) || len(input.RawUsageJSON) == 0 || len(input.RawUsageJSON) > 65536 ||
+			!validZTAPICanonicalRawUsage(input.RawUsageJSON) {
+			return ErrZTAPIAttemptBillingInvalid
+		}
+		for dimension := range seen {
+			if ruleID := input.PriceRuleIDs[dimension]; !ztapiSupplierCodePattern.MatchString(ruleID) {
+				return ErrZTAPIAttemptBillingInvalid
+			}
+		}
+		if input.SelectedRuleID != "" && !ztapiSupplierCodePattern.MatchString(input.SelectedRuleID) {
+			return ErrZTAPIAttemptBillingInvalid
+		}
+	} else if input.SelectedRuleID != "" || len(input.PriceRuleIDs) != 0 || input.RawUsageJSON != "" ||
+		seen["text_input"] || seen["text_cached_input"] || seen["image_input"] || seen["image_cached_input"] || seen["image_output"] {
+		return ErrZTAPIAttemptBillingInvalid
 	}
 	if input.Kind == "nocharge" && len(input.Usage) != 0 {
 		return ErrZTAPIAttemptBillingInvalid
@@ -209,6 +231,25 @@ func normalizeZTAPIAttemptBillingSubmission(input *ZTAPIAttemptBillingSubmission
 	input.Usage = append([]ZTAPIAttemptBillingQuantity(nil), input.Usage...)
 	sort.Slice(input.Usage, func(i, j int) bool { return input.Usage[i].Dimension < input.Usage[j].Dimension })
 	return nil
+}
+
+func validZTAPIImageAttemptDimensions(seen map[string]bool) bool {
+	if len(seen) == 2 {
+		return seen["input_tokens"] && seen["output_tokens"]
+	}
+	return len(seen) == 5 && seen["text_input"] && seen["text_cached_input"] && seen["image_input"] && seen["image_cached_input"] && seen["image_output"]
+}
+
+func validZTAPICanonicalRawUsage(raw string) bool {
+	if common.RejectDuplicateJsonObjectMembers(strings.NewReader(raw)) != nil {
+		return false
+	}
+	var value map[string]any
+	if common.DecodeJsonStrict(strings.NewReader(raw), &value) != nil || value == nil {
+		return false
+	}
+	canonical, err := common.Marshal(value)
+	return err == nil && string(canonical) == raw
 }
 
 func SubmitZTAPIAttemptBilling(input ZTAPIAttemptBillingSubmission) (*ZTAPIAttemptBillingProof, error) {
@@ -264,16 +305,33 @@ func validateZTAPIAttemptLineageTx(tx *gorm.DB, row *ZTAPIRequestSettlement, inp
 	if attempt.ChannelID != input.ChannelID || attempt.CredentialVersion != input.CredentialVersion || attempt.UpstreamRequestID == "" || attempt.UpstreamRequestID != input.UpstreamRequestID {
 		return ErrZTAPIAttemptBillingConflict
 	}
+	if input.UpstreamTaskID != "" {
+		var task ZTAPIMediaTask
+		if err := tx.Where("settlement_id = ? AND attempt = ? AND channel_id = ? AND credential_version = ? AND upstream_task_id = ?", row.ID, input.Attempt, input.ChannelID, input.CredentialVersion, input.UpstreamTaskID).Take(&task).Error; err != nil {
+			return ErrZTAPIAttemptBillingConflict
+		}
+	}
 	return nil
 }
 
 func validateZTAPIAttemptPrice(row *ZTAPIRequestSettlement, input ZTAPIAttemptBillingSubmission, priced *ZTAPIAttemptBillingPriced) (int64, error) {
-	if len(priced.Dimensions) != len(input.Usage) || len(priced.Dimensions) == 0 {
+	expectedDimensions := len(input.Usage)
+	if input.UsageSemantic == ZTAPIAttemptBillingUsageSemanticImage {
+		expectedDimensions = 0
+		for _, usage := range input.Usage {
+			if usage.Quantity > 0 {
+				expectedDimensions++
+			}
+		}
+	}
+	if len(priced.Dimensions) != expectedDimensions || len(priced.Dimensions) == 0 {
 		return 0, ErrZTAPIAttemptBillingPending
 	}
 	units := map[string]int64{}
 	for _, u := range input.Usage {
-		units[u.Dimension] = u.Quantity
+		if u.Quantity > 0 || input.UsageSemantic != ZTAPIAttemptBillingUsageSemanticImage {
+			units[u.Dimension] = u.Quantity
+		}
 	}
 	var total int64
 	for i := range priced.Dimensions {
@@ -299,7 +357,7 @@ func validateZTAPIAttemptPrice(row *ZTAPIRequestSettlement, input ZTAPIAttemptBi
 	}
 	var in, out int64
 	for _, u := range input.Usage {
-		if u.Dimension == "output_tokens" {
+		if u.Dimension == "output_tokens" || u.Dimension == "image_output" {
 			out += u.Quantity
 		} else {
 			in += u.Quantity
@@ -318,6 +376,24 @@ func validateZTAPIAttemptPrice(row *ZTAPIRequestSettlement, input ZTAPIAttemptBi
 // A different proof or channel does not establish distinct upstream usage.
 // Call only while holding the canonical request lock, including before debit.
 func overlappingZTAPIAttemptUsageTx(tx *gorm.DB, row *ZTAPIRequestSettlement, input ZTAPIAttemptBillingSubmission, proofID uint) (bool, error) {
+	if input.UpstreamTaskID != "" {
+		var taskCount int64
+		if err := tx.Model(&ZTAPIMediaTask{}).Where("upstream_task_id = ? AND credential_version = ?", input.UpstreamTaskID, input.CredentialVersion).Count(&taskCount).Error; err != nil {
+			return false, err
+		}
+		if taskCount != 1 {
+			return true, nil
+		}
+		var chargeCount int64
+		if err := tx.Model(&ZTAPISupplierRefundCharge{}).
+			Where("upstream_task_id = ? AND credential_version = ? AND (request_id <> ? OR attempt <> ?)", input.UpstreamTaskID, input.CredentialVersion, row.RequestID, input.Attempt).
+			Count(&chargeCount).Error; err != nil {
+			return false, err
+		}
+		if chargeCount != 0 {
+			return true, nil
+		}
+	}
 	var attempts []ZTAPIRequestAttempt
 	if err := tx.Where("settlement_id = ? AND attempt <> ?", row.ID, input.Attempt).Find(&attempts).Error; err != nil {
 		return false, err
@@ -351,6 +427,7 @@ func ApproveZTAPIAttemptBilling(proofID uint, operatorID int, reference string, 
 		return err
 	}
 	pending := false
+	resolvePendingNoCharge := false
 	err := ztapiSettlementTransaction(func(tx *gorm.DB) error {
 		var row ZTAPIRequestSettlement
 		rowErr := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("request_id = ?", initial.RequestID).Take(&row).Error
@@ -390,6 +467,7 @@ func ApproveZTAPIAttemptBilling(proofID uint, operatorID int, reference string, 
 			if existing.OperatorID != operatorID || existing.VerificationReference != reference || existing.PayloadHash != proof.PayloadHash || existing.PricedHash != ztapiAttemptBillingApprovalDigest(existing) {
 				return ErrZTAPIAttemptBillingConflict
 			}
+			resolvePendingNoCharge = existing.ApplyTarget == "pending_nocharge"
 			return nil
 		} else if !errors.Is(e, gorm.ErrRecordNotFound) {
 			return e
@@ -398,7 +476,15 @@ func ApproveZTAPIAttemptBilling(proofID uint, operatorID int, reference string, 
 			return e
 		}
 		target := "additional_attempt"
-		if row.Status == ZTAPISettlementPending && input.Kind == "billed" {
+		if row.Status == ZTAPISettlementPending && input.Kind == "nocharge" {
+			if exists, intentErr := HasZTAPISettlementFinalizationIntentTx(tx, row.RequestID); intentErr != nil {
+				return intentErr
+			} else if exists {
+				return pend("existing_finalization_intent")
+			}
+			target = "pending_nocharge"
+			resolvePendingNoCharge = true
+		} else if row.Status == ZTAPISettlementPending && input.Kind == "billed" {
 			var last ZTAPIRequestAttempt
 			if e = tx.Where("settlement_id = ?", row.ID).Order("attempt DESC").Take(&last).Error; e != nil {
 				return e
@@ -471,9 +557,13 @@ func ApproveZTAPIAttemptBilling(proofID uint, operatorID int, reference string, 
 		reviewStatus := "pending"
 		reason := "billing_application_pending"
 		if input.Kind == "nocharge" {
-			status = "completed"
 			reviewStatus = "verified_nocharge"
-			reason = ""
+			if target == "pending_nocharge" {
+				reason = "nocharge_release_pending"
+			} else {
+				status = "completed"
+				reason = ""
+			}
 		}
 		if e = tx.Model(&proof).Updates(map[string]any{"status": status, "pending_reason": reason}).Error; e != nil {
 			return e
@@ -483,7 +573,70 @@ func ApproveZTAPIAttemptBilling(proofID uint, operatorID int, reference string, 
 	if err == nil && pending {
 		return ErrZTAPIAttemptBillingPending
 	}
+	if err == nil && resolvePendingNoCharge {
+		_, err = resolveZTAPIPendingFromApprovedNoChargeAttempts(initial.RequestID, operatorID)
+	}
 	return err
+}
+
+func resolveZTAPIPendingFromApprovedNoChargeAttempts(requestID string, operatorID int) (bool, error) {
+	var row ZTAPIRequestSettlement
+	if err := DB.Where("request_id = ?", requestID).Take(&row).Error; err != nil {
+		return false, err
+	}
+	if row.Status != ZTAPISettlementPending && row.Status != ZTAPISettlementReleased {
+		return false, ErrZTAPIAttemptBillingPending
+	}
+	var attempts []ZTAPIRequestAttempt
+	if err := DB.Where("settlement_id = ?", row.ID).Order("attempt").Find(&attempts).Error; err != nil {
+		return false, err
+	}
+	if len(attempts) < 1 || len(attempts) > 2 {
+		return false, ErrZTAPIAttemptBillingConflict
+	}
+	aggregate := ZTAPINoChargeProof{Source: "approved-attempt-billing", VerificationReference: "all dispatched attempts have approved supplier no-charge evidence"}
+	identity := make([]string, 0, len(attempts)*2)
+	proofIDs := make([]uint, 0, len(attempts))
+	for _, attempt := range attempts {
+		var review ZTAPIAttemptBillingReview
+		if err := DB.Where("request_id = ? AND attempt = ?", row.RequestID, attempt.Attempt).Take(&review).Error; err != nil {
+			return false, err
+		}
+		if review.Status != "verified_nocharge" || review.AppliedProofID == 0 {
+			return false, nil
+		}
+		var proof ZTAPIAttemptBillingProof
+		if err := DB.First(&proof, review.AppliedProofID).Error; err != nil {
+			return false, err
+		}
+		input, err := validateZTAPIAttemptProof(proof)
+		if err != nil {
+			return false, err
+		}
+		approval, _, err := ztapiAttemptBillingApprovalTx(DB, &row, proof)
+		if err != nil {
+			return false, err
+		}
+		if input.Kind != "nocharge" || approval.ApplyTarget != "pending_nocharge" || input.Attempt != attempt.Attempt || input.ChannelID != attempt.ChannelID || input.CredentialVersion != attempt.CredentialVersion || input.UpstreamRequestID != attempt.UpstreamRequestID {
+			return false, ErrZTAPIAttemptBillingConflict
+		}
+		if operatorID == 0 {
+			operatorID = approval.OperatorID
+		}
+		aggregate.Attempts = append(aggregate.Attempts, ZTAPINoChargeAttempt{Attempt: attempt.Attempt, ChannelID: attempt.ChannelID, CredentialVersion: attempt.CredentialVersion, UpstreamRequestID: attempt.UpstreamRequestID, VerificationReference: approval.VerificationReference})
+		identity = append(identity, proof.ProofKey, approval.PricedHash)
+		proofIDs = append(proofIDs, proof.ID)
+	}
+	rawIdentity, _ := common.Marshal(identity)
+	aggregate.ProofID = ztapiSupplierRefundHash(string(rawIdentity))
+	if _, err := resolveZTAPIPendingNoCharge(row.ID, operatorID, aggregate, false); err != nil {
+		return false, err
+	}
+	err := ztapiSettlementTransaction(func(tx *gorm.DB) error {
+		result := tx.Model(&ZTAPIAttemptBillingProof{}).Where("id IN ? AND status = ?", proofIDs, "approved").Updates(map[string]any{"status": "completed", "pending_reason": ""})
+		return result.Error
+	})
+	return err == nil, err
 }
 
 func ztapiAttemptBillingApprovalDigest(a ZTAPIAttemptBillingApproval) string {
@@ -546,6 +699,7 @@ func ProcessZTAPIAttemptBilling(proofID uint, enqueue ZTAPIAttemptBillingLogEnqu
 	var parent *ZTAPIRequestSettlement
 	pending := false
 	resumeFinal := false
+	resumeNoCharge := false
 	err := ztapiSettlementTransaction(func(tx *gorm.DB) error {
 		var row ZTAPIRequestSettlement
 		if e := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("request_id = ?", initial.RequestID).Take(&row).Error; e != nil {
@@ -565,6 +719,10 @@ func ProcessZTAPIAttemptBilling(proofID uint, enqueue ZTAPIAttemptBillingLogEnqu
 		approval, priced, e := ztapiAttemptBillingApprovalTx(tx, &row, proof)
 		if e != nil {
 			return pend("approval_conflict")
+		}
+		if approval.ApplyTarget == "pending_nocharge" {
+			resumeNoCharge = true
+			return nil
 		}
 		if proof.Status == "completed" || proof.Status == "applied" {
 			return nil
@@ -649,7 +807,7 @@ func ProcessZTAPIAttemptBilling(proofID uint, enqueue ZTAPIAttemptBillingLogEnqu
 			return e
 		}
 		operationID := "attempt-bill:" + ztapiSupplierRefundHash(proof.ProofKey)[:48]
-		charge := ZTAPISupplierRefundCharge{RequestID: row.RequestID, SettlementID: row.ID, UserID: row.UserID, TokenID: row.TokenID, Attempt: input.Attempt, ChannelID: input.ChannelID, CredentialVersion: input.CredentialVersion, UpstreamRequestID: input.UpstreamRequestID, UpstreamBillID: input.UpstreamBillID, PriceSnapshotJSON: row.PriceSnapshotJSON, DimensionsJSON: dims, ChargedQuota: actual, TokenChargedQuota: tokenCharged, ProgressJSON: "[]", BillingProofID: proof.ID, BillingOperationID: operationID}
+		charge := ZTAPISupplierRefundCharge{RequestID: row.RequestID, SettlementID: row.ID, UserID: row.UserID, TokenID: row.TokenID, Attempt: input.Attempt, ChannelID: input.ChannelID, CredentialVersion: input.CredentialVersion, UpstreamRequestID: input.UpstreamRequestID, UpstreamTaskID: input.UpstreamTaskID, UpstreamBillID: input.UpstreamBillID, PriceSnapshotJSON: row.PriceSnapshotJSON, DimensionsJSON: dims, ChargedQuota: actual, TokenChargedQuota: tokenCharged, ProgressJSON: "[]", BillingProofID: proof.ID, BillingOperationID: operationID}
 		if ledger != nil {
 			charge.OriginalLedgerID = ledger.ID
 		}
@@ -691,6 +849,16 @@ func ProcessZTAPIAttemptBilling(proofID uint, enqueue ZTAPIAttemptBillingLogEnqu
 			return err
 		}
 		return ProcessZTAPIAttemptBilling(proofID, enqueue)
+	}
+	if resumeNoCharge {
+		resolved, err := resolveZTAPIPendingFromApprovedNoChargeAttempts(initial.RequestID, 0)
+		if err != nil {
+			return err
+		}
+		if !resolved {
+			return ErrZTAPIAttemptBillingPending
+		}
+		return nil
 	}
 	if parent != nil {
 		// Refresh the revision changed by the transaction before cache CAS.
@@ -752,7 +920,7 @@ func validateZTAPIAdditionalChargeTx(tx *gorm.DB, parent *ZTAPIRequestSettlement
 	if err != nil {
 		return err
 	}
-	if charge.ChargedQuota != actual || charge.DimensionsJSON != dims || charge.Attempt != input.Attempt || charge.ChannelID != input.ChannelID || charge.CredentialVersion != input.CredentialVersion || charge.UpstreamRequestID != input.UpstreamRequestID || charge.UpstreamBillID != input.UpstreamBillID || proof.ChargeID != charge.ID || charge.BillingOperationID != "attempt-bill:"+ztapiSupplierRefundHash(proof.ProofKey)[:48] {
+	if charge.ChargedQuota != actual || charge.DimensionsJSON != dims || charge.Attempt != input.Attempt || charge.ChannelID != input.ChannelID || charge.CredentialVersion != input.CredentialVersion || charge.UpstreamRequestID != input.UpstreamRequestID || charge.UpstreamTaskID != input.UpstreamTaskID || charge.UpstreamBillID != input.UpstreamBillID || proof.ChargeID != charge.ID || charge.BillingOperationID != "attempt-bill:"+ztapiSupplierRefundHash(proof.ProofKey)[:48] {
 		return ErrZTAPIAttemptBillingConflict
 	}
 	if actual > 0 {

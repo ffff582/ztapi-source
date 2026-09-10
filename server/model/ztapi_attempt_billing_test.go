@@ -98,6 +98,24 @@ func attemptBillingTestPricer(parent ZTAPIRequestSettlement, input ZTAPIAttemptB
 	return ZTAPIAttemptBillingPriced{Dimensions: dims, ConsumeLog: Log{Type: LogTypeConsume, UserId: parent.UserID, TokenId: parent.TokenID, RequestId: parent.RequestID, ModelName: parent.PublicModel, Quota: int(total), ChannelId: input.ChannelID, CreatedAt: 1, PromptTokens: int(total)}}, nil
 }
 
+func attemptBillingImageZeroPricer(parent ZTAPIRequestSettlement, input ZTAPIAttemptBillingSubmission) (ZTAPIAttemptBillingPriced, error) {
+	dims := make([]ZTAPISupplierRefundDimension, 0, len(input.Usage))
+	var total, prompt, completion int64
+	for _, usage := range input.Usage {
+		if usage.Quantity == 0 {
+			continue
+		}
+		dims = append(dims, ZTAPISupplierRefundDimension{Dimension: usage.Dimension, Units: strconv.FormatInt(usage.Quantity, 10), UnitQuota: "1", ChargedQuota: usage.Quantity})
+		total += usage.Quantity
+		if usage.Dimension == "image_output" {
+			completion += usage.Quantity
+		} else {
+			prompt += usage.Quantity
+		}
+	}
+	return ZTAPIAttemptBillingPriced{Dimensions: dims, ConsumeLog: Log{Type: LogTypeConsume, UserId: parent.UserID, TokenId: parent.TokenID, RequestId: parent.RequestID, ModelName: parent.PublicModel, Quota: int(total), ChannelId: input.ChannelID, CreatedAt: 1, PromptTokens: int(prompt), CompletionTokens: int(completion)}}, nil
+}
+
 func attemptBillingTestLog(tx *gorm.DB, parent *ZTAPIRequestSettlement, charge *ZTAPISupplierRefundCharge, operationID string, log Log) error {
 	shadow := *parent
 	shadow.OperationID = operationID
@@ -186,6 +204,144 @@ func TestZTAPIAttemptBillingNoChargeDoesNotCreditSettledCustomer(t *testing.T) {
 	}
 	if err = ApproveZTAPIAttemptBilling(other.ID, f.admin.Id, "verified", attemptBillingTestPricer); !errors.Is(err, ErrZTAPIAttemptBillingPending) {
 		t.Fatalf("contradictory bill approved: %v", err)
+	}
+}
+
+func setupPendingNoChargeAttempts(t *testing.T, count int) (*gorm.DB, ZTAPIRequestSettlement, User) {
+	t.Helper()
+	db, input := setupZTAPISettlement(t)
+	if err := db.AutoMigrate(&ZTAPIRequestAttempt{}, &ZTAPIPendingResolution{}, &Channel{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := MigrateZTAPIAttemptBilling(db); err != nil {
+		t.Fatal(err)
+	}
+	row, err := BeginZTAPIRequestSettlement(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i <= count; i++ {
+		channelID := 20 + i
+		if err = db.Create(&Channel{Id: channelID}).Error; err != nil {
+			t.Fatal(err)
+		}
+		if _, err = BeginZTAPIRequestAttempt(row.OperationID, channelID, "cred-v1", "chat"); err != nil {
+			t.Fatal(err)
+		}
+		if err = RecordZTAPIRequestAttemptResponse(row.OperationID, i, channelID, 502, "wire-"+strconv.Itoa(i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err = PendZTAPIRequestSettlement(row.OperationID, "{}", `["upstream_usage_missing"]`); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.First(row, row.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err = db.Transaction(func(tx *gorm.DB) error { return EnsureZTAPIAttemptBillingReviewsTx(tx, row) }); err != nil {
+		t.Fatal(err)
+	}
+	admin := createBalanceLedgerTestUser(t, db, "pending-nocharge-finance-"+strconv.Itoa(count), 0)
+	if err = db.Model(&admin).Update("role", common.RoleFinanceUser).Error; err != nil {
+		t.Fatal(err)
+	}
+	return db, *row, admin
+}
+
+func approvePendingNoChargeAttempt(t *testing.T, row ZTAPIRequestSettlement, admin User, attempt int) *ZTAPIAttemptBillingProof {
+	t.Helper()
+	input := ZTAPIAttemptBillingSubmission{
+		Source: "supplier", ProofID: "nocharge-proof-" + strconv.Itoa(attempt), RequestID: row.RequestID,
+		UserID: row.UserID, Attempt: attempt, ChannelID: 20 + attempt, CredentialVersion: "cred-v1",
+		UpstreamRequestID: "wire-" + strconv.Itoa(attempt), Kind: "nocharge", EvidenceReference: "statement-row-" + strconv.Itoa(attempt),
+	}
+	proof, err := SubmitZTAPIAttemptBilling(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = ApproveZTAPIAttemptBilling(proof.ID, admin.Id, "verified-nocharge-"+strconv.Itoa(attempt), nil); err != nil {
+		t.Fatal(err)
+	}
+	return proof
+}
+
+func TestZTAPIAttemptBillingPendingSingleNoChargeReleasesReservationExactlyOnce(t *testing.T) {
+	db, row, admin := setupPendingNoChargeAttempts(t, 1)
+	proof := approvePendingNoChargeAttempt(t, row, admin, 1)
+	assertZTAPISettlementBalances(t, db, row, 1000, 1000)
+	var saved ZTAPIRequestSettlement
+	if err := db.First(&saved, row.ID).Error; err != nil || saved.Status != ZTAPISettlementReleased {
+		t.Fatalf("pending nocharge not released: %+v %v", saved, err)
+	}
+	if err := ApproveZTAPIAttemptBilling(proof.ID, admin.Id, "verified-nocharge-1", nil); err != nil {
+		t.Fatal(err)
+	}
+	assertZTAPISettlementBalances(t, db, row, 1000, 1000)
+	if err := db.Model(&ZTAPIAttemptBillingProof{}).Where("id = ?", proof.ID).Updates(map[string]any{"status": "approved", "pending_reason": "nocharge_release_pending"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := ProcessZTAPIAttemptBilling(proof.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	var recovered ZTAPIAttemptBillingProof
+	if err := db.First(&recovered, proof.ID).Error; err != nil || recovered.Status != "completed" {
+		t.Fatalf("released nocharge retry did not close proof: %+v %v", recovered, err)
+	}
+	assertZTAPISettlementBalances(t, db, row, 1000, 1000)
+}
+
+func TestZTAPIAttemptBillingPendingDualNoChargeWaitsForEveryAttempt(t *testing.T) {
+	db, row, admin := setupPendingNoChargeAttempts(t, 2)
+	approvePendingNoChargeAttempt(t, row, admin, 1)
+	assertZTAPISettlementBalances(t, db, row, 800, 800)
+	var pending ZTAPIRequestSettlement
+	if err := db.First(&pending, row.ID).Error; err != nil || pending.Status != ZTAPISettlementPending {
+		t.Fatalf("partially proven request was released: %+v %v", pending, err)
+	}
+	approvePendingNoChargeAttempt(t, row, admin, 2)
+	assertZTAPISettlementBalances(t, db, row, 1000, 1000)
+	var reviews []ZTAPIAttemptBillingReview
+	if err := db.Where("request_id = ?", row.RequestID).Order("attempt").Find(&reviews).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(reviews) != 2 || reviews[0].Status != "verified_nocharge" || reviews[1].Status != "verified_nocharge" {
+		t.Fatalf("nocharge reviews not closed: %+v", reviews)
+	}
+}
+
+func TestZTAPIAttemptBillingAcceptsCanonicalImageUsageSubmission(t *testing.T) {
+	f := setupAttemptBillingFixture(t, true)
+	input := f.submission()
+	input.UsageSemantic = "ztapi_image"
+	input.Usage = []ZTAPIAttemptBillingQuantity{{Dimension: "input_tokens", Quantity: 200000}, {Dimension: "output_tokens", Quantity: 1}}
+	input.SelectedRuleID = "lte_200k"
+	input.PriceRuleIDs = map[string]string{"input_tokens": "lte_200k", "output_tokens": "lte_200k"}
+	input.RawUsageJSON = `{"input_tokens":200000,"output_tokens":1,"total_tokens":200001}`
+	proof, err := SubmitZTAPIAttemptBilling(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proof.ID == 0 || proof.Status != "pending" {
+		t.Fatalf("unexpected proof: %+v", proof)
+	}
+}
+
+func TestZTAPIAttemptBillingAppliesExplicitZeroImageBucketsWithoutRefundDimensions(t *testing.T) {
+	f := setupAttemptBillingFixture(t, true)
+	input := f.submission()
+	input.Attempt = 2
+	input.ChannelID = 11
+	input.UpstreamRequestID = "wire-final"
+	input.UsageSemantic = ZTAPIAttemptBillingUsageSemanticImage
+	input.Usage = []ZTAPIAttemptBillingQuantity{{Dimension: "text_input", Quantity: 2}, {Dimension: "text_cached_input", Quantity: 0}, {Dimension: "image_input", Quantity: 3}, {Dimension: "image_cached_input", Quantity: 0}, {Dimension: "image_output", Quantity: 2}}
+	input.PriceRuleIDs = map[string]string{"text_input": "text_input", "text_cached_input": "text_cached_input", "image_input": "image_input", "image_cached_input": "image_cached_input", "image_output": "image_output"}
+	input.RawUsageJSON = `{"image_cached_input":0,"image_input":3,"image_output":2,"text_cached_input":0,"text_input":2,"total_tokens":7}`
+	proof, err := SubmitZTAPIAttemptBilling(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = ApproveZTAPIAttemptBilling(proof.ID, f.admin.Id, "verified image zero buckets", attemptBillingImageZeroPricer); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -419,6 +575,35 @@ func TestZTAPIAttemptBillingRejectsKnownDuplicateUsage(t *testing.T) {
 			}
 			assertZTAPISettlementBalances(t, f.db, f.row, 900, 900)
 		})
+	}
+}
+
+func TestZTAPIAttemptBillingRejectsUpstreamTaskReusedAcrossRequests(t *testing.T) {
+	f := setupAttemptBillingFixture(t, false)
+	if err := f.db.AutoMigrate(&ZTAPIMediaTask{}); err != nil {
+		t.Fatal(err)
+	}
+	input := f.submission()
+	input.UpstreamTaskID = "shared-upstream-task"
+	if err := authorizeZTAPIMediaTaskMutation(f.db).Create(&ZTAPIMediaTask{SettlementID: f.row.ID, RequestID: f.row.RequestID, UserID: f.row.UserID, TokenID: f.row.TokenID, PublicTaskID: "public-task-current", PublicModel: f.row.PublicModel, Action: "generate", Attempt: input.Attempt, ChannelID: input.ChannelID, CredentialVersion: input.CredentialVersion, UpstreamTaskID: input.UpstreamTaskID}).Error; err != nil {
+		t.Fatal(err)
+	}
+	other := f.row
+	other.ID = 0
+	other.OperationID = "other-operation"
+	other.RequestID = "other-request"
+	if err := f.db.Create(&other).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := authorizeZTAPIMediaTaskMutation(f.db).Create(&ZTAPIMediaTask{SettlementID: other.ID, RequestID: other.RequestID, UserID: other.UserID, TokenID: other.TokenID, PublicTaskID: "public-task-other", PublicModel: other.PublicModel, Action: "generate", Attempt: 1, ChannelID: input.ChannelID, CredentialVersion: input.CredentialVersion, UpstreamTaskID: input.UpstreamTaskID}).Error; err != nil {
+		t.Fatal(err)
+	}
+	proof, err := SubmitZTAPIAttemptBilling(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = ApproveZTAPIAttemptBilling(proof.ID, f.admin.Id, "verified", attemptBillingTestPricer); !errors.Is(err, ErrZTAPIAttemptBillingPending) {
+		t.Fatalf("reused upstream task accepted: %v", err)
 	}
 }
 

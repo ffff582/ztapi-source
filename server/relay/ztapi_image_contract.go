@@ -5,10 +5,12 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"image/png"
 	"io"
 	"math"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -183,34 +185,73 @@ func containsZTAPIImageCapability(values []string, value string) bool {
 // PrepareZTAPIManagedImageDispatch rebuilds the upstream request solely from
 // frozen, admitted fields. Model mapping, parameter overrides and body
 // pass-through cannot change this request.
-func PrepareZTAPIManagedImageDispatch(c *gin.Context, info *relaycommon.RelayInfo) (*dto.ImageRequest, *types.NewAPIError) {
+func PrepareZTAPIManagedImageDispatch(c *gin.Context, info *relaycommon.RelayInfo) (*relaycommon.ZTAPIManagedImageDispatch, *types.NewAPIError) {
 	if err := AdmitZTAPIImageRequest(c, info); err != nil {
 		return nil, err
 	}
 	if !isZTAPIManagedImage(info) {
 		return nil, nil
 	}
-	if info.ChannelMeta == nil || info.ChannelType != constant.ChannelTypeOpenAI || info.ApiType != constant.APITypeOpenAI {
-		return nil, ztapiImageProtocolError(errors.New("frozen OpenAI Images binding requires the exact verified OpenAI channel family"))
-	}
 	contract, err := verifiedZTAPIImageContract(info)
 	if err != nil {
 		return nil, ztapiImageProtocolError(err)
 	}
 	incoming := info.Request.(*dto.ImageRequest)
-	count := *incoming.N
-	request := &dto.ImageRequest{
-		Model:          contract.ProviderModel,
-		Prompt:         incoming.Prompt,
-		N:              &count,
-		Size:           incoming.Size,
-		Quality:        incoming.Quality,
-		ResponseFormat: incoming.ResponseFormat,
+	wireProtocol := contract.WireProtocol
+	providerPath := contract.ProviderPath
+	var body []byte
+	switch wireProtocol {
+	case "":
+		// V1 and previously sealed V2 OpenAI image contracts retain their exact
+		// canonical JSON and resolve to the legacy verified binding at runtime.
+		wireProtocol = types.ZTAPIImageWireProtocolOpenAIImages
+		providerPath = contract.Path
+		fallthrough
+	case types.ZTAPIImageWireProtocolOpenAIImages:
+		if info.ChannelMeta == nil || info.ChannelType != constant.ChannelTypeOpenAI || info.ApiType != constant.APITypeOpenAI {
+			return nil, ztapiImageProtocolError(errors.New("frozen OpenAI Images binding requires the exact verified OpenAI channel family"))
+		}
+		count := *incoming.N
+		upstream := dto.ImageRequest{
+			Model: contract.ProviderModel, Prompt: incoming.Prompt, N: &count,
+			Size: incoming.Size, Quality: incoming.Quality, ResponseFormat: incoming.ResponseFormat,
+		}
+		for field, policy := range contract.UpstreamRequestFields {
+			if policy != types.ZTAPIImageRequestFieldOmit {
+				continue
+			}
+			switch field {
+			case "size":
+				upstream.Size = ""
+			case "quality":
+				upstream.Quality = ""
+			case "response_format":
+				upstream.ResponseFormat = ""
+			}
+		}
+		body, err = common.Marshal(upstream)
+	case types.ZTAPIImageWireProtocolGeminiGenerateContent:
+		if info.ChannelMeta == nil || info.ChannelType != constant.ChannelTypeGemini || info.ApiType != constant.APITypeGemini {
+			return nil, ztapiImageProtocolError(errors.New("frozen Gemini image binding requires the exact verified Gemini channel family"))
+		}
+		upstream := dto.GeminiChatRequest{
+			Contents:         []dto.GeminiChatContent{{Role: "user", Parts: []dto.GeminiPart{{Text: incoming.Prompt}}}},
+			GenerationConfig: dto.GeminiChatGenerationConfig{ResponseModalities: []string{"TEXT", "IMAGE"}},
+		}
+		body, err = common.Marshal(upstream)
+	default:
+		return nil, ztapiImageProtocolError(errors.New("unsupported frozen image wire protocol"))
+	}
+	if err != nil {
+		return nil, ztapiImageProtocolError(fmt.Errorf("build frozen managed image dispatch: %w", err))
+	}
+	dispatch := &relaycommon.ZTAPIManagedImageDispatch{Body: body, ProviderPath: providerPath, WireProtocol: wireProtocol}
+	if !info.SetZTAPIManagedImageDispatch(dispatch) {
+		return nil, ztapiImageProtocolError(errors.New("frozen managed image dispatch is invalid"))
 	}
 	info.UpstreamModelName = contract.ProviderModel
-	info.RequestURLPath = contract.Path
-	info.Request = request
-	return request, nil
+	info.RequestURLPath = providerPath
+	return info.GetZTAPIManagedImageDispatch(), nil
 }
 
 func BeginZTAPIManagedImageAttempt(info *relaycommon.RelayInfo) uint64 {
@@ -287,11 +328,30 @@ func ValidateZTAPIManagedImageResponse(info *relaycommon.RelayInfo, resp *http.R
 	if !root.IsObject() {
 		return nil, ztapiImageUpstreamProtocolError(errors.New("managed image response must be a JSON object"))
 	}
-	requestIDResult := root.Get(contract.RequestIDField)
-	if !requestIDResult.Exists() || requestIDResult.Type != gjson.String || strings.TrimSpace(requestIDResult.String()) == "" {
-		return nil, ztapiImageUpstreamProtocolError(errors.New("managed image response request ID is missing or malformed"))
+	requestID, idErr := ztapiImageResponseRequestID(contract, root, resp.Header)
+	if idErr != nil {
+		return nil, ztapiImageUpstreamProtocolError(idErr)
 	}
-	requestID := requestIDResult.String()
+	if contract.Response.Schema == types.ZTAPIImageResponseSchemaGeminiInlineImages {
+		resultCount, canonicalResponse, geminiUsagePendingReason, geminiErr := validateZTAPIGeminiImageResponse(raw, info)
+		if geminiErr != nil {
+			return nil, ztapiImageUpstreamProtocolError(geminiErr)
+		}
+		if usagePendingReason == "" {
+			usagePendingReason = geminiUsagePendingReason
+		}
+		handoff := &relaycommon.ZTAPIValidatedImageResponse{
+			ContractVersion: contract.Version, EvidenceHash: contract.EvidenceHash,
+			UpstreamRequestID: requestID, ResultCount: resultCount,
+			RawResponse: raw, RawUsageJSON: rawUsageJSON, CanonicalResponse: canonicalResponse,
+			UsagePendingReason: usagePendingReason,
+		}
+		if !info.RecordZTAPIImageResponseValidation(attemptID, handoff) {
+			return nil, ztapiImageUpstreamProtocolError(errors.New("managed image response attempt changed during validation"))
+		}
+		validated = true
+		return handoff, nil
+	}
 	resultsResult := root.Get(contract.Response.ResultsField)
 	if !resultsResult.Exists() || !resultsResult.IsArray() {
 		return nil, ztapiImageUpstreamProtocolError(errors.New("managed image response results are missing or malformed"))
@@ -338,6 +398,119 @@ func ValidateZTAPIManagedImageResponse(info *relaycommon.RelayInfo, resp *http.R
 	}
 	validated = true
 	return handoff, nil
+}
+
+func validateZTAPIGeminiImageResponse(raw []byte, info *relaycommon.RelayInfo) (int, []byte, string, error) {
+	var response dto.GeminiChatResponse
+	if err := common.Unmarshal(raw, &response); err != nil {
+		return 0, nil, "", errors.New("Gemini native image response is malformed")
+	}
+	if response.PromptFeedback != nil && response.PromptFeedback.BlockReason != nil && strings.TrimSpace(*response.PromptFeedback.BlockReason) != "" {
+		return 0, nil, "", errors.New("Gemini native image response was blocked by safety policy")
+	}
+	if len(response.Candidates) == 0 {
+		return 0, nil, "", errors.New("Gemini native image response contains no candidates")
+	}
+	request, ok := info.Request.(*dto.ImageRequest)
+	if !ok || request == nil || request.N == nil || request.ResponseFormat != "b64_json" {
+		return 0, nil, "", errors.New("Gemini native image admitted request is unavailable")
+	}
+	if len(response.Candidates) != int(*request.N) {
+		return 0, nil, "", errors.New("Gemini native image candidate count does not match the admitted request")
+	}
+	images := make([]dto.ImageData, 0, int(*request.N))
+	for _, candidate := range response.Candidates {
+		if candidate.FinishReason == nil || *candidate.FinishReason != "STOP" {
+			return 0, nil, "", errors.New("Gemini native image response has an unsafe or unknown finish reason")
+		}
+		for _, rating := range candidate.SafetyRatings {
+			if rating.Blocked {
+				return 0, nil, "", errors.New("Gemini native image response was blocked by a safety rating")
+			}
+		}
+		for _, part := range candidate.Content.Parts {
+			if part.InlineData == nil {
+				if part.Text == "" {
+					return 0, nil, "", errors.New("Gemini native image response contains an unsupported result part")
+				}
+				continue
+			}
+			if part.Text != "" || part.InlineData.MimeType != "image/png" || strings.TrimSpace(part.InlineData.Data) == "" {
+				return 0, nil, "", errors.New("Gemini native image response contains an invalid inline PNG result")
+			}
+			decoded, err := base64.StdEncoding.DecodeString(part.InlineData.Data)
+			if err != nil || len(decoded) == 0 {
+				return 0, nil, "", errors.New("Gemini native image response contains invalid base64 image data")
+			}
+			config, err := png.DecodeConfig(bytes.NewReader(decoded))
+			if err != nil || config.Width <= 0 || config.Height <= 0 {
+				return 0, nil, "", errors.New("Gemini native image response contains data that is not a valid PNG")
+			}
+			widthRaw, heightRaw, found := strings.Cut(request.Size, "x")
+			expectedWidth, widthErr := strconv.Atoi(widthRaw)
+			expectedHeight, heightErr := strconv.Atoi(heightRaw)
+			if !found || widthErr != nil || heightErr != nil || expectedWidth <= 0 || expectedHeight <= 0 ||
+				config.Width != expectedWidth || config.Height != expectedHeight {
+				return 0, nil, "", errors.New("Gemini native image response dimensions do not match the admitted request")
+			}
+			decodedImage, err := png.Decode(bytes.NewReader(decoded))
+			if err != nil || decodedImage.Bounds().Dx() != expectedWidth || decodedImage.Bounds().Dy() != expectedHeight {
+				return 0, nil, "", errors.New("Gemini native image response contains a truncated or corrupt PNG")
+			}
+			images = append(images, dto.ImageData{B64Json: part.InlineData.Data})
+		}
+	}
+	if len(images) != int(*request.N) {
+		return 0, nil, "", errors.New("Gemini native image response result count does not match the admitted request")
+	}
+	canonical, err := common.Marshal(dto.ImageResponse{Created: common.GetTimestamp(), Data: images})
+	if err != nil {
+		return 0, nil, "", fmt.Errorf("build canonical Gemini image response: %w", err)
+	}
+	return len(images), canonical, ztapiGeminiImageUsagePendingReason(response.UsageMetadata), nil
+}
+
+func ztapiGeminiImageUsagePendingReason(usage dto.GeminiUsageMetadata) string {
+	if usage.PromptTokenCount <= 0 || usage.CandidatesTokenCount <= 0 || usage.TotalTokenCount <= 0 ||
+		usage.PromptTokenCount > math.MaxInt-usage.CandidatesTokenCount || usage.TotalTokenCount != usage.PromptTokenCount+usage.CandidatesTokenCount {
+		return "Gemini native image usage aggregates are missing or inconsistent"
+	}
+	if usage.ToolUsePromptTokenCount != 0 || usage.ThoughtsTokenCount != 0 || usage.CachedContentTokenCount != 0 {
+		return "Gemini native image usage contains unsupported billing dimensions"
+	}
+	if len(usage.PromptTokensDetails) != 1 || usage.PromptTokensDetails[0].Modality != "TEXT" ||
+		usage.PromptTokensDetails[0].TokenCount != usage.PromptTokenCount {
+		return "Gemini native image prompt usage detail is missing or inconsistent"
+	}
+	if len(usage.CandidatesTokensDetails) != 1 || usage.CandidatesTokensDetails[0].Modality != "IMAGE" ||
+		usage.CandidatesTokensDetails[0].TokenCount != usage.CandidatesTokenCount {
+		return "Gemini native image output usage detail is missing or inconsistent"
+	}
+	return ""
+}
+
+func ztapiImageResponseRequestID(contract *types.ZTAPIImageProtocolContract, root gjson.Result, headers http.Header) (string, error) {
+	field := contract.RequestIDField
+	if contract.Version == types.ZTAPIImageProtocolContractVersionV2 {
+		if contract.RequestIDSource == types.ZTAPIResponseIDSourceHeader {
+			var values []string
+			for name, entries := range headers {
+				if strings.EqualFold(name, contract.RequestIDKey) {
+					values = append(values, entries...)
+				}
+			}
+			if len(values) != 1 || strings.TrimSpace(values[0]) == "" {
+				return "", errors.New("managed image response request ID header is missing, blank, or ambiguous")
+			}
+			return values[0], nil
+		}
+		field = contract.RequestIDKey
+	}
+	value := root.Get(field)
+	if !value.Exists() || value.Type != gjson.String || strings.TrimSpace(value.String()) == "" {
+		return "", errors.New("managed image response request ID is missing or malformed")
+	}
+	return value.String(), nil
 }
 
 func readAndRestoreZTAPIManagedImageBody(resp *http.Response, limit int64) ([]byte, error) {

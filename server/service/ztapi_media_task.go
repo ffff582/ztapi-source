@@ -28,6 +28,22 @@ func IsZTAPIMediaBilling(info *relaycommon.RelayInfo) bool {
 	return ok
 }
 
+func RecordZTAPIMediaSubmissionIdentity(info *relaycommon.RelayInfo, status int, requestID string) error {
+	if !IsZTAPIMediaBilling(info) {
+		return nil
+	}
+	if status < 200 || status >= 300 || !validZTAPIMediaEvidenceValue(requestID, 255) {
+		return model.ErrZTAPIMediaTaskInvalid
+	}
+	session := info.Billing.(*ztapiDurableBilling)
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if session.row == nil || session.attempt == nil {
+		return model.ErrZTAPIMediaTaskInvalid
+	}
+	return model.RecordZTAPIRequestAttemptResponse(session.row.OperationID, session.attempt.Attempt, session.attempt.ChannelID, status, requestID)
+}
+
 func ValidateZTAPIMediaTaskSubmission(info *relaycommon.RelayInfo, request relaycommon.TaskSubmitReq) error {
 	if !IsZTAPIMediaBilling(info) {
 		return nil
@@ -163,10 +179,14 @@ func ApplyZTAPIMediaPollingObservation(task *model.Task, result *relaycommon.Tas
 		if marshalErr != nil {
 			return true, marshalErr
 		}
+		usageJSON, usageErr := ztapiUnresolvedMediaUsageJSON(result)
+		if usageErr != nil {
+			return true, usageErr
+		}
 		_, err = model.ApplyZTAPIMediaTaskObservation(model.ZTAPIMediaTaskObservation{
 			PublicTaskID: mediaTask.PublicTaskID, State: model.ZTAPIMediaTaskUnknown, Attempt: mediaTask.Attempt,
 			UpstreamTaskID: mediaTask.UpstreamTaskID, ChargeDisposition: model.ZTAPIMediaChargeUnknown,
-			UsageJSON: `{}`, ChargeDimensionsJSON: `[]`, ResultMetadataJSON: string(resultJSON),
+			UsageJSON: usageJSON, ChargeDimensionsJSON: `[]`, ResultMetadataJSON: string(resultJSON),
 			FailureReason: "provider_state_unknown",
 		})
 		return true, err
@@ -214,10 +234,14 @@ func buildZTAPIMediaTerminalObservation(mediaTask *model.ZTAPIMediaTask, state m
 	if err != nil {
 		return invalid, err
 	}
+	unresolvedUsageJSON, err := ztapiUnresolvedMediaUsageJSON(result)
+	if err != nil {
+		return invalid, err
+	}
 	base := model.ZTAPIMediaTaskObservation{
 		PublicTaskID: mediaTask.PublicTaskID, State: state, Attempt: mediaTask.Attempt,
 		UpstreamTaskID: mediaTask.UpstreamTaskID, ChargeDisposition: model.ZTAPIMediaChargeUnknown,
-		UsageJSON: `{}`, ChargeDimensionsJSON: `[]`, ResultMetadataJSON: string(metadataJSON),
+		UsageJSON: unresolvedUsageJSON, ChargeDimensionsJSON: `[]`, ResultMetadataJSON: string(metadataJSON),
 	}
 	if state == model.ZTAPIMediaTaskFailed {
 		base.FailureReason = "provider_failed_billing_unconfirmed"
@@ -238,6 +262,17 @@ func buildZTAPIMediaTerminalObservation(mediaTask *model.ZTAPIMediaTask, state m
 		base.FailureReason = "provider_failed"
 	}
 	return base, nil
+}
+
+func ztapiUnresolvedMediaUsageJSON(result *relaycommon.TaskInfo) (string, error) {
+	// A string retains numeric lexemes, JSON types and whitespace exactly;
+	// observed dimensions remain separate from confirmed charge dimensions.
+	evidence := struct {
+		RawUsageJSON       string            `json:"raw_usage_json,omitempty"`
+		ObservedDimensions map[string]string `json:"observed_dimensions,omitempty"`
+	}{result.ResultMetadata["raw_usage_json"], result.UsageDimensions}
+	raw, err := common.Marshal(evidence)
+	return string(raw), err
 }
 
 func calculateZTAPIVideoTerminalCharge(mediaTask *model.ZTAPIMediaTask, result *relaycommon.TaskInfo) (int64, string, string, model.ZTAPISettlementEvidence, error) {
@@ -264,6 +299,9 @@ func calculateZTAPIVideoTerminalCharge(mediaTask *model.ZTAPIMediaTask, result *
 	rule, err := types.SelectZTAPIMediaPriceRuleFromContract(price, priceSelector)
 	if err != nil || len(rule.SaleUSD) != 1 {
 		return 0, "", "", model.ZTAPISettlementEvidence{}, model.ErrZTAPIMediaTaskInvalid
+	}
+	if _, unresolved := result.ResultMetadata["raw_usage_json"]; unresolved {
+		return 0, "", "", model.ZTAPISettlementEvidence{}, errZTAPIMediaUsageUnconfirmed
 	}
 	if len(result.UsageDimensions) != len(protocol.Usage.Fields) {
 		return 0, "", "", model.ZTAPISettlementEvidence{}, errZTAPIMediaUsageUnconfirmed
