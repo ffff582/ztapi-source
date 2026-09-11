@@ -455,6 +455,16 @@ test('deployment verifies, publishes, and bills Gemini 2.5 image through the nat
   assert.match(source, /gemini_was_published/);
   assert.match(source, /gemini_channel_backup/);
   assert.match(source, /UNHEX\('/);
+  assert.match(
+    source,
+    /CONVERT\(UNHEX\(''', HEX\(channel_info\), '''\) USING utf8mb4\)/,
+    'Gemini rollback must restore channel_info as utf8mb4 JSON instead of binary',
+  );
+  assert.match(
+    source,
+    /CONVERT\(UNHEX\(''', HEX\(settings\), '''\) USING utf8mb4\)/,
+    'Gemini rollback must restore settings as utf8mb4 JSON instead of binary',
+  );
   assert.match(source, /printf 'gemini_rollout_state_captured=%q/);
   const releaseControl = read('deploy/scripts/ztapi-release-control.sh');
   assert.match(releaseControl, /restore_gemini_rollout_state/);
