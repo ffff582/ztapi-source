@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestZTAPIImageProtocolRequiresFrozenOpenAICompatibleChannel(t *testing.T) {
+func TestZTAPIImageProtocolRequiresFrozenProviderFamily(t *testing.T) {
 	sealed, _, err := types.SealZTAPIImageProtocolContract(types.ZTAPIImageProtocolContract{
 		Version: 1, ProviderModel: "provider-image", EndpointType: types.ZTAPIImageEndpointGeneration,
 		Method: http.MethodPost, Path: "/v1/images/generations",
@@ -43,6 +43,51 @@ func TestZTAPIImageProtocolRequiresFrozenOpenAICompatibleChannel(t *testing.T) {
 				PublicName: "zt-image", SourceModel: "provider-image", Modality: "image", ImageProtocolContract: &sealed,
 			})
 			err := validateZTAPIRequestProtocol(c, &model.Channel{Type: tt.channelType}, "zt-image")
+			if tt.allowed {
+				require.Nil(t, err)
+			} else {
+				require.NotNil(t, err)
+				require.Equal(t, http.StatusBadRequest, err.StatusCode)
+			}
+		})
+	}
+}
+
+func TestZTAPIImageProtocolAllowsFrozenGeminiChannel(t *testing.T) {
+	sealed, _, err := types.SealZTAPIImageProtocolContract(types.ZTAPIImageProtocolContract{
+		Version: 2, ProviderModel: "gemini-2.5-flash-image", EndpointType: types.ZTAPIImageEndpointGeneration,
+		Method: http.MethodPost, Path: "/v1/images/generations",
+		WireProtocol:    types.ZTAPIImageWireProtocolGeminiGenerateContent,
+		ProviderPath:    "/v1beta/models/gemini-2.5-flash-image:generateContent",
+		Capabilities:    types.ZTAPIImageCapabilities{Sizes: []string{"1024x1024"}, Qualities: []string{"standard"}, ResponseFormats: []string{"b64_json"}, MinCount: 1, MaxCount: 1},
+		Response:        types.ZTAPIImageResponseContract{Schema: types.ZTAPIImageResponseSchemaGeminiInlineImages, ResultsField: "candidates", ResultFields: map[string]string{"b64_json": "content.parts.inlineData.data"}},
+		Usage:           types.ZTAPIImageUsageContract{UsageField: "usageMetadata", Fields: map[string]string{"input_tokens": "promptTokenCount", "output_tokens": "candidatesTokenCount"}, TotalField: "totalTokenCount", TotalSemantics: "sum_of_dimensions", CacheSemantics: "not_reported"},
+		Reservations:    []types.ZTAPIImageReservationAuthority{{Size: "1024x1024", Quality: "standard", ResponseFormat: "b64_json", N: 1, MaximumDimensions: map[string]string{"input_tokens": "300000", "output_tokens": "2000"}}},
+		RequestIDSource: types.ZTAPIResponseIDSourceBodyField, RequestIDKey: "responseId", EvidenceVersion: types.ZTAPIImageEvidenceVersion,
+		UpstreamRequestFields: map[string]string{
+			"model": types.ZTAPIImageRequestFieldOmit, "prompt": types.ZTAPIImageRequestFieldRequired,
+			"n": types.ZTAPIImageRequestFieldOmit, "size": types.ZTAPIImageRequestFieldOmit,
+			"quality": types.ZTAPIImageRequestFieldOmit, "response_format": types.ZTAPIImageRequestFieldOmit,
+		},
+	})
+	require.NoError(t, err)
+
+	for _, tt := range []struct {
+		name        string
+		channelType int
+		allowed     bool
+	}{
+		{name: "Gemini channel", channelType: constant.ChannelTypeGemini, allowed: true},
+		{name: "OpenAI channel is not the frozen Gemini family", channelType: constant.ChannelTypeOpenAI},
+		{name: "Azure channel is not the frozen Gemini family", channelType: constant.ChannelTypeAzure},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil)
+			relaycommon.SetZTAPIPublicationSnapshot(c, &relaycommon.ZTAPIPublicationSnapshot{
+				PublicName: "zt-gemini-2.5-flash-image", SourceModel: "gemini-2.5-flash-image", Modality: "image", ImageProtocolContract: &sealed,
+			})
+			err := validateZTAPIRequestProtocol(c, &model.Channel{Type: tt.channelType}, "zt-gemini-2.5-flash-image")
 			if tt.allowed {
 				require.Nil(t, err)
 			} else {

@@ -24,8 +24,12 @@ func validateZTAPIRequestProtocol(c *gin.Context, channel *model.Channel, reques
 				return types.NewErrorWithStatusCode(errors.New("The managed image route does not match its frozen protocol contract."),
 					"unsupported_model_endpoint", http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 			}
-			if channel == nil || channel.Type != constant.ChannelTypeOpenAI {
-				return types.NewErrorWithStatusCode(errors.New("The managed image publication requires its verified OpenAI Images provider family."),
+			expectedChannelType := constant.ChannelTypeOpenAI
+			if contract.WireProtocol == types.ZTAPIImageWireProtocolGeminiGenerateContent {
+				expectedChannelType = constant.ChannelTypeGemini
+			}
+			if channel == nil || channel.Type != expectedChannelType {
+				return types.NewErrorWithStatusCode(errors.New("The managed image publication requires its verified provider family."),
 					"unsupported_model_endpoint", http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 			}
 			return nil
