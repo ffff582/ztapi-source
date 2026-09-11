@@ -376,6 +376,7 @@ test('user media catalog, guide and wallet remain usable without data exposure',
   const unexpected: string[] = [];
   const observed = watchBrowser(page);
   await installConsoleAPI(page, unexpected);
+  await page.addInitScript(() => window.localStorage.setItem('ztapi.locale', 'zh-CN'));
 
   await page.goto('/console/models');
   await expect(page.getByRole('heading', { level: 1, name: '模型支持' })).toBeVisible();
