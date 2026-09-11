@@ -39,6 +39,13 @@
 }
 
 .public-header__nav { gap: 24px; }
+.public-header__controls {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  order: 2;
+}
+.public-header__nav { order: 1; margin-left: auto; margin-right: 18px; }
 .public-header__mark { width: 30px; height: 30px; object-fit: contain; }
 .public-header__menu {
   display: none;
@@ -61,6 +68,11 @@
 .public-header__brand:focus-visible,
 .public-header__link:focus-visible,
 .public-header__menu:focus-visible {
+  outline: 2px solid var(--state-cyan);
+  outline-offset: 3px;
+}
+
+.language-toggle button:focus-visible {
   outline: 2px solid var(--state-cyan);
   outline-offset: 3px;
 }
@@ -91,6 +103,7 @@
     border-top: 0;
     background: var(--surface-ink-raised);
     box-shadow: 0 16px 28px rgba(0, 0, 0, 0.24);
+    margin: 0;
   }
 
   .public-header__nav[data-open="true"] {

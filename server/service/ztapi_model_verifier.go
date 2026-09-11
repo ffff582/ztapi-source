@@ -4,8 +4,11 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"image"
+	_ "image/png"
 	"io"
 	"net"
 	"net/http"
@@ -16,6 +19,8 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/tidwall/gjson"
 )
 
@@ -40,6 +45,8 @@ type ztapiModelProbeResult struct {
 	PromptTokens                  int
 	CompletionTokens              int
 	TotalTokens                   int
+	MediaResultValid              bool
+	ImageProtocolContractJSON     string
 }
 
 type ztapiProbeUsage struct {
@@ -117,6 +124,8 @@ func ztapiVerificationEndpoint(channel *model.Channel, sourceModel string) (stri
 	suffix := "/chat/completions"
 	if model.ZTAPIModelModality(sourceModel) == model.ZTAPIModalityEmbedding {
 		suffix = "/embeddings"
+	} else if model.ZTAPIModelModality(sourceModel) == model.ZTAPIModalityImage {
+		suffix = "/images/generations"
 	} else if ztapiVerificationUsesResponses(sourceModel) {
 		suffix = "/responses"
 	}
@@ -124,6 +133,128 @@ func ztapiVerificationEndpoint(channel *model.Channel, sourceModel string) (stri
 		return baseURL + suffix, nil
 	}
 	return baseURL + "/v1" + suffix, nil
+}
+
+func ztapiGPTImage2ProtocolContract(requestIDHeader string) (types.ZTAPIImageProtocolContract, string, error) {
+	contract := types.ZTAPIImageProtocolContract{
+		Version:       types.ZTAPIImageProtocolContractVersionV2,
+		ProviderModel: "gpt-image-2",
+		EndpointType:  types.ZTAPIImageEndpointGeneration,
+		Method:        http.MethodPost,
+		Path:          "/v1/images/generations",
+		WireProtocol:  types.ZTAPIImageWireProtocolOpenAIImages,
+		ProviderPath:  "/v1/images/generations",
+		Capabilities: types.ZTAPIImageCapabilities{
+			Sizes: []string{"1024x1024"}, Qualities: []string{"low"},
+			ResponseFormats: []string{"b64_json"}, MinCount: 1, MaxCount: 1,
+		},
+		Response: types.ZTAPIImageResponseContract{
+			Schema: "object_results_array", ResultsField: "data",
+			ResultFields: map[string]string{"b64_json": "b64_json"},
+		},
+		Usage: types.ZTAPIImageUsageContract{
+			UsageField: "usage", TotalField: "total_tokens",
+			Fields: map[string]string{
+				"text_input": "input_tokens_details.text_tokens", "image_input": "input_tokens_details.image_tokens",
+				"image_output": "output_tokens_details.image_tokens",
+			},
+			TotalSemantics: "sum_of_dimensions", CacheSemantics: "not_reported",
+		},
+		Reservations: []types.ZTAPIImageReservationAuthority{{
+			Size: "1024x1024", Quality: "low", ResponseFormat: "b64_json", N: 1,
+			MaximumDimensions: map[string]string{"text_input": "200000", "image_input": "0", "image_output": "196"},
+		}},
+		RequestIDSource: types.ZTAPIResponseIDSourceHeader, RequestIDKey: requestIDHeader,
+		EvidenceVersion: types.ZTAPIImageEvidenceVersion,
+		UpstreamRequestFields: map[string]string{
+			"model": types.ZTAPIImageRequestFieldRequired, "prompt": types.ZTAPIImageRequestFieldRequired,
+			"n": types.ZTAPIImageRequestFieldRequired, "size": types.ZTAPIImageRequestFieldRequired,
+			"quality": types.ZTAPIImageRequestFieldRequired, "response_format": types.ZTAPIImageRequestFieldOmit,
+		},
+	}
+	return types.SealZTAPIImageProtocolContract(contract)
+}
+
+func ztapiVerificationResponseIDHeader(header http.Header) (string, bool) {
+	found := ""
+	for _, name := range []string{"X-Request-ID", "Request-ID"} {
+		values := header.Values(name)
+		if len(values) == 0 {
+			continue
+		}
+		if found != "" || len(values) != 1 || strings.TrimSpace(values[0]) == "" {
+			return "", false
+		}
+		found = name
+	}
+	return found, found != ""
+}
+
+func performZTAPIGPTImageProbe(
+	ctx context.Context,
+	client *http.Client,
+	endpoint string,
+	key string,
+) (ztapiProbeUsage, string, int, error) {
+	payload := map[string]any{
+		"model": "gpt-image-2", "prompt": "A simple blue circle centered on a white background.",
+		"n": 1, "size": "1024x1024", "quality": "low",
+	}
+	body, err := common.Marshal(payload)
+	if err != nil {
+		return ztapiProbeUsage{}, "", 0, err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return ztapiProbeUsage{}, "", 0, err
+	}
+	request.Header.Set("Authorization", "Bearer "+key)
+	request.Header.Set("Content-Type", "application/json")
+	response, err := client.Do(request)
+	if err != nil {
+		return ztapiProbeUsage{}, "", 0, err
+	}
+	defer response.Body.Close()
+	const imageBodyLimit = 20 << 20
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, ztapiVerificationBodyLimit))
+		return ztapiProbeUsage{}, "", response.StatusCode, errors.New("upstream rejected image verification request")
+	}
+	body, err = io.ReadAll(io.LimitReader(response.Body, imageBodyLimit+1))
+	if err != nil || len(body) > imageBodyLimit || common.RejectDuplicateJsonObjectMembers(bytes.NewReader(body)) != nil {
+		return ztapiProbeUsage{}, "", response.StatusCode, errors.New("upstream image verification response is incomplete or malformed")
+	}
+	requestIDHeader, ok := ztapiVerificationResponseIDHeader(response.Header)
+	if !ok {
+		return ztapiProbeUsage{}, "", response.StatusCode, errors.New("upstream image verification response has no unambiguous request ID")
+	}
+	contract, canonical, err := ztapiGPTImage2ProtocolContract(requestIDHeader)
+	if err != nil {
+		return ztapiProbeUsage{}, "", response.StatusCode, err
+	}
+	root := gjson.ParseBytes(body)
+	results := root.Get("data").Array()
+	if len(results) != 1 || strings.TrimSpace(results[0].Get("b64_json").String()) == "" || results[0].Get("url").Exists() {
+		return ztapiProbeUsage{}, "", response.StatusCode, errors.New("upstream image verification response has an invalid result")
+	}
+	decoded, err := base64.StdEncoding.DecodeString(results[0].Get("b64_json").String())
+	if err != nil {
+		return ztapiProbeUsage{}, "", response.StatusCode, errors.New("upstream image verification result is not valid base64")
+	}
+	imageConfig, format, err := image.DecodeConfig(bytes.NewReader(decoded))
+	if err != nil || format != "png" || imageConfig.Width != 1024 || imageConfig.Height != 1024 {
+		return ztapiProbeUsage{}, "", response.StatusCode, errors.New("upstream image verification result is not the required 1024x1024 PNG")
+	}
+	usageRaw := []byte(root.Get("usage").Raw)
+	if len(usageRaw) == 0 || relaycommon.ZTAPIGPTImage2UsagePendingReason(usageRaw, contract) != "" {
+		return ztapiProbeUsage{}, "", response.StatusCode, errors.New("upstream image verification usage is not reconciled")
+	}
+	usage := ztapiProbeUsage{
+		PromptTokens:     int(root.Get("usage.input_tokens").Int()),
+		CompletionTokens: int(root.Get("usage.output_tokens").Int()),
+		TotalTokens:      int(root.Get("usage.total_tokens").Int()),
+	}
+	return usage, canonical, response.StatusCode, nil
 }
 
 func performZTAPIOpenAIProbe(
@@ -343,7 +474,8 @@ func ztapiVerificationOutputAllowed(item gjson.Result) bool {
 }
 
 func runZTAPIModelVerificationProbes(ctx context.Context, channel *model.Channel, sourceModel string) (ztapiModelProbeResult, error) {
-	embedding := model.ZTAPIModelModality(sourceModel) == model.ZTAPIModalityEmbedding
+	modality := model.ZTAPIModelModality(sourceModel)
+	embedding := modality == model.ZTAPIModalityEmbedding
 	result := ztapiModelProbeResult{StreamingRequired: !embedding}
 	if channel.Type != constant.ChannelTypeOpenAI {
 		return result, errors.New("pilot verifier currently supports OpenAI-compatible text channels only")
@@ -359,6 +491,32 @@ func runZTAPIModelVerificationProbes(ctx context.Context, channel *model.Channel
 		return result, errors.New("managed verification channel credential is unavailable")
 	}
 	client := &http.Client{Timeout: ztapiVerificationRequestTimeoutForModel(sourceModel)}
+	if modality == model.ZTAPIModalityImage {
+		result.StreamingRequired = false
+		started := time.Now()
+		usage, contractJSON, status, err := performZTAPIGPTImageProbe(ctx, client, endpoint, key)
+		result.LatencyMilliseconds = time.Since(started).Milliseconds()
+		if err != nil {
+			result.StatusCategory = classifyZTAPIVerificationFailure(status, err)
+			return result, fmt.Errorf("image verification failed: %s", result.StatusCategory)
+		}
+		result.NonStreamingPassed = true
+		result.UsageReconciled = ztapiUsageReconciled(usage)
+		result.MediaResultValid = true
+		result.ImageProtocolContractJSON = contractJSON
+		result.PromptTokens, result.CompletionTokens, result.TotalTokens = usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens
+		_, _, invalidStatus, invalidErr := performZTAPIGPTImageProbe(ctx, client, endpoint, "ztapi-deliberately-invalid-credential")
+		result.InvalidKeyClassified = classifyZTAPIVerificationFailure(invalidStatus, invalidErr) == "invalid_key"
+		result.InsufficientBalanceClassified = classifyZTAPIVerificationFailure(http.StatusPaymentRequired, nil) == "insufficient_balance"
+		result.RateLimitClassified = classifyZTAPIVerificationFailure(http.StatusTooManyRequests, nil) == "rate_limit"
+		result.TimeoutClassified = classifyZTAPIVerificationFailure(0, context.DeadlineExceeded) == "timeout"
+		if !result.UsageReconciled || !result.MediaResultValid || !result.InvalidKeyClassified {
+			result.StatusCategory = "verification_incomplete"
+			return result, errors.New("image verification evidence is incomplete")
+		}
+		result.StatusCategory = "verified"
+		return result, nil
+	}
 	started := time.Now()
 	usage, status, err := performZTAPIOpenAIProbe(ctx, client, endpoint, key, sourceModel, false)
 	result.LatencyMilliseconds = time.Since(started).Milliseconds()
@@ -440,6 +598,7 @@ func VerifyZTAPIModel(
 		StatusCategory: result.StatusCategory, LatencyMilliseconds: result.LatencyMilliseconds,
 		PromptTokens: result.PromptTokens, CompletionTokens: result.CompletionTokens,
 		TotalTokens: result.TotalTokens, OperatorID: operatorID, VerifiedAt: time.Now().UTC().Unix(),
+		MediaResultValid: result.MediaResultValid, ImageProtocolContractJSON: result.ImageProtocolContractJSON,
 	}
 	if err := model.DB.Create(verification).Error; err != nil {
 		return nil, err

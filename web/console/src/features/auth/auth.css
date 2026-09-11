@@ -1,6 +1,6 @@
 .auth-shell {
   display: grid;
-  min-height: 100svh;
+  min-height: calc(100svh - 72px);
   grid-template-columns: minmax(360px, 46%) minmax(0, 54%);
   background: var(--surface-paper);
 }

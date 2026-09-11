@@ -44,7 +44,7 @@ html {
 }
 
 body {
-  min-width: 320px;
+  min-width: 0;
   margin: 0;
   background: var(--paper);
 }
@@ -72,6 +72,49 @@ input,
 select,
 textarea {
   color: inherit;
+}
+
+.language-toggle {
+  display: inline-flex;
+  min-width: 68px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #ffffff;
+  font-size: 11px;
+  font-weight: 760;
+  white-space: nowrap;
+}
+
+.language-toggle button {
+  min-width: 26px;
+  height: 28px;
+  padding: 0 4px;
+  border: 0;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.language-toggle button[aria-pressed="true"] {
+  color: var(--ink);
+}
+
+.language-toggle--dark {
+  border-color: var(--rule-dark);
+  color: var(--text-muted-dark);
+  background: transparent;
+}
+
+.language-toggle--dark button {
+  color: var(--text-muted-dark);
+}
+
+.language-toggle--dark button[aria-pressed="true"] {
+  color: var(--text-on-ink);
 }
 
 .session-loading {

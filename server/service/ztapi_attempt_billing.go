@@ -196,7 +196,8 @@ func priceZTAPIImageAttemptBilling(parent model.ZTAPIRequestSettlement, submissi
 		dimensions[quantity.Dimension] = decimal.NewFromInt(quantity.Quantity)
 		positive = positive || quantity.Quantity > 0
 	}
-	if !positive || !ztapiImageUsageWithinMaximum(dimensions, frozen.MaximumDimensions) ||
+	if !positive || !ztapiImageDimensionsMatchProtocol(dimensions, protocol) ||
+		!ztapiImageUsageWithinMaximum(dimensions, frozen.MaximumDimensions) ||
 		!matchesZTAPIImageRawUsage(protocol, submission.RawUsageJSON, dimensions) {
 		return invalid, model.ErrZTAPIAttemptBillingInvalid
 	}
@@ -239,6 +240,9 @@ func matchesZTAPIImageRawUsage(protocol types.ZTAPIImageProtocolContract, raw st
 	if common.DecodeJsonStrict(strings.NewReader(raw), &canonicalValue) != nil || canonicalValue == nil {
 		return false
 	}
+	if relaycommon.ZTAPIGPTImage2UsagePendingReason([]byte(raw), protocol) != "" {
+		return false
+	}
 	canonical, err := common.Marshal(canonicalValue)
 	if err != nil || string(canonical) != raw {
 		return false
@@ -262,6 +266,18 @@ func matchesZTAPIImageRawUsage(protocol types.ZTAPIImageProtocolContract, raw st
 	}
 	parsed, err := decimal.NewFromString(result.Raw)
 	return err == nil && parsed.Equal(decimal.NewFromInt(total))
+}
+
+func ztapiImageDimensionsMatchProtocol(dimensions map[string]decimal.Decimal, protocol types.ZTAPIImageProtocolContract) bool {
+	if len(dimensions) != len(protocol.Usage.Fields) {
+		return false
+	}
+	for dimension := range protocol.Usage.Fields {
+		if _, ok := dimensions[dimension]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func deriveZTAPIImageAttemptRules(contract types.ZTAPIMediaPriceContract, dimensions map[string]decimal.Decimal) (string, map[string]string, error) {
@@ -290,18 +306,20 @@ func deriveZTAPIImageAttemptRules(contract types.ZTAPIMediaPriceContract, dimens
 		}
 		return "", nil, model.ErrZTAPIAttemptBillingInvalid
 	}
-	if len(dimensions) != len(contract.Rules) {
-		return "", nil, model.ErrZTAPIAttemptBillingInvalid
-	}
-	for _, rule := range contract.Rules {
-		if len(rule.SaleUSD) != 1 {
-			return "", nil, model.ErrZTAPIAttemptBillingInvalid
-		}
-		for dimension := range rule.SaleUSD {
-			if _, ok := dimensions[dimension]; !ok || rule.Conditions["token_bucket"] != dimension {
+	for dimension := range dimensions {
+		matched := false
+		for _, rule := range contract.Rules {
+			if len(rule.SaleUSD) != 1 {
 				return "", nil, model.ErrZTAPIAttemptBillingInvalid
 			}
-			ruleIDs[dimension] = rule.ID
+			if _, ok := rule.SaleUSD[dimension]; ok && rule.Conditions["token_bucket"] == dimension {
+				ruleIDs[dimension] = rule.ID
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return "", nil, model.ErrZTAPIAttemptBillingInvalid
 		}
 	}
 	return "", ruleIDs, nil

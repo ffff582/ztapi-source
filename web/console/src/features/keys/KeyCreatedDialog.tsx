@@ -1,6 +1,7 @@
 import { Check, Copy, ShieldAlert } from 'lucide-react';
 import { useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
+import { useLocale } from '../../i18n/locale';
 
 interface KeyCreatedDialogProps {
   plaintextKey: string;
@@ -11,6 +12,7 @@ export function KeyCreatedDialog({
   plaintextKey,
   onAcknowledge,
 }: KeyCreatedDialogProps) {
+  const { t } = useLocale();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const copyRef = useRef<HTMLButtonElement>(null);
   const acknowledgeRef = useRef<HTMLButtonElement>(null);
@@ -98,12 +100,12 @@ export function KeyCreatedDialog({
       <div className="key-dialog__heading">
         <ShieldAlert aria-hidden="true" size={22} />
         <div>
-          <p className="console-eyebrow">仅显示一次</p>
-          <h2 id="created-key-title">保存新的 API Key</h2>
+          <p className="console-eyebrow">{t('仅显示一次')}</p>
+          <h2 id="created-key-title">{t('保存新的 API Key')}</h2>
         </div>
       </div>
       <p id="created-key-warning" className="key-dialog__warning">
-        请立即保存。确认后，ZTAPI 不会再次显示完整 Key。
+        {t('请立即保存。确认后，ZTAPI 不会再次显示完整 Key。')}
       </p>
       <code className="key-dialog__secret">{plaintextKey}</code>
       <div className="key-dialog__actions">
@@ -118,7 +120,7 @@ export function KeyCreatedDialog({
           ) : (
             <Copy aria-hidden="true" size={17} />
           )}
-          {copied ? '已复制' : '复制 Key'}
+          {copied ? t('已复制') : t('复制 Key')}
         </button>
         <button
           className="console-button console-button--primary"
@@ -126,7 +128,7 @@ export function KeyCreatedDialog({
           type="button"
           onClick={onAcknowledge}
         >
-          我已安全保存
+          {t('我已安全保存')}
         </button>
       </div>
     </dialog>,

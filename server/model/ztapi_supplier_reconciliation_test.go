@@ -351,6 +351,14 @@ func TestZTAPISupplierReconciliationParsesCanonicalGPTImageFiveBucketEvidence(t 
 	require.Len(t, dimensions.Usage, 5)
 }
 
+func TestZTAPISupplierReconciliationParsesCanonicalGPTImageThreeDimensionEvidence(t *testing.T) {
+	raw := `{"usage_semantic":"ztapi_image","usage":[{"dimension":"text_input","quantity":18},{"dimension":"image_input","quantity":0},{"dimension":"image_output","quantity":196}],"price_rule_ids":{"image_input":"image_input","image_output":"image_output","text_input":"text_input"},"raw_usage_json":"{\"input_tokens\":18,\"input_tokens_details\":{\"image_tokens\":0,\"text_tokens\":18},\"output_tokens\":196,\"output_tokens_details\":{\"image_tokens\":196,\"text_tokens\":0},\"total_tokens\":214}"}`
+	dimensions, err := ParseZTAPISupplierLedgerDimensions(raw)
+	require.NoError(t, err)
+	require.Equal(t, ZTAPIAttemptBillingUsageSemanticImage, dimensions.UsageSemantic)
+	require.Len(t, dimensions.Usage, 3)
+}
+
 func TestZTAPISupplierReconciliationRejectsImageDimensionsUnderTextSemantic(t *testing.T) {
 	raw := `{"usage_semantic":"openai","usage":[{"dimension":"text_input","quantity":2}]}`
 	_, err := ParseZTAPISupplierLedgerDimensions(raw)

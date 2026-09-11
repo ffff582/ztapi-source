@@ -34,14 +34,15 @@ func gptImageEvidenceInfo(t *testing.T, body []byte) *relaycommon.RelayInfo {
 	contract.Reservations[0].ResponseFormat = "b64_json"
 	contract.Usage.Fields = map[string]string{
 		"text_input": "input_tokens_details.text_tokens", "image_input": "input_tokens_details.image_tokens",
-		"text_cached_input": "synthetic_text_cache", "image_cached_input": "synthetic_image_cache",
 		"image_output": "output_tokens_details.image_tokens",
 	}
-	contract.Usage.CacheSemantics = "separate_dimension"
+	contract.Usage.CacheSemantics = "not_reported"
 	contract.Reservations[0].MaximumDimensions = map[string]string{}
+	for dimension := range contract.Usage.Fields {
+		contract.Reservations[0].MaximumDimensions[dimension] = "200000"
+	}
 	rules := []types.ZTAPIMediaPriceRule{}
 	for _, dimension := range []string{"text_input", "text_cached_input", "image_input", "image_cached_input", "image_output"} {
-		contract.Reservations[0].MaximumDimensions[dimension] = "200000"
 		rules = append(rules, types.ZTAPIMediaPriceRule{ID: dimension, Conditions: map[string]string{"token_bucket": dimension}, BillingUnit: types.ZTAPIMediaBillingUnitUSDPerMillionTokens, CostUSD: map[string]string{dimension: "0.6"}, SaleUSD: map[string]string{dimension: "1"}, SourceCells: map[string]string{dimension: "A1"}})
 	}
 	sealed, _, err := types.SealZTAPIImageProtocolContract(contract)
@@ -60,27 +61,24 @@ func gptImageEvidenceInfo(t *testing.T, body []byte) *relaycommon.RelayInfo {
 }
 
 func TestOpenaiGPTImageObservedUsageAndContradictions(t *testing.T) {
-	complete := strings.TrimSuffix(observedGPTImageUsage, "}") + `,"synthetic_text_cache":0,"synthetic_image_cache":0}`
-	nonzeroCache := `{"input_tokens":28,"input_tokens_details":{"image_tokens":5,"text_tokens":8},"output_tokens":196,"output_tokens_details":{"image_tokens":196,"text_tokens":0},"total_tokens":224,"synthetic_text_cache":10,"synthetic_image_cache":5}`
 	for _, tt := range []struct {
 		name, usage string
 		pending     bool
 	}{
-		{"observed missing caches", observedGPTImageUsage, true},
-		{"synthetic explicit zero caches", complete, false},
-		{"nonzero five bucket decomposition", nonzeroCache, false},
-		{"aggregate omits caches", strings.Replace(nonzeroCache, `"input_tokens":28`, `"input_tokens":13`, 1), true},
-		{"aggregate double counts caches", strings.Replace(nonzeroCache, `"input_tokens":28`, `"input_tokens":43`, 1), true},
-		{"missing output text", strings.Replace(complete, `,"text_tokens":0`, "", 1), true},
-		{"nonzero output text", strings.Replace(complete, `"text_tokens":0`, `"text_tokens":1`, 1), true},
-		{"wrong input total", strings.Replace(complete, `"input_tokens":18`, `"input_tokens":19`, 1), true},
-		{"wrong output total", strings.Replace(complete, `"output_tokens":196`, `"output_tokens":197`, 1), true},
-		{"missing input total", strings.Replace(complete, `"input_tokens":18,`, "", 1), true},
-		{"negative output text", strings.Replace(complete, `"text_tokens":0`, `"text_tokens":-1`, 1), true},
-		{"string output text", strings.Replace(complete, `"text_tokens":0`, `"text_tokens":"0"`, 1), true},
-		{"exponent output text", strings.Replace(complete, `"text_tokens":0`, `"text_tokens":0e0`, 1), true},
-		{"total conflict", strings.Replace(complete, `"total_tokens":214`, `"total_tokens":215`, 1), true},
-		{"duplicate cache", strings.TrimSuffix(complete, "}") + `,"synthetic_text_cache":1}`, true},
+		{"observed usage", observedGPTImageUsage, false},
+		{"top-level cache metadata", strings.TrimSuffix(observedGPTImageUsage, "}") + `,"cached_tokens":1}`, true},
+		{"nested cache metadata", strings.Replace(observedGPTImageUsage, `"text_tokens":18}`, `"text_tokens":18,"cache_details":{"hit":true}}`, 1), true},
+		{"mixed-case cache metadata", strings.TrimSuffix(observedGPTImageUsage, "}") + `,"CacheHit":true}`, true},
+		{"missing output text", strings.Replace(observedGPTImageUsage, `,"text_tokens":0`, "", 1), true},
+		{"nonzero output text", strings.Replace(observedGPTImageUsage, `"text_tokens":0`, `"text_tokens":1`, 1), true},
+		{"wrong input total", strings.Replace(observedGPTImageUsage, `"input_tokens":18`, `"input_tokens":19`, 1), true},
+		{"wrong output total", strings.Replace(observedGPTImageUsage, `"output_tokens":196`, `"output_tokens":197`, 1), true},
+		{"missing input total", strings.Replace(observedGPTImageUsage, `"input_tokens":18,`, "", 1), true},
+		{"negative output text", strings.Replace(observedGPTImageUsage, `"text_tokens":0`, `"text_tokens":-1`, 1), true},
+		{"string output text", strings.Replace(observedGPTImageUsage, `"text_tokens":0`, `"text_tokens":"0"`, 1), true},
+		{"exponent output text", strings.Replace(observedGPTImageUsage, `"text_tokens":0`, `"text_tokens":0e0`, 1), true},
+		{"total conflict", strings.Replace(observedGPTImageUsage, `"total_tokens":214`, `"total_tokens":215`, 1), true},
+		{"duplicate member", strings.TrimSuffix(observedGPTImageUsage, "}") + `,"input_tokens":18}`, true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			body := []byte(`{"data":[{"b64_json":"c3ludGhldGljLWltYWdl"}],"usage":` + tt.usage + `}`)
@@ -99,7 +97,9 @@ func TestOpenaiGPTImageObservedUsageAndContradictions(t *testing.T) {
 			if tt.pending {
 				require.Empty(t, evidence.GetDimensions())
 			} else {
-				require.Len(t, evidence.GetDimensions(), 5)
+				require.Len(t, evidence.GetDimensions(), 3)
+				require.NotContains(t, evidence.GetDimensions(), "text_cached_input")
+				require.NotContains(t, evidence.GetDimensions(), "image_cached_input")
 			}
 		})
 	}

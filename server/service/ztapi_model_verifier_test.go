@@ -1,9 +1,13 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"image"
+	"image/png"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,11 +19,19 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
+
+func ztapiVerifierPNG(t *testing.T, width, height int) string {
+	t.Helper()
+	var encoded bytes.Buffer
+	require.NoError(t, png.Encode(&encoded, image.NewNRGBA(image.Rect(0, 0, width, height))))
+	return base64.StdEncoding.EncodeToString(encoded.Bytes())
+}
 
 func setupZTAPIModelVerifierTestDB(t *testing.T) (model.Channel, model.ZTAPIModelConfig) {
 	t.Helper()
@@ -428,4 +440,69 @@ func TestVerifyZTAPIModelExtendsOuterDeadlineForSlowModels(t *testing.T) {
 
 	_, err := VerifyZTAPIModel(context.Background(), channel.Id, "gpt-5.4-pro", 33)
 	require.NoError(t, err)
+}
+
+func TestVerifyZTAPIGPTImage2UsesRealGenerationAndPersistsExactProtocol(t *testing.T) {
+	channel, config := setupZTAPIModelVerifierTestDB(t)
+	require.NoError(t, model.DB.Model(&config).Update("source_model", "gpt-image-2").Error)
+
+	oldTransport := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = oldTransport })
+	calls := 0
+	http.DefaultTransport = ztapiVerifierRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		calls++
+		require.Equal(t, "/v1/images/generations", r.URL.Path)
+		if calls == 2 {
+			require.Equal(t, "Bearer ztapi-deliberately-invalid-credential", r.Header.Get("Authorization"))
+			return &http.Response{StatusCode: http.StatusUnauthorized, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"error":{"message":"RAW_SECRET_BODY"}}`))}, nil
+		}
+		require.Equal(t, "Bearer synthetic-verifier-key", r.Header.Get("Authorization"))
+		var payload map[string]any
+		require.NoError(t, common.DecodeJson(r.Body, &payload))
+		require.Equal(t, map[string]any{
+			"model": "gpt-image-2", "prompt": "A simple blue circle centered on a white background.",
+			"n": float64(1), "size": "1024x1024", "quality": "low",
+		}, payload)
+		body, err := common.Marshal(map[string]any{
+			"data": []map[string]string{{"b64_json": ztapiVerifierPNG(t, 1024, 1024)}},
+			"usage": map[string]any{
+				"input_tokens": 18, "input_tokens_details": map[string]any{"text_tokens": 18, "image_tokens": 0},
+				"output_tokens": 196, "output_tokens_details": map[string]any{"image_tokens": 196, "text_tokens": 0},
+				"total_tokens": 214,
+			},
+		})
+		require.NoError(t, err)
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": {"application/json"}, "X-Request-Id": {"provider-image-request-1"}},
+			Body:       io.NopCloser(bytes.NewReader(body)),
+		}, nil
+	})
+
+	verification, err := VerifyZTAPIModel(context.Background(), channel.Id, "gpt-image-2", 35)
+	require.NoError(t, err)
+	require.Equal(t, 2, calls)
+	require.Equal(t, model.ZTAPIModalityImage, verification.Modality)
+	require.True(t, verification.NonStreamingPassed)
+	require.False(t, verification.StreamingRequired)
+	require.False(t, verification.StreamingPassed)
+	require.True(t, verification.UsageReconciled)
+	require.True(t, verification.MediaResultValid)
+	require.True(t, verification.InvalidKeyClassified)
+	require.Equal(t, 18, verification.PromptTokens)
+	require.Equal(t, 196, verification.CompletionTokens)
+	require.Equal(t, 214, verification.TotalTokens)
+
+	contract, canonical, err := types.ParseZTAPIImageProtocolContract(verification.ImageProtocolContractJSON)
+	require.NoError(t, err)
+	require.Equal(t, verification.ImageProtocolContractJSON, canonical)
+	require.True(t, types.IsZTAPIGPTImage2NotReportedUsageProtocol(contract))
+	require.Equal(t, types.ZTAPIResponseIDSourceHeader, contract.RequestIDSource)
+	require.Equal(t, "X-Request-ID", contract.RequestIDKey)
+	require.Equal(t, map[string]string{"text_input": "200000", "image_input": "0", "image_output": "196"}, contract.Reservations[0].MaximumDimensions)
+	require.Equal(t, types.ZTAPIImageRequestFieldOmit, contract.UpstreamRequestFields["response_format"])
+
+	var stored model.ZTAPIModelVerification
+	require.NoError(t, model.DB.First(&stored, verification.ID).Error)
+	require.Equal(t, verification.ImageProtocolContractJSON, stored.ImageProtocolContractJSON)
 }

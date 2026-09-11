@@ -223,6 +223,14 @@ func ValidateZTAPIImagePriceProtocolCompatibility(price ZTAPIMediaPriceContract,
 			expected[dimension] = struct{}{}
 		}
 	}
+	if protocol.ProviderModel == "gpt-image-2" {
+		if IsZTAPIGPTImage2NotReportedUsageProtocol(protocol) && ztapiStringSetEquals(expected, []string{
+			"text_input", "text_cached_input", "image_input", "image_cached_input", "image_output",
+		}) {
+			return nil
+		}
+		return errors.New("gpt-image-2 requires the frozen three-dimensional not-reported-cache usage protocol")
+	}
 	if len(protocol.Usage.Fields) != len(expected) {
 		return errors.New("image protocol usage dimensions do not match media pricing")
 	}
@@ -247,6 +255,43 @@ func ValidateZTAPIImagePriceProtocolCompatibility(price ZTAPIMediaPriceContract,
 		return errors.New("image protocol usage semantics do not match media pricing")
 	}
 	return nil
+}
+
+// IsZTAPIGPTImage2NotReportedUsageProtocol identifies the frozen generation-only
+// exception whose provider response reports three usage buckets and no cache split.
+func IsZTAPIGPTImage2NotReportedUsageProtocol(protocol ZTAPIImageProtocolContract) bool {
+	if protocol.Version != ZTAPIImageProtocolContractVersionV2 || protocol.ProviderModel != "gpt-image-2" ||
+		protocol.EndpointType != ZTAPIImageEndpointGeneration || protocol.Method != "POST" || protocol.Path != "/v1/images/generations" ||
+		protocol.Usage.UsageField != "usage" || protocol.Usage.TotalField != "total_tokens" ||
+		protocol.Usage.TotalSemantics != "sum_of_dimensions" || protocol.Usage.CacheSemantics != "not_reported" {
+		return false
+	}
+	want := map[string]string{
+		"text_input":   "input_tokens_details.text_tokens",
+		"image_input":  "input_tokens_details.image_tokens",
+		"image_output": "output_tokens_details.image_tokens",
+	}
+	if len(protocol.Usage.Fields) != len(want) {
+		return false
+	}
+	for dimension, path := range want {
+		if protocol.Usage.Fields[dimension] != path {
+			return false
+		}
+	}
+	return true
+}
+
+func ztapiStringSetEquals(got map[string]struct{}, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for _, value := range want {
+		if _, ok := got[value]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func ValidateZTAPIVideoPriceProtocolCompatibility(price ZTAPIMediaPriceContract, protocol ZTAPIVideoProtocolContract) error {

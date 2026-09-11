@@ -326,6 +326,22 @@ func TestZTAPIAttemptBillingAcceptsCanonicalImageUsageSubmission(t *testing.T) {
 	}
 }
 
+func TestZTAPIAttemptBillingAcceptsCanonicalGPTImageThreeDimensionSubmission(t *testing.T) {
+	f := setupAttemptBillingFixture(t, true)
+	input := f.submission()
+	input.UsageSemantic = ZTAPIAttemptBillingUsageSemanticImage
+	input.Usage = []ZTAPIAttemptBillingQuantity{{Dimension: "text_input", Quantity: 18}, {Dimension: "image_input", Quantity: 0}, {Dimension: "image_output", Quantity: 196}}
+	input.PriceRuleIDs = map[string]string{"text_input": "text_input", "image_input": "image_input", "image_output": "image_output"}
+	input.RawUsageJSON = `{"input_tokens":18,"input_tokens_details":{"image_tokens":0,"text_tokens":18},"output_tokens":196,"output_tokens_details":{"image_tokens":196,"text_tokens":0},"total_tokens":214}`
+	proof, err := SubmitZTAPIAttemptBilling(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proof.ID == 0 || proof.Status != "pending" {
+		t.Fatalf("unexpected proof: %+v", proof)
+	}
+}
+
 func TestZTAPIAttemptBillingAppliesExplicitZeroImageBucketsWithoutRefundDimensions(t *testing.T) {
 	f := setupAttemptBillingFixture(t, true)
 	input := f.submission()

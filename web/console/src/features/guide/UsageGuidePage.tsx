@@ -2,6 +2,7 @@ import { ArrowRight, Boxes, Copy, KeyRound, ShieldCheck } from 'lucide-react';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { UsageBillingNote } from '../../components/UsageBillingNote';
+import { useLocale } from '../../i18n/locale';
 
 type GuideLanguage = 'curl' | 'python' | 'node';
 type GuideEndpoint = 'chat' | 'responses' | 'embeddings' | 'images' | 'video-tasks';
@@ -254,6 +255,7 @@ const endpointDetails: Record<GuideEndpoint, { path: string; examples: Record<Gu
 };
 
 export function UsageGuidePage() {
+  const { t } = useLocale();
   const [language, setLanguage] = useState<GuideLanguage>('curl');
   const [endpoint, setEndpoint] = useState<GuideEndpoint>('chat');
   const [copyStatus, setCopyStatus] = useState<CopyStatus>('idle');
@@ -310,53 +312,53 @@ export function UsageGuidePage() {
     <div className="console-page">
       <header className="console-page__header">
         <div>
-          <p className="console-eyebrow">接入文档</p>
-          <h1>使用说明</h1>
+          <p className="console-eyebrow">{t('接入文档')}</p>
+          <h1>{t('使用说明')}</h1>
         </div>
-        <p role="note" aria-label="端点选择">
-          请按模型支持页的调用地址选择示例。Responses-only 模型必须使用
-          <code> /v1/responses</code>，不适用 Chat Completions 示例。
+        <p role="note" aria-label={t('端点选择')}>
+          {t('请按模型支持页的调用地址选择示例。Responses-only 模型必须使用')}
+          <code> /v1/responses</code>{t('，不适用 Chat Completions 示例。')}
         </p>
       </header>
 
       <section className="guide-start" aria-labelledby="guide-start-heading">
         <div className="console-section__heading">
           <div>
-            <p className="console-eyebrow">开始调用</p>
-            <h2 id="guide-start-heading">三步完成接入</h2>
+            <p className="console-eyebrow">{t('开始调用')}</p>
+            <h2 id="guide-start-heading">{t('三步完成接入')}</h2>
           </div>
         </div>
         <ol className="guide-steps">
           <li>
             <span>01</span>
             <div>
-              <strong>创建 API Key</strong>
-              <p>密钥只在创建时完整显示一次，请立即妥善保存。</p>
+              <strong>{t('创建 API Key')}</strong>
+              <p>{t('密钥只在创建时完整显示一次，请立即妥善保存。')}</p>
             </div>
           </li>
           <li>
             <span>02</span>
             <div>
-              <strong>选择模型 ID</strong>
-              <p>在模型支持页查看当前账户实际可调用的模型。</p>
+              <strong>{t('选择模型 ID')}</strong>
+              <p>{t('在模型支持页查看当前账户实际可调用的模型。')}</p>
             </div>
           </li>
           <li>
             <span>03</span>
             <div>
-              <strong>发送请求</strong>
-              <p>在服务端设置 ZTAPI_API_KEY，再替换示例中的模型 ID。</p>
+              <strong>{t('发送请求')}</strong>
+              <p>{t('在服务端设置 ZTAPI_API_KEY，再替换示例中的模型 ID。')}</p>
             </div>
           </li>
         </ol>
         <div className="guide-actions">
           <Link className="console-button console-button--primary" to="/console/keys">
             <KeyRound aria-hidden="true" size={17} />
-            创建 API 密钥
+            {t('创建 API 密钥')}
           </Link>
           <Link className="console-button console-button--secondary" to="/console/models">
             <Boxes aria-hidden="true" size={17} />
-            查看可用模型
+            {t('查看可用模型')}
             <ArrowRight aria-hidden="true" size={16} />
           </Link>
         </div>
@@ -368,8 +370,8 @@ export function UsageGuidePage() {
       >
         <div className="console-section__heading">
           <div>
-            <p className="console-eyebrow">OpenAI 兼容入口</p>
-            <h2 id="guide-reference-heading">接口信息</h2>
+            <p className="console-eyebrow">{t('OpenAI 兼容入口')}</p>
+            <h2 id="guide-reference-heading">{t('接口信息')}</h2>
           </div>
         </div>
         <dl className="guide-reference__grid">
@@ -378,11 +380,11 @@ export function UsageGuidePage() {
             <dd><code>https://ztapi.vip/v1</code></dd>
           </div>
           <div>
-            <dt>请求地址</dt>
+            <dt>{t('请求地址')}</dt>
             <dd><code>{`POST ${path}`}</code></dd>
           </div>
           <div>
-            <dt>鉴权方式</dt>
+            <dt>{t('鉴权方式')}</dt>
             <dd><code>Authorization: Bearer YOUR_ZTAPI_API_KEY</code></dd>
           </div>
         </dl>
@@ -393,25 +395,25 @@ export function UsageGuidePage() {
       <section className="console-section" aria-labelledby="guide-code-heading">
         <div className="console-section__heading guide-code-heading">
           <div>
-            <p className="console-eyebrow">代码示例</p>
-            <h2 id="guide-code-heading">发送第一条请求</h2>
+            <p className="console-eyebrow">{t('代码示例')}</p>
+            <h2 id="guide-code-heading">{t('发送第一条请求')}</h2>
           </div>
           <label className="model-support-provider">
-            <span>调用接口</span>
+            <span>{t('调用接口')}</span>
             <select
               value={endpoint}
               onChange={(event) => setEndpoint(event.target.value as GuideEndpoint)}
             >
               <option value="chat">Chat Completions</option>
               <option value="responses">Responses</option>
-              <option value="embeddings">文本向量 Embeddings</option>
-              <option value="images">图片生成</option>
-              <option value="video-tasks">异步视频任务</option>
+              <option value="embeddings">{t('文本向量 Embeddings')}</option>
+              <option value="images">{t('图片生成')}</option>
+              <option value="video-tasks">{t('异步视频任务')}</option>
             </select>
           </label>
         </div>
         <div className="guide-code-workbench">
-          <div className="guide-tabs" role="tablist" aria-label="代码示例">
+          <div className="guide-tabs" role="tablist" aria-label={t('代码示例')}>
             {guideTabs.map((tab, index) => (
               <button
                 ref={(node) => {
@@ -441,13 +443,13 @@ export function UsageGuidePage() {
               <span>{guideTabs.find((tab) => tab.id === language)?.label}</span>
               <button type="button" onClick={() => void copyExample()}>
                 <Copy aria-hidden="true" size={15} />
-                复制代码
+                {t('复制代码')}
               </button>
             </div>
             <pre data-testid="guide-code"><code>{examples[language]}</code></pre>
             <span className="guide-copy-status" role="status" aria-live="polite">
-              {copyStatus === 'success' && '已复制'}
-              {copyStatus === 'error' && '复制失败，请手动复制'}
+              {copyStatus === 'success' && t('已复制')}
+              {copyStatus === 'error' && t('复制失败，请手动复制')}
             </span>
           </div>
         </div>
@@ -456,8 +458,8 @@ export function UsageGuidePage() {
       <aside className="guide-security">
         <ShieldCheck aria-hidden="true" size={19} />
         <div>
-          <strong>保护你的 API Key</strong>
-          <p>不要在浏览器前端、移动端安装包或公开仓库中暴露 API Key。</p>
+          <strong>{t('保护你的 API Key')}</strong>
+          <p>{t('不要在浏览器前端、移动端安装包或公开仓库中暴露 API Key。')}</p>
         </div>
       </aside>
     </div>

@@ -23,7 +23,7 @@ export function getCodeExample(family: ModelFamily) {
   const definition = MODEL_FAMILIES.find((item) => item.id === family) ?? MODEL_FAMILIES[0];
 
   return [
-    `// ${definition.label}: ${definition.description}`,
+    `// ${definition.label} model`,
     'import OpenAI from "openai";',
     '',
     'const client = new OpenAI({',

@@ -8,9 +8,11 @@ import { GatewayStatusRail } from './GatewayStatusRail';
 import { IntegrationWorkbench } from './IntegrationWorkbench';
 import { PublicModelProof } from './PublicModelProof';
 import type { ModelFamily } from './homeContent';
+import { useLocale } from '../../i18n/locale';
 import './home.css';
 
 export function HomePage() {
+  const { t } = useLocale();
   const [selectedFamily, setSelectedFamily] = useState<ModelFamily>('openai');
   const { hash } = useLocation();
   const sourceUrl =
@@ -37,19 +39,19 @@ export function HomePage() {
             <p className="gateway-hero__eyebrow">UNIFIED MODEL API</p>
             <h1 id="gateway-hero-title">ZTAPI</h1>
             <p className="gateway-hero__title">
-              <span>一个 Key，连接全球主流</span>{' '}
-              <span className="gateway-hero__title-models">AI 模型</span>
+              <span>{t('一个 Key，连接全球主流')}</span>{' '}
+              <span className="gateway-hero__title-models">{t('AI 模型')}</span>
             </p>
             <p className="gateway-hero__summary">
-              兼容 OpenAI SDK，统一管理调用、用量和模型路由。
+              {t('兼容 OpenAI SDK，统一管理调用、用量和模型路由。')}
             </p>
             <div className="gateway-hero__actions">
               <Link className="button-link button-link--primary" to="/register">
-                开始使用
+                {t('开始使用')}
                 <ArrowRight aria-hidden="true" size={18} />
               </Link>
               <Link className="button-link button-link--secondary" to="/models">
-                查看模型价格
+                {t('查看模型价格')}
               </Link>
             </div>
             <div className="gateway-hero__endpoint">
@@ -67,41 +69,41 @@ export function HomePage() {
         <section className="principles-band" aria-labelledby="principles-title">
           <div className="public-shell">
             <div className="principles-band__heading">
-              <p className="section-kicker">网关能力</p>
-              <h2 id="principles-title">每一次调用都清晰、可控、可追踪</h2>
+              <p className="section-kicker">{t('网关能力')}</p>
+              <h2 id="principles-title">{t('每一次调用都清晰、可控、可追踪')}</h2>
             </div>
             <div className="principles-grid">
               <article>
                 <CircleDollarSign aria-hidden="true" />
-                <h3>透明用量</h3>
-                <p>按实际 API 用量记录调用与费用归属。</p>
+                <h3>{t('透明用量')}</h3>
+                <p>{t('按实际 API 用量记录调用与费用归属。')}</p>
               </article>
               <article>
                 <Route aria-hidden="true" />
-                <h3>可控路由</h3>
-                <p>通过统一模型名称管理可用路由。</p>
+                <h3>{t('可控路由')}</h3>
+                <p>{t('通过统一模型名称管理可用路由。')}</p>
               </article>
               <article>
                 <ListTree aria-hidden="true" />
-                <h3>请求记录</h3>
-                <p>在控制台查看调用结果与用量记录。</p>
+                <h3>{t('请求记录')}</h3>
+                <p>{t('在控制台查看调用结果与用量记录。')}</p>
               </article>
             </div>
           </div>
         </section>
-        <section className="public-cta" aria-label="开始使用 ZTAPI">
+        <section className="public-cta" aria-label={t('开始使用 ZTAPI')}>
           <div className="public-shell">
             <div>
-              <p className="section-kicker">从今天开始</p>
-              <h2>用一个统一接口，让模型选择更自由</h2>
+              <p className="section-kicker">{t('从今天开始')}</p>
+              <h2>{t('用一个统一接口，让模型选择更自由')}</h2>
             </div>
             <div className="public-cta__actions">
               <Link className="button-link button-link--primary" to="/register">
-                创建账号
+                {t('创建账号')}
                 <ArrowRight aria-hidden="true" size={18} />
               </Link>
               <Link className="button-link button-link--secondary" to="/models">
-                模型与价格
+                {t('模型与价格')}
               </Link>
             </div>
           </div>
@@ -110,14 +112,14 @@ export function HomePage() {
       <footer className="public-footer">
         <div className="public-footer__inner public-shell">
           <span className="public-footer__brand">ZTAPI</span>
-          <span>统一模型 API</span>
+          <span>{t('统一模型 API')}</span>
           <a
             className="footer-link"
             href={sourceUrl}
             target="_blank"
             rel="noreferrer"
           >
-            ZTAPI 对应源码
+            {t('ZTAPI 对应源码')}
           </a>
           <a
             className="footer-link"

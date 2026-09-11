@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { RouterProvider } from 'react-router-dom';
 import { afterEach, vi } from 'vitest';
 import { clearAuthSession } from '../api/client';
@@ -6,6 +6,10 @@ import { AppProviders } from './providers';
 import { createZTAPIRouter } from './router';
 
 const NativeRequest = globalThis.Request;
+
+beforeEach(() => {
+  vi.spyOn(window.navigator, 'language', 'get').mockReturnValue('zh-CN');
+});
 
 beforeAll(() => {
   globalThis.Request = class TestRequest extends NativeRequest {
@@ -22,7 +26,10 @@ afterAll(() => {
 afterEach(() => {
   cleanup();
   clearAuthSession();
+  localStorage.clear();
+  document.documentElement.lang = '';
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 function jsonResponse(body: unknown, status = 200) {
@@ -121,4 +128,68 @@ it('keeps model support and integration guidance in the console navigation', asy
     'href',
     '/console/guide',
   );
+});
+
+it('switches the public site to English and persists the language without changing technical values', async () => {
+  vi.spyOn(window.navigator, 'language', 'get').mockReturnValue('zh-CN');
+  renderWithProviders('/', false);
+
+  const switcher = await screen.findByRole('button', { name: '切换到英文' });
+  expect(document.documentElement.lang).toBe('zh-CN');
+
+  fireEvent.click(switcher);
+
+  expect(await screen.findByText('One key connects leading')).toBeVisible();
+  expect(screen.getByText('AI models worldwide')).toBeVisible();
+  expect(screen.getByText('JavaScript')).toBeVisible();
+  expect(screen.getAllByText('https://ztapi.vip/v1').length).toBeGreaterThan(0);
+  expect(localStorage.getItem('ztapi.locale')).toBe('en');
+  expect(document.documentElement.lang).toBe('en');
+});
+
+it('selects English from navigator.language for a first-time visitor', async () => {
+  vi.spyOn(window.navigator, 'language', 'get').mockReturnValue('fr-FR');
+
+  renderWithProviders('/register', false);
+
+  expect(await screen.findByRole('heading', { name: 'Create a ZTAPI account' })).toBeVisible();
+  expect(screen.getByRole('navigation', { name: 'Public navigation' })).toBeVisible();
+  expect(document.documentElement.lang).toBe('en');
+  expect(localStorage.getItem('ztapi.locale')).toBeNull();
+});
+
+it('keeps a manually saved ZTAPI language ahead of navigator.language', async () => {
+  localStorage.setItem('ztapi.locale', 'zh-CN');
+  vi.spyOn(window.navigator, 'language', 'get').mockReturnValue('en-US');
+
+  renderWithProviders('/login', false);
+
+  expect(await screen.findByRole('heading', { name: '登录 ZTAPI' })).toBeVisible();
+  expect(screen.getByRole('navigation', { name: '公共导航' })).toBeVisible();
+});
+
+it('uses a compatible saved i18next language when no ZTAPI preference exists', async () => {
+  localStorage.setItem('i18nextLng', 'en-US');
+
+  renderWithProviders('/login', false);
+
+  expect(await screen.findByRole('heading', { name: 'Sign in to ZTAPI' })).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Switch to Chinese' })).toBeVisible();
+});
+
+it.each([
+  ['/models', false, 'Models and pricing'],
+  ['/login', false, 'Sign in to ZTAPI'],
+  ['/register', false, 'Create a ZTAPI account'],
+  ['/console', true, 'Usage overview'],
+  ['/console/keys', true, 'API keys'],
+  ['/console/models', true, 'Supported models'],
+  ['/console/guide', true, 'Integration guide'],
+  ['/console/logs', true, 'Usage logs'],
+  ['/console/wallet', true, 'Add funds'],
+])('renders fixed copy in English on %s', async (path, authenticated, heading) => {
+  localStorage.setItem('ztapi.locale', 'en');
+  renderWithProviders(path, authenticated);
+
+  expect(await screen.findByRole('heading', { name: heading })).toBeVisible();
 });

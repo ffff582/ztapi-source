@@ -148,7 +148,27 @@ func ztapiPublicMediaMetadata(publication ZTAPIRuntimePublication) (*ZTAPIPublic
 	}
 	rules := make([]ZTAPIPublicPricingRule, 0, len(contract.Rules))
 	billingUnit := ""
+	reportedImageDimensions := map[string]struct{}(nil)
+	if publication.Modality == ZTAPIModalityImage && publication.ImageProtocolContract != nil &&
+		types.IsZTAPIGPTImage2NotReportedUsageProtocol(*publication.ImageProtocolContract) {
+		reportedImageDimensions = make(map[string]struct{}, len(publication.ImageProtocolContract.Usage.Fields))
+		for dimension := range publication.ImageProtocolContract.Usage.Fields {
+			reportedImageDimensions[dimension] = struct{}{}
+		}
+	}
 	for _, rule := range contract.Rules {
+		if reportedImageDimensions != nil {
+			if len(rule.SaleUSD) != 1 {
+				continue
+			}
+			reported := false
+			for dimension := range rule.SaleUSD {
+				_, reported = reportedImageDimensions[dimension]
+			}
+			if !reported {
+				continue
+			}
+		}
 		if billingUnit == "" {
 			billingUnit = rule.BillingUnit
 		} else if billingUnit != rule.BillingUnit {

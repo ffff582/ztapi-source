@@ -781,8 +781,13 @@ func cheapestZTAPIImageProbe(pricing types.ZTAPIMediaPriceContract, protocol typ
 		} else {
 			for _, rule := range pricing.Rules {
 				for dimension, cost := range rule.CostUSD {
-					costs[dimension] = cost
+					if _, reported := protocol.Usage.Fields[dimension]; reported {
+						costs[dimension] = cost
+					}
 				}
+			}
+			if len(costs) != len(protocol.Usage.Fields) {
+				return best, errors.New("image probe pricing does not cover reported dimensions")
 			}
 		}
 		cost, err := ztapiProbeMaximumCostNanoUSD(costs, authority.MaximumDimensions)

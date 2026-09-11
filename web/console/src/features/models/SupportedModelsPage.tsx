@@ -2,6 +2,7 @@ import { Copy, Search, TriangleAlert } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { apiClient } from '../../api/client';
 import { UsageBillingNote } from '../../components/UsageBillingNote';
+import { useLocale } from '../../i18n/locale';
 import {
   parseUserModelCatalog,
   type UserModelCatalogItem,
@@ -190,30 +191,30 @@ function mediaBillingUnit(unit: string) {
   return unit === 'usd_per_million_tokens' ? '1M tokens' : unit;
 }
 
-function pricingRuleLabel(conditions: Record<string, string>) {
+function pricingRuleLabel(conditions: Record<string, string>, t: (key: string) => string) {
   return Object.entries(conditions)
-    .map(([key, value]) => conditionLabels[key]?.[value] ?? (key === 'resolution' ? value : `${key}: ${value}`))
+    .map(([key, value]) => t(conditionLabels[key]?.[value] ?? (key === 'resolution' ? value : `${key}: ${value}`)))
     .join(' · ');
 }
 
-function supportedOptionsLabel(item: UserModelCatalogItem) {
+function supportedOptionsLabel(item: UserModelCatalogItem, t: (key: string, values?: Record<string, string | number>) => string) {
   const options = item.supported_options;
   if (!options) return '';
   if (item.modality === 'image') {
     return [
       options.sizes?.join(' / '), options.qualities?.join(' / '),
       options.response_formats?.join(' / '),
-      options.min_count && options.max_count ? `${options.min_count}-${options.max_count} 张` : '',
+      options.min_count && options.max_count ? t('{{min}}-{{max}} 张', { min: options.min_count, max: options.max_count }) : '',
     ].filter(Boolean).join(' · ');
   }
   return [
     options.resolutions?.join(' / '),
-    options.duration_seconds?.map((duration) => `${duration} 秒`).join(' / '),
-    options.supports_video_input ? '支持视频输入' : '无视频输入',
+    options.duration_seconds?.map((duration) => t('{{count}} 秒', { count: duration })).join(' / '),
+    options.supports_video_input ? t('支持视频输入') : t('无视频输入'),
   ].filter(Boolean).join(' · ');
 }
 
-function matchesSearch(item: UserModelCatalogItem, query: string) {
+function matchesSearch(item: UserModelCatalogItem, query: string, t: (key: string) => string) {
   const normalized = query.trim().toLocaleLowerCase();
   if (normalized.length === 0) {
     return true;
@@ -221,11 +222,12 @@ function matchesSearch(item: UserModelCatalogItem, query: string) {
   return [
     item.model_name,
     item.provider_name,
-    ...item.supported_endpoint_types.map((endpoint) => endpointDetails[endpoint].label),
+    ...item.supported_endpoint_types.flatMap((endpoint) => [endpointDetails[endpoint].label, t(endpointDetails[endpoint].label)]),
   ].some((value) => value.toLocaleLowerCase().includes(normalized));
 }
 
 export function SupportedModelsPage() {
+  const { t } = useLocale();
   const [catalog, setCatalog] = useState<UserModelCatalogItem[]>([]);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [query, setQuery] = useState('');
@@ -277,9 +279,9 @@ export function SupportedModelsPage() {
       catalog.filter(
         (item) =>
           matchesCategory(item, category) &&
-          matchesSearch(item, query),
+          matchesSearch(item, query, t),
       ),
-    [catalog, category, query],
+    [catalog, category, query, t],
   );
 
   async function copyModelID(modelName: string) {
@@ -304,19 +306,19 @@ export function SupportedModelsPage() {
     <div className="console-page">
       <header className="console-page__header">
         <div>
-          <p className="console-eyebrow">服务目录</p>
-          <h1>模型支持</h1>
+          <p className="console-eyebrow">{t('服务目录')}</p>
+          <h1>{t('模型支持')}</h1>
         </div>
-        <p>仅展示当前账户分组实际可调用的公开模型与实时售价。</p>
+        <p>{t('仅展示当前账户分组实际可调用的公开模型与实时售价。')}</p>
       </header>
 
       <section className="console-section" aria-labelledby="supported-models-heading">
         <div className="console-section__heading">
           <div>
-            <p className="console-eyebrow">当前账户</p>
-            <h2 id="supported-models-heading">可调用模型</h2>
+            <p className="console-eyebrow">{t('当前账户')}</p>
+            <h2 id="supported-models-heading">{t('可调用模型')}</h2>
           </div>
-          {status === 'ready' && <span>{catalog.length} 个可用模型</span>}
+          {status === 'ready' && <span>{t('{{count}} 个可用模型', { count: catalog.length })}</span>}
         </div>
 
         <div className="model-support-billing-note">
@@ -325,22 +327,22 @@ export function SupportedModelsPage() {
 
         {status === 'loading' && (
           <div className="console-state" aria-live="polite" aria-busy="true">
-            正在加载模型目录...
+            {t('正在加载模型目录...')}
           </div>
         )}
         {status === 'error' && (
           <div className="console-state console-state--error" role="alert">
             <TriangleAlert aria-hidden="true" size={19} />
-            模型目录加载失败，请刷新后重试。
+            {t('模型目录加载失败，请刷新后重试。')}
           </div>
         )}
         {status === 'ready' && catalog.length === 0 && (
-          <div className="console-state">当前账户暂无可调用模型。</div>
+          <div className="console-state">{t('当前账户暂无可调用模型。')}</div>
         )}
         {status === 'ready' && catalog.length > 0 && (
           <>
             <div className="model-support-toolbar">
-              <div aria-label="模型分类" className="model-support-categories" role="tablist">
+              <div aria-label={t('模型分类')} className="model-support-categories" role="tablist">
                 {availableCategories.map(({ id, label }) => (
                   <button
                     aria-selected={category === id}
@@ -350,43 +352,43 @@ export function SupportedModelsPage() {
                     type="button"
                     onClick={() => setCategory(id)}
                   >
-                    {label}
+                    {t(label)}
                   </button>
                 ))}
               </div>
               <label className="model-support-search">
                 <Search aria-hidden="true" size={17} />
                 <input
-                  aria-label="搜索模型"
-                  placeholder="搜索模型 ID 或厂商"
+                  aria-label={t('搜索模型')}
+                  placeholder={t('搜索模型 ID 或厂商')}
                   type="search"
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                 />
               </label>
               <span className="model-support-result-count">
-                显示 {visibleModels.length} / {catalog.length}
+                {t('显示 {{visible}} / {{total}}', { visible: visibleModels.length, total: catalog.length })}
               </span>
               <span className="model-support-copy-status" role="status" aria-live="polite">
-                {copyStatus?.state === 'success' && `${copyStatus.modelName} 已复制`}
+                {copyStatus?.state === 'success' && t('{{name}} 已复制', { name: copyStatus.modelName })}
                 {copyStatus?.state === 'error' &&
-                  `${copyStatus.modelName} 复制失败，请手动复制`}
+                  t('{{name}} 复制失败，请手动复制', { name: copyStatus.modelName })}
               </span>
             </div>
 
             {visibleModels.length === 0 ? (
-              <div className="console-state">没有符合筛选条件的模型。</div>
+              <div className="console-state">{t('没有符合筛选条件的模型。')}</div>
             ) : (
               <div className="console-table-wrap model-support-table-wrap">
                 <table className="console-table model-support-table" role="table">
                   <thead role="rowgroup">
                     <tr role="row">
-                      <th role="columnheader" scope="col">模型 ID</th>
-                      <th role="columnheader" scope="col">厂商</th>
-                      <th role="columnheader" scope="col">接口协议</th>
-                      <th role="columnheader" scope="col">调用地址</th>
-                      <th role="columnheader" scope="col">售价明细</th>
-                      <th role="columnheader" scope="col">操作</th>
+                      <th role="columnheader" scope="col">{t('模型 ID')}</th>
+                      <th role="columnheader" scope="col">{t('厂商')}</th>
+                      <th role="columnheader" scope="col">{t('接口协议')}</th>
+                      <th role="columnheader" scope="col">{t('调用地址')}</th>
+                      <th role="columnheader" scope="col">{t('售价明细')}</th>
+                      <th role="columnheader" scope="col">{t('操作')}</th>
                     </tr>
                   </thead>
                   <tbody role="rowgroup">
@@ -396,19 +398,19 @@ export function SupportedModelsPage() {
                       return (
                         <tr key={item.model_name} role="row">
                           <td role="cell">
-                            <span aria-hidden="true" className="model-cell-label">模型 ID</span>
+                            <span aria-hidden="true" className="model-cell-label">{t('模型 ID')}</span>
                             <code>{item.model_name}</code>
                           </td>
                           <td role="cell">
-                            <span aria-hidden="true" className="model-cell-label">厂商</span>
+                            <span aria-hidden="true" className="model-cell-label">{t('厂商')}</span>
                             <span className="model-provider">{item.provider_name}</span>
                           </td>
                           <td role="cell">
-                            <span aria-hidden="true" className="model-cell-label">接口协议</span>
-                            <span>{details.map((detail) => detail.label).join(' / ')}</span>
+                            <span aria-hidden="true" className="model-cell-label">{t('接口协议')}</span>
+                            <span>{details.map((detail) => t(detail.label)).join(' / ')}</span>
                           </td>
                           <td role="cell">
-                            <span aria-hidden="true" className="model-cell-label">调用地址</span>
+                            <span aria-hidden="true" className="model-cell-label">{t('调用地址')}</span>
                             <div>
                               {details.map((detail) => (
                                 <div key={detail.endpoint}><code>{detail.endpoint}</code></div>
@@ -416,14 +418,14 @@ export function SupportedModelsPage() {
                             </div>
                           </td>
                           <td className="model-price-cell" role="cell">
-                            <span aria-hidden="true" className="model-cell-label">售价明细</span>
+                            <span aria-hidden="true" className="model-cell-label">{t('售价明细')}</span>
                             {media ? (
                               <div className="model-media-pricing">
-                                <small>{supportedOptionsLabel(item)}</small>
-                                <ul aria-label={`${item.model_name} 条件售价`} className="model-price-list">
+                                <small>{supportedOptionsLabel(item, t)}</small>
+                                <ul aria-label={t('{{name}} 条件售价', { name: item.model_name })} className="model-price-list">
                                   {item.pricing_rules?.map((rule) => (
                                     <li key={rule.id}>
-                                      <span>{pricingRuleLabel(rule.conditions)}</span>
+                                      <span>{pricingRuleLabel(rule.conditions, t)}</span>
                                       <strong>
                                         {Object.values(rule.sale_usd).map((value) =>
                                           formatPrice(value, mediaBillingUnit(rule.billing_unit)),
@@ -434,13 +436,13 @@ export function SupportedModelsPage() {
                                 </ul>
                               </div>
                             ) : (
-                              <ul aria-label={`${item.model_name} 售价`} className="model-price-list">
+                              <ul aria-label={t('{{name}} 售价', { name: item.model_name })} className="model-price-list">
                                 {orderedBillingDimensions(item.billing_dimensions).map((dimension) => {
                                   const price = billingDimensionDetail(dimension);
                                   return (
                                     <li key={dimension}>
-                                      <span>{price.label}</span>
-                                      <strong>{formatPrice(item.sale_usd[dimension], price.unit)}</strong>
+                                      <span>{t(price.label)}</span>
+                                      <strong>{formatPrice(item.sale_usd[dimension], t(price.unit))}</strong>
                                     </li>
                                   );
                                 })}
@@ -448,11 +450,11 @@ export function SupportedModelsPage() {
                             )}
                           </td>
                           <td className="model-support-actions" role="cell">
-                            <span aria-hidden="true" className="model-cell-label">操作</span>
+                            <span aria-hidden="true" className="model-cell-label">{t('操作')}</span>
                             <button
-                              aria-label={`复制 ${item.model_name}`}
+                              aria-label={t('复制 {{name}}', { name: item.model_name })}
                               className="console-icon-action model-copy"
-                              title="复制模型 ID"
+                              title={t('复制模型 ID')}
                               type="button"
                               onClick={() => void copyModelID(item.model_name)}
                             >

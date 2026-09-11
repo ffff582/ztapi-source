@@ -7,8 +7,10 @@ import { AuthShell } from './AuthShell';
 import { InlineNotice } from './InlineNotice';
 import { PasswordField } from './PasswordField';
 import { validateRegistrationInput } from './RegisterPage';
+import { useLocale } from '../../i18n/locale';
 
 export function LoginPage() {
+  const { t } = useLocale();
   const navigate = useNavigate();
   const { login } = useAuth();
   const usernameRef = useRef<HTMLInputElement>(null);
@@ -69,13 +71,13 @@ export function LoginPage() {
   return (
     <AuthShell
       eyebrow="Console access"
-      title="登录 ZTAPI"
-      intro="进入控制台，管理 API Key、调用记录与用量。"
+      title={t('登录 ZTAPI')}
+      intro={t('进入控制台，管理 API Key、调用记录与用量。')}
     >
       <form className="auth-form" onSubmit={handleSubmit} noValidate>
         <InlineNotice message={serverError} />
         <div className="auth-field">
-          <label htmlFor="login-username">账号</label>
+          <label htmlFor="login-username">{t('账号')}</label>
           <input
             ref={usernameRef}
             id="login-username"
@@ -93,18 +95,18 @@ export function LoginPage() {
           />
           {fieldErrors.username !== undefined ? (
             <p id="login-username-error" className="auth-field__error">
-              {fieldErrors.username}
+              {t(fieldErrors.username)}
             </p>
           ) : null}
         </div>
         <PasswordField
           ref={passwordRef}
           id="login-password"
-          label="密码"
+          label={t('密码')}
           name="password"
           autoComplete="current-password"
           value={password}
-          error={fieldErrors.password}
+          error={fieldErrors.password === undefined ? undefined : t(fieldErrors.password)}
           onChange={(event) => updatePassword(event.target.value)}
         />
         <button className="auth-submit" type="submit" disabled={pending}>
@@ -113,11 +115,11 @@ export function LoginPage() {
           ) : (
             <LogIn aria-hidden="true" />
           )}
-          {pending ? '登录中...' : '登录'}
+          {pending ? t('登录中...') : t('登录')}
         </button>
       </form>
       <p className="auth-switch">
-        还没有账号？ <Link to="/register">创建账号</Link>
+        {t('还没有账号？')} <Link to="/register">{t('创建账号')}</Link>
       </p>
     </AuthShell>
   );

@@ -1,5 +1,7 @@
 import type { PropsWithChildren } from 'react';
 import { Link } from 'react-router-dom';
+import { PublicHeader } from '../../components/layout/PublicHeader';
+import { useLocale } from '../../i18n/locale';
 import { AuthTopology } from './AuthTopology';
 import './auth.css';
 
@@ -15,31 +17,35 @@ export function AuthShell({
   intro,
   children,
 }: AuthShellProps) {
+  const { t } = useLocale();
+
   return (
-    <div className="auth-shell">
-      <aside className="auth-context" aria-label="ZTAPI 网关信息">
-        <Link className="auth-context__brand" to="/" aria-label="ZTAPI 首页">
+    <div className="auth-page">
+      <PublicHeader />
+      <div className="auth-shell">
+      <aside className="auth-context" aria-label={t('ZTAPI 网关信息')}>
+        <Link className="auth-context__brand" to="/" aria-label={t('ZTAPI 首页')}>
           <img src="/brand/ztapi-mark.png" alt="" width="32" height="32" />
           <span>ZTAPI</span>
         </Link>
         <div className="auth-context__message">
           <p>UNIFIED MODEL GATEWAY</p>
           <h2>
-            <span className="auth-context__headline-line">一个接口，</span>
-            <span className="auth-context__headline-line">连接模型与业务。</span>
+            <span className="auth-context__headline-line">{t('一个接口，')}</span>
+            <span className="auth-context__headline-line">{t('连接模型与业务。')}</span>
           </h2>
         </div>
         <AuthTopology />
         <ul className="auth-context__facts">
-          <li>OpenAI 兼容接口</li>
-          <li>按量计费</li>
-          <li>可配置路由</li>
+          <li>{t('OpenAI 兼容接口')}</li>
+          <li>{t('按量计费')}</li>
+          <li>{t('可配置路由')}</li>
         </ul>
         <code>https://ztapi.vip/v1</code>
       </aside>
       <main className="auth-workspace">
         <Link className="auth-home-link" to="/">
-          返回首页
+          {t('返回首页')}
         </Link>
         <section className="auth-form-panel" aria-labelledby="auth-heading">
           <p className="auth-kicker">{eyebrow}</p>
@@ -48,6 +54,7 @@ export function AuthShell({
           {children}
         </section>
       </main>
+      </div>
     </div>
   );
 }

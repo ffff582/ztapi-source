@@ -6,6 +6,7 @@ import { useAuth } from '../../auth/session';
 import { AuthShell } from './AuthShell';
 import { InlineNotice } from './InlineNotice';
 import { PasswordField } from './PasswordField';
+import { useLocale } from '../../i18n/locale';
 
 const USERNAME_ERROR =
   '账号需为 3-32 字节，仅可使用字母、数字、下划线或连字符';
@@ -49,6 +50,7 @@ export function validateRegistrationInput({
 }
 
 export function RegisterPage() {
+  const { t } = useLocale();
   const navigate = useNavigate();
   const { register } = useAuth();
   const usernameRef = useRef<HTMLInputElement>(null);
@@ -107,13 +109,13 @@ export function RegisterPage() {
   return (
     <AuthShell
       eyebrow="Create account"
-      title="创建 ZTAPI 账号"
-      intro="创建账号后即可进入控制台并生成 API Key。"
+      title={t('创建 ZTAPI 账号')}
+      intro={t('创建账号后即可进入控制台并生成 API Key。')}
     >
       <form className="auth-form" onSubmit={handleSubmit} noValidate>
         <InlineNotice message={serverError} />
         <div className="auth-field">
-          <label htmlFor="register-username">账号</label>
+          <label htmlFor="register-username">{t('账号')}</label>
           <input
             ref={usernameRef}
             id="register-username"
@@ -131,23 +133,23 @@ export function RegisterPage() {
           />
           {fieldErrors.username === undefined ? (
             <p id="register-username-help" className="auth-field__help">
-              3-32 字节，可使用字母、数字、下划线或连字符
+              {t('3-32 字节，可使用字母、数字、下划线或连字符')}
             </p>
           ) : (
             <p id="register-username-error" className="auth-field__error">
-              {fieldErrors.username}
+              {t(fieldErrors.username)}
             </p>
           )}
         </div>
         <PasswordField
           ref={passwordRef}
           id="register-password"
-          label="密码"
+          label={t('密码')}
           name="password"
           autoComplete="new-password"
           value={password}
-          help="至少 10 个字符，最多 256 字节"
-          error={fieldErrors.password}
+          help={t('至少 10 个字符，最多 256 字节')}
+          error={fieldErrors.password === undefined ? undefined : t(fieldErrors.password)}
           onChange={(event) => updateRegistrationPassword(event.target.value)}
         />
         <button className="auth-submit" type="submit" disabled={pending}>
@@ -156,11 +158,11 @@ export function RegisterPage() {
           ) : (
             <UserPlus aria-hidden="true" />
           )}
-          {pending ? '创建中...' : '创建账号'}
+          {pending ? t('创建中...') : t('创建账号')}
         </button>
       </form>
       <p className="auth-switch">
-        已有账号？ <Link to="/login">登录</Link>
+        {t('已有账号？')} <Link to="/login">{t('登录')}</Link>
       </p>
     </AuthShell>
   );

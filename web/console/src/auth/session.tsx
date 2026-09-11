@@ -16,6 +16,7 @@ import {
   subscribeAuthSession,
 } from '../api/client';
 import type { AuthCredentials, AuthUser } from '../api/contracts';
+import { useLocale } from '../i18n/locale';
 
 type AuthState =
   | { status: 'loading'; user: null }
@@ -90,10 +91,11 @@ export function useAuth() {
 }
 
 function SessionLoading() {
+  const { t } = useLocale();
   return (
     <main className="session-loading" aria-live="polite" aria-busy="true">
       <img src="/brand/ztapi-mark.png" alt="" width="24" height="24" />
-      <span>正在确认会话...</span>
+      <span>{t('正在确认会话...')}</span>
     </main>
   );
 }

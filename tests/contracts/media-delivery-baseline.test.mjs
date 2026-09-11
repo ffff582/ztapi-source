@@ -59,7 +59,7 @@ test('freezes the quotation and current publication baseline', () => {
   }
 });
 
-test('keeps all five quoted media rows blocked', () => {
+test('maps only the evidenced GPT Image 2 media row', () => {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
   const media = manifest.entries
     .filter(({ modality }) => modality === 'image' || modality === 'video')
@@ -69,10 +69,26 @@ test('keeps all five quoted media rows blocked', () => {
     media.map(({ label }) => label),
     mediaLabels,
   );
+  assert.deepEqual(media.map(({ label, status }) => `${label}\0${status}`).sort(), [
+    'gp-image-2\0mapped',
+    'gm25-fl-IMAGE\0mapping_pending',
+    'seedance-2.0\0mapping_pending',
+    'Seedance 2.0 Fast\0mapping_pending',
+    'Seedance 2.0 Mini\0mapping_pending',
+  ].sort());
+  const image = manifest.entries.find(({ label }) => label === 'gp-image-2');
   assert.deepEqual(
-    media
-      .map(({ label, status }) => `${label}\0${status}`)
-      .sort(),
-    mediaLabels.map((label) => `${label}\0mapping_pending`).sort(),
+    {
+      source_model: image.source_model,
+      public_name: image.public_name,
+      protocol: image.protocol,
+      provider_family: image.provider_family,
+    },
+    {
+      source_model: 'gpt-image-2',
+      public_name: 'zt-gp-image-2',
+      protocol: 'openai_compatible',
+      provider_family: 'openai',
+    },
   );
 });

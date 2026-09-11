@@ -121,6 +121,49 @@ func imageAttemptBillingPriceFixture(t *testing.T, contract types.ZTAPIMediaPric
 	return parent, submission
 }
 
+func gptImageThreeDimensionAttemptFixture(t *testing.T) (model.ZTAPIRequestSettlement, model.ZTAPIAttemptBillingSubmission) {
+	t.Helper()
+	_, priceJSON, protocol, protocolJSON := gptImageThreeDimensionContracts(t)
+	maximum := map[string]string{"text_input": "20", "image_input": "20", "image_output": "200"}
+	publication := relaycommon.ZTAPIPublicationSnapshot{
+		PublicationID: 71, Version: 3, PublicName: "zt-gp-image-2", SourceModel: "gpt-image-2", Modality: "image",
+		PriceSourceID: 72, PriceSourceVersion: 5, MediaPriceContractJSON: priceJSON, ImageProtocolContract: &protocol,
+	}
+	frozen, err := common.Marshal(ztapiFrozenMediaReservation{
+		ZTAPIPublicationSnapshot: publication, SelectorJSON: `{"modality":"image","n":1,"quality":"low","response_format":"b64_json","size":"1024x1024"}`,
+		ImageProtocolContractJSON: protocolJSON, ProtocolEvidenceHash: protocol.EvidenceHash, QuotaPerUnit: "500000", MaximumDimensions: maximum, MaximumQuota: 430,
+	})
+	require.NoError(t, err)
+	parent := model.ZTAPIRequestSettlement{ID: 1, OperationID: "gpt-image-attempt", RequestID: "gpt-image-attempt-request", UserID: 11, TokenID: 12, PublicModel: publication.PublicName, PriceSnapshotJSON: string(frozen), Status: model.ZTAPISettlementPending, CreatedAt: time.Unix(1788790000, 0)}
+	submission := model.ZTAPIAttemptBillingSubmission{
+		Source: "offline-supplier", ProofID: "gpt-image-bill", RequestID: parent.RequestID, UserID: parent.UserID, Attempt: 1, ChannelID: 13,
+		CredentialVersion: "credential-version", UpstreamRequestID: "gpt-image-wire", UpstreamBillID: "gpt-image-line", Kind: "billed", UsageSemantic: model.ZTAPIAttemptBillingUsageSemanticImage,
+		Usage:             []model.ZTAPIAttemptBillingQuantity{{Dimension: "text_input", Quantity: 18}, {Dimension: "image_input", Quantity: 0}, {Dimension: "image_output", Quantity: 196}},
+		PriceRuleIDs:      map[string]string{"text_input": "text_input", "image_input": "image_input", "image_output": "image_output"},
+		RawUsageJSON:      `{"input_tokens":18,"input_tokens_details":{"image_tokens":0,"text_tokens":18},"output_tokens":196,"output_tokens_details":{"image_tokens":196,"text_tokens":0},"total_tokens":214}`,
+		EvidenceReference: "reviewed-image-statement", DistinctUsageReference: "separate-image-attempt-usage",
+	}
+	return parent, submission
+}
+
+func TestZTAPIAttemptBillingPricesGPTImageStrictThreeDimensionsAndRejectsSyntheticCaches(t *testing.T) {
+	parent, submission := gptImageThreeDimensionAttemptFixture(t)
+	priced, err := PriceZTAPIAttemptBilling(parent, submission)
+	require.NoError(t, err)
+	require.Equal(t, 401, priced.ConsumeLog.Quota)
+	require.Len(t, priced.Dimensions, 2)
+
+	synthetic := submission
+	synthetic.Usage = append(append([]model.ZTAPIAttemptBillingQuantity(nil), submission.Usage...),
+		model.ZTAPIAttemptBillingQuantity{Dimension: "text_cached_input", Quantity: 0},
+		model.ZTAPIAttemptBillingQuantity{Dimension: "image_cached_input", Quantity: 0},
+	)
+	synthetic.PriceRuleIDs = map[string]string{"text_input": "text_input", "image_input": "image_input", "image_output": "image_output", "text_cached_input": "text_cached_input", "image_cached_input": "image_cached_input"}
+	synthetic.RawUsageJSON = `{"image_cached_input":0,"image_input":0,"image_output":196,"text_cached_input":0,"text_input":18,"total_tokens":214}`
+	_, err = PriceZTAPIAttemptBilling(parent, synthetic)
+	require.ErrorIs(t, err, model.ErrZTAPIAttemptBillingInvalid)
+}
+
 func TestZTAPIAttemptBillingPricesGPTImageFiveBucketsFromFrozenMediaContract(t *testing.T) {
 	prices := map[string]string{"text_input": "1", "text_cached_input": "0.2", "image_input": "2", "image_cached_input": "0.4", "image_output": "4"}
 	costs := map[string]string{"text_input": "0.6", "text_cached_input": "0.12", "image_input": "1.2", "image_cached_input": "0.24", "image_output": "2.4"}

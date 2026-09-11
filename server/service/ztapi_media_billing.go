@@ -387,12 +387,27 @@ func maximumZTAPIImageCharge(contract types.ZTAPIMediaPriceContract, maximum map
 		return best, nil
 	}
 	total := decimal.Zero
+	matched := 0
 	for _, rule := range contract.Rules {
+		if len(rule.SaleUSD) != 1 {
+			return decimal.Zero, model.ErrZTAPISettlementInvalid
+		}
+		active := false
+		for dimension := range rule.SaleUSD {
+			_, active = maximum[dimension]
+		}
+		if !active {
+			continue
+		}
 		exact, err := exactZTAPIImageRuleCharge(rule, maximum, quotaPerUnit)
 		if err != nil {
 			return decimal.Zero, err
 		}
 		total = total.Add(exact)
+		matched++
+	}
+	if matched != len(maximum) {
+		return decimal.Zero, model.ErrZTAPISettlementInvalid
 	}
 	return total, nil
 }

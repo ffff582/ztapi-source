@@ -45,6 +45,7 @@ type ztapiModelPriceSourceRequest struct {
 	AudioUnitCost          string   `json:"audio_unit_cost"`
 	RequestUnitCost        string   `json:"request_unit_cost"`
 	CNYPerUSD              string   `json:"cny_per_usd"`
+	MediaPriceContractJSON string   `json:"media_price_contract"`
 	QuotationEffectiveAt   int64    `json:"quotation_effective_at"`
 	SourceDocumentChecksum string   `json:"source_document_checksum"`
 	Reason                 string   `json:"reason"`
@@ -135,6 +136,7 @@ func buildZTAPIModelPriceSource(id int, operatorID int, request ztapiModelPriceS
 		CacheWrite1hPerMillion: request.CacheWrite1hPerMillion,
 		ImageUnitCost:          request.ImageUnitCost, AudioUnitCost: request.AudioUnitCost,
 		RequestUnitCost: request.RequestUnitCost, CNYPerUSD: request.CNYPerUSD,
+		MediaPriceContractJSON: request.MediaPriceContractJSON,
 		QuotationEffectiveAt:   request.QuotationEffectiveAt,
 		SourceDocumentChecksum: request.SourceDocumentChecksum, OperatorID: operatorID,
 	}, nil

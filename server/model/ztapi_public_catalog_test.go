@@ -107,6 +107,38 @@ func TestZTAPIPublicPricingPreservesMediaCapabilityAndConditionalSaleContract(t 
 	require.Zero(t, pricing[0].CompletionRatio)
 }
 
+func TestZTAPIPublicPricingHidesUnreportedGPTImageCacheBuckets(t *testing.T) {
+	protocol, _, err := types.SealZTAPIImageProtocolContract(types.ZTAPIImageProtocolContract{
+		Version: types.ZTAPIImageProtocolContractVersionV2, ProviderModel: "gpt-image-2",
+		EndpointType: types.ZTAPIImageEndpointGeneration, Method: "POST", Path: "/v1/images/generations",
+		WireProtocol: types.ZTAPIImageWireProtocolOpenAIImages, ProviderPath: "/v1/images/generations",
+		Capabilities: types.ZTAPIImageCapabilities{Sizes: []string{"1024x1024"}, Qualities: []string{"low"}, ResponseFormats: []string{"b64_json"}, MinCount: 1, MaxCount: 1},
+		Response:     types.ZTAPIImageResponseContract{Schema: "object_results_array", ResultsField: "data", ResultFields: map[string]string{"b64_json": "b64_json"}},
+		Usage: types.ZTAPIImageUsageContract{UsageField: "usage", Fields: map[string]string{
+			"text_input": "input_tokens_details.text_tokens", "image_input": "input_tokens_details.image_tokens", "image_output": "output_tokens_details.image_tokens",
+		}, TotalField: "total_tokens", TotalSemantics: "sum_of_dimensions", CacheSemantics: "not_reported"},
+		Reservations:    []types.ZTAPIImageReservationAuthority{{Size: "1024x1024", Quality: "low", ResponseFormat: "b64_json", N: 1, MaximumDimensions: map[string]string{"text_input": "200000", "image_input": "0", "image_output": "196"}}},
+		RequestIDSource: types.ZTAPIResponseIDSourceHeader, RequestIDKey: "X-Request-ID", EvidenceVersion: types.ZTAPIImageEvidenceVersion,
+		UpstreamRequestFields: map[string]string{"model": "required", "prompt": "required", "n": "required", "size": "required", "quality": "required", "response_format": "omit"},
+	})
+	require.NoError(t, err)
+
+	publication := ZTAPIRuntimePublication{
+		Modality: ZTAPIModalityImage, SourceModel: "gpt-image-2", PublicName: "zt-gp-image-2",
+		MediaPriceContractJSON: mustCanonicalZTAPIMediaPriceContract(t, gpImage2ContractForTest(t)),
+		ImageProtocolContract:  &protocol,
+	}
+	_, rules, _ := ztapiPublicMediaMetadata(publication)
+	require.Len(t, rules, 3)
+	dimensions := map[string]bool{}
+	for _, rule := range rules {
+		for dimension := range rule.SaleUSD {
+			dimensions[dimension] = true
+		}
+	}
+	require.Equal(t, map[string]bool{"text_input": true, "image_input": true, "image_output": true}, dimensions)
+}
+
 func TestZTAPIPublicCatalogTextJSONDoesNotGainMediaFields(t *testing.T) {
 	items := buildZTAPIPublicCatalog([]ZTAPIRuntimePublication{{
 		Modality: ZTAPIModalityText, SourceModel: "gpt-5.5", PublicName: "zt-gpt-5.5",

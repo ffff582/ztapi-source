@@ -30,12 +30,11 @@ func configureGPTImageFixture(t *testing.T, info *relaycommon.RelayInfo) {
 	contract.ProviderModel = "gpt-image-2"
 	contract.Capabilities = types.ZTAPIImageCapabilities{Sizes: []string{"1024x1024"}, Qualities: []string{"low"}, ResponseFormats: []string{"b64_json"}, MinCount: 1, MaxCount: 1}
 	contract.Response.ResultFields = map[string]string{"b64_json": "b64_json"}
-	contract.Usage.Fields = map[string]string{"text_input": "input_tokens_details.text_tokens", "image_input": "input_tokens_details.image_tokens", "image_output": "output_tokens_details.image_tokens", "text_cached_input": "synthetic_text_cache", "image_cached_input": "synthetic_image_cache"}
-	contract.Usage.CacheSemantics = "separate_dimension"
-	maximum := map[string]string{}
+	contract.Usage.Fields = map[string]string{"text_input": "input_tokens_details.text_tokens", "image_input": "input_tokens_details.image_tokens", "image_output": "output_tokens_details.image_tokens"}
+	contract.Usage.CacheSemantics = "not_reported"
+	maximum := map[string]string{"text_input": "200000", "image_input": "0", "image_output": "196"}
 	rules := []types.ZTAPIMediaPriceRule{}
 	for _, dimension := range []string{"text_input", "text_cached_input", "image_input", "image_cached_input", "image_output"} {
-		maximum[dimension] = "200000"
 		rules = append(rules, types.ZTAPIMediaPriceRule{ID: dimension, Conditions: map[string]string{"token_bucket": dimension}, BillingUnit: types.ZTAPIMediaBillingUnitUSDPerMillionTokens, CostUSD: map[string]string{dimension: "0.6"}, SaleUSD: map[string]string{dimension: "1"}, SourceCells: map[string]string{dimension: "A1"}})
 	}
 	contract.Reservations = []types.ZTAPIImageReservationAuthority{{Size: "1024x1024", Quality: "low", ResponseFormat: "b64_json", N: 1, MaximumDimensions: maximum}}
@@ -68,7 +67,7 @@ func TestZTAPIGPTImagePublicFormatRemainsExplicit(t *testing.T) {
 	}
 }
 
-func TestZTAPIGPTImageFrozenDispatchToPendingDeliveryOffline(t *testing.T) {
+func TestZTAPIGPTImageFrozenDispatchValidatesDeliveredResponse(t *testing.T) {
 	const observed = `{"data":[{"b64_json":"c3ludGhldGljLWltYWdl"}],"usage":{"input_tokens":18,"input_tokens_details":{"image_tokens":0,"text_tokens":18},"output_tokens":196,"output_tokens_details":{"image_tokens":196,"text_tokens":0},"total_tokens":214}}`
 	for _, name := range []string{"pending delivery", "missing header", "blank header", "malformed image", "wrong result count"} {
 		t.Run(name, func(t *testing.T) {
@@ -120,9 +119,12 @@ func TestZTAPIGPTImageFrozenDispatchToPendingDeliveryOffline(t *testing.T) {
 			require.Equal(t, observed, recorder.Body.String())
 			evidence := info.GetZTAPIMediaUsageEvidence()
 			require.NotNil(t, evidence)
-			require.True(t, evidence.Pending)
+			require.False(t, evidence.Pending)
 			require.Equal(t, "synthetic-header-id", evidence.UpstreamRequestID)
-			require.Empty(t, evidence.GetDimensions())
+			dimensions := evidence.GetDimensions()
+			require.Equal(t, "18", dimensions["text_input"].String())
+			require.Equal(t, "0", dimensions["image_input"].String())
+			require.Equal(t, "196", dimensions["image_output"].String())
 		})
 	}
 }

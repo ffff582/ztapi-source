@@ -90,8 +90,9 @@ describe('public homepage model proof', () => {
     expect(screen.queryByText(/模型目录正在配置/)).not.toBeInTheDocument();
     expect(document.querySelectorAll('.model-proof__grid article')).toHaveLength(3);
     for (const [name, vendor, input, output] of [
-      ['zt-claude-haiku-4.5', 'Claude', '$1.3 / 1M tokens', '$6.5 / 1M tokens'],
-      ['zt-gpt-4.1', 'OpenAI', '$2.6 / 1M tokens', '$10.4 / 1M tokens'],
+      ['zt-gpt-5.6-sol', 'OpenAI', '$13 / 1M tokens', '$58.5 / 1M tokens'],
+      ['zt-claude-sonnet-5', 'Claude', '$2.6 / 1M tokens', '$13 / 1M tokens'],
+      ['zt-gemini-3.5-flash', 'Gemini', '$2.05 / 1M tokens', '$12.3 / 1M tokens'],
     ]) {
       const row = screen.getByText(name).closest('article') as HTMLElement;
       expect(within(row).getByText(vendor)).toBeVisible();

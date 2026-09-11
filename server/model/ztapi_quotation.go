@@ -156,8 +156,16 @@ func ztapiQuotationRowHasMediaPriceData(row ZTAPIQuotationRow) bool {
 }
 
 func validateZTAPIMediaQuotationEntry(entry ZTAPIQuotationEntry, identity ztapiMediaPriceIdentity) bool {
-	if entry.Status != "mapping_pending" || entry.Modality != identity.modality ||
-		entry.SourceModel != "" || entry.PublicName != "" || entry.Protocol != "" || entry.ProviderFamily != "" {
+	if entry.Modality != identity.modality {
+		return false
+	}
+	if entry.Label == "gp-image-2" {
+		if entry.Status != "mapped" || entry.SourceModel != "gpt-image-2" || entry.PublicName != "zt-gp-image-2" ||
+			entry.Protocol != ZTAPIProtocolOpenAICompatible || entry.ProviderFamily != ZTAPIProviderOpenAI {
+			return false
+		}
+	} else if entry.Status != "mapping_pending" || entry.SourceModel != "" || entry.PublicName != "" ||
+		entry.Protocol != "" || entry.ProviderFamily != "" {
 		return false
 	}
 	contractRows := 0
@@ -295,7 +303,8 @@ func parseZTAPIQuotationManifest(raw []byte) (ztapiQuotationManifest, error) {
 		case "mapped":
 			if entry.SourceModel == "" || entry.PublicName == "" || entry.SourceModel == entry.PublicName ||
 				entry.Protocol != ZTAPIProtocolOpenAICompatible || !IsSupportedZTAPIProviderFamily(entry.ProviderFamily) ||
-				(entry.Modality != "text" && entry.Modality != "embedding") || sources[entry.SourceModel] || aliases[entry.PublicName] {
+				(entry.Modality != "text" && entry.Modality != "embedding" && entry.Modality != "image") ||
+				sources[entry.SourceModel] || aliases[entry.PublicName] {
 				return manifest, ErrZTAPIQuotationManifestInvalid
 			}
 			if entry.Modality == "embedding" {
@@ -304,7 +313,7 @@ func parseZTAPIQuotationManifest(raw []byte) (ztapiQuotationManifest, error) {
 					return manifest, ErrZTAPIQuotationManifestInvalid
 				}
 				embedding++
-			} else {
+			} else if entry.Modality == "text" {
 				text++
 			}
 			sources[entry.SourceModel], aliases[entry.PublicName] = true, true
@@ -324,7 +333,7 @@ func parseZTAPIQuotationManifest(raw []byte) (ztapiQuotationManifest, error) {
 			return manifest, ErrZTAPIQuotationManifestInvalid
 		}
 	}
-	if mapped != 41 || pending != 5 || text != 39 || embedding != 2 || media != len(ztapiMediaPriceIdentities) {
+	if mapped != 42 || pending != 4 || text != 39 || embedding != 2 || media != len(ztapiMediaPriceIdentities) {
 		return manifest, ErrZTAPIQuotationManifestInvalid
 	}
 	for sourceModel := range ztapiPoolPricePolicyIdentities {

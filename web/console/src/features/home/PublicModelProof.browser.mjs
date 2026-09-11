@@ -48,7 +48,11 @@ try {
     await expect(page.getByText('模型目录正在配置，开放后将在这里展示实时价格。', { exact: true })).toHaveCount(0);
     const proof = page.locator('.model-proof');
     await expect(proof.locator('article')).toHaveCount(3);
-    for (const [name, price] of [['zt-claude-haiku-4.5', '$1.3 / 1M tokens'], ['zt-gpt-4.1', '$2.6 / 1M tokens']]) {
+    for (const [name, price] of [
+      ['zt-gpt-5.6-sol', '$13 / 1M tokens'],
+      ['zt-claude-sonnet-5', '$2.6 / 1M tokens'],
+      ['zt-gemini-3.5-flash', '$2.05 / 1M tokens'],
+    ]) {
       const card = proof.locator('article').filter({ has: page.getByText(name, { exact: true }) });
       await expect(card.getByText(price, { exact: true })).toBeVisible();
       await expect(card.getByText('按规则计费', { exact: true })).toHaveCount(0);

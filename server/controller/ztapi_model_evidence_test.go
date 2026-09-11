@@ -124,6 +124,16 @@ func TestZTAPIModelPriceSourceHandlersPreviewAndPersistFortyPercentGrossMargin(t
 	require.NotContains(t, imported.Body.String(), "SECRET_MUST_NOT_ECHO")
 }
 
+func TestBuildZTAPIModelPriceSourceCarriesMediaPriceContract(t *testing.T) {
+	request := ztapiModelPriceSourceRequest{
+		SourceModel: "gpt-image-2", BillingDimensions: []string{"input_tokens", "output_tokens"},
+		MediaPriceContractJSON: `{"version":1,"modality":"image","rules":[]}`,
+	}
+	source, err := buildZTAPIModelPriceSource(17, 9, request)
+	require.NoError(t, err)
+	require.Equal(t, request.MediaPriceContractJSON, source.MediaPriceContractJSON)
+}
+
 func TestZTAPIModelEvidenceWritePermissionMatrix(t *testing.T) {
 	require.False(t, common.HasAdminPermission(common.RoleSupportUser, common.PermissionModelWrite))
 	require.False(t, common.HasAdminPermission(common.RoleFinanceUser, common.PermissionModelWrite))

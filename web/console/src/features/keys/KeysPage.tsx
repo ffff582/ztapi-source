@@ -26,6 +26,7 @@ import {
 } from '../../api/contracts';
 import { useOneTimeSecret } from './OneTimeSecretProvider';
 import { useTokenPageCoordinator } from './useTokenPageCoordinator';
+import { localeTag, useLocale } from '../../i18n/locale';
 
 const TOKEN_STATUS_ENABLED = 1;
 const TOKEN_STATUS_DISABLED = 2;
@@ -258,11 +259,11 @@ function tokenStatus(token: UserToken) {
   return '额度已用尽';
 }
 
-function formatExpiration(timestamp: number) {
+function formatExpiration(timestamp: number, locale: 'zh-CN' | 'en') {
   if (timestamp === -1) {
     return '永不过期';
   }
-  return new Intl.DateTimeFormat('zh-CN', {
+  return new Intl.DateTimeFormat(localeTag(locale), {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -270,6 +271,7 @@ function formatExpiration(timestamp: number) {
 }
 
 export function KeysPage() {
+  const { locale, t } = useLocale();
   const [form, setForm] = useState<KeyForm>(initialForm);
   const [formErrors, setFormErrors] = useState<FormErrors>({});
   const {
@@ -436,31 +438,31 @@ export function KeysPage() {
     <div className="console-page">
       <header className="console-page__header">
         <div>
-          <p className="console-eyebrow">访问凭证</p>
-          <h1>API 密钥</h1>
+          <p className="console-eyebrow">{t('访问凭证')}</p>
+          <h1>{t('API 密钥')}</h1>
         </div>
-        <p>创建受模型、额度、来源 IP 和有效期约束的访问凭证。</p>
+        <p>{t('创建受模型、额度、来源 IP 和有效期约束的访问凭证。')}</p>
       </header>
 
       <section className="console-panel" aria-labelledby="create-key-heading">
         <div className="console-panel__heading">
           <Plus aria-hidden="true" size={19} />
-          <h2 id="create-key-heading">创建密钥</h2>
+          <h2 id="create-key-heading">{t('创建密钥')}</h2>
         </div>
         {creationStatus === 'loading' && (
           <div className="console-state" aria-live="polite" aria-busy="true">
-            正在加载创建选项...
+            {t('正在加载创建选项...')}
           </div>
         )}
         {creationStatus === 'error' && (
           <div className="console-state console-state--error" role="alert">
-            创建选项加载失败，请刷新后重试。
+            {t('创建选项加载失败，请刷新后重试。')}
           </div>
         )}
         {creationStatus === 'ready' && (
           <form className="key-form" onSubmit={createToken} noValidate>
           <div className="console-field key-form__wide">
-            <label htmlFor="key-name">密钥名称</label>
+            <label htmlFor="key-name">{t('密钥名称')}</label>
             <input
               aria-invalid={formErrors.name !== undefined}
               id="key-name"
@@ -471,12 +473,12 @@ export function KeysPage() {
               }
             />
             {formErrors.name && (
-              <p className="console-field__error">{formErrors.name}</p>
+              <p className="console-field__error">{t(formErrors.name)}</p>
             )}
           </div>
 
           <div className="console-field">
-            <label htmlFor="key-expiration-mode">有效期</label>
+            <label htmlFor="key-expiration-mode">{t('有效期')}</label>
             <select
               id="key-expiration-mode"
               value={form.expirationMode}
@@ -487,13 +489,13 @@ export function KeysPage() {
                 }))
               }
             >
-              <option value="never">永不过期</option>
-              <option value="custom">指定时间</option>
+              <option value="never">{t('永不过期')}</option>
+              <option value="custom">{t('指定时间')}</option>
             </select>
           </div>
           {form.expirationMode === 'custom' && (
             <div className="console-field">
-              <label htmlFor="key-expiration">过期时间</label>
+              <label htmlFor="key-expiration">{t('过期时间')}</label>
               <input
                 aria-invalid={formErrors.expiration !== undefined}
                 id="key-expiration"
@@ -507,13 +509,13 @@ export function KeysPage() {
                 }
               />
               {formErrors.expiration && (
-                <p className="console-field__error">{formErrors.expiration}</p>
+                <p className="console-field__error">{t(formErrors.expiration)}</p>
               )}
             </div>
           )}
 
           <fieldset className="key-form__fieldset key-form__wide">
-            <legend>模型权限</legend>
+            <legend>{t('模型权限')}</legend>
             <label className="console-check">
               <input
                 checked={form.restrictModels}
@@ -525,7 +527,7 @@ export function KeysPage() {
                   }))
                 }
               />
-              限制可用模型
+              {t('限制可用模型')}
             </label>
             {form.restrictModels && (
               <div className="key-model-options">
@@ -549,17 +551,17 @@ export function KeysPage() {
                   </label>
                 ))}
                 {publicModels.length === 0 && (
-                  <p className="console-empty-inline">暂无可限制的公开模型</p>
+                  <p className="console-empty-inline">{t('暂无可限制的公开模型')}</p>
                 )}
               </div>
             )}
             {formErrors.models && (
-              <p className="console-field__error">{formErrors.models}</p>
+              <p className="console-field__error">{t(formErrors.models)}</p>
             )}
           </fieldset>
 
           <fieldset className="key-form__fieldset">
-            <legend>额度限制</legend>
+            <legend>{t('额度限制')}</legend>
             <label className="console-check">
               <input
                 checked={form.unlimitedQuota}
@@ -571,11 +573,11 @@ export function KeysPage() {
                   }))
                 }
               />
-              不限制密钥额度
+              {t('不限制密钥额度')}
             </label>
             {!form.unlimitedQuota && (
               <div className="console-field console-field--nested">
-                <label htmlFor="key-spending-limit">额度上限</label>
+                <label htmlFor="key-spending-limit">{t('额度上限')}</label>
                 <input
                   aria-invalid={formErrors.spending !== undefined}
                   id="key-spending-limit"
@@ -592,14 +594,14 @@ export function KeysPage() {
                   }
                 />
                 {formErrors.spending && (
-                  <p className="console-field__error">{formErrors.spending}</p>
+                  <p className="console-field__error">{t(formErrors.spending)}</p>
                 )}
               </div>
             )}
           </fieldset>
 
           <div className="console-field key-form__wide">
-            <label htmlFor="key-allow-ips">IP 白名单</label>
+            <label htmlFor="key-allow-ips">{t('IP 白名单')}</label>
             <textarea
               aria-invalid={formErrors.ips !== undefined}
               id="key-allow-ips"
@@ -613,15 +615,15 @@ export function KeysPage() {
                 }))
               }
             />
-            <p className="console-field__help">每行一个 IP 或 CIDR，留空允许任意来源。</p>
+            <p className="console-field__help">{t('每行一个 IP 或 CIDR，留空允许任意来源。')}</p>
             {formErrors.ips && (
-              <p className="console-field__error">{formErrors.ips}</p>
+              <p className="console-field__error">{t(formErrors.ips)}</p>
             )}
           </div>
 
           {operationError && (
             <p className="console-alert key-form__wide" role="alert">
-              操作失败，请稍后重试。
+              {t('操作失败，请稍后重试。')}
             </p>
           )}
             <button
@@ -630,7 +632,7 @@ export function KeysPage() {
               type="submit"
             >
               <KeyRound aria-hidden="true" size={17} />
-              {submitting ? '正在创建...' : '创建 API Key'}
+              {submitting ? t('正在创建...') : t('创建 API Key')}
             </button>
           </form>
         )}
@@ -639,25 +641,25 @@ export function KeysPage() {
       <section className="console-section" aria-labelledby="key-list-heading">
         <div className="console-section__heading">
           <div>
-            <p className="console-eyebrow">现有凭证</p>
-            <h2 id="key-list-heading">密钥列表</h2>
+            <p className="console-eyebrow">{t('现有凭证')}</p>
+            <h2 id="key-list-heading">{t('密钥列表')}</h2>
           </div>
           {tokenLoadStatus === 'ready' && tokenPage !== null && (
-            <span>{tokenPage.total} 个</span>
+            <span>{t('{{count}} 个', { count: tokenPage.total })}</span>
           )}
         </div>
         {tokenLoadStatus === 'loading' && (
           <div className="console-state" aria-live="polite" aria-busy="true">
-            正在加载密钥...
+            {t('正在加载密钥...')}
           </div>
         )}
         {tokenLoadStatus === 'error' && (
           <div className="console-state console-state--error" role="alert">
-            密钥数据加载失败，请刷新后重试。
+            {t('密钥数据加载失败，请刷新后重试。')}
           </div>
         )}
         {tokenLoadStatus === 'ready' && tokens.length === 0 && (
-          <div className="console-state">尚未创建 API 密钥。</div>
+          <div className="console-state">{t('尚未创建 API 密钥。')}</div>
         )}
         {tokenLoadStatus === 'ready' && tokens.length > 0 && (
           <>
@@ -665,12 +667,12 @@ export function KeysPage() {
               <table className="console-table">
                 <thead>
                   <tr>
-                    <th scope="col">名称</th>
+                    <th scope="col">{t('名称')}</th>
                     <th scope="col">Key</th>
-                    <th scope="col">状态</th>
-                    <th scope="col">有效期</th>
-                    <th scope="col">限制</th>
-                    <th scope="col">操作</th>
+                    <th scope="col">{t('状态')}</th>
+                    <th scope="col">{t('有效期')}</th>
+                    <th scope="col">{t('限制')}</th>
+                    <th scope="col">{t('操作')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -690,17 +692,17 @@ export function KeysPage() {
                               : 'muted'
                           }`}
                         >
-                          {tokenStatus(token)}
+                          {t(tokenStatus(token))}
                         </span>
                       </td>
-                      <td>{formatExpiration(token.expired_time)}</td>
+                      <td>{formatExpiration(token.expired_time, locale)}</td>
                       <td className="key-limits">
                         <span>
                           {token.model_limits_enabled
                             ? token.model_limits
-                            : '全部模型'}
+                            : t('全部模型')}
                         </span>
-                        <span>{token.allow_ips || '任意来源 IP'}</span>
+                        <span>{token.allow_ips || t('任意来源 IP')}</span>
                       </td>
                       <td>
                         <div className="console-actions">
@@ -709,8 +711,8 @@ export function KeysPage() {
                             disabled={busyTokenID === token.id}
                             title={
                               token.status === TOKEN_STATUS_ENABLED
-                                ? '禁用密钥'
-                                : '启用密钥'
+                                ? t('禁用密钥')
+                                : t('启用密钥')
                             }
                             type="button"
                             onClick={() => void updateStatus(token)}
@@ -721,8 +723,8 @@ export function KeysPage() {
                               <CheckCircle2 aria-hidden="true" size={16} />
                             )}
                             {token.status === TOKEN_STATUS_ENABLED
-                              ? '禁用'
-                              : '启用'}
+                              ? t('禁用')
+                              : t('启用')}
                           </button>
                           {confirmRevokeID === token.id ? (
                             <>
@@ -733,14 +735,14 @@ export function KeysPage() {
                                 onClick={() => void revokeToken(token.id)}
                               >
                                 <Trash2 aria-hidden="true" size={16} />
-                                确认撤销
+                                {t('确认撤销')}
                               </button>
                               <button
                                 className="console-icon-action"
                                 type="button"
                                 onClick={() => setConfirmRevokeID(null)}
                               >
-                                取消
+                                {t('取消')}
                               </button>
                             </>
                           ) : (
@@ -751,7 +753,7 @@ export function KeysPage() {
                               onClick={() => setConfirmRevokeID(token.id)}
                             >
                               <Trash2 aria-hidden="true" size={16} />
-                              撤销
+                              {t('撤销')}
                             </button>
                           )}
                         </div>
@@ -761,23 +763,23 @@ export function KeysPage() {
                 </tbody>
               </table>
             </div>
-            <nav className="console-pagination" aria-label="密钥分页">
+            <nav className="console-pagination" aria-label={t('密钥分页')}>
               <button
-                aria-label="上一页"
+                aria-label={t('上一页')}
                 className="console-icon-action"
                 disabled={tokenPageNumber <= 1}
-                title="上一页"
+                title={t('上一页')}
                 type="button"
                 onClick={() => navigateTokenPage(tokenPageNumber - 1)}
               >
                 <ChevronLeft aria-hidden="true" size={17} />
               </button>
-              <span>第 {tokenPageNumber} / {tokenPageCount} 页</span>
+              <span>{t('第 {{page}} / {{pages}} 页', { page: tokenPageNumber, pages: tokenPageCount })}</span>
               <button
-                aria-label="下一页"
+                aria-label={t('下一页')}
                 className="console-icon-action"
                 disabled={tokenPageNumber >= tokenPageCount}
-                title="下一页"
+                title={t('下一页')}
                 type="button"
                 onClick={() => navigateTokenPage(tokenPageNumber + 1)}
               >

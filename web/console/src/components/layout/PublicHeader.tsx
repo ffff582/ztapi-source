@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Menu, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { LanguageToggle } from '../../i18n/LanguageToggle';
+import { useLocale } from '../../i18n/locale';
 import './public-header.css';
 
 const links = [
@@ -11,6 +13,7 @@ const links = [
 ] as const;
 
 export function PublicHeader() {
+  const { t } = useLocale();
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
@@ -39,25 +42,28 @@ export function PublicHeader() {
   return (
     <header className="public-header" data-scrolled={scrolled}>
       <div className="public-header__inner public-shell">
-        <Link className="public-header__brand" to="/" aria-label="ZTAPI 首页">
+        <Link className="public-header__brand" to="/" aria-label={t('ZTAPI 首页')}>
           <img className="public-header__mark" src="/brand/ztapi-mark.png" alt="ZTAPI" />
           <span>ZTAPI</span>
         </Link>
-        <button
+        <div className="public-header__controls">
+          <LanguageToggle tone="dark" />
+          <button
           ref={menuButtonRef}
           className="public-header__menu"
           type="button"
-          aria-label={open ? '关闭导航菜单' : '打开导航菜单'}
+          aria-label={open ? t('关闭导航菜单') : t('打开导航菜单')}
           aria-expanded={open}
           aria-controls="public-navigation"
           onClick={() => setOpen((value) => !value)}
-        >
-          {open ? <X aria-hidden="true" /> : <Menu aria-hidden="true" />}
-        </button>
+          >
+            {open ? <X aria-hidden="true" /> : <Menu aria-hidden="true" />}
+          </button>
+        </div>
         <nav
           id="public-navigation"
           className="public-header__nav"
-          aria-label="公共导航"
+          aria-label={t('公共导航')}
           data-open={open}
         >
           {links.map((link) => (
@@ -67,7 +73,7 @@ export function PublicHeader() {
               to={link.to}
               onClick={() => setOpen(false)}
             >
-              {link.label}
+              {t(link.label)}
             </Link>
           ))}
           <Link
@@ -75,7 +81,7 @@ export function PublicHeader() {
             to="/register"
             onClick={() => setOpen(false)}
           >
-            开始使用
+            {t('开始使用')}
           </Link>
         </nav>
       </div>

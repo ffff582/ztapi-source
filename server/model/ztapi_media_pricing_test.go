@@ -360,12 +360,20 @@ func TestZTAPIMediaPriceContractQuotationEvidenceDoesNotPublish(t *testing.T) {
 			continue
 		}
 		matched++
-		require.Equal(t, "mapping_pending", entry.Status)
+		if entry.Label == "gp-image-2" {
+			require.Equal(t, "mapped", entry.Status)
+			require.Equal(t, "gpt-image-2", entry.SourceModel)
+			require.Equal(t, "zt-gp-image-2", entry.PublicName)
+			require.Equal(t, ZTAPIProtocolOpenAICompatible, entry.Protocol)
+			require.Equal(t, ZTAPIProviderOpenAI, entry.ProviderFamily)
+		} else {
+			require.Equal(t, "mapping_pending", entry.Status)
+			require.Empty(t, entry.SourceModel)
+			require.Empty(t, entry.PublicName)
+			require.Empty(t, entry.Protocol)
+			require.Empty(t, entry.ProviderFamily)
+		}
 		require.Equal(t, expected.modality, entry.Modality)
-		require.Empty(t, entry.SourceModel)
-		require.Empty(t, entry.PublicName)
-		require.Empty(t, entry.Protocol)
-		require.Empty(t, entry.ProviderFamily)
 		var priced []ZTAPIQuotationRow
 		for _, row := range entry.QuoteRows {
 			if row.MediaPriceContractJSON != "" {

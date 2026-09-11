@@ -257,6 +257,14 @@ func TestZTAPIHealthWorkerBuildsMinimumCostImageProbeFromFrozenEvidence(t *testi
 	require.JSONEq(t, `{"n":1,"quality":"standard","response_format":"url","size":"512x512"}`, target.ProbePayloadJSON)
 }
 
+func TestZTAPIHealthWorkerGPTImageProbePricesOnlyReportedDimensions(t *testing.T) {
+	price, _, protocol, _ := gptImageThreeDimensionContracts(t)
+	candidate, err := cheapestZTAPIImageProbe(price, protocol)
+	require.NoError(t, err)
+	require.EqualValues(t, 516000, candidate.cost)
+	require.JSONEq(t, `{"n":1,"quality":"low","response_format":"b64_json","size":"1024x1024"}`, candidate.payload)
+}
+
 func TestZTAPIHealthWorkerBuildsMinimumCostVideoProbeWithoutVideoInput(t *testing.T) {
 	priceJSON, err := types.CanonicalizeZTAPIMediaPriceContract(`{
 		"version":1,"modality":"video","rules":[

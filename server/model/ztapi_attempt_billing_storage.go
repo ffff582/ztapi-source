@@ -237,6 +237,9 @@ func validZTAPIImageAttemptDimensions(seen map[string]bool) bool {
 	if len(seen) == 2 {
 		return seen["input_tokens"] && seen["output_tokens"]
 	}
+	if len(seen) == 3 {
+		return seen["text_input"] && seen["image_input"] && seen["image_output"]
+	}
 	return len(seen) == 5 && seen["text_input"] && seen["text_cached_input"] && seen["image_input"] && seen["image_cached_input"] && seen["image_output"]
 }
 

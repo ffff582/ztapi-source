@@ -83,6 +83,96 @@ func ztapiImageReservationFixture(t *testing.T, maximumQuota int64) ZTAPIMediaRe
 	}
 }
 
+func gptImageThreeDimensionContracts(t *testing.T) (types.ZTAPIMediaPriceContract, string, types.ZTAPIImageProtocolContract, string) {
+	t.Helper()
+	prices := map[string]string{"text_input": "1", "text_cached_input": "0.2", "image_input": "2", "image_cached_input": "0.4", "image_output": "4"}
+	costs := map[string]string{"text_input": "0.6", "text_cached_input": "0.12", "image_input": "1.2", "image_cached_input": "0.24", "image_output": "2.4"}
+	price := types.ZTAPIMediaPriceContract{Version: 1, Modality: "image"}
+	for _, dimension := range []string{"text_input", "text_cached_input", "image_input", "image_cached_input", "image_output"} {
+		price.Rules = append(price.Rules, types.ZTAPIMediaPriceRule{
+			ID: dimension, Conditions: map[string]string{"token_bucket": dimension}, BillingUnit: types.ZTAPIMediaBillingUnitUSDPerMillionTokens,
+			CostUSD: map[string]string{dimension: costs[dimension]}, SaleUSD: map[string]string{dimension: prices[dimension]}, SourceCells: map[string]string{dimension: "A1"},
+		})
+	}
+	rawPrice, err := common.Marshal(price)
+	require.NoError(t, err)
+	priceJSON, err := types.CanonicalizeZTAPIMediaPriceContract(string(rawPrice))
+	require.NoError(t, err)
+	protocol, protocolJSON, err := types.SealZTAPIImageProtocolContract(types.ZTAPIImageProtocolContract{
+		Version: types.ZTAPIImageProtocolContractVersionV2, ProviderModel: "gpt-image-2",
+		EndpointType: types.ZTAPIImageEndpointGeneration, Method: "POST", Path: "/v1/images/generations",
+		WireProtocol: types.ZTAPIImageWireProtocolOpenAIImages, ProviderPath: "/v1/images/generations",
+		Capabilities: types.ZTAPIImageCapabilities{Sizes: []string{"1024x1024"}, Qualities: []string{"low"}, ResponseFormats: []string{"b64_json"}, MinCount: 1, MaxCount: 1},
+		Response:     types.ZTAPIImageResponseContract{Schema: "object_results_array", ResultsField: "data", ResultFields: map[string]string{"b64_json": "b64_json"}},
+		Usage: types.ZTAPIImageUsageContract{
+			UsageField: "usage", TotalField: "total_tokens", TotalSemantics: "sum_of_dimensions", CacheSemantics: "not_reported",
+			Fields: map[string]string{"text_input": "input_tokens_details.text_tokens", "image_input": "input_tokens_details.image_tokens", "image_output": "output_tokens_details.image_tokens"},
+		},
+		Reservations:    []types.ZTAPIImageReservationAuthority{{Size: "1024x1024", Quality: "low", ResponseFormat: "b64_json", N: 1, MaximumDimensions: map[string]string{"text_input": "20", "image_input": "20", "image_output": "200"}}},
+		RequestIDSource: types.ZTAPIResponseIDSourceHeader, RequestIDKey: "X-Synthetic-Request-ID",
+		UpstreamRequestFields: map[string]string{"model": "required", "prompt": "required", "n": "required", "size": "required", "quality": "optional", "response_format": "omit"},
+		EvidenceVersion:       types.ZTAPIImageEvidenceVersion,
+	})
+	require.NoError(t, err)
+	return price, priceJSON, protocol, protocolJSON
+}
+
+func gptImageThreeDimensionReservationFixture(t *testing.T) ZTAPIMediaReservationInput {
+	t.Helper()
+	_, priceJSON, protocol, protocolJSON := gptImageThreeDimensionContracts(t)
+	snapshotRaw, err := common.Marshal(relaycommon.ZTAPIPublicationSnapshot{
+		PublicationID: 71, Version: 3, PublicName: "zt-gp-image-2", SourceModel: "gpt-image-2", Modality: "image",
+		PriceSourceID: 72, PriceSourceVersion: 5, MediaPriceContractJSON: priceJSON, ImageProtocolContract: &protocol,
+	})
+	require.NoError(t, err)
+	return ZTAPIMediaReservationInput{
+		OperationID: "gpt-image-three-operation", RequestID: "gpt-image-three-request", PublicModel: "zt-gp-image-2",
+		PriceSnapshotJSON: string(snapshotRaw), SelectorJSON: `{"modality":"image","n":1,"quality":"low","response_format":"b64_json","size":"1024x1024"}`,
+		ProtocolContractJSON: protocolJSON, ProtocolEvidenceHash: protocol.EvidenceHash, QuotaPerUnit: "500000",
+		MaximumDimensions: map[string]string{"text_input": "20", "image_input": "20", "image_output": "200"}, MaximumQuota: 430,
+	}
+}
+
+func TestGPTImageThreeDimensionReservationAndFinalSettlement(t *testing.T) {
+	db, user, token := setupServiceTokenQuotaTest(t)
+	migrateZTAPIMediaBillingTestTables(t)
+	require.NoError(t, db.Model(user).Update("quota", 1000).Error)
+	require.NoError(t, db.Model(token).Update("remain_quota", 1000).Error)
+	require.NoError(t, db.Create(&model.Channel{Id: 71, Name: "gpt-image-three-upstream", Status: common.ChannelStatusEnabled, Type: 1}).Error)
+	input := gptImageThreeDimensionReservationFixture(t)
+	input.UserID, input.TokenID = user.Id, token.Id
+
+	row, err := BeginZTAPIMediaReservation(input)
+	require.NoError(t, err)
+	require.EqualValues(t, 430, row.InitialReservedQuota)
+	attempt, err := model.BeginZTAPIRequestAttempt(row.OperationID, 71, "credential-v1", "/v1/images/generations")
+	require.NoError(t, err)
+	require.NoError(t, model.RecordZTAPIRequestAttemptResponse(row.OperationID, attempt.Attempt, 71, 200, "gpt-image-upstream-request"))
+
+	var frozen ztapiFrozenMediaReservation
+	require.NoError(t, common.UnmarshalJsonStr(row.PriceSnapshotJSON, &frozen))
+	protocol, _, err := types.ParseZTAPIImageProtocolContract(frozen.ImageProtocolContractJSON)
+	require.NoError(t, err)
+	frozen.ImageProtocolContract = &protocol
+	const rawUsage = `{"input_tokens":18,"input_tokens_details":{"image_tokens":0,"text_tokens":18},"output_tokens":196,"output_tokens_details":{"image_tokens":196,"text_tokens":0},"total_tokens":214}`
+	body := []byte(`{"data":[{"b64_json":"c3ludGhldGljLWltYWdl"}],"usage":` + rawUsage + `}`)
+	handoff := &relaycommon.ZTAPIValidatedImageResponse{ContractVersion: 2, EvidenceHash: frozen.ProtocolEvidenceHash, UpstreamRequestID: "gpt-image-upstream-request", ResultCount: 1, RawResponse: body, RawUsageJSON: []byte(rawUsage)}
+	info := &relaycommon.RelayInfo{ZTAPIPublicationSnapshot: &frozen.ZTAPIPublicationSnapshot}
+	evidence, err := relaycommon.NormalizeZTAPIImageUsageCandidate(info, handoff, body)
+	require.NoError(t, err)
+	require.Len(t, evidence.GetDimensions(), 3)
+	require.Len(t, evidence.GetPriceRuleIDs(), 3)
+
+	settled, err := FinalizeZTAPIImageSettlement(row.OperationID, evidence, attempt.Attempt)
+	require.NoError(t, err)
+	require.EqualValues(t, 401, settled.ChargedQuota)
+	require.NotContains(t, settled.UsageJSON, "cached_input")
+	require.JSONEq(t, `[
+		{"dimension":"image_output","units":"196","unit_quota":"2","charged_quota":392,"token_charged_quota":0},
+		{"dimension":"text_input","units":"18","unit_quota":"0.5","charged_quota":9,"token_charged_quota":0}
+	]`, settled.ChargeDimensionsJSON)
+}
+
 func TestZTAPIImageSettlementReservationFreezesMediaInput(t *testing.T) {
 	db, user, token := setupServiceTokenQuotaTest(t)
 	require.NoError(t, db.AutoMigrate(&model.ZTAPIRequestSettlement{}, &model.ZTAPISettlementFinalizationIntent{}))
@@ -596,7 +686,7 @@ func TestPendZTAPIImageBillingBindsSuccessfulAttemptAfterPriorFailure(t *testing
 	require.Equal(t, evidence.UpstreamRequestID, storedAttempt.UpstreamRequestID)
 }
 
-func TestZTAPIGPTImageObservedMissingCachesRetainsReservation(t *testing.T) {
+func TestZTAPIGPTImageSyntheticFiveDimensionContractRejectedBeforeReservation(t *testing.T) {
 	db, user, token := setupServiceTokenQuotaTest(t)
 	migrateZTAPIMediaBillingTestTables(t)
 	require.NoError(t, db.Model(user).Update("quota", 1000).Error)
@@ -634,35 +724,9 @@ func TestZTAPIGPTImageObservedMissingCachesRetainsReservation(t *testing.T) {
 	input.SelectorJSON = `{"modality":"image","n":1,"quality":"low","response_format":"b64_json","size":"1024x1024"}`
 	input.MaximumDimensions, input.MaximumQuota = maximum, 140
 	row, err := BeginZTAPIMediaReservation(input)
-	require.NoError(t, err)
-	attempt, err := model.BeginZTAPIRequestAttempt(row.OperationID, 42, "synthetic-version", "/v1/images/generations")
-	require.NoError(t, err)
-	require.NoError(t, model.RecordZTAPIRequestAttemptResponse(row.OperationID, attempt.Attempt, 42, 200, ""))
-	const rawUsage = `{"input_tokens":18,"input_tokens_details":{"image_tokens":0,"text_tokens":18},"output_tokens":196,"output_tokens_details":{"image_tokens":196,"text_tokens":0},"total_tokens":214}`
-	body := []byte(`{"data":[{"b64_json":"c3ludGhldGljLWltYWdl"}],"usage":` + rawUsage + `}`)
-	candidate := &relaycommon.ZTAPIValidatedImageResponse{ContractVersion: 2, EvidenceHash: sealed.EvidenceHash, UpstreamRequestID: "synthetic-provider-header-id", ResultCount: 1, RawResponse: body, RawUsageJSON: []byte(rawUsage)}
-	info := &relaycommon.RelayInfo{ZTAPIPublicationSnapshot: &snapshot}
-	info.Billing = &ztapiDurableBilling{row: row, info: info, attempt: attempt}
-	evidence, err := relaycommon.NormalizeZTAPIImageUsageCandidate(info, candidate, body)
-	require.ErrorIs(t, err, relaycommon.ErrZTAPIMediaUsagePending)
-	require.True(t, evidence.Pending)
-	require.True(t, evidence.ResultAvailable)
-	require.Empty(t, evidence.GetDimensions(), "missing cache evidence must not become zero-valued billing buckets")
-	require.NoError(t, PendZTAPIImageBilling(info, evidence, "image_usage_untrusted"))
-	require.NoError(t, PendZTAPIImageBilling(info, evidence, "image_usage_untrusted"))
-	var stored model.ZTAPIRequestSettlement
-	require.NoError(t, db.First(&stored, row.ID).Error)
-	require.Equal(t, model.ZTAPISettlementPending, stored.Status)
-	require.Equal(t, attempt.Attempt, stored.FinalAttempt)
-	require.Zero(t, stored.ChargedQuota)
-	require.Contains(t, stored.UsageJSON, `"upstream_request_id":"synthetic-provider-header-id"`)
-	require.Contains(t, stored.UsageJSON, `\"input_tokens_details\"`)
-	var storedAttempt model.ZTAPIRequestAttempt
-	require.NoError(t, db.First(&storedAttempt, attempt.ID).Error)
-	require.Equal(t, "synthetic-provider-header-id", storedAttempt.UpstreamRequestID)
+	require.Nil(t, row)
+	require.ErrorIs(t, err, model.ErrZTAPISettlementInvalid)
 	var ledgerCount int64
-	require.NoError(t, db.Model(&model.BalanceLedger{}).Where("request_id = ?", row.RequestID).Count(&ledgerCount).Error)
-	require.EqualValues(t, 1, ledgerCount, "pending delivery retains the reservation, without a final charge or refund")
-	_, err = model.ReleaseZTAPIRequestSettlement(row.OperationID)
-	require.ErrorIs(t, err, model.ErrZTAPISettlementPending)
+	require.NoError(t, db.Model(&model.BalanceLedger{}).Where("request_id = ?", input.RequestID).Count(&ledgerCount).Error)
+	require.Zero(t, ledgerCount, "a synthetic GPT Image 2 contract must fail before reserving customer funds")
 }

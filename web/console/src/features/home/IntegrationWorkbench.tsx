@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { getCodeExample, MODEL_FAMILIES, type ModelFamily } from './homeContent';
+import { useLocale } from '../../i18n/locale';
 
 type IntegrationWorkbenchProps = {
   selectedFamily: ModelFamily;
@@ -8,19 +9,19 @@ type IntegrationWorkbenchProps = {
 
 type CopyStatus = 'idle' | 'success' | 'error';
 
-const COPY_LABELS: Record<CopyStatus, string> = {
-  idle: '复制代码',
-  success: '已复制',
-  error: '复制失败，请手动复制',
-};
-
 export function IntegrationWorkbench({
   selectedFamily,
   onSelectFamily,
 }: IntegrationWorkbenchProps) {
+  const { t } = useLocale();
+  const [copyStatus, setCopyStatus] = useState<CopyStatus>('idle');
+  const copyLabel = copyStatus === 'idle'
+    ? t('复制代码')
+    : copyStatus === 'success'
+      ? t('已复制')
+      : t('复制失败，请手动复制');
   const example = getCodeExample(selectedFamily);
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const [copyStatus, setCopyStatus] = useState<CopyStatus>('idle');
 
   useEffect(() => {
     setCopyStatus('idle');
@@ -72,18 +73,18 @@ export function IntegrationWorkbench({
   };
 
   return (
-    <section id="quickstart" className="integration-band" aria-label="快速接入">
+    <section id="quickstart" className="integration-band" aria-label={t('快速接入')}>
       <div className="public-shell integration-band__inner">
         <div className="integration-band__heading">
           <div>
-            <p className="section-kicker">3 分钟接入</p>
-            <h2>只需替换 Base URL</h2>
+            <p className="section-kicker">{t('3 分钟接入')}</p>
+            <h2>{t('只需替换 Base URL')}</h2>
           </div>
-          <p>保留熟悉的 SDK 和调用方式，使用 ZTAPI Key 即可请求公开模型。</p>
+          <p>{t('保留熟悉的 SDK 和调用方式，使用 ZTAPI Key 即可请求公开模型。')}</p>
         </div>
         <div className="integration-workbench">
           <div className="integration-workbench__models">
-            <div role="tablist" aria-label="模型系列">
+            <div role="tablist" aria-label={t('模型系列')}>
               {MODEL_FAMILIES.map((family, index) => (
                 <button
                   ref={(node) => {
@@ -100,25 +101,25 @@ export function IntegrationWorkbench({
                   onKeyDown={(event) => handleTabKeyDown(event, index)}
                 >
                   <strong>{family.label}</strong>
-                  <span>{family.description}</span>
+                  <span>{t(family.description)}</span>
                 </button>
               ))}
             </div>
-            <ol className="request-lifecycle" aria-label="请求流程">
+            <ol className="request-lifecycle" aria-label={t('请求流程')}>
               <li>
                 <span>01</span>
                 <strong>SDK</strong>
-                <small>发送兼容请求</small>
+                <small>{t('发送兼容请求')}</small>
               </li>
               <li>
                 <span>02</span>
                 <strong>ZTAPI</strong>
-                <small>鉴权并选择路由</small>
+                <small>{t('鉴权并选择路由')}</small>
               </li>
               <li>
                 <span>03</span>
                 <strong>MODEL</strong>
-                <small>返回流式或完整响应</small>
+                <small>{t('返回流式或完整响应')}</small>
               </li>
             </ol>
           </div>
@@ -131,14 +132,14 @@ export function IntegrationWorkbench({
             <div className="integration-workbench__toolbar">
               <span>JavaScript</span>
               <button type="button" onClick={handleCopy}>
-                {COPY_LABELS[copyStatus]}
+                {copyLabel}
               </button>
               <span
                 className="integration-workbench__copy-announcement"
                 role="status"
                 aria-live="polite"
               >
-                {copyStatus === 'idle' ? '' : COPY_LABELS[copyStatus]}
+                {copyStatus === 'idle' ? '' : copyLabel}
               </span>
             </div>
             <pre>

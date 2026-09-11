@@ -9,6 +9,8 @@ import {
 } from 'lucide-react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../auth/session';
+import { LanguageToggle } from '../../i18n/LanguageToggle';
+import { useLocale } from '../../i18n/locale';
 
 const consoleNavigation = [
   {
@@ -52,6 +54,7 @@ const consoleNavigation = [
 export function ConsoleShell() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const { t } = useLocale();
 
   async function handleLogout() {
     await logout();
@@ -66,7 +69,7 @@ export function ConsoleShell() {
           <span>ZTAPI</span>
         </Link>
 
-        <nav className="console-nav" aria-label="控制台导航">
+        <nav className="console-nav" aria-label={t('控制台导航')}>
           {consoleNavigation.map(({ to, label, icon: Icon, end }) => (
             <NavLink
               className={({ isActive }) =>
@@ -77,7 +80,7 @@ export function ConsoleShell() {
               to={to}
             >
               <Icon size={18} aria-hidden="true" />
-              <span>{label}</span>
+              <span>{t(label)}</span>
             </NavLink>
           ))}
         </nav>
@@ -85,8 +88,9 @@ export function ConsoleShell() {
 
       <div className="console-workspace">
         <header className="console-header">
+          <LanguageToggle />
           <span className="console-user">
-            当前账号
+            {t('当前账号')}
             <strong>{user?.username}</strong>
           </span>
           <button
@@ -95,7 +99,7 @@ export function ConsoleShell() {
             onClick={handleLogout}
           >
             <LogOut size={17} aria-hidden="true" />
-            <span>退出登录</span>
+            <span>{t('退出登录')}</span>
           </button>
         </header>
 

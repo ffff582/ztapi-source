@@ -27,9 +27,10 @@ func TestZTAPIQuotationIdentityExactMatch(t *testing.T) {
 		mapped++
 		require.NoError(t, ValidateZTAPIQuotationIdentity(entry.SourceModel, entry.PublicName, entry.Protocol, entry.ProviderFamily, ZTAPIQuotationSHA256))
 	}
-	require.Equal(t, 41, mapped)
-	require.Equal(t, 5, pending)
+	require.Equal(t, 42, mapped)
+	require.Equal(t, 4, pending)
 	require.Equal(t, 59, rows)
+	require.NoError(t, ValidateZTAPIQuotationIdentity("gpt-image-2", "zt-gp-image-2", ZTAPIProtocolOpenAICompatible, ZTAPIProviderOpenAI, ZTAPIQuotationSHA256))
 	entries[0].SourceModel = "mutated"
 	entries[0].QuoteRows[0].Cell = "Z999"
 	again, err := ZTAPIQuotationEntries()
@@ -154,7 +155,7 @@ func TestZTAPIQuotationPendingEntriesCannotUseLegacySnapshots(t *testing.T) {
 	require.Empty(t, catalog)
 	var historical int64
 	require.NoError(t, db.Model(&ZTAPIModelConfig{}).Count(&historical).Error)
-	require.EqualValues(t, 5, historical)
+	require.EqualValues(t, 4, historical)
 }
 
 func TestZTAPIQuotationPublicationRejectsWrongDocumentVersion(t *testing.T) {

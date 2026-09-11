@@ -373,17 +373,31 @@ test('acceptance compares both catalogs to the frozen exact publication set', ()
   assert.doesNotMatch(source, /\(\.catalog \| length\) == 37/);
 });
 
+test('deployment verifies, publishes, and bills GPT Image 2 through an ordinary user path', () => {
+  const source = read(workflowPath);
+  assert.match(source, /ztapi_image_channel_id/);
+  assert.match(source, /fetch_models\/\$ztapi_image_channel_id\?import=true/);
+  assert.match(source, /zt-gp-image-2/);
+  assert.match(source, /gpt-image-2/);
+  assert.match(source, /models\/ztapi\/\$ztapi_image_model_id\/verify/);
+  assert.match(source, /media_price_contract/);
+  assert.match(source, /\/v1\/images\/generations/);
+  assert.match(source, /image_request_id/);
+  assert.match(source, /image_billed_amount/);
+  assert.match(source, /published_media_count:1/);
+});
+
 test('exact catalog comparison rejects an unpublished substitution at the same count', () => {
   const baseline = JSON.parse(read('server/model/testdata/ztapi_public_pricing_baseline_v1.json'));
   const quotation = JSON.parse(read('server/model/ztapi_quotation_v1.json'));
-  const expected = sortedModelNames(baseline);
+  const expected = [...sortedModelNames(baseline), 'zt-gp-image-2'].sort();
   const unpublished = quotation.entries
-    .map((entry) => entry.public_name)
-    .filter((name) => name && !expected.includes(name))
+    .filter((entry) => entry.status === 'mapping_pending')
+    .map((entry) => `zt-${entry.label.toLowerCase().replaceAll(' ', '-')}`)
     .sort();
 
-  assert.equal(expected.length, 37);
-  assert.ok(unpublished.length > 0, 'quotation must include a named unpublished model');
+  assert.equal(expected.length, 38);
+  assert.ok(unpublished.length > 0, 'quotation must retain blocked media candidates');
 
   const swapped = [...expected.slice(1), unpublished[0]];
   assert.equal(swapped.length, expected.length, 'count-only validation would pass');

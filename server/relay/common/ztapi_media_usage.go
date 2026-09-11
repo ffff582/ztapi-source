@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 
 	basecommon "github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/types"
@@ -136,6 +137,9 @@ func NormalizeZTAPIImageUsageCandidate(info *RelayInfo, handoff *ZTAPIValidatedI
 	if !usageResult.IsObject() || basecommon.RejectDuplicateJsonObjectMembers(bytes.NewReader(handoff.RawUsageJSON)) != nil {
 		return pendingZTAPIMediaUsageEvidence(evidence, fmt.Errorf("%w: usage is malformed", ErrZTAPIMediaUsagePending))
 	}
+	if reason := ZTAPIGPTImage2UsagePendingReason(handoff.RawUsageJSON, contract); reason != "" {
+		return pendingZTAPIMediaUsageEvidence(evidence, fmt.Errorf("%w: %s", ErrZTAPIMediaUsagePending, reason))
+	}
 	dimensions := make(map[string]decimal.Decimal, len(contract.Usage.Fields))
 	quantities := make(map[string]int64, len(contract.Usage.Fields))
 	var sum int64
@@ -160,6 +164,65 @@ func NormalizeZTAPIImageUsageCandidate(info *RelayInfo, handoff *ZTAPIValidatedI
 	evidence.setDimensions(dimensions)
 	evidence.setPriceRuleIDs(priceRuleIDs)
 	return evidence, nil
+}
+
+// ZTAPIGPTImage2UsagePendingReason validates the exact three-dimensional
+// provider evidence. Empty means the contract is not GPT Image 2 or the usage
+// is valid; any visible cache member requires reconciliation rather than charge.
+func ZTAPIGPTImage2UsagePendingReason(raw []byte, contract types.ZTAPIImageProtocolContract) string {
+	if !types.IsZTAPIGPTImage2NotReportedUsageProtocol(contract) {
+		return ""
+	}
+	if basecommon.RejectDuplicateJsonObjectMembers(bytes.NewReader(raw)) != nil {
+		return "gpt-image-2 usage is malformed"
+	}
+	var usage any
+	if err := basecommon.Unmarshal(raw, &usage); err != nil {
+		return "gpt-image-2 usage is malformed"
+	}
+	if ztapiUsageContainsCacheMember(usage) {
+		return "gpt-image-2 usage contains cache metadata outside the frozen protocol"
+	}
+	fields := []string{
+		"input_tokens", "output_tokens", "output_tokens_details.text_tokens", "total_tokens",
+		contract.Usage.Fields["text_input"], contract.Usage.Fields["image_input"], contract.Usage.Fields["image_output"],
+	}
+	values := make([]int64, len(fields))
+	for index, field := range fields {
+		quantity, ok := exactZTAPIMediaUsageInteger(gjson.GetBytes(raw, field))
+		if !ok {
+			return fmt.Sprintf("gpt-image-2 usage field %q is missing or malformed", field)
+		}
+		values[index] = quantity
+	}
+	input, output, textOutput, total := values[0], values[1], values[2], values[3]
+	textInput, imageInput, imageOutput := values[4], values[5], values[6]
+	if textInput > math.MaxInt64-imageInput {
+		return "gpt-image-2 input usage buckets overflow"
+	}
+	if textOutput != 0 || input != textInput+imageInput || output != imageOutput ||
+		input > math.MaxInt64-output || total != input+output {
+		return "gpt-image-2 usage aggregates or output text conflict with image-only billing"
+	}
+	return ""
+}
+
+func ztapiUsageContainsCacheMember(value any) bool {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			if strings.Contains(strings.ToLower(key), "cache") || ztapiUsageContainsCacheMember(child) {
+				return true
+			}
+		}
+	case []any:
+		for _, child := range typed {
+			if ztapiUsageContainsCacheMember(child) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func pendingZTAPIMediaUsageEvidence(evidence ZTAPIMediaUsageEvidence, err error) (ZTAPIMediaUsageEvidence, error) {

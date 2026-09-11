@@ -4,6 +4,7 @@ import { apiClient } from '../../api/client';
 import { DataContractError, parseRuntimeStatus } from '../../api/contracts';
 import { formatAccountUSD } from './AccountBalance';
 import { useAccountResource } from './useAccountResource';
+import { localeTag, useLocale } from '../../i18n/locale';
 
 const PAGE_SIZE = 20;
 type Reservation = {
@@ -42,6 +43,7 @@ function parseReservations(value: unknown, after: number) {
 }
 
 export function PendingSettlements() {
+  const { locale, t } = useLocale();
   const [cursors, setCursors] = useState([0]);
   const after = cursors[cursors.length - 1];
   const load = useCallback(async (signal: AbortSignal) => {
@@ -75,46 +77,46 @@ export function PendingSettlements() {
   return (
     <section className="console-section wallet-history" aria-labelledby="pending-settlements-heading">
       <div className="console-section__heading">
-        <div><h2 id="pending-settlements-heading">待核账预留</h2><span>尚未计费</span></div>
-        <button className="console-icon-action" type="button" aria-label="刷新预留记录" title="刷新预留记录"
+        <div><h2 id="pending-settlements-heading">{t('待核账预留')}</h2><span>{t('尚未计费')}</span></div>
+        <button className="console-icon-action" type="button" aria-label={t('刷新预留记录')} title={t('刷新预留记录')}
           disabled={reservations.status === 'loading'} onClick={refresh}>
           <RefreshCw aria-hidden="true" size={18} />
         </button>
       </div>
-      <p className="console-field__help">预留金额已从可用余额中暂时扣除，最终费用以结算结果为准。</p>
-      {reservations.status === 'loading' && <div className="console-state" aria-busy="true">正在读取预留记录...</div>}
-      {reservations.status === 'error' && <div className="console-state console-state--error" role="status">预留记录加载失败，请刷新重试。</div>}
+      <p className="console-field__help">{t('预留金额已从可用余额中暂时扣除，最终费用以结算结果为准。')}</p>
+      {reservations.status === 'loading' && <div className="console-state" aria-busy="true">{t('正在读取预留记录...')}</div>}
+      {reservations.status === 'error' && <div className="console-state console-state--error" role="status">{t('预留记录加载失败，请刷新重试。')}</div>}
       {reservations.status === 'ready' && (reservations.data.items.length === 0 ? (
-        <div className="console-state">{after === 0 ? '暂无待核账预留。' : '本页暂无预留记录。'}</div>
+        <div className="console-state">{t(after === 0 ? '暂无待核账预留。' : '本页暂无预留记录。')}</div>
       ) : (
-        <div className="console-table-wrap" tabIndex={0} aria-label="请求预留列表">
+        <div className="console-table-wrap" tabIndex={0} aria-label={t('请求预留列表')}>
           <table className="console-table wallet-history__table">
-            <thead><tr><th scope="col">请求 ID / 创建时间</th><th scope="col">模型</th>
-              <th scope="col">预留金额 (USD)</th><th scope="col">状态</th></tr></thead>
+            <thead><tr><th scope="col">{t('请求 ID / 创建时间')}</th><th scope="col">{t('模型')}</th>
+              <th scope="col">{t('预留金额 (USD)')}</th><th scope="col">{t('状态')}</th></tr></thead>
             <tbody>{reservations.data.items.map((item) => (
               <tr key={item.id}>
                 <td style={{ overflowWrap: 'anywhere', whiteSpace: 'normal', maxWidth: 360 }}>
                   <code style={{ whiteSpace: 'normal' }}>{item.request_id}</code>
-                  <small>{new Date(item.created_at).toLocaleString('zh-CN', { hour12: false })}</small>
+                  <small>{new Date(item.created_at).toLocaleString(localeTag(locale), { hour12: false })}</small>
                 </td>
-                <td data-label="模型" style={{ overflowWrap: 'anywhere', whiteSpace: 'normal', maxWidth: 280 }}>{item.model}</td>
-                <td data-label="预留金额 (USD)">{formatAccountUSD(item.amount)}</td>
-                <td data-label="状态"><span className="console-status console-status--info">
-                  {item.status === 'reserved' ? '预留中' : '待核账'}
+                <td data-label={t('模型')} style={{ overflowWrap: 'anywhere', whiteSpace: 'normal', maxWidth: 280 }}>{item.model}</td>
+                <td data-label={t('预留金额 (USD)')}>{formatAccountUSD(item.amount)}</td>
+                <td data-label={t('状态')}><span className="console-status console-status--info">
+                  {t(item.status === 'reserved' ? '预留中' : '待核账')}
                 </span></td>
               </tr>
             ))}</tbody>
           </table>
         </div>
       ))}
-      <nav className="console-pagination" aria-label="预留记录分页">
-        <span>第 {cursors.length} 页</span>
-        <button className="console-icon-action" type="button" aria-label="上一页预留记录" title="上一页"
+      <nav className="console-pagination" aria-label={t('预留记录分页')}>
+        <span>{t('第 {{page}} 页', { page: cursors.length })}</span>
+        <button className="console-icon-action" type="button" aria-label={t('上一页预留记录')} title={t('上一页')}
           disabled={cursors.length === 1 || reservations.status === 'loading'}
           onClick={() => setCursors((previous) => previous.slice(0, -1))}>
           <ChevronLeft aria-hidden="true" size={18} />
         </button>
-        <button className="console-icon-action" type="button" aria-label="下一页预留记录" title="下一页"
+        <button className="console-icon-action" type="button" aria-label={t('下一页预留记录')} title={t('下一页')}
           disabled={reservations.status !== 'ready' || !reservations.data.hasMore} onClick={nextPage}>
           <ChevronRight aria-hidden="true" size={18} />
         </button>

@@ -11,7 +11,6 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/types"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -187,13 +186,7 @@ func TestZTAPISupplierReconciliationPreservesImagePricingAndUsageLineage(t *test
 	require.NoError(t, db.Create(&user).Error)
 	token := model.Token{UserId: user.Id, KeyHash: "recon-image-token", Status: common.TokenStatusEnabled, ExpiredTime: -1, RemainQuota: 1000}
 	require.NoError(t, db.Create(&token).Error)
-	contract := types.ZTAPIMediaPriceContract{Version: 1, Modality: "image", Rules: []types.ZTAPIMediaPriceRule{
-		{ID: "lte_200k", Conditions: map[string]string{"prompt_tokens_tier": "lte_200k"}, BillingUnit: types.ZTAPIMediaBillingUnitUSDPerMillionTokens,
-			CostUSD: map[string]string{"input_tokens": "0.6", "output_tokens": "1.2"}, SaleUSD: map[string]string{"input_tokens": "1", "output_tokens": "2"}, SourceCells: map[string]string{"input_tokens": "A1", "output_tokens": "B1"}},
-		{ID: "gt_200k", Conditions: map[string]string{"prompt_tokens_tier": "gt_200k"}, BillingUnit: types.ZTAPIMediaBillingUnitUSDPerMillionTokens,
-			CostUSD: map[string]string{"input_tokens": "1.8", "output_tokens": "2.4"}, SaleUSD: map[string]string{"input_tokens": "3", "output_tokens": "4"}, SourceCells: map[string]string{"input_tokens": "A2", "output_tokens": "B2"}},
-	}}
-	parent, imageSubmission := imageAttemptBillingPriceFixture(t, contract, []model.ZTAPIAttemptBillingQuantity{{Dimension: "input_tokens", Quantity: 200000}, {Dimension: "output_tokens", Quantity: 1}})
+	parent, imageSubmission := gptImageThreeDimensionAttemptFixture(t)
 	parent.UserID, parent.TokenID, parent.Status, parent.FinalAttempt = user.Id, token.Id, model.ZTAPISettlementPending, 0
 	require.NoError(t, db.Create(&parent).Error)
 	attempt := model.ZTAPIRequestAttempt{SettlementID: parent.ID, Attempt: 1, ChannelID: 21, CredentialVersion: "cred-image-v1", Protocol: "image", UpstreamRequestID: "supplier-image-wire", HTTPStatus: 200}
@@ -208,7 +201,7 @@ func TestZTAPISupplierReconciliationPreservesImagePricingAndUsageLineage(t *test
 	billable := true
 	record := model.ZTAPISupplierLedgerRecord{
 		SupplierRecordID: "supplier-image-bill", RequestID: attempt.UpstreamRequestID, CredentialRef: attempt.CredentialVersion,
-		ProviderModel: "provider-image-proof", ResourceType: "enterprise", OccurredAt: time.Now().UTC().Unix(), Billable: &billable,
+		ProviderModel: "gpt-image-2", ResourceType: "enterprise", OccurredAt: time.Now().UTC().Unix(), Billable: &billable,
 		DimensionsJSON: string(dimensionsJSON), DebitAmount: "0.1", Currency: "USD", RawEvidenceHash: strings.Repeat("d", 64),
 	}
 	request := ztapiSupplierImportRequest(t, "apply-image-billing", record)

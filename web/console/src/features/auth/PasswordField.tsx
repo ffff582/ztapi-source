@@ -4,6 +4,7 @@ import {
   type ComponentPropsWithoutRef,
 } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
+import { useLocale } from '../../i18n/locale';
 
 export type PasswordFieldProps = Omit<
   ComponentPropsWithoutRef<'input'>,
@@ -27,6 +28,7 @@ export const PasswordField = forwardRef<HTMLInputElement, PasswordFieldProps>(
     },
     ref,
   ) {
+    const { t } = useLocale();
     const [visible, setVisible] = useState(false);
     const internalDescriptionId =
       error !== undefined
@@ -52,8 +54,8 @@ export const PasswordField = forwardRef<HTMLInputElement, PasswordFieldProps>(
           />
           <button
             type="button"
-            aria-label={visible ? '隐藏密码' : '显示密码'}
-            title={visible ? '隐藏密码' : '显示密码'}
+            aria-label={visible ? t('隐藏密码') : t('显示密码')}
+            title={visible ? t('隐藏密码') : t('显示密码')}
             onClick={() => setVisible((value) => !value)}
           >
             {visible ? (

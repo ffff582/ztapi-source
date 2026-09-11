@@ -40,6 +40,48 @@ func TestNormalizeZTAPIImageUsageTrustedFiveBuckets(t *testing.T) {
 	}, evidence.GetPriceRuleIDs())
 }
 
+func TestNormalizeGPTImage2ObservedUsageKeepsStrictThreeDimensions(t *testing.T) {
+	const rawUsage = `{"input_tokens":18,"input_tokens_details":{"image_tokens":0,"text_tokens":18},"output_tokens":196,"output_tokens_details":{"image_tokens":196,"text_tokens":0},"total_tokens":214}`
+	info, response := newZTAPIMediaUsageInfo(t, "gpt-three", "b64_json", rawUsage)
+
+	evidence, err := NormalizeZTAPIImageUsage(info, response)
+	require.NoError(t, err)
+	require.False(t, evidence.Pending)
+	require.Equal(t, map[string]decimal.Decimal{
+		"text_input":   decimal.NewFromInt(18),
+		"image_input":  decimal.NewFromInt(0),
+		"image_output": decimal.NewFromInt(196),
+	}, evidence.GetDimensions())
+	require.Equal(t, map[string]string{
+		"text_input": "text_input", "image_input": "image_input", "image_output": "image_output",
+	}, evidence.GetPriceRuleIDs())
+}
+
+func TestNormalizeGPTImage2UsageFailsPendingOnCacheOrAggregateDrift(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		rawUsage string
+	}{
+		{
+			name:     "cache member",
+			rawUsage: `{"input_tokens":18,"input_tokens_details":{"image_tokens":0,"text_tokens":18,"cached_tokens":1},"output_tokens":196,"output_tokens_details":{"image_tokens":196,"text_tokens":0},"total_tokens":214}`,
+		},
+		{
+			name:     "input aggregate drift",
+			rawUsage: `{"input_tokens":19,"input_tokens_details":{"image_tokens":0,"text_tokens":18},"output_tokens":196,"output_tokens_details":{"image_tokens":196,"text_tokens":0},"total_tokens":214}`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			info, response := newZTAPIMediaUsageInfo(t, "gpt-three", "b64_json", tc.rawUsage)
+			evidence, err := NormalizeZTAPIImageUsage(info, response)
+			require.ErrorIs(t, err, ErrZTAPIMediaUsagePending)
+			require.True(t, evidence.Pending)
+			require.Empty(t, evidence.GetDimensions())
+			require.Empty(t, evidence.GetPriceRuleIDs())
+		})
+	}
+}
+
 func TestNormalizeZTAPIImageUsageSelectsGeminiTierBoundary(t *testing.T) {
 	tests := []struct {
 		name, rawUsage, wantRuleID string
@@ -308,25 +350,44 @@ func newZTAPIMediaUsageInfo(t *testing.T, shape, responseFormat, rawUsage string
 	t.Helper()
 	fields := map[string]string{"input_tokens": "input_tokens", "output_tokens": "output_tokens"}
 	cacheSemantics := "not_reported"
+	providerModel := "provider-image-model"
+	version := types.ZTAPIImageProtocolContractVersion
+	requestIDField, requestIDSource, requestIDKey := "request_id", "", ""
+	priceShape := shape
+	var upstreamRequestFields map[string]string
 	if shape == "five" {
 		fields = map[string]string{
 			"text_input": "text_input", "text_cached_input": "text_cached_input",
 			"image_input": "image_input", "image_cached_input": "image_cached_input", "image_output": "image_output",
 		}
 		cacheSemantics = "separate_dimension"
+	} else if shape == "gpt-three" {
+		fields = map[string]string{
+			"text_input":   "input_tokens_details.text_tokens",
+			"image_input":  "input_tokens_details.image_tokens",
+			"image_output": "output_tokens_details.image_tokens",
+		}
+		providerModel = "gpt-image-2"
+		priceShape = "five"
+		version = types.ZTAPIImageProtocolContractVersionV2
+		requestIDField, requestIDSource, requestIDKey = "", types.ZTAPIResponseIDSourceHeader, "X-Synthetic-Request-ID"
+		upstreamRequestFields = map[string]string{
+			"model": "required", "prompt": "required", "n": "required", "size": "required", "quality": "optional", "response_format": "omit",
+		}
 	}
 	maximumDimensions := make(map[string]string, len(fields))
 	for dimension := range fields {
 		maximumDimensions[dimension] = "200000"
 	}
 	protocol, _, err := types.SealZTAPIImageProtocolContract(types.ZTAPIImageProtocolContract{
-		Version: types.ZTAPIImageProtocolContractVersion, ProviderModel: "provider-image-model",
+		Version: version, ProviderModel: providerModel,
 		EndpointType: types.ZTAPIImageEndpointGeneration, Method: "POST", Path: "/v1/images/generations",
 		Capabilities:   types.ZTAPIImageCapabilities{Sizes: []string{"1024x1024"}, Qualities: []string{"standard"}, ResponseFormats: []string{responseFormat}, MinCount: 1, MaxCount: 1},
 		Response:       types.ZTAPIImageResponseContract{Schema: "object_results_array", ResultsField: "data", ResultFields: map[string]string{responseFormat: responseFormat}},
 		Usage:          types.ZTAPIImageUsageContract{UsageField: "usage", Fields: fields, TotalField: "total_tokens", TotalSemantics: "sum_of_dimensions", CacheSemantics: cacheSemantics},
 		Reservations:   []types.ZTAPIImageReservationAuthority{{Size: "1024x1024", Quality: "standard", ResponseFormat: responseFormat, N: 1, MaximumDimensions: maximumDimensions}},
-		RequestIDField: "request_id", EvidenceVersion: types.ZTAPIImageEvidenceVersion,
+		RequestIDField: requestIDField, RequestIDSource: requestIDSource, RequestIDKey: requestIDKey,
+		UpstreamRequestFields: upstreamRequestFields, EvidenceVersion: types.ZTAPIImageEvidenceVersion,
 	})
 	require.NoError(t, err)
 	result := `{"url":"https://example.test/image.png"}`
@@ -343,7 +404,7 @@ func newZTAPIMediaUsageInfo(t *testing.T, shape, responseFormat, rawUsage string
 		RawResponse: append([]byte(nil), response...), RawUsageJSON: []byte(rawUsage),
 	}
 	return &RelayInfo{
-		ZTAPIPublicationSnapshot:    &ZTAPIPublicationSnapshot{Modality: "image", MediaPriceContractJSON: canonicalMediaPriceContract(t, shape), ImageProtocolContract: &protocol},
+		ZTAPIPublicationSnapshot:    &ZTAPIPublicationSnapshot{Modality: "image", MediaPriceContractJSON: canonicalMediaPriceContract(t, priceShape), ImageProtocolContract: &protocol},
 		ztapiValidatedImageResponse: handoff,
 	}, response
 }
