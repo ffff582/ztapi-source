@@ -1943,33 +1943,41 @@ jobs:
           [[ "$image_request_id" =~ ^[A-Za-z0-9_-]{8,64}$ ]]
           rm -f "$image_headers" "$image_body"
 
-          gemini_image_headers=$(mktemp /tmp/ztapi-gemini-image-headers.XXXXXX)
-          gemini_image_body=$(mktemp /tmp/ztapi-gemini-image-body.XXXXXX)
-          gemini_image_http_status=$(jq -cn '{
-              model:"zt-gemini-2.5-flash-image",
-              prompt:"A simple blue circle centered on a white background.",
-              n:1,
-              size:"1024x1024",
-              quality:"standard",
-              response_format:"b64_json"
-            }' |
-            curl --silent --show-error --max-time 180 \
-              --dump-header "$gemini_image_headers" \
-              --output "$gemini_image_body" --write-out '%{http_code}' \
-              --header 'Content-Type: application/json' \
-              --header "Authorization: Bearer $acceptance_api_key" \
-              --data-binary @- \
-              "$acceptance_origin/v1/images/generations")
-          test "$gemini_image_http_status" = 200
-          jq -e '
-            (.data | length) == 1
-            and (.data[0].b64_json | type == "string" and length > 100)
-            and (.created | type == "number" and . > 0)
-            and ([.. | objects | keys[] | select(. == "candidates" or . == "usageMetadata" or . == "responseId")] | length) == 0' \
-            "$gemini_image_body" >/dev/null
-          gemini_image_request_id=$(awk 'tolower($1) == "x-request-id:" {print $2}' "$gemini_image_headers" | tr -d '\r' | tail -n 1)
-          [[ "$gemini_image_request_id" =~ ^[A-Za-z0-9_-]{8,64}$ ]]
-          rm -f "$gemini_image_headers" "$gemini_image_body"
+          gemini_image_acceptance_status="previously_accepted_unchanged"
+          gemini_image_request_id=""
+          gemini_image_billed_amount=0
+          gemini_image_user_log=""
+          gemini_image_admin_log=""
+          if [ "$gemini_image_requires_acceptance" = true ]; then
+            gemini_image_headers=$(mktemp /tmp/ztapi-gemini-image-headers.XXXXXX)
+            gemini_image_body=$(mktemp /tmp/ztapi-gemini-image-body.XXXXXX)
+            gemini_image_http_status=$(jq -cn '{
+                model:"zt-gemini-2.5-flash-image",
+                prompt:"A simple blue circle centered on a white background.",
+                n:1,
+                size:"1024x1024",
+                quality:"standard",
+                response_format:"b64_json"
+              }' |
+              curl --silent --show-error --max-time 180 \
+                --dump-header "$gemini_image_headers" \
+                --output "$gemini_image_body" --write-out '%{http_code}' \
+                --header 'Content-Type: application/json' \
+                --header "Authorization: Bearer $acceptance_api_key" \
+                --data-binary @- \
+                "$acceptance_origin/v1/images/generations")
+            test "$gemini_image_http_status" = 200
+            jq -e '
+              (.data | length) == 1
+              and (.data[0].b64_json | type == "string" and length > 100)
+              and (.created | type == "number" and . > 0)
+              and ([.. | objects | keys[] | select(. == "candidates" or . == "usageMetadata" or . == "responseId")] | length) == 0' \
+              "$gemini_image_body" >/dev/null
+            gemini_image_request_id=$(awk 'tolower($1) == "x-request-id:" {print $2}' "$gemini_image_headers" | tr -d '\r' | tail -n 1)
+            [[ "$gemini_image_request_id" =~ ^[A-Za-z0-9_-]{8,64}$ ]]
+            rm -f "$gemini_image_headers" "$gemini_image_body"
+            gemini_image_acceptance_status="success"
+          fi
 
           for acceptance_log_attempt in $(seq 1 20); do
             chat_user_log=$(curl --fail --silent --show-error \
@@ -1984,24 +1992,30 @@ jobs:
               --header "Authorization: Bearer $acceptance_user_access_token" \
               --header "New-API-User: $acceptance_user_id" \
               "$acceptance_origin/api/log/self?request_id=$image_request_id&p=1&page_size=10")
-            gemini_image_user_log=$(curl --fail --silent --show-error \
-              --header "Authorization: Bearer $acceptance_user_access_token" \
-              --header "New-API-User: $acceptance_user_id" \
-              "$acceptance_origin/api/log/self?request_id=$gemini_image_request_id&p=1&page_size=10")
+            gemini_image_log_ready=true
+            if [ "$gemini_image_requires_acceptance" = true ]; then
+              gemini_image_user_log=$(curl --fail --silent --show-error \
+                --header "Authorization: Bearer $acceptance_user_access_token" \
+                --header "New-API-User: $acceptance_user_id" \
+                "$acceptance_origin/api/log/self?request_id=$gemini_image_request_id&p=1&page_size=10")
+              if ! echo "$gemini_image_user_log" | jq -e '
+                  .success == true
+                    and .data.total == 1
+                    and .data.items[0].model == "zt-gemini-2.5-flash-image"
+                    and .data.items[0].status == "success"
+                    and .data.items[0].prompt_tokens > 0
+                    and .data.items[0].completion_tokens > 0
+                    and .data.items[0].total_tokens == (.data.items[0].prompt_tokens + .data.items[0].completion_tokens)' >/dev/null; then
+                gemini_image_log_ready=false
+              fi
+            fi
             if echo "$chat_user_log" | jq -e \
                 '.success == true and .data.total == 1 and .data.items[0].model == "zt-gpt-4.1-nano" and .data.items[0].status == "success"' >/dev/null &&
               echo "$embedding_user_log" | jq -e \
                 '.success == true and .data.total == 1 and .data.items[0].model == "zt-text-embedding-3-small" and .data.items[0].status == "success"' >/dev/null &&
               echo "$image_user_log" | jq -e \
                 '.success == true and .data.total == 1 and .data.items[0].model == "zt-gp-image-2" and .data.items[0].status == "success"' >/dev/null &&
-              echo "$gemini_image_user_log" | jq -e \
-                '.success == true
-                  and .data.total == 1
-                  and .data.items[0].model == "zt-gemini-2.5-flash-image"
-                  and .data.items[0].status == "success"
-                  and .data.items[0].prompt_tokens > 0
-                  and .data.items[0].completion_tokens > 0
-                  and .data.items[0].total_tokens == (.data.items[0].prompt_tokens + .data.items[0].completion_tokens)' >/dev/null; then
+              [ "$gemini_image_log_ready" = true ]; then
               break
             fi
             sleep 1
@@ -2012,10 +2026,11 @@ jobs:
             'select(.data.total == 1 and .data.items[0].status == "success") | .data.items[0].billed_amount')
           image_billed_amount=$(echo "$image_user_log" | jq -er \
             'select(.data.total == 1 and .data.items[0].status == "success" and (.data.items[0].billed_amount | tonumber) > 0) | .data.items[0].billed_amount')
-          gemini_image_billed_amount=$(echo "$gemini_image_user_log" | jq -er \
-            'select(.data.total == 1 and .data.items[0].status == "success" and (.data.items[0].billed_amount | tonumber) > 0) | .data.items[0].billed_amount')
-          gemini_image_settlement=$("${compose[@]}" exec -T mysql sh -c \
-            'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names --raw' <<SQL
+          if [ "$gemini_image_requires_acceptance" = true ]; then
+            gemini_image_billed_amount=$(echo "$gemini_image_user_log" | jq -er \
+              'select(.data.total == 1 and .data.items[0].status == "success" and (.data.items[0].billed_amount | tonumber) > 0) | .data.items[0].billed_amount')
+            gemini_image_settlement=$("${compose[@]}" exec -T mysql sh -c \
+              'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names --raw' <<SQL
           SELECT JSON_OBJECT(
             'status', settlement.status,
             'user_id', settlement.user_id,
@@ -2045,29 +2060,30 @@ jobs:
             AND settlement.public_model = 'zt-gemini-2.5-flash-image'
           LIMIT 1;
           SQL
-          )
-          echo "$gemini_image_settlement" | jq -e \
-            --argjson user_id "$acceptance_user_id" \
-            --argjson token_id "$acceptance_token_id" '
-              .status == "settled"
-              and .user_id == $user_id
-              and .token_id == $token_id
-              and .charged_quota > 0
-              and .charged_quota == .dimension_charged_quota
-              and .charged_quota == .expected_charged_quota
-              and .quota_per_unit > 0
-              and .input_tokens > 0
-              and .input_tokens <= 200000
-              and .output_tokens > 0
-              and .selected_rule_id == "lte_200k"
-              and .input_rule_id == "lte_200k"
-              and .output_rule_id == "lte_200k"
-              and (.upstream_request_id | type == "string" and length > 0)' >/dev/null
-          gemini_image_expected_billed_amount=$(echo "$gemini_image_settlement" | jq -er '.charged_quota / .quota_per_unit')
-          jq -en \
-            --argjson logged "$gemini_image_billed_amount" \
-            --argjson expected "$gemini_image_expected_billed_amount" \
-            '($logged - $expected | if . < 0 then -. else . end) < 0.00000001' >/dev/null
+            )
+            echo "$gemini_image_settlement" | jq -e \
+              --argjson user_id "$acceptance_user_id" \
+              --argjson token_id "$acceptance_token_id" '
+                .status == "settled"
+                and .user_id == $user_id
+                and .token_id == $token_id
+                and .charged_quota > 0
+                and .charged_quota == .dimension_charged_quota
+                and .charged_quota == .expected_charged_quota
+                and .quota_per_unit > 0
+                and .input_tokens > 0
+                and .input_tokens <= 200000
+                and .output_tokens > 0
+                and .selected_rule_id == "lte_200k"
+                and .input_rule_id == "lte_200k"
+                and .output_rule_id == "lte_200k"
+                and (.upstream_request_id | type == "string" and length > 0)' >/dev/null
+            gemini_image_expected_billed_amount=$(echo "$gemini_image_settlement" | jq -er '.charged_quota / .quota_per_unit')
+            jq -en \
+              --argjson logged "$gemini_image_billed_amount" \
+              --argjson expected "$gemini_image_expected_billed_amount" \
+              '($logged - $expected | if . < 0 then -. else . end) < 0.00000001' >/dev/null
+          fi
 
           for acceptance_admin_log_attempt in $(seq 1 20); do
             chat_admin_log=$(curl --fail --silent --show-error \
@@ -2085,19 +2101,25 @@ jobs:
               --header "Authorization: Bearer $admin_access_token" \
               --header "New-API-User: $admin_user_id" \
               "https://admin.ztapi.vip/api/admin/request-logs?request_id=$image_request_id&user_id=$acceptance_user_id&p=1&page_size=10")
-            gemini_image_admin_log=$(curl --fail --silent --show-error \
-              --resolve admin.ztapi.vip:443:127.0.0.1 \
-              --header "Authorization: Bearer $admin_access_token" \
-              --header "New-API-User: $admin_user_id" \
-              "https://admin.ztapi.vip/api/admin/request-logs?request_id=$gemini_image_request_id&user_id=$acceptance_user_id&p=1&page_size=10")
+            gemini_image_admin_log_ready=true
+            if [ "$gemini_image_requires_acceptance" = true ]; then
+              gemini_image_admin_log=$(curl --fail --silent --show-error \
+                --resolve admin.ztapi.vip:443:127.0.0.1 \
+                --header "Authorization: Bearer $admin_access_token" \
+                --header "New-API-User: $admin_user_id" \
+                "https://admin.ztapi.vip/api/admin/request-logs?request_id=$gemini_image_request_id&user_id=$acceptance_user_id&p=1&page_size=10")
+              if ! echo "$gemini_image_admin_log" | jq -e --argjson user_id "$acceptance_user_id" \
+                  '.success == true and .data.total == 1 and .data.items[0].user_id == $user_id' >/dev/null; then
+                gemini_image_admin_log_ready=false
+              fi
+            fi
             if echo "$chat_admin_log" | jq -e --argjson user_id "$acceptance_user_id" \
                 '.success == true and .data.total == 1 and .data.items[0].user_id == $user_id' >/dev/null &&
               echo "$embedding_admin_log" | jq -e --argjson user_id "$acceptance_user_id" \
                 '.success == true and .data.total == 1 and .data.items[0].user_id == $user_id' >/dev/null &&
               echo "$image_admin_log" | jq -e --argjson user_id "$acceptance_user_id" \
                 '.success == true and .data.total == 1 and .data.items[0].user_id == $user_id' >/dev/null &&
-              echo "$gemini_image_admin_log" | jq -e --argjson user_id "$acceptance_user_id" \
-                '.success == true and .data.total == 1 and .data.items[0].user_id == $user_id' >/dev/null; then
+              [ "$gemini_image_admin_log_ready" = true ]; then
               break
             fi
             sleep 1
@@ -2108,8 +2130,10 @@ jobs:
             '.data.total == 1 and .data.items[0].user_id == $user_id' >/dev/null
           echo "$image_admin_log" | jq -e --argjson user_id "$acceptance_user_id" \
             '.data.total == 1 and .data.items[0].user_id == $user_id' >/dev/null
-          echo "$gemini_image_admin_log" | jq -e --argjson user_id "$acceptance_user_id" \
-            '.data.total == 1 and .data.items[0].user_id == $user_id' >/dev/null
+          if [ "$gemini_image_requires_acceptance" = true ]; then
+            echo "$gemini_image_admin_log" | jq -e --argjson user_id "$acceptance_user_id" \
+              '.data.total == 1 and .data.items[0].user_id == $user_id' >/dev/null
+          fi
 
           acceptance_ledger_before_cleanup=$(curl --fail --silent --show-error \
             --resolve admin.ztapi.vip:443:127.0.0.1 \
@@ -2162,6 +2186,7 @@ jobs:
             --arg image_request_id "$image_request_id" \
             --argjson image_billed_amount "$image_billed_amount" \
             --arg gemini_image_model "zt-gemini-2.5-flash-image" \
+            --arg gemini_image_status "$gemini_image_acceptance_status" \
             --arg gemini_image_request_id "$gemini_image_request_id" \
             --argjson gemini_image_billed_amount "$gemini_image_billed_amount" \
             --argjson seed_ledger_id "$acceptance_seed_ledger_id" \
@@ -2182,7 +2207,7 @@ jobs:
               text:{model:$chat_model,request_id:$chat_request_id,status:"success",billed_amount:$chat_billed_amount},
               embedding:{model:$embedding_model,request_id:$embedding_request_id,status:"success",billed_amount:$embedding_billed_amount},
               image:{model:$image_model,request_id:$image_request_id,status:"success",billed_amount:$image_billed_amount},
-              gemini_image:{model:$gemini_image_model,request_id:$gemini_image_request_id,status:"success",billed_amount:$gemini_image_billed_amount},
+              gemini_image:{model:$gemini_image_model,request_id:$gemini_image_request_id,status:$gemini_image_status,billed_amount:$gemini_image_billed_amount},
               seed_ledger_id:$seed_ledger_id,
               cleanup_ledger_id:$cleanup_ledger_id,
               acceptance_final_quota:0,

@@ -531,6 +531,21 @@ test('an unchanged published Gemini image product does not block unrelated deplo
     /if \[ "\$gemini_image_requires_acceptance" = true \]; then[\s\S]*gemini_image_verification_result=[\s\S]*models\/ztapi\/\$ztapi_gemini_image_model_id\/verify[\s\S]*fi/,
     'the paid upstream verifier must run only when first publication or configuration changes require it',
   );
+
+  const ordinaryAcceptance = source.slice(
+    source.indexOf('gemini_image_acceptance_status='),
+    source.indexOf('registration_status=', source.indexOf('gemini_image_acceptance_status=')),
+  );
+  assert.match(
+    ordinaryAcceptance,
+    /gemini_image_acceptance_status="previously_accepted_unchanged"[\s\S]*if \[ "\$gemini_image_requires_acceptance" = true \]; then[\s\S]*model:"zt-gemini-2\.5-flash-image"[\s\S]*gemini_image_acceptance_status="success"[\s\S]*fi/,
+    'the paid ordinary-user image call must use the same first-publication or configuration-change gate',
+  );
+  assert.match(
+    ordinaryAcceptance,
+    /if \[ "\$gemini_image_requires_acceptance" = true \]; then[\s\S]*gemini_image_settlement=[\s\S]*fi/,
+    'Gemini billing reconciliation must remain mandatory whenever a fresh paid call is required',
+  );
 });
 
 test('pre-cutover media guard permits both published image products', () => {
