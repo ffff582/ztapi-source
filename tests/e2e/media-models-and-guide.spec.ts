@@ -237,6 +237,33 @@ async function installConsoleAPI(page: Page, unexpected: string[]) {
       });
       return;
     }
+    if (url.pathname === '/api/auth/session') {
+      await fulfill(route, userSession.data.user);
+      return;
+    }
+    if (url.pathname === '/api/log/self/stat') {
+      await fulfill(route, { rpm: 2, tpm: 168, quota: 0 });
+      return;
+    }
+    if (url.pathname === '/api/log/self') {
+      await fulfill(route, {
+        page: 1,
+        page_size: 5,
+        total: 1,
+        items: [{
+          timestamp: 1789100000,
+          request_id: 'req-browser-usage-001',
+          model: 'zt-claude-sonnet-5',
+          status: 'success',
+          latency: 2,
+          prompt_tokens: 120,
+          completion_tokens: 48,
+          total_tokens: 168,
+          billed_amount: 0.004321,
+        }],
+      });
+      return;
+    }
     if (url.pathname === '/api/status') {
       await fulfill(route, { quota_per_unit: 500_000 });
       return;
@@ -352,6 +379,12 @@ test('user media catalog, guide and wallet remain usable without data exposure',
 
   await page.goto('/console/models');
   await expect(page.getByRole('heading', { level: 1, name: '模型支持' })).toBeVisible();
+  const categoryTabs = page.getByRole('tablist', { name: '模型分类' });
+  await expect(categoryTabs.getByRole('tab')).toHaveText(['全部', 'OpenAI', '图片模型', '视频模型']);
+  await categoryTabs.getByRole('tab', { name: '图片模型' }).click();
+  await expect(page.getByText('zt-image-pro')).toBeVisible();
+  await expect(page.getByText('zt-video-pro')).not.toBeVisible();
+  await categoryTabs.getByRole('tab', { name: '全部' }).click();
   const imageRow = page.getByText('zt-image-pro').locator('xpath=ancestor::*[@role="row"][1]');
   await expect(imageRow.getByText('/v1/images/generations')).toBeVisible();
   await expect(imageRow.getByText(/1024x1024/)).toBeVisible();
@@ -389,6 +422,37 @@ test('user media catalog, guide and wallet remain usable without data exposure',
   await expectConsoleRegionsDoNotOverlap(page);
   await page.screenshot({
     path: `test-results/visual/media-wallet-${testInfo.project.name}.png`,
+    fullPage: true,
+  });
+
+  await page.goto('/console');
+  await expect(page.getByRole('heading', { level: 1, name: '使用概览' })).toBeVisible();
+  const usageRow = page.getByText('zt-claude-sonnet-5').locator('xpath=ancestor::tr[1]');
+  await expect(usageRow.getByText('$0.004321')).toBeVisible();
+  await expect(usageRow.getByText('输入 120')).toBeVisible();
+  await expect(usageRow.getByText('输出 48')).toBeVisible();
+  await expect(usageRow.getByText('总计 168')).toBeVisible();
+  await expect(usageRow.getByText('2 秒')).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await expectConsoleRegionsDoNotOverlap(page);
+  await page.screenshot({
+    path: `test-results/visual/usage-log-${testInfo.project.name}.png`,
+    fullPage: true,
+  });
+
+  await page.goto('/console/logs');
+  await expect(page.getByRole('heading', { level: 1, name: '使用日志' })).toBeVisible();
+  const fullLogRow = page.getByText('zt-claude-sonnet-5').locator('xpath=ancestor::tr[1]');
+  await expect(fullLogRow.getByText('$0.004321')).toBeVisible();
+  await expect(fullLogRow.getByText('本次实际扣费')).toBeVisible();
+  await expect(fullLogRow.getByText('输入 120')).toBeVisible();
+  await expect(fullLogRow.getByText('输出 48')).toBeVisible();
+  await expect(fullLogRow.getByText('总计 168')).toBeVisible();
+  await expect(fullLogRow.getByText('2 秒')).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await expectConsoleRegionsDoNotOverlap(page);
+  await page.screenshot({
+    path: `test-results/visual/full-usage-log-${testInfo.project.name}.png`,
     fullPage: true,
   });
 

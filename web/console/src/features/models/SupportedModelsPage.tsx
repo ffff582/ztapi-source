@@ -66,6 +66,86 @@ const billingDimensionOrder = [
   'request',
 ];
 
+type ModelCategory =
+  | 'all'
+  | 'openai'
+  | 'claude'
+  | 'gemini'
+  | 'domestic'
+  | 'embedding'
+  | 'image'
+  | 'video';
+
+const modelCategories: Array<{ id: ModelCategory; label: string }> = [
+  { id: 'all', label: '全部' },
+  { id: 'openai', label: 'OpenAI' },
+  { id: 'claude', label: 'Claude' },
+  { id: 'gemini', label: 'Gemini' },
+  { id: 'domestic', label: '国产模型' },
+  { id: 'embedding', label: '向量模型' },
+  { id: 'image', label: '图片模型' },
+  { id: 'video', label: '视频模型' },
+];
+
+const mainstreamModelOrder = [
+  'zt-gpt-5.6-sol',
+  'zt-claude-sonnet-5',
+  'zt-gemini-3.5-flash',
+  'zt-gpt-5.6-luna',
+  'zt-gpt-5.5',
+  'zt-claude-opus-4.8',
+  'zt-gemini-3.1-pro-preview',
+  'zt-gpt-5.4',
+  'zt-claude-sonnet-4.6',
+  'zt-gemini-3-flash-preview',
+  'zt-deepseek-v4-pro',
+  'zt-qwen-3.8-max',
+  'zt-kimi-k2.7-code',
+  'zt-glm-5.2',
+  'zt-glm-5.1',
+  'zt-deepseek-v4-flash',
+] as const;
+
+const mainstreamModelRanks = new Map<string, number>(
+  mainstreamModelOrder.map((modelName, index) => [modelName, index]),
+);
+
+const domesticFamilies = new Set(['deepseek', 'glm', 'kimi', 'moonshot', 'qwen']);
+
+function matchesCategory(item: UserModelCatalogItem, category: ModelCategory) {
+  const family = item.provider_family.toLocaleLowerCase();
+  switch (category) {
+    case 'all':
+      return true;
+    case 'openai':
+      return family === 'openai';
+    case 'claude':
+      return family === 'anthropic' || family === 'claude';
+    case 'gemini':
+      return family === 'google' || family === 'gemini';
+    case 'domestic':
+      return domesticFamilies.has(family);
+    case 'embedding':
+    case 'image':
+    case 'video':
+      return item.modality === category;
+  }
+}
+
+function compareModelPopularity(left: UserModelCatalogItem, right: UserModelCatalogItem) {
+  const unranked = mainstreamModelOrder.length;
+  const leftRank = mainstreamModelRanks.get(left.model_name) ?? unranked;
+  const rightRank = mainstreamModelRanks.get(right.model_name) ?? unranked;
+  if (leftRank !== rightRank) {
+    return leftRank - rightRank;
+  }
+  const modalityRank = { text: 0, embedding: 1, image: 2, video: 3 };
+  return (
+    modalityRank[left.modality] - modalityRank[right.modality] ||
+    left.model_name.localeCompare(right.model_name)
+  );
+}
+
 function orderedBillingDimensions(dimensions: string[]) {
   return [...dimensions].sort((left, right) => {
     const leftIndex = billingDimensionOrder.indexOf(left);
@@ -149,7 +229,7 @@ export function SupportedModelsPage() {
   const [catalog, setCatalog] = useState<UserModelCatalogItem[]>([]);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [query, setQuery] = useState('');
-  const [provider, setProvider] = useState('all');
+  const [category, setCategory] = useState<ModelCategory>('all');
   const [copyStatus, setCopyStatus] = useState<{
     modelName: string;
     state: 'success' | 'error';
@@ -164,9 +244,7 @@ export function SupportedModelsPage() {
       .then((response) => {
         if (active) {
           setCatalog(
-            [...response.catalog].sort((a, b) =>
-              a.model_name.localeCompare(b.model_name),
-            ),
+            [...response.catalog].sort(compareModelPopularity),
           );
           setStatus('ready');
         }
@@ -185,12 +263,12 @@ export function SupportedModelsPage() {
   useEffect(() => {
     copyAttempt.current += 1;
     setCopyStatus(null);
-  }, [provider, query]);
+  }, [category, query]);
 
-  const providers = useMemo(
+  const availableCategories = useMemo(
     () =>
-      [...new Set(catalog.map((item) => item.provider_name))].sort((a, b) =>
-        a.localeCompare(b),
+      modelCategories.filter(
+        ({ id }) => id === 'all' || catalog.some((item) => matchesCategory(item, id)),
       ),
     [catalog],
   );
@@ -198,10 +276,10 @@ export function SupportedModelsPage() {
     () =>
       catalog.filter(
         (item) =>
-          (provider === 'all' || item.provider_name === provider) &&
+          matchesCategory(item, category) &&
           matchesSearch(item, query),
       ),
-    [catalog, provider, query],
+    [catalog, category, query],
   );
 
   async function copyModelID(modelName: string) {
@@ -262,6 +340,20 @@ export function SupportedModelsPage() {
         {status === 'ready' && catalog.length > 0 && (
           <>
             <div className="model-support-toolbar">
+              <div aria-label="模型分类" className="model-support-categories" role="tablist">
+                {availableCategories.map(({ id, label }) => (
+                  <button
+                    aria-selected={category === id}
+                    className={category === id ? 'is-active' : undefined}
+                    key={id}
+                    role="tab"
+                    type="button"
+                    onClick={() => setCategory(id)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
               <label className="model-support-search">
                 <Search aria-hidden="true" size={17} />
                 <input
@@ -271,21 +363,6 @@ export function SupportedModelsPage() {
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                 />
-              </label>
-              <label className="model-support-provider">
-                <span>厂商</span>
-                <select
-                  aria-label="厂商筛选"
-                  value={provider}
-                  onChange={(event) => setProvider(event.target.value)}
-                >
-                  <option value="all">全部厂商</option>
-                  {providers.map((name) => (
-                    <option key={name} value={name}>
-                      {name}
-                    </option>
-                  ))}
-                </select>
               </label>
               <span className="model-support-result-count">
                 显示 {visibleModels.length} / {catalog.length}

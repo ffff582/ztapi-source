@@ -38,13 +38,13 @@ function logItem(requestID: string, timestamp: number) {
   return {
     timestamp,
     request_id: requestID,
-    model: 'gpt-4o',
+    model: 'zt-claude-sonnet-5',
     status: 'success',
     latency: 2,
-    prompt_tokens: 10,
-    completion_tokens: 5,
-    total_tokens: 15,
-    billed_amount: 0.25,
+    prompt_tokens: 120,
+    completion_tokens: 48,
+    total_tokens: 168,
+    billed_amount: 0.004321,
   };
 }
 
@@ -99,6 +99,13 @@ describe('ZTAPI user log pagination', () => {
       await pendingAuth;
     });
     expect(screen.getByText('ztapi-newest')).toBeVisible();
+    expect(screen.getByText('zt-claude-sonnet-5')).toBeVisible();
+    expect(screen.getByText('$0.004321')).toBeVisible();
+    expect(screen.getByText('本次实际扣费')).toBeVisible();
+    expect(screen.getByText('输入 120')).toBeVisible();
+    expect(screen.getByText('输出 48')).toBeVisible();
+    expect(screen.getByText('总计 168')).toBeVisible();
+    expect(screen.getByText('2 秒')).toBeVisible();
     expect(screen.getByText('第 1 / 2 页')).toBeVisible();
     expect(screen.getByRole('button', { name: '上一页' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '下一页' })).toBeEnabled();

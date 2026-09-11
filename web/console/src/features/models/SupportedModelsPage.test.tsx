@@ -195,6 +195,93 @@ describe('SupportedModelsPage', () => {
     expect(headers.get('New-Api-User')).toBe('7');
   });
 
+  it('puts current mainstream models first and filters them with visible categories', async () => {
+    const catalog = [
+      catalogItem({
+        model_name: 'zt-legacy-research',
+        provider_family: 'other',
+        provider_name: 'Other',
+      }),
+      catalogItem({
+        model_name: 'zt-qwen-3.8-max',
+        provider_family: 'qwen',
+        provider_name: 'Qwen',
+      }),
+      catalogItem({
+        model_name: 'zt-gemini-3.5-flash',
+        provider_family: 'google',
+        provider_name: 'Gemini',
+      }),
+      catalogItem({
+        model_name: 'zt-claude-sonnet-5',
+        provider_family: 'anthropic',
+        provider_name: 'Claude',
+      }),
+      catalogItem({
+        model_name: 'zt-deepseek-v4-pro',
+        provider_family: 'deepseek',
+        provider_name: 'DeepSeek',
+      }),
+      catalogItem({
+        model_name: 'zt-kimi-k2.7-code',
+        provider_family: 'moonshot',
+        provider_name: 'Kimi',
+      }),
+      catalogItem({ model_name: 'zt-gpt-5.6-sol' }),
+      catalogItem({
+        modality: 'embedding',
+        model_name: 'zt-text-embedding-3-small',
+        supported_endpoint_types: ['embeddings'],
+        input_price_per_million: '0.0260000000',
+        billing_dimensions: ['input_tokens'],
+        sale_usd: { input_tokens: '0.0260000000' },
+        output_price_per_million: '0.0000000000',
+        billing_rule: 'input_only',
+      }),
+    ];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
+      success: true,
+      message: '',
+      data: catalog.map((item) => item.model_name),
+      catalog,
+    })));
+
+    render(<SupportedModelsPage />);
+
+    await screen.findByText('zt-gpt-5.6-sol');
+    const visibleModelIDs = screen
+      .getAllByRole('row')
+      .slice(1)
+      .map((row) => within(row).getAllByRole('cell')[0].textContent?.replace('模型 ID', ''));
+    expect(visibleModelIDs).toEqual([
+      'zt-gpt-5.6-sol',
+      'zt-claude-sonnet-5',
+      'zt-gemini-3.5-flash',
+      'zt-deepseek-v4-pro',
+      'zt-qwen-3.8-max',
+      'zt-kimi-k2.7-code',
+      'zt-legacy-research',
+      'zt-text-embedding-3-small',
+    ]);
+
+    const categories = screen.getByRole('tablist', { name: '模型分类' });
+    expect(within(categories).getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
+      '全部', 'OpenAI', 'Claude', 'Gemini', '国产模型', '向量模型',
+    ]);
+
+    fireEvent.click(within(categories).getByRole('tab', { name: '国产模型' }));
+    expect(screen.getByText('zt-deepseek-v4-pro')).toBeVisible();
+    expect(screen.getByText('zt-qwen-3.8-max')).toBeVisible();
+    expect(screen.getByText('zt-kimi-k2.7-code')).toBeVisible();
+    expect(screen.queryByText('zt-gpt-5.6-sol')).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('搜索模型'), {
+      target: { value: 'qwen' },
+    });
+    expect(screen.getByText('zt-qwen-3.8-max')).toBeVisible();
+    expect(screen.queryByText('zt-deepseek-v4-pro')).not.toBeInTheDocument();
+  });
+
   it('renders media endpoints, supported options, and conditional sale prices', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(mediaCatalog())));
     render(<SupportedModelsPage />);
@@ -230,15 +317,11 @@ describe('SupportedModelsPage', () => {
     fireEvent.change(screen.getByLabelText('搜索模型'), {
       target: { value: '' },
     });
-    fireEvent.change(screen.getByLabelText('厂商筛选'), {
-      target: { value: 'Gemini' },
-    });
+    fireEvent.click(screen.getByRole('tab', { name: 'Gemini' }));
     expect(screen.getByText('zt-gemini-2.5-pro')).toBeVisible();
     expect(screen.queryByText('zt-claude-sonnet-4.6')).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText('厂商筛选'), {
-      target: { value: 'all' },
-    });
+    fireEvent.click(screen.getByRole('tab', { name: '全部' }));
     fireEvent.click(screen.getByRole('button', { name: '复制 zt-gpt-5.4-mini' }));
     await waitFor(() =>
       expect(writeText).toHaveBeenCalledWith('zt-gpt-5.4-mini'),
@@ -247,9 +330,7 @@ describe('SupportedModelsPage', () => {
       'zt-gpt-5.4-mini 已复制',
     );
 
-    fireEvent.change(screen.getByLabelText('厂商筛选'), {
-      target: { value: 'Gemini' },
-    });
+    fireEvent.click(screen.getByRole('tab', { name: 'Gemini' }));
     expect(screen.getByRole('status')).toBeEmptyDOMElement();
   });
 

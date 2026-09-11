@@ -28,6 +28,10 @@ function formatTimestamp(timestamp: number) {
   }).format(new Date(timestamp * 1000));
 }
 
+function formatLatency(latency: number) {
+  return `${latency} 秒`;
+}
+
 export function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -114,27 +118,41 @@ export function DashboardPage() {
             {data.logs.length === 0 ? (
               <div className="console-state">当前账户还没有请求记录。</div>
             ) : (
-              <div className="console-table-wrap">
-                <table className="console-table">
+              <div className="console-table-wrap usage-log-table-wrap">
+                <table className="console-table usage-log-table">
                   <thead>
                     <tr>
-                      <th scope="col">时间</th>
-                      <th scope="col">请求 ID</th>
                       <th scope="col">模型</th>
-                      <th scope="col">状态</th>
-                      <th scope="col">Tokens</th>
-                      <th scope="col">计费金额</th>
+                      <th scope="col">实际费用</th>
+                      <th scope="col">Token 用量</th>
+                      <th scope="col">状态与耗时</th>
+                      <th scope="col">调用时间</th>
+                      <th scope="col">请求 ID</th>
                     </tr>
                   </thead>
                   <tbody>
                     {data.logs.map((log) => (
                       <tr key={`${log.timestamp}-${log.request_id}`}>
-                        <td>{formatTimestamp(log.timestamp)}</td>
-                        <td>
-                          <code>{log.request_id || '—'}</code>
+                        <td className="usage-log-model-cell">
+                          <span aria-hidden="true" className="usage-log-cell-label">模型</span>
+                          <strong>{log.model || '—'}</strong>
                         </td>
-                        <td>{log.model || '—'}</td>
+                        <td className="usage-log-charge-cell">
+                          <span aria-hidden="true" className="usage-log-cell-label">实际费用</span>
+                          <strong>${log.billed_amount.toFixed(6)}</strong>
+                          <small>本次实际扣费</small>
+                        </td>
                         <td>
+                          <span aria-hidden="true" className="usage-log-cell-label">Token 用量</span>
+                          <div className="usage-log-tokens">
+                            <span>输入 {log.prompt_tokens}</span>
+                            <span>输出 {log.completion_tokens}</span>
+                            <strong>总计 {log.total_tokens}</strong>
+                          </div>
+                        </td>
+                        <td>
+                          <span aria-hidden="true" className="usage-log-cell-label">状态与耗时</span>
+                          <div className="usage-log-status">
                           <span
                             className={`console-status console-status--${log.status}`}
                           >
@@ -144,9 +162,17 @@ export function DashboardPage() {
                                 ? '失败'
                                 : '记录'}
                           </span>
+                            <span>{formatLatency(log.latency)}</span>
+                          </div>
                         </td>
-                        <td>{log.total_tokens}</td>
-                        <td>${log.billed_amount.toFixed(6)}</td>
+                        <td>
+                          <span aria-hidden="true" className="usage-log-cell-label">调用时间</span>
+                          {formatTimestamp(log.timestamp)}
+                        </td>
+                        <td className="usage-log-request-cell">
+                          <span aria-hidden="true" className="usage-log-cell-label">请求 ID</span>
+                          <code title={log.request_id}>{log.request_id || '—'}</code>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
