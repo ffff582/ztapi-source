@@ -42,9 +42,10 @@ func TestZTAPIHealthModelPermissionSurvivesStoredAlertProjection(t *testing.T) {
 				require.NoError(t, common.Unmarshal(body, &payload))
 				if destination == "telegram" {
 					text := payload["text"].(string)
-					require.Contains(t, text, "error_code: upstream_model_permission")
-					require.Contains(t, text, "http_status: 403")
-					require.Contains(t, text, "upstream_request_id: req-model-permission")
+					require.Contains(t, text, "错误：upstream_model_permission")
+					require.Contains(t, text, "HTTP 状态：403")
+					require.Contains(t, text, "上游请求编号：req-model-permission")
+					require.Contains(t, text, "建议处理：请携带上游请求编号询问上游是否已给当前 API Key 开通该模型")
 					return workerResponse(200, `{"ok":true,"result":{"message_id":1,"date":2000000000}}`), nil
 				}
 				details := payload["details"].(map[string]any)
@@ -68,13 +69,13 @@ func TestZTAPIHealthTelegramPermissionMetadataBoundaries(t *testing.T) {
 				item.Alert.HTTPStatus = &status
 			}
 			text := ztapiHealthTelegramText(item, time.Unix(2_000_000_000, 0))
-			require.Contains(t, text, "error_code: unknown")
-			require.Contains(t, text, "upstream_request_id: unknown")
+			require.Contains(t, text, "错误：未提供")
+			require.Contains(t, text, "上游请求编号：未提供")
 			require.NotContains(t, text, "must-not-leak")
 			if status >= 100 && status <= 599 {
-				require.NotContains(t, text, "http_status: unknown")
+				require.NotContains(t, text, "HTTP 状态：未提供")
 			} else {
-				require.Contains(t, text, "http_status: unknown")
+				require.Contains(t, text, "HTTP 状态：未提供")
 			}
 		})
 	}

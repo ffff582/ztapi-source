@@ -38,7 +38,7 @@ func TestZTAPIHealthTelegramEnvironmentAndPayload(t *testing.T) {
 		require.NoError(t, common.DecodeJson(r.Body, &body))
 		require.Equal(t, "123456789", body["chat_id"])
 		text := body["text"].(string)
-		for _, want := range []string{"zt-test", "consecutive_2", "content_filter", "request_id", "trigger_time"} {
+		for _, want := range []string{"【ZTAPI 模型故障】", "zt-test", "连续 2 次失败", "content_filter", "上游请求编号", "发生时间（北京时间）", "建议处理：请询问上游"} {
 			require.Contains(t, text, want)
 		}
 		require.NotContains(t, text, "offline_test_token")
@@ -119,7 +119,8 @@ func TestZTAPIHealthTelegramDurableTestRetryAndReceipt(t *testing.T) {
 		calls++
 		body, err := io.ReadAll(r.Body)
 		require.NoError(t, err)
-		require.Contains(t, string(body), "TEST ALERT - NO MODEL WAS CHANGED")
+		require.Contains(t, string(body), "【ZTAPI 测试通知】")
+		require.Contains(t, string(body), "告警通道测试成功，本次没有修改或下架任何模型")
 		if calls == 1 {
 			return workerResponse(200, `{"ok":false,"description":"private text"}`), nil
 		}
@@ -169,12 +170,13 @@ func TestZTAPIHealthTelegramIncidentLoadsOriginalRequestID(t *testing.T) {
 	message := ztapiHealthTelegramText(item, *now)
 	require.Contains(t, message, "req_original_42")
 	require.Contains(t, message, "task_original_43")
-	require.Contains(t, message, "modality: video")
-	require.Contains(t, message, "operation: video_fetch")
-	require.Contains(t, message, "latency_ms: 731")
-	require.Contains(t, message, "result_valid: false")
+	require.Contains(t, message, "类型：视频")
+	require.Contains(t, message, "操作：查询视频结果")
+	require.Contains(t, message, "耗时：731 毫秒")
+	require.Contains(t, message, "结果有效：否")
 	require.Contains(t, message, "content_filter")
-	require.Contains(t, message, now.UTC().Format(time.RFC3339))
+	require.Contains(t, message, now.In(time.FixedZone("北京时间", 8*60*60)).Format("2006-01-02 15:04:05"))
+	require.Contains(t, message, "建议处理：请询问上游为什么触发内容过滤，并把上游请求编号一并发给对方")
 	item.Alert.UpstreamRequestID = "sk-private-key"
 	require.NotContains(t, ztapiHealthTelegramText(item, *now), "sk-private-key")
 }

@@ -54,11 +54,13 @@ func TestZTAPIFinanceAlertsAttemptReviewRetriesAfterParentSettled(t *testing.T) 
 		var body map[string]any
 		require.NoError(t, common.DecodeJson(r.Body, &body))
 		text := body["text"].(string)
-		require.Contains(t, text, "source: attempt_review")
-		require.Contains(t, text, "request_ref: "+parent.RequestID)
-		require.Contains(t, text, "attempt: 1")
-		require.Contains(t, text, fmt.Sprintf("settlement_id: %d", parent.ID))
-		require.Contains(t, text, review.PendingReason)
+		require.Contains(t, text, "【ZTAPI 账单待核对】")
+		require.Contains(t, text, "情况：号池请求结果不确定，备用线路可能已接管；需要确认这次号池请求是否扣费")
+		require.Contains(t, text, "请求编号："+parent.RequestID)
+		require.Contains(t, text, "第 1 次上游尝试")
+		require.Contains(t, text, fmt.Sprintf("结算编号：%d", parent.ID))
+		require.Contains(t, text, "建议处理：请把请求编号发给上游")
+		require.Contains(t, text, "本通知不会自动修改客户余额")
 		for _, secret := range []string{"private", "prompt", "http", "CIRCUIT", "offline_test_token"} {
 			require.NotContains(t, text, secret)
 		}
@@ -126,8 +128,9 @@ func TestZTAPIFinanceAlertsFailedSendThenRetryUsesDurableSafeState(t *testing.T)
 		var body map[string]any
 		require.NoError(t, common.DecodeJson(r.Body, &body))
 		text := body["text"].(string)
-		require.Contains(t, text, "ZTAPI FINANCE RECONCILIATION PENDING")
-		require.Contains(t, text, "cache_write")
+		require.Contains(t, text, "【ZTAPI 账单待核对】")
+		require.Contains(t, text, "缓存写入用量")
+		require.Contains(t, text, "建议处理：请让 Codex 检查我方计费证据")
 		for _, forbidden := range []string{"CIRCUIT", "private", "offline_test_token", "http"} {
 			require.NotContains(t, text, forbidden)
 		}
@@ -249,8 +252,9 @@ func TestZTAPIFinanceAlertsStaleReservationSendsOnceWithoutReleasing(t *testing.
 		calls++
 		var body map[string]any
 		require.NoError(t, common.DecodeJson(r.Body, &body))
-		require.Contains(t, body["text"], "stale_reserved_hold")
-		require.Contains(t, body["text"], "ZTAPI FINANCE RECONCILIATION PENDING")
+		require.Contains(t, body["text"], "预留费用超过 24 小时仍未结算")
+		require.Contains(t, body["text"], "【ZTAPI 账单待核对】")
+		require.Contains(t, body["text"], "建议处理：请让 Codex 检查这笔请求为何一直未完成")
 		return workerResponse(200, `{"ok":true,"result":{"message_id":9,"date":2000000000}}`), nil
 	})
 	require.NoError(t, RunZTAPIFinanceAlertsOnce(context.Background(), db, c))

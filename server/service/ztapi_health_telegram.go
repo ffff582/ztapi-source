@@ -31,37 +31,100 @@ func ztapiHealthSafeRequestID(id string) string {
 	return id
 }
 
+var ztapiBeijingTime = time.FixedZone("北京时间", 8*60*60)
+
+func ztapiAlertValue(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "unknown" || value == "not_applicable" {
+		return "未提供"
+	}
+	return value
+}
+
+func ztapiHealthModalityLabel(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "text":
+		return "文本"
+	case "image":
+		return "图片"
+	case "video":
+		return "视频"
+	case "embedding":
+		return "向量"
+	default:
+		return "未提供"
+	}
+}
+
+func ztapiHealthOperationLabel(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "video_fetch":
+		return "查询视频结果"
+	case "video_create":
+		return "创建视频"
+	case "image_generation":
+		return "生成图片"
+	case "chat", "chat_completions":
+		return "文本对话"
+	default:
+		return "未提供"
+	}
+}
+
+func ztapiHealthAction(d ZTAPIHealthAlertMetadata) string {
+	finish := strings.ToLower(strings.Join(d.FinishReasons, ","))
+	reason := strings.ToLower(strings.TrimSpace(d.ErrorCode))
+	if strings.Contains(finish, "content_filter") || strings.Contains(reason, "content_filter") {
+		return "请询问上游为什么触发内容过滤，并把上游请求编号一并发给对方"
+	}
+	if strings.Contains(reason, "auth") || strings.Contains(reason, "api_key") || (d.HTTPStatus != nil && *d.HTTPStatus == http.StatusUnauthorized) {
+		return "请让 Codex 检查号池和企业 API Key；如果密钥配置正常，再携带上游请求编号询问上游"
+	}
+	if strings.Contains(reason, "model_permission") || strings.Contains(reason, "model_not_granted") {
+		return "请携带上游请求编号询问上游是否已给当前 API Key 开通该模型"
+	}
+	if d.HTTPStatus != nil && *d.HTTPStatus >= 500 {
+		return "请携带上游请求编号询问上游是否发生服务故障；同时让 Codex 检查备用线路是否已接管"
+	}
+	if d.HTTPStatus != nil && *d.HTTPStatus >= 400 {
+		return "请先让 Codex 检查请求参数；若参数符合上游文档，再携带上游请求编号询问上游"
+	}
+	return "请让 Codex 检查模型线路、响应内容和备用通道，复测通过后再人工恢复上架"
+}
+
 func ztapiHealthTelegramText(item ZTAPIHealthWorkItem, now time.Time) string {
 	d := ztapiHealthSafeAlertMetadata(item, now)
-	trigger := "unknown"
+	trigger := "未提供"
 	if d.OpenedAt != nil && *d.OpenedAt > 0 {
-		trigger = time.Unix(*d.OpenedAt, 0).UTC().Format(time.RFC3339)
+		trigger = time.Unix(*d.OpenedAt, 0).In(ztapiBeijingTime).Format("2006-01-02 15:04:05")
 	}
-	rule := "unknown"
+	rule := "未提供"
 	switch d.Rule {
 	case "consecutive_2":
-		rule = "consecutive_2: 2 consecutive failures"
+		rule = "连续 2 次失败"
 	case "rolling_24h_gt_2pct":
-		rule = "rolling_24h_gt_2pct: at least 3 failures in 24h AND failure rate >2%"
+		rule = "24 小时内至少失败 3 次，且失败率超过 2%"
 	}
-	title := "ZTAPI MODEL CIRCUIT OPEN"
 	if item.Test {
-		title = "ZTAPI TEST ALERT - NO MODEL WAS CHANGED"
-		rule = "TEST ONLY; live rules: consecutive_2 OR (24h >=3 failures AND >2%)"
+		return fmt.Sprintf("【ZTAPI 测试通知】\n结果：告警通道测试成功，本次没有修改或下架任何模型。\n时间（北京时间）：%s\n建议处理：无需处理。", trigger)
 	}
-	status := "unknown"
+	status := "未提供"
 	if d.HTTPStatus != nil && *d.HTTPStatus >= 100 && *d.HTTPStatus <= 599 {
 		status = fmt.Sprintf("%d", *d.HTTPStatus)
 	}
-	latency := "unknown"
+	latency := "未提供"
 	if d.LatencyMilliseconds != nil {
-		latency = fmt.Sprintf("%d", *d.LatencyMilliseconds)
+		latency = fmt.Sprintf("%d 毫秒", *d.LatencyMilliseconds)
 	}
-	resultValid := "unknown"
+	resultValid := "未提供"
 	if d.ResultValid != nil {
-		resultValid = fmt.Sprintf("%t", *d.ResultValid)
+		if *d.ResultValid {
+			resultValid = "是"
+		} else {
+			resultValid = "否"
+		}
 	}
-	return fmt.Sprintf("%s\nmodel: %s\nmodality: %s\noperation: %s\ncondition: %s\nerror_code: %s\nhttp_status: %s\nfinish_reason: %s\nupstream_request_id: %s\nupstream_task_id: %s\nlatency_ms: %s\nresult_valid: %s\ntrigger_time: %s\nincident_id: %d\noutbox_id: %d\nRecovery requires manual confirmation.", title, d.Model, d.Modality, d.Operation, rule, d.ErrorCode, status, strings.Join(d.FinishReasons, ","), d.UpstreamRequestID, d.UpstreamTaskID, latency, resultValid, trigger, item.IncidentID, item.ID)
+	return fmt.Sprintf("【ZTAPI 模型故障】\n模型：%s\n影响：已自动下架，客户暂时无法调用该模型。\n触发条件：%s\n类型：%s\n操作：%s\n错误：%s\nHTTP 状态：%s\n结束原因：%s\n耗时：%s\n结果有效：%s\n发生时间（北京时间）：%s\n\n建议处理：%s\n恢复方式：问题解决后，请让 Codex 复测并由管理员确认恢复。\n\n上游请求编号：%s\n上游任务编号：%s\n事件编号：%d\n通知编号：%d", ztapiAlertValue(d.Model), rule, ztapiHealthModalityLabel(d.Modality), ztapiHealthOperationLabel(d.Operation), ztapiAlertValue(d.ErrorCode), status, ztapiAlertValue(strings.Join(d.FinishReasons, ",")), latency, resultValid, trigger, ztapiHealthAction(d), ztapiAlertValue(d.UpstreamRequestID), ztapiAlertValue(d.UpstreamTaskID), item.IncidentID, item.ID)
 }
 
 // Only this fixed Telegram origin receives the bot credential. Never log the

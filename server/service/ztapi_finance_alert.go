@@ -12,6 +12,61 @@ import (
 	"gorm.io/gorm"
 )
 
+func ztapiFinanceAlertMeaning(kind, reason string) (string, string) {
+	reasons := strings.Split(model.ZTAPIFinanceAlertSafeReason(reason), ",")
+	labels := make([]string, 0, len(reasons))
+	for _, value := range reasons {
+		switch strings.TrimSpace(value) {
+		case "upstream_attempt_billing_unconfirmed":
+			labels = append(labels, "号池请求结果不确定，备用线路可能已接管；需要确认这次号池请求是否扣费")
+		case "stale_reserved_hold":
+			labels = append(labels, "预留费用超过 24 小时仍未结算")
+		case "cache_write":
+			labels = append(labels, "缓存写入用量缺少可信计费证据")
+		case "cache_read":
+			labels = append(labels, "缓存读取用量缺少可信计费证据")
+		case "input_tokens":
+			labels = append(labels, "输入用量缺少可信计费证据")
+		case "output_tokens":
+			labels = append(labels, "输出用量缺少可信计费证据")
+		case "upstream_billing_unconfirmed", "upstream_usage_missing", "usage_zero_unconfirmed":
+			labels = append(labels, "上游用量或扣费情况尚未确认")
+		case "awaiting_approval":
+			labels = append(labels, "已有凭证，等待财务复核批准")
+		case "evidence_conflict", "approval_conflict", "attempt_evidence_conflict":
+			labels = append(labels, "现有凭证互相冲突，不能自动处理")
+		case "unclassified_pending_reason":
+			labels = append(labels, "系统发现一项无法自动分类的计费证据")
+		default:
+			labels = append(labels, "存在需要人工确认的计费或退款证据")
+		}
+	}
+	meaning := strings.Join(labels, "；")
+	switch {
+	case kind == "attempt_review" && strings.Contains(reason, "upstream_attempt_billing_unconfirmed"):
+		return meaning, "请把请求编号发给上游，确认该次请求是否扣费；收到回复后进入管理后台“财务对账 → 尝试对账”处理"
+	case strings.Contains(reason, "stale_reserved_hold"):
+		return meaning, "请让 Codex 检查这笔请求为何一直未完成；禁止直接修改客户余额"
+	case kind == "refund":
+		return meaning, "请先向上游取得退款凭证，再进入管理后台“财务对账”核准；禁止直接修改客户余额"
+	default:
+		return meaning, "请让 Codex 检查我方计费证据；如缺少上游扣费明细，再携带请求编号询问上游"
+	}
+}
+
+func ztapiFinanceSourceLabel(kind string) string {
+	switch kind {
+	case "settlement":
+		return "客户请求结算"
+	case "refund":
+		return "上游退款"
+	case "attempt_review":
+		return "上游尝试计费"
+	default:
+		return "未知记录"
+	}
+}
+
 // RunZTAPIFinanceMaintenance is a single bounded alert tick for the parent's
 // existing maintenance timer. It does not resolve holds or move balances.
 func RunZTAPIFinanceMaintenance(ctx context.Context) error {
@@ -57,11 +112,12 @@ func RunZTAPIFinanceAlertsOnce(ctx context.Context, db *gorm.DB, config ZTAPIHea
 		}
 		identity := ""
 		if kind == "attempt_review" {
-			identity = fmt.Sprintf("\nrequest_ref: %s\nsettlement_id: %d\nattempt: %d",
+			identity = fmt.Sprintf("\n请求编号：%s\n结算编号：%d\n范围：第 %d 次上游尝试",
 				model.ZTAPIFinanceAlertRequestReference(job.RequestReference), job.SourceSettlementID, job.SourceAttempt)
 		}
-		text := fmt.Sprintf("ZTAPI FINANCE RECONCILIATION PENDING\nsource: %s\nrecord_id: %d%s\nreason: %s\noutbox_id: %d\nqueued_at: %s\nFinance review is required. This alert does not change balances.",
-			kind, job.SourceRecordID, identity, model.ZTAPIFinanceAlertSafeReason(job.Reason), job.ID, time.Unix(job.CreatedAt, 0).UTC().Format(time.RFC3339))
+		meaning, action := ztapiFinanceAlertMeaning(kind, job.Reason)
+		text := fmt.Sprintf("【ZTAPI 账单待核对】\n类型：%s\n情况：%s%s\n时间（北京时间）：%s\n\n建议处理：%s\n重要：本通知不会自动修改客户余额，核验前不要手工改余额。\n\n记录编号：%d\n通知编号：%d",
+			ztapiFinanceSourceLabel(kind), meaning, identity, time.Unix(job.CreatedAt, 0).In(ztapiBeijingTime).Format("2006-01-02 15:04:05"), action, job.SourceRecordID, job.ID)
 		ok, reason, receipt := sendZTAPITelegramText(ctx, config, text)
 		// Invalid configuration and delivery failures remain quiet but durable.
 		if err := model.FinishZTAPIFinanceAlert(ctx, db, job, config.Now(), ok, reason, receipt); err != nil {

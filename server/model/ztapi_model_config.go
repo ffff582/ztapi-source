@@ -372,6 +372,10 @@ func InferZTAPIModelFamily(sourceModel string) (string, bool) {
 		return ZTAPIModelFamilyClaude, true
 	case strings.Contains(name, "gemini"):
 		return ZTAPIModelFamilyGemini, true
+	case strings.HasPrefix(name, "glm-"):
+		// AIHub exposes GLM through its OpenAI-compatible chat adapter. Family
+		// describes the wire adapter here, while ProviderFamily remains "glm".
+		return ZTAPIModelFamilyOpenAI, true
 	case strings.HasPrefix(name, "gpt-"), strings.HasPrefix(name, "chatgpt-"),
 		strings.HasPrefix(name, "o1"), strings.HasPrefix(name, "o3"), strings.HasPrefix(name, "o4"),
 		strings.HasPrefix(name, "text-embedding-3-"), name == "text-embedding-ada-002":
