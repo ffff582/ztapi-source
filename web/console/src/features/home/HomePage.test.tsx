@@ -78,16 +78,26 @@ afterEach(() => {
 });
 
 describe('ZTAPI public homepage', () => {
-  it('makes the brand the hero and uses the project visual without canvas', async () => {
+  it('makes the brand the hero and shows a product-specific routing visual', async () => {
     renderHomePage();
 
     const hero = screen.getByRole('region', { name: 'ZTAPI' });
     expect(within(hero).getByRole('heading', { level: 1, name: 'ZTAPI' })).toBeVisible();
-    expect(within(hero).getByText('一个 Key，连接全球主流 AI 模型')).toBeVisible();
+    const heroTitle = hero.querySelector('.gateway-hero__title') as HTMLElement;
+    expect(heroTitle).toBeVisible();
+    expect(heroTitle).toHaveTextContent('一个 Key，连接全球主流 AI 模型');
+    expect(heroTitle.querySelector('.gateway-hero__title-models')).toHaveTextContent('AI 模型');
     expect(hero.querySelector('canvas')).toBeNull();
     expect(hero.querySelector('[data-testid="hero-scene"]')).toBeNull();
-    const visual = hero.querySelector<HTMLImageElement>('.gateway-hero__visual img');
-    expect(visual).toHaveAttribute('src', '/brand/ztapi-hero-infrastructure.webp');
+    expect(hero.querySelector('.gateway-hero__visual img')).toBeNull();
+    const visual = within(hero).getByTestId('gateway-motion-visual');
+    expect(visual).toHaveTextContent('REQUEST FLOW');
+    expect(visual).toHaveTextContent('ZTAPI GATEWAY');
+    expect(visual).toHaveTextContent('OpenAI');
+    expect(visual).toHaveTextContent('Claude');
+    expect(visual).toHaveTextContent('Gemini');
+    expect(visual.querySelectorAll('[data-route-provider]')).toHaveLength(3);
+    expect(visual.querySelectorAll('.gateway-motion__packet').length).toBeGreaterThanOrEqual(4);
     expect(within(hero).getByRole('link', { name: '开始使用' })).toHaveAttribute('href', '/register');
     expect(within(hero).getByRole('link', { name: '查看模型价格' })).toHaveAttribute('href', '/models');
     expect(within(hero).getByText('https://ztapi.vip/v1')).toBeVisible();
@@ -189,10 +199,14 @@ describe('ZTAPI public homepage', () => {
     const mobile = mediaRule('(max-width: 760px)');
     const narrow = mediaRule('(max-width: 420px)');
     const reduced = mediaRule('(prefers-reduced-motion: reduce)');
+    expect(lastDeclaration(homeStyles, '.gateway-motion__frame', 'position')).toBe('absolute');
+    expect(lastDeclaration(homeStyles, '.gateway-motion__frame', 'inset')).toBe('0');
     expect(lastDeclaration(mobile, '.gateway-hero', 'min-height')).toBe('690px');
     expect(lastDeclaration(narrow, '.gateway-hero h1', 'font-size')).toBe('72px');
     expect(lastDeclaration(narrow, '.gateway-hero__actions', 'flex-direction')).toBe('column');
-    expect(lastDeclaration(reduced, '.gateway-hero__signal', 'animation')).toBe('none');
+    expect(lastDeclaration(narrow, '.gateway-hero__title-models', 'display')).toBe('block');
+    expect(lastDeclaration(reduced, '.gateway-motion__packet', 'animation')).toBe('none');
+    expect(lastDeclaration(reduced, '.gateway-motion__pulse', 'animation')).toBe('none');
   });
 
   it('does not ship the retired Three.js hero dependency from homepage code', () => {
@@ -200,5 +214,6 @@ describe('ZTAPI public homepage', () => {
     expect(source).not.toContain('HeroScene');
     expect(source).not.toContain("from 'three'");
     expect(homeCss).not.toContain('.hero-scene');
+    expect(homeCss).not.toContain('ztapi-hero-infrastructure.webp');
   });
 });

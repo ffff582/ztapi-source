@@ -3,6 +3,7 @@ import { ArrowRight, CircleDollarSign, ListTree, Route } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import '../../brand/tokens.css';
 import { PublicHeader } from '../../components/layout/PublicHeader';
+import { GatewayMotionVisual } from './GatewayMotionVisual';
 import { GatewayStatusRail } from './GatewayStatusRail';
 import { IntegrationWorkbench } from './IntegrationWorkbench';
 import { PublicModelProof } from './PublicModelProof';
@@ -30,20 +31,15 @@ export function HomePage() {
       <main>
         <section className="gateway-hero" aria-labelledby="gateway-hero-title">
           <div className="gateway-hero__visual" aria-hidden="true">
-            <img
-              src="/brand/ztapi-hero-infrastructure.webp"
-              alt=""
-              width="1536"
-              height="960"
-              fetchPriority="high"
-            />
-            <span className="gateway-hero__signal gateway-hero__signal--one" />
-            <span className="gateway-hero__signal gateway-hero__signal--two" />
+            <GatewayMotionVisual />
           </div>
           <div className="gateway-hero__content public-shell">
             <p className="gateway-hero__eyebrow">UNIFIED MODEL API</p>
             <h1 id="gateway-hero-title">ZTAPI</h1>
-            <p className="gateway-hero__title">一个 Key，连接全球主流 AI 模型</p>
+            <p className="gateway-hero__title">
+              <span>一个 Key，连接全球主流</span>{' '}
+              <span className="gateway-hero__title-models">AI 模型</span>
+            </p>
             <p className="gateway-hero__summary">
               兼容 OpenAI SDK，统一管理调用、用量和模型路由。
             </p>

@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "8ddbc5fbb452725890e1dc24e211b7b5d58a1a07",
+  "release_commit": "82188b92c6f223e8008806250bda3885fe455aee",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-8ddbc5fbb452725890e1dc24e211b7b5d58a1a07",
+  "source_tag": "production-82188b92c6f223e8008806250bda3885fe455aee",
   "files": [
     {
       "path": ".dockerignore",
@@ -46,7 +46,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "b1b0425042a8e6ddcf1cbd1e12200a8b10ade341edb8f7843a6efe9f58c6c22b",
+      "sha256": "d08f40b8dc542c675afddca5804ebdc9d6503ae2886a2b8d2619bda9c8012cb3",
       "size": 695
     },
     {
@@ -61,7 +61,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "db4a906249d4aed2db59b204a3f41f657a65f841fa8744cf06d8e39b1c844c5d",
+      "sha256": "848b28d34084483282780bd1a67ca6f39f8b8993da63b8c63aaa741e988a0c68",
       "size": 942
     },
     {
@@ -9016,8 +9016,8 @@
     },
     {
       "path": "tests/e2e/public-pages.spec.ts",
-      "sha256": "dab7a84af091a2631b63576398e0acd25265f95e58cd7dc64e245594e0b56e8a",
-      "size": 14193
+      "sha256": "f2fc932e481998047f12e28bc538893024b80f4d293180e1a4dbc9a4e6f08fe8",
+      "size": 14656
     },
     {
       "path": "tests/e2e/usdt-topup.spec.ts",
@@ -9103,11 +9103,6 @@
       "path": "web/console/public/brand/ztapi-favicon.png",
       "sha256": "efa3e58122c717e6c55a1e739c6b4527cc7ddea7577bdfa0c90606bbf00e83e1",
       "size": 3521
-    },
-    {
-      "path": "web/console/public/brand/ztapi-hero-infrastructure.webp",
-      "sha256": "b919b6e42a205c2d3525b5895c8f0c6ac8906997f42813768ea64785ba054223",
-      "size": 117500
     },
     {
       "path": "web/console/public/brand/ztapi-mark.png",
@@ -9250,19 +9245,24 @@
       "size": 16127
     },
     {
+      "path": "web/console/src/features/home/GatewayMotionVisual.tsx",
+      "sha256": "862e5cc9bc741c4454eab2590f3135d4de244419908353e04c94c53635353440",
+      "size": 2427
+    },
+    {
       "path": "web/console/src/features/home/GatewayStatusRail.tsx",
       "sha256": "0336b4c3c7ff4cefad9b4633cb051163ca6813a8edd2cac535341df9042d1300",
       "size": 459
     },
     {
       "path": "web/console/src/features/home/HomePage.test.tsx",
-      "sha256": "04c4358049099edf5be77581e2339f8c68e256f9d102ba280066ecd6325470cf",
-      "size": 8209
+      "sha256": "676a659ecc80478ba0c661c1100e64087648cb807f40bc6575cf0879d000f094",
+      "size": 9254
     },
     {
       "path": "web/console/src/features/home/HomePage.tsx",
-      "sha256": "d017d1f2bdf384a98a9f3f5ba60c23e386c174e8d0f485459bb6a64e842b192b",
-      "size": 5320
+      "sha256": "36349b371ca1eda069991ae32a4d6d0c569c7bfcf0ee59c46d366ce5f421b1d2",
+      "size": 5169
     },
     {
       "path": "web/console/src/features/home/IntegrationWorkbench.tsx",
@@ -9286,8 +9286,8 @@
     },
     {
       "path": "web/console/src/features/home/home.css",
-      "sha256": "e598730eae6c2f9ce1b5d7e8e5b360e9bdc54f15aa8e5b8626d65c05499961b5",
-      "size": 16649
+      "sha256": "d40197c561cf6df76c855f981006642ac38948c5ed2c008c9def7eab1d6258b0",
+      "size": 23195
     },
     {
       "path": "web/console/src/features/home/homeContent.ts",

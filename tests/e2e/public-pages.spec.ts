@@ -132,14 +132,15 @@ test('homepage is complete and has no horizontal overflow', async ({ page }, tes
   await expect(page.getByText('一个 Key，连接全球主流 AI 模型')).toBeVisible();
 
   const hero = page.locator('.gateway-hero');
-  const heroImage = page.locator('.gateway-hero__visual img');
+  const gatewayVisual = page.getByTestId('gateway-motion-visual');
   const capabilities = page.locator('#capabilities');
   const modelProof = page.locator('.model-proof');
   await expect(hero).toBeVisible();
-  await expect(heroImage).toBeVisible();
-  await expect(heroImage).toHaveJSProperty('complete', true);
-  expect(await heroImage.evaluate((image: HTMLImageElement) => image.naturalWidth))
-    .toBeGreaterThan(0);
+  await expect(gatewayVisual).toBeVisible();
+  await expect(gatewayVisual.locator('[data-route-provider]')).toHaveCount(3);
+  expect(await gatewayVisual.locator('.gateway-motion__packet').count()).toBeGreaterThanOrEqual(4);
+  await expect(gatewayVisual).toContainText('ZTAPI GATEWAY');
+  await expect(hero.locator('img')).toHaveCount(0);
   await expect(hero.locator('canvas')).toHaveCount(0);
   await expect(capabilities).toBeVisible();
   await expect(modelProof.getByText('3 个实时公开模型')).toBeVisible();
@@ -313,7 +314,8 @@ test('homepage remains complete when WebGL is unavailable', async ({ page }) => 
   });
   await page.goto('/');
   await expect(page.getByRole('heading', { level: 1, name: 'ZTAPI' })).toBeVisible();
-  await expect(page.locator('.gateway-hero__visual img')).toBeVisible();
+  await expect(page.getByTestId('gateway-motion-visual')).toBeVisible();
+  await expect(page.locator('.gateway-hero img')).toHaveCount(0);
   await expect(page.locator('.gateway-hero canvas')).toHaveCount(0);
   await expect(page.locator('.gateway-hero .button-link--primary')).toBeVisible();
 });
@@ -369,9 +371,12 @@ test('reduced motion keeps the homepage content available', async ({ page }, tes
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/');
   await expect(page.getByRole('heading', { level: 1, name: 'ZTAPI' })).toBeVisible();
-  await expect(page.locator('.gateway-hero__visual img')).toBeVisible();
+  await expect(page.getByTestId('gateway-motion-visual')).toBeVisible();
+  await expect(page.locator('.gateway-hero img')).toHaveCount(0);
   await expect(page.locator('.gateway-hero canvas')).toHaveCount(0);
   await expect(page.locator('.gateway-hero .button-link--primary')).toBeVisible();
+  await expect(page.locator('.gateway-motion__packet').first()).toHaveCSS('animation-name', 'none');
+  await expect(page.locator('.gateway-motion__pulse').first()).toHaveCSS('animation-name', 'none');
   if (!testInfo.project.name.startsWith('mobile-')) {
     await page.screenshot({
       path: `test-results/visual/home-reduced-motion-${testInfo.project.name}.png`,
