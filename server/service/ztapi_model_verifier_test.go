@@ -442,6 +442,32 @@ func TestVerifyZTAPIModelExtendsOuterDeadlineForSlowModels(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestVerifyZTAPIModelExtendsOuterDeadlineForGeminiImageGeneration(t *testing.T) {
+	channel, config := setupZTAPIModelVerifierTestDB(t)
+	require.NoError(t, model.DB.Model(&config).Update("source_model", "gemini-2.5-flash-image").Error)
+	_, protocolContract, err := ztapiGemini25ImageProtocolContract()
+	require.NoError(t, err)
+
+	previousRunner := ztapiModelVerificationProbeRunner
+	ztapiModelVerificationProbeRunner = func(ctx context.Context, _ *model.Channel, sourceModel string) (ztapiModelProbeResult, error) {
+		require.Equal(t, "gemini-2.5-flash-image", sourceModel)
+		deadline, ok := ctx.Deadline()
+		require.True(t, ok)
+		require.Greater(t, time.Until(deadline), 110*time.Second)
+		require.LessOrEqual(t, time.Until(deadline), 120*time.Second)
+		return ztapiModelProbeResult{
+			NonStreamingPassed: true, UsageReconciled: true, InvalidKeyClassified: true,
+			InsufficientBalanceClassified: true, RateLimitClassified: true,
+			TimeoutClassified: true, PromptTokens: 6, CompletionTokens: 1295, TotalTokens: 1301,
+			MediaResultValid: true, ImageProtocolContractJSON: protocolContract,
+		}, nil
+	}
+	t.Cleanup(func() { ztapiModelVerificationProbeRunner = previousRunner })
+
+	_, err = VerifyZTAPIModel(context.Background(), channel.Id, "gemini-2.5-flash-image", 34)
+	require.NoError(t, err)
+}
+
 func TestVerifyZTAPIGPTImage2UsesRealGenerationAndPersistsExactProtocol(t *testing.T) {
 	channel, config := setupZTAPIModelVerifierTestDB(t)
 	require.NoError(t, model.DB.Model(&config).Update("source_model", "gpt-image-2").Error)
