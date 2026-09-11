@@ -477,12 +477,12 @@ jobs:
             if [ "$gemini_rollout_state_captured" != true ]; then
               return 0
             fi
-            test -s "$gemini_channel_backup"
+            test -s "$gemini_channel_backup" || return 1
             "${compose[@]}" exec -T mysql sh -c \
-              'exec mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE"' < "$gemini_channel_backup"
+              'exec mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE"' < "$gemini_channel_backup" || return 1
             if [ "$gemini_was_published" != true ]; then
               "${compose[@]}" exec -T mysql sh -c \
-                'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE"' <<'SQL'
+                'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE"' <<'SQL' || return 1
           UPDATE ztapi_model_configs
           SET published = 0,
               publication_snapshot_id = 0,
@@ -493,7 +493,7 @@ jobs:
             AND published = 1;
           SQL
             fi
-            rm -f "$gemini_channel_backup"
+            rm -f "$gemini_channel_backup" || return 1
             gemini_rollout_state_captured=false
           }
           cleanup_synthetic_acceptance() {

@@ -465,6 +465,15 @@ test('deployment verifies, publishes, and bills Gemini 2.5 image through the nat
     /CONVERT\(UNHEX\(''', HEX\(settings\), '''\) USING utf8mb4\)/,
     'Gemini rollback must restore settings as utf8mb4 JSON instead of binary',
   );
+  const workflowRestore = source.slice(
+    source.indexOf('restore_gemini_rollout_state()'),
+    source.indexOf('cleanup_synthetic_acceptance()'),
+  );
+  assert.match(
+    workflowRestore,
+    /< "\$gemini_channel_backup"\s*\|\| return 1/,
+    'a failed Gemini channel restore must propagate out of the rollback function',
+  );
   assert.match(source, /printf 'gemini_rollout_state_captured=%q/);
   const releaseControl = read('deploy/scripts/ztapi-release-control.sh');
   assert.match(releaseControl, /restore_gemini_rollout_state/);
