@@ -375,7 +375,18 @@ test('acceptance compares both catalogs to the frozen exact publication set', ()
 
 test('deployment verifies, publishes, and bills GPT Image 2 through an ordinary user path', () => {
   const source = read(workflowPath);
+  const channelSelection = source.slice(
+    source.indexOf('ztapi_image_channel_id='),
+    source.indexOf('image_discovery_result='),
+  );
   assert.match(source, /ztapi_image_channel_id/);
+  assert.match(channelSelection, /c\.ztapi_family = 'openai'/);
+  assert.match(channelSelection, /ORDER BY COALESCE\(c\.priority, 0\) ASC/);
+  assert.doesNotMatch(
+    channelSelection,
+    /abilities|a\.model = 'gpt-image-2'/,
+    'enterprise channel selection must not require the not-yet-discovered image model',
+  );
   assert.match(source, /fetch_models\/\$ztapi_image_channel_id\?import=true/);
   assert.match(source, /zt-gp-image-2/);
   assert.match(source, /gpt-image-2/);

@@ -1040,18 +1040,19 @@ jobs:
           ztapi_image_channel_id=$("${compose[@]}" exec -T mysql sh -c \
             'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names' <<'SQL'
           SELECT c.id
-          FROM abilities a
-          JOIN channels c ON c.id = a.channel_id
-          WHERE a.model = 'gpt-image-2'
-            AND a.`group` = 'default'
-            AND a.enabled = 1
-            AND c.status = 1
+          FROM channels c
+          WHERE c.status = 1
             AND c.ztapi_managed = 1
-          ORDER BY COALESCE(a.priority, 0) ASC, c.id ASC
+            AND c.ztapi_family = 'openai'
+            AND FIND_IN_SET('default', c.`group`) > 0
+          ORDER BY COALESCE(c.priority, 0) ASC, c.id ASC
           LIMIT 1;
           SQL
           )
-          [[ "$ztapi_image_channel_id" =~ ^[1-9][0-9]*$ ]]
+          if [[ ! "$ztapi_image_channel_id" =~ ^[1-9][0-9]*$ ]]; then
+            echo 'no enabled managed OpenAI enterprise fallback channel is available for GPT Image 2 discovery' >&2
+            exit 1
+          fi
           image_discovery_result=$(curl --fail --silent --show-error \
             --resolve admin.ztapi.vip:443:127.0.0.1 \
             --header "Authorization: Bearer $admin_access_token" \
