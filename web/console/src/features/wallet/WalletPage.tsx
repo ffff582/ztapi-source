@@ -20,7 +20,7 @@ import {
   type USDTTopUpInfo,
   type USDTTopUpOrder,
 } from '../../api/contracts';
-import { localeTag, useLocale } from '../../i18n/locale';
+import { useLocale } from '../../i18n/locale';
 
 const PENDING_ORDER_STORAGE_KEY = 'ztapi.usdt.pending_trade_no';
 const POLL_INTERVAL_MS = 2_000;

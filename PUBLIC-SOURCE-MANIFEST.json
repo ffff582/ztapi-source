@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "3f75b0affd2d9922d3c0ae5da29e345236a3a91b",
+  "release_commit": "86d863651a244932d56e9e18501d3b505b2f9747",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-3f75b0affd2d9922d3c0ae5da29e345236a3a91b",
+  "source_tag": "production-86d863651a244932d56e9e18501d3b505b2f9747",
   "files": [
     {
       "path": ".dockerignore",
@@ -46,7 +46,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "539b349e55dc67e21cf8a7db559c649ebe14046f0455d6836aaf4afb9a697fe4",
+      "sha256": "995c36ac7be1855b24976304a0190ef601d58d702b9fbb32a215f107083e4cdf",
       "size": 695
     },
     {
@@ -61,7 +61,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "d47fc136d9baff1423b05bb3260d08da6ce247e10bf522147633aceb65d59232",
+      "sha256": "81f8f9c1bf3f9560855f47d3d208a73d9ed66dbc0f7cf93c6660f3933a1eb477",
       "size": 942
     },
     {
@@ -9416,8 +9416,8 @@
     },
     {
       "path": "web/console/src/features/wallet/WalletPage.tsx",
-      "sha256": "20f4273b3ee368c1d409c24d4088aeceb4af0987437b05875c0e5cb95ca5b8c2",
-      "size": 16105
+      "sha256": "5cbddc3139841ea4f6f2f3bd7fb4c2ab2c242b0b176174000a992f58bc22e9da",
+      "size": 16094
     },
     {
       "path": "web/console/src/features/wallet/useAccountResource.ts",
