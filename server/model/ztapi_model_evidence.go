@@ -358,7 +358,7 @@ func IsSupportedZTAPIProviderFamily(provider string) bool {
 
 func ztapiLegacyFamilyForProvider(provider string) string {
 	switch provider {
-	case ZTAPIProviderOpenAI:
+	case ZTAPIProviderOpenAI, ZTAPIProviderGLM:
 		return ZTAPIModelFamilyOpenAI
 	case ZTAPIProviderAnthropic:
 		return ZTAPIModelFamilyClaude

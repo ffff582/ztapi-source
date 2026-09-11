@@ -140,6 +140,24 @@ func TestUpdateZTAPIModelIdentityUsesOptimisticVersionAndExplicitMapping(t *test
 	require.ErrorIs(t, err, ErrZTAPIModelVersionConflict)
 }
 
+func TestUpdateZTAPIModelIdentityMapsGLMToOpenAICompatibleFamily(t *testing.T) {
+	db := setupZTAPIModelEvidenceWriteTestDB(t)
+	config := ZTAPIModelConfig{SourceModel: "glm-5.2", EnabledGroups: "[]", Version: 1}
+	require.NoError(t, db.Create(&config).Error)
+
+	committed, identity, err := UpdateZTAPIModelIdentity(ZTAPIModelIdentityUpdate{
+		ModelConfigID: config.ID, SourceModel: config.SourceModel,
+		PublicName: "zt-glm-5.2", Protocol: ZTAPIProtocolOpenAICompatible,
+		ProviderFamily:  ZTAPIProviderGLM,
+		SourceReference: "supplier-model-list", Reason: "map GLM OpenAI-compatible route",
+		ExpectedVersion: 1, OperatorID: 11,
+	})
+	require.NoError(t, err)
+	require.Equal(t, ZTAPIProviderGLM, identity.ProviderFamily)
+	require.Equal(t, ZTAPIProtocolOpenAICompatible, committed.Protocol)
+	require.Equal(t, ZTAPIModelFamilyOpenAI, committed.Family)
+}
+
 func TestImportZTAPIModelPriceSourcePersistsEvidenceAndUpdatesTokenSnapshot(t *testing.T) {
 	db := setupZTAPIModelEvidenceWriteTestDB(t)
 	config := ZTAPIModelConfig{SourceModel: "zq-cl-op5", EnabledGroups: "[]", Version: 2}
