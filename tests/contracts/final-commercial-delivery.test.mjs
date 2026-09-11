@@ -340,6 +340,26 @@ test('ordinary-user acceptance creates retrieves cancels and reconciles an unpai
   assert.match(source, /cleanup_synthetic_acceptance\(\)[\s\S]*acceptance_outstanding_trade_no/);
 });
 
+test('ordinary-user acceptance credit covers the image reservation and remains cleanup-safe', () => {
+  const source = read(workflowPath);
+  const seedMatch = source.match(/acceptance_seed_quota=(\d+)/);
+  assert.ok(seedMatch, 'deployment acceptance must define one auditable temporary-credit amount');
+
+  const seedQuota = Number(seedMatch[1]);
+  const imageReservationQuota = Math.round(
+    ((200_000 * 6.5) + (196 * 39)) * (500_000 / 1_000_000),
+  );
+  assert.ok(
+    seedQuota >= imageReservationQuota + 500_000,
+    `temporary credit ${seedQuota} must cover image reservation ${imageReservationQuota} plus prior acceptance traffic`,
+  );
+  assert.match(source, /--argjson delta "\$acceptance_seed_quota"/);
+  assert.match(source, /\.data\.balance_after == \$seed_quota/);
+  assert.match(source, /\.delta == \$seed_quota/);
+  assert.match(source, /cleanup_synthetic_acceptance_with_retry/);
+  assert.match(source, /\.data\.balance_after == 0/);
+});
+
 test('failed synthetic-order cleanup retains the trade number for retry', () => {
   const source = read(workflowPath);
   const cleanupStart = source.indexOf('cleanup_synthetic_acceptance()');

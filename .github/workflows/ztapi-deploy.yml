@@ -1425,9 +1425,13 @@ jobs:
             "https://admin.ztapi.vip/api/admin/users/$acceptance_user_id" | jq -er '.data.quota')
           test "$acceptance_post_cancel_quota" = "$acceptance_pre_order_quota"
 
+          # Keep enough temporary credit for the image protocol's 653,822-quota
+          # maximum reservation plus the text and embedding acceptance calls.
+          acceptance_seed_quota=5000000
           acceptance_seed_result=$(jq -cn \
             --arg key "ordinary-seed-$acceptance_user_id" \
-            '{delta:500000,reason:"commercial acceptance temporary credit",idempotency_key:$key}' |
+            --argjson delta "$acceptance_seed_quota" \
+            '{delta:$delta,reason:"commercial acceptance temporary credit",idempotency_key:$key}' |
             curl --fail --silent --show-error \
               --resolve admin.ztapi.vip:443:127.0.0.1 \
               --header 'Content-Type: application/json' \
@@ -1436,7 +1440,8 @@ jobs:
               --data-binary @- \
               "https://admin.ztapi.vip/api/admin/users/$acceptance_user_id/balance-adjustments")
           acceptance_seed_ledger_id=$(echo "$acceptance_seed_result" | jq -er \
-            'select(.success == true and .data.applied == true and .data.user_id > 0 and .data.balance_after == 500000) | .data.id')
+            --argjson seed_quota "$acceptance_seed_quota" \
+            'select(.success == true and .data.applied == true and .data.user_id > 0 and .data.balance_after == $seed_quota) | .data.id')
 
           acceptance_catalog=$(curl --fail --silent --show-error \
             --header "Authorization: Bearer $acceptance_user_access_token" \
@@ -1629,8 +1634,9 @@ jobs:
           echo "$acceptance_ledger_before_cleanup" | jq -e \
             --argjson user_id "$acceptance_user_id" \
             --argjson seed_id "$acceptance_seed_ledger_id" \
+            --argjson seed_quota "$acceptance_seed_quota" \
             '.success == true
-              and any(.data.items[]; .id == $seed_id and .user_id == $user_id and .delta == 500000)
+              and any(.data.items[]; .id == $seed_id and .user_id == $user_id and .delta == $seed_quota)
               and all(.data.items[]; .user_id == $user_id)' >/dev/null
 
           cleanup_synthetic_acceptance_with_retry
