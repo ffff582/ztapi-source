@@ -40,6 +40,7 @@ func setupZTAPIImageBillingChain(t *testing.T, c interface{ Set(string, any) }, 
 	require.NoError(t, model.MigrateZTAPISupplierRefund(db))
 	require.NoError(t, model.MigrateZTAPIAttemptBilling(db))
 	require.NoError(t, model.MigrateZTAPISettlementLogOutbox(db))
+	require.NoError(t, model.MigrateLogDBZTAPISettlementLogs(db))
 	require.NoError(t, model.MigrateZTAPIFinanceAlerts(db))
 	user := model.User{Username: "image-chain-user", Password: "unused", Status: common.UserStatusEnabled, Quota: quota, Group: "default"}
 	require.NoError(t, db.Create(&user).Error)
@@ -98,6 +99,12 @@ func TestZTAPIImageSettlementRealChainTrustedUsageSettlesExactly(t *testing.T) {
 	require.NoError(t, db.Model(&model.ZTAPISettlementLogOutbox{}).Where("operation_id = ?", row.OperationID).Count(&logs).Error)
 	require.EqualValues(t, 2, ledgers)
 	require.EqualValues(t, 1, logs)
+	var consumeLog model.Log
+	require.NoError(t, db.Where("request_id = ? AND user_id = ? AND type = ?", info.RequestId, info.UserId, model.LogTypeConsume).Take(&consumeLog).Error)
+	require.Equal(t, info.OriginModelName, consumeLog.ModelName)
+	require.EqualValues(t, row.ChargedQuota, consumeLog.Quota)
+	require.Equal(t, 41, consumeLog.ChannelId)
+	require.Equal(t, "req-image-settle", consumeLog.UpstreamRequestId)
 }
 
 func TestZTAPIImageSettlementRealChainPendingDeliversOnceWithoutRefundOrFallback(t *testing.T) {

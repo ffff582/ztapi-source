@@ -265,6 +265,12 @@ func FinalizeZTAPIImageBilling(info *relaycommon.RelayInfo, evidence relaycommon
 	s.row = row
 	s.usageJSON = row.UsageJSON
 	s.dimensionsJSON = row.ChargeDimensionsJSON
+	// Make a successful image charge visible to the caller immediately. The
+	// durable outbox remains pending if log delivery fails and the maintenance
+	// worker will retry it without duplicating the consumption record.
+	if _, err = model.ProcessPendingZTAPISettlementLogs(1); err != nil {
+		common.SysError("managed image billing log delivery deferred: " + err.Error())
+	}
 	return nil
 }
 
