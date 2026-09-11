@@ -546,8 +546,11 @@ func TestVerifyZTAPIGemini25ImageUsesNativeGenerationAndPersistsExactProtocol(t 
 			}},
 			"usageMetadata": map[string]any{
 				"promptTokenCount": 18, "candidatesTokenCount": 196, "totalTokenCount": 214,
-				"promptTokensDetails":     []any{map[string]any{"modality": "TEXT", "tokenCount": 18}},
-				"candidatesTokensDetails": []any{map[string]any{"modality": "IMAGE", "tokenCount": 196}},
+				"promptTokensDetails": []any{map[string]any{"modality": "TEXT", "tokenCount": 18}},
+				"candidatesTokensDetails": []any{
+					map[string]any{"modality": "IMAGE", "tokenCount": 191},
+					map[string]any{"modality": "TEXT", "tokenCount": 5},
+				},
 			},
 		})
 		require.NoError(t, err)
@@ -600,6 +603,27 @@ func TestGeminiImageVerifierRejectsUsageThatRuntimeCannotSettle(t *testing.T) {
 			name: "unsupported cached input",
 			mutate: func(usage map[string]any) {
 				usage["cachedContentTokenCount"] = 1
+			},
+		},
+		{
+			name: "unsupported output modality",
+			mutate: func(usage map[string]any) {
+				usage["candidatesTokensDetails"] = []any{map[string]any{"modality": "AUDIO", "tokenCount": 196}}
+			},
+		},
+		{
+			name: "output modality total mismatch",
+			mutate: func(usage map[string]any) {
+				usage["candidatesTokensDetails"] = []any{
+					map[string]any{"modality": "IMAGE", "tokenCount": 190},
+					map[string]any{"modality": "TEXT", "tokenCount": 5},
+				}
+			},
+		},
+		{
+			name: "missing image output usage",
+			mutate: func(usage map[string]any) {
+				usage["candidatesTokensDetails"] = []any{map[string]any{"modality": "TEXT", "tokenCount": 196}}
 			},
 		},
 	} {

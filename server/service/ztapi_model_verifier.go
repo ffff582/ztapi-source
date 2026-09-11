@@ -384,11 +384,23 @@ func performZTAPIGeminiImageProbe(
 	candidateDetails := root.Get("usageMetadata.candidatesTokensDetails").Array()
 	if len(promptDetails) != 1 || promptDetails[0].Get("modality").String() != "TEXT" ||
 		int(promptDetails[0].Get("tokenCount").Int()) != usage.PromptTokens ||
-		len(candidateDetails) != 1 || candidateDetails[0].Get("modality").String() != "IMAGE" ||
-		int(candidateDetails[0].Get("tokenCount").Int()) != usage.CompletionTokens ||
 		root.Get("usageMetadata.cachedContentTokenCount").Int() != 0 ||
 		root.Get("usageMetadata.toolUsePromptTokenCount").Int() != 0 ||
 		root.Get("usageMetadata.thoughtsTokenCount").Int() != 0 {
+		return ztapiProbeUsage{}, "", response.StatusCode, errors.New("upstream Gemini image verification usage cannot be settled by the frozen contract")
+	}
+	candidateTokenTotal := 0
+	hasImageTokens := false
+	for _, detail := range candidateDetails {
+		modality := detail.Get("modality").String()
+		tokenCount := int(detail.Get("tokenCount").Int())
+		if tokenCount <= 0 || (modality != "IMAGE" && modality != "TEXT") {
+			return ztapiProbeUsage{}, "", response.StatusCode, errors.New("upstream Gemini image verification usage cannot be settled by the frozen contract")
+		}
+		candidateTokenTotal += tokenCount
+		hasImageTokens = hasImageTokens || modality == "IMAGE"
+	}
+	if !hasImageTokens || candidateTokenTotal != usage.CompletionTokens {
 		return ztapiProbeUsage{}, "", response.StatusCode, errors.New("upstream Gemini image verification usage cannot be settled by the frozen contract")
 	}
 	_, canonical, err := ztapiGemini25ImageProtocolContract()
