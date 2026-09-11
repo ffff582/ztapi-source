@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "39e60df1418bbaee1991a583d4dafd720bc44ebd",
+  "release_commit": "51ac6b6a2812091cbacbf96315064ca9ecbe94fa",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-39e60df1418bbaee1991a583d4dafd720bc44ebd",
+  "source_tag": "production-51ac6b6a2812091cbacbf96315064ca9ecbe94fa",
   "files": [
     {
       "path": ".dockerignore",
@@ -46,7 +46,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "b54bc820818b1a10ca3c5908fa48dbd84d8dfd73c64b29a7a9cba7b4dd52023e",
+      "sha256": "dc322091c47335cf23b66b889fc008837164a7ff6ca597f735912f99b07193b1",
       "size": 695
     },
     {
@@ -61,7 +61,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "fcf306ad86a7d476a26d7f2f39e2505a3c47831a9a16c0ee160f1040bb9b50ca",
+      "sha256": "71beef5a28fcfc783c0bc9868f04d29a0329287b0b9f104ca7dea2ad21eb64f5",
       "size": 942
     },
     {
@@ -4491,13 +4491,13 @@
     },
     {
       "path": "server/service/ztapi_health_worker.go",
-      "sha256": "74d39ddeb6afa208a50d197cf0dfa4454e34cf90fa01d9eee97e8e30dfa2ec10",
-      "size": 66090
+      "sha256": "6df09691b3f4de17c12a0b33e2521423599e961e4831d440a8ac05d35cc73d49",
+      "size": 66513
     },
     {
       "path": "server/service/ztapi_health_worker_test.go",
-      "sha256": "e589665f5dfa828ec3febd76fb11c363b297cf05a00e4b87e35686cb8b6a6dd3",
-      "size": 51650
+      "sha256": "c3fbba531b8679644ee71eace17d836cc01da6eca0732f1557d1c85d75042731",
+      "size": 53078
     },
     {
       "path": "server/service/ztapi_media_billing.go",
@@ -8976,8 +8976,8 @@
     },
     {
       "path": "tests/contracts/health-deployment.test.mjs",
-      "sha256": "e142cc659d5f49b4edc92661bb0acbc39cf39f7f2a129f4db64aa10dee4c66b7",
-      "size": 1753
+      "sha256": "a7ea378ca17d7a412c172347a4d508056d717134f357a4bc75b827da95c21e93",
+      "size": 1793
     },
     {
       "path": "tests/contracts/media-commercial-gate.test.mjs",

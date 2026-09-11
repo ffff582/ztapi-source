@@ -38,8 +38,9 @@ const (
 var ErrZTAPIHealthWorkerBusy = errors.New("ztapi health worker already running")
 
 type ZTAPIHealthWorkerConfig struct {
-	ProbeKey    string
-	ProbeUserID int
+	ProbeKey               string
+	ProbeUserID            int
+	SyntheticProbesEnabled bool
 	// Parent verifies the key belongs to the configured dedicated probe user,
 	// whose authenticated ID is the engine's only source=probe authority.
 	ProbeIdentityValidated bool
@@ -91,6 +92,13 @@ func ZTAPIHealthWorkerConfigFromEnv() (ZTAPIHealthWorkerConfig, error) {
 			return c, errors.New("invalid probe user ID configuration")
 		}
 		c.ProbeUserID = id
+	}
+	if value := strings.TrimSpace(os.Getenv("ZTAPI_HEALTH_SYNTHETIC_PROBES_ENABLED")); value != "" {
+		enabled, err := strconv.ParseBool(value)
+		if err != nil {
+			return c, errors.New("invalid synthetic probe configuration")
+		}
+		c.SyntheticProbesEnabled = enabled
 	}
 	value := strings.TrimSpace(os.Getenv("ZTAPI_HEALTH_PROBE_BUDGET_USD"))
 	if value == "" {
@@ -1041,6 +1049,10 @@ func (w *ZTAPIHealthWorker) runProbes(ctx context.Context) error {
 	}
 	for _, job := range expired {
 		w.status(ctx, "abandoned_dispatch", job.ID)
+	}
+	if !w.config.SyntheticProbesEnabled {
+		w.status(ctx, "synthetic_probes_disabled", "")
+		return nil
 	}
 	identityValid := w.config.ProbeIdentityValidated
 	if w.backend.ValidateProbeIdentity != nil {

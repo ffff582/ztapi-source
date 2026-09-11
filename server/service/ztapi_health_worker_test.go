@@ -42,6 +42,7 @@ func healthWorkerFixture(t *testing.T) (*ZTAPIHealthWorker, *time.Time, *int) {
 	now := time.Unix(2_000_000_000, 0)
 	sends := 0
 	config := DefaultZTAPIHealthWorkerConfig()
+	config.SyntheticProbesEnabled = true
 	config.ProbeKey = "offline-dedicated-key"
 	config.ProbeUserID, config.ProbeIdentityValidated = 999, true
 	config.RelayBaseURL = "http://127.0.0.1:3000"
@@ -568,10 +569,20 @@ func TestZTAPIHealthWorkerConfigMoneyAndShutdown(t *testing.T) {
 	t.Setenv("ZTAPI_HEALTH_PROBE_KEY", "")
 	t.Setenv("ZTAPI_HEALTH_PROBE_USER_ID", "")
 	t.Setenv("ZTAPI_HEALTH_PROBE_BUDGET_USD", "0.000000001")
+	t.Setenv("ZTAPI_HEALTH_SYNTHETIC_PROBES_ENABLED", "")
 	c, err := ZTAPIHealthWorkerConfigFromEnv()
 	require.NoError(t, err)
 	require.EqualValues(t, 1, c.InitialAllocationNanoUSD)
 	require.False(t, c.ProbeIdentityValidated)
+	require.False(t, c.SyntheticProbesEnabled)
+	t.Setenv("ZTAPI_HEALTH_SYNTHETIC_PROBES_ENABLED", "true")
+	c, err = ZTAPIHealthWorkerConfigFromEnv()
+	require.NoError(t, err)
+	require.True(t, c.SyntheticProbesEnabled)
+	t.Setenv("ZTAPI_HEALTH_SYNTHETIC_PROBES_ENABLED", "not-a-boolean")
+	_, err = ZTAPIHealthWorkerConfigFromEnv()
+	require.Error(t, err)
+	t.Setenv("ZTAPI_HEALTH_SYNTHETIC_PROBES_ENABLED", "")
 	for _, value := range []string{"-1", "1e2", "1/2", "0.0000000001", "NaN", "9223372037"} {
 		t.Setenv("ZTAPI_HEALTH_PROBE_BUDGET_USD", value)
 		_, err := ZTAPIHealthWorkerConfigFromEnv()
@@ -649,6 +660,7 @@ func TestZTAPIHealthWorkerProductionDisabledStatusAndNoAllocation(t *testing.T) 
 	model.DB, model.LOG_DB = w.backend.Probes.DB, w.backend.Probes.DB
 	t.Cleanup(func() { model.DB, model.LOG_DB = oldDB, oldLog })
 	config := DefaultZTAPIHealthWorkerConfig()
+	config.SyntheticProbesEnabled = true
 	config.Now = w.config.Now
 	config.InitialAllocationNanoUSD = 30_000_000_000
 	backend, err := NewProductionZTAPIHealthWorkerBackend(config)
@@ -716,6 +728,26 @@ func TestZTAPIHealthWorkerProductionFlagFalseBlocksPaidProbe(t *testing.T) {
 	require.NoError(t, w.backend.Probes.DB.First(&job, job.ID).Error)
 	require.Equal(t, "done", job.Status)
 	require.Equal(t, "", job.LastError)
+}
+
+func TestZTAPIHealthWorkerSyntheticProbesDisabledKeepsOutboxAndSkipsPaidProbe(t *testing.T) {
+	w, now, sends := productionWorkerFixture(t)
+	w.config.SyntheticProbesEnabled = false
+	job := model.ZTAPIHealthOutbox{DedupKey: "coverage-synthetic-disabled", Kind: "coverage", EventID: 123, Status: "pending", NextAttemptAt: now.Unix()}
+	require.NoError(t, w.backend.Probes.DB.Create(&job).Error)
+
+	require.NoError(t, w.RunOnce(context.Background()))
+	require.Zero(t, *sends)
+	statuses, err := GetProductionZTAPIHealthWorkerStatus(context.Background())
+	require.NoError(t, err)
+	codes := []string{}
+	for _, status := range statuses {
+		codes = append(codes, status.Code)
+	}
+	require.Contains(t, codes, "synthetic_probes_disabled")
+	require.Contains(t, codes, "orphaned_admission_admin_only")
+	require.NoError(t, w.backend.Probes.DB.First(&job, job.ID).Error)
+	require.Equal(t, "done", job.Status)
 }
 
 func TestZTAPIHealthWorkerProductionFairCatalogCostSamplesAndRecheck(t *testing.T) {

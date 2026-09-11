@@ -7,7 +7,7 @@ test('P5 runtime secrets survive source release replacement and are not required
  const compose=YAML.parse(readFileSync('deploy/docker/docker-compose.prod.yml','utf8'));
  assert.deepEqual(compose.services.server.env_file,[{path:'/etc/ztapi/health.env',required:false}]);
  const environment=compose.services.server.environment;
- for(const key of ['ZTAPI_HEALTH_ENABLED','ZTAPI_HEALTH_PROBE_KEY','ZTAPI_HEALTH_ALERT_WEBHOOK_URL']) assert.equal(environment[key],undefined,'compose must not override protected runtime configuration');
+ for(const key of ['ZTAPI_HEALTH_ENABLED','ZTAPI_HEALTH_PROBE_KEY','ZTAPI_HEALTH_ALERT_WEBHOOK_URL','ZTAPI_HEALTH_SYNTHETIC_PROBES_ENABLED']) assert.equal(environment[key],undefined,'compose must not override protected runtime configuration');
 });
 
 test('P5 CI runs the real MySQL test with mandatory isolated database coverage',()=>{
