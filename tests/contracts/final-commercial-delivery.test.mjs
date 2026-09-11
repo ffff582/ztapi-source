@@ -418,6 +418,30 @@ test('deployment verifies, publishes, and bills GPT Image 2 through an ordinary 
   assert.match(source, /published_media_count:1/);
 });
 
+test('pre-cutover media guard permits the already-published GPT Image 2 only', () => {
+  const source = read(workflowPath);
+  const guard = source.slice(
+    source.indexOf('blocked_media_count='),
+    source.indexOf('write_receipt smoke'),
+  );
+
+  assert.ok(guard.length > 0, 'pre-cutover blocked-media guard must exist');
+  assert.doesNotMatch(
+    guard,
+    /'gpt-image-2'/,
+    'an idempotent redeploy must not reject the already-published GPT Image 2',
+  );
+  for (const unresolvedModel of [
+    'gemini-2.5-flash-image',
+    'doubao-seedance-2.0',
+    'doubao-seedance-2.0-fast',
+    'doubao-seedance-2.0-mini',
+  ]) {
+    assert.match(guard, new RegExp(`'${unresolvedModel.replaceAll('.', '\\.')}'`));
+  }
+  assert.match(guard, /test "\$blocked_media_count" = "0"/);
+});
+
 test('exact catalog comparison rejects an unpublished substitution at the same count', () => {
   const baseline = JSON.parse(read('server/model/testdata/ztapi_public_pricing_baseline_v1.json'));
   const quotation = JSON.parse(read('server/model/ztapi_quotation_v1.json'));

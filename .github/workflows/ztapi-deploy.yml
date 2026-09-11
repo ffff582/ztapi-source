@@ -940,13 +940,12 @@ jobs:
             wget -qO- http://127.0.0.1:3000/api/status)
           echo "$private_status" | grep -q '"success":true'
           echo "$private_status" | grep -q '"system_name":"ZTAPI"'
-          unpublished_media_count=$("${compose[@]}" exec -T mysql sh -c \
+          blocked_media_count=$("${compose[@]}" exec -T mysql sh -c \
             'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names' <<'SQL'
           SELECT COUNT(*)
           FROM ztapi_model_configs
           WHERE published = 1
             AND source_model IN (
-              'gpt-image-2',
               'gemini-2.5-flash-image',
               'doubao-seedance-2.0',
               'doubao-seedance-2.0-fast',
@@ -954,7 +953,7 @@ jobs:
             );
           SQL
           )
-          test "$unpublished_media_count" = "0"
+          test "$blocked_media_count" = "0"
           "${compose[@]}" run --rm --no-deps nginx nginx -t
           write_receipt smoke
 
