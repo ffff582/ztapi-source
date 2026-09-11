@@ -504,6 +504,35 @@ test('deployment verifies, publishes, and bills Gemini 2.5 image through the nat
   assert.match(source, /published_media_count:2/);
 });
 
+test('an unchanged published Gemini image product does not block unrelated deployments', () => {
+  const source = read(workflowPath);
+  const rollout = source.slice(
+    source.indexOf('# Publish Gemini 2.5 Flash Image'),
+    source.indexOf("test \"$(curl --silent --output /dev/null", source.indexOf('# Publish Gemini 2.5 Flash Image')),
+  );
+
+  assert.match(
+    rollout,
+    /gemini_image_requires_acceptance=true[\s\S]*if \[ "\$gemini_was_published" = true \]; then[\s\S]*gemini_image_requires_acceptance=false/,
+    'an already-published Gemini image product should start as acceptance-complete',
+  );
+  assert.match(
+    rollout,
+    /if ! echo "\$ztapi_gemini_image_model"[\s\S]*gemini_image_requires_acceptance=true[\s\S]*gemini_image_identity_result=/,
+    'an identity change must restore the blocking acceptance requirement',
+  );
+  assert.match(
+    rollout,
+    /if \[ "\$current_gemini_image_price_sha" != "\$gemini_image_media_price_sha" \]; then[\s\S]*gemini_image_requires_acceptance=true[\s\S]*gemini_image_price_result=/,
+    'a price-contract change must restore the blocking acceptance requirement',
+  );
+  assert.match(
+    rollout,
+    /if \[ "\$gemini_image_requires_acceptance" = true \]; then[\s\S]*gemini_image_verification_result=[\s\S]*models\/ztapi\/\$ztapi_gemini_image_model_id\/verify[\s\S]*fi/,
+    'the paid upstream verifier must run only when first publication or configuration changes require it',
+  );
+});
+
 test('pre-cutover media guard permits both published image products', () => {
   const source = read(workflowPath);
   const guard = source.slice(

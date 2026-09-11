@@ -1403,6 +1403,10 @@ jobs:
 
           # Publish Gemini 2.5 Flash Image only through the dedicated native
           # Gemini route. The credential remains encrypted in the database.
+          gemini_image_requires_acceptance=true
+          if [ "$gemini_was_published" = true ]; then
+            gemini_image_requires_acceptance=false
+          fi
           ztapi_gemini_image_channel_id=$("${compose[@]}" exec -T mysql sh -c \
             'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names' <<'SQL'
           SELECT c.id
@@ -1441,6 +1445,7 @@ jobs:
               .public_name == "zt-gemini-2.5-flash-image"
               and .protocol == "openai_compatible"
               and .provider_family == "google"' >/dev/null; then
+            gemini_image_requires_acceptance=true
             gemini_image_identity_payload=$(echo "$ztapi_gemini_image_model" | jq -c \
               --arg checksum "$(jq -er '.sha256' /opt/ztapi/server/model/ztapi_quotation_v1.json)" '
                 {
@@ -1488,6 +1493,7 @@ jobs:
           SQL
           )
           if [ "$current_gemini_image_price_sha" != "$gemini_image_media_price_sha" ]; then
+            gemini_image_requires_acceptance=true
             ztapi_gemini_image_model=$(curl --fail --silent --show-error \
               --resolve admin.ztapi.vip:443:127.0.0.1 \
               --header "Authorization: Bearer $admin_access_token" \
@@ -1534,22 +1540,24 @@ jobs:
               and .data.preview.output_sale_usd_per_million == "3.4166666667"' >/dev/null
           fi
 
-          gemini_image_verification_result=$(jq -cn --argjson channel_id "$ztapi_gemini_image_channel_id" \
-            '{channel_id:$channel_id}' | curl --fail --silent --show-error \
-              --resolve admin.ztapi.vip:443:127.0.0.1 \
-              --header 'Content-Type: application/json' \
-              --header "Authorization: Bearer $admin_access_token" \
-              --header "New-API-User: $admin_user_id" \
-              --data-binary @- \
-              "https://admin.ztapi.vip/api/models/ztapi/$ztapi_gemini_image_model_id/verify")
-          echo "$gemini_image_verification_result" | jq -e '
-            .success == true
-            and .data.verification.modality == "image"
-            and .data.verification.non_streaming_passed == true
-            and .data.verification.streaming_required == false
-            and .data.verification.usage_reconciled == true
-            and .data.verification.media_result_valid == true
-            and (.data.verification.image_protocol_contract | length) > 0' >/dev/null
+          if [ "$gemini_image_requires_acceptance" = true ]; then
+            gemini_image_verification_result=$(jq -cn --argjson channel_id "$ztapi_gemini_image_channel_id" \
+              '{channel_id:$channel_id}' | curl --fail --silent --show-error \
+                --resolve admin.ztapi.vip:443:127.0.0.1 \
+                --header 'Content-Type: application/json' \
+                --header "Authorization: Bearer $admin_access_token" \
+                --header "New-API-User: $admin_user_id" \
+                --data-binary @- \
+                "https://admin.ztapi.vip/api/models/ztapi/$ztapi_gemini_image_model_id/verify")
+            echo "$gemini_image_verification_result" | jq -e '
+              .success == true
+              and .data.verification.modality == "image"
+              and .data.verification.non_streaming_passed == true
+              and .data.verification.streaming_required == false
+              and .data.verification.usage_reconciled == true
+              and .data.verification.media_result_valid == true
+              and (.data.verification.image_protocol_contract | length) > 0' >/dev/null
+          fi
 
           ztapi_gemini_image_model=$(curl --fail --silent --show-error \
             --resolve admin.ztapi.vip:443:127.0.0.1 \
