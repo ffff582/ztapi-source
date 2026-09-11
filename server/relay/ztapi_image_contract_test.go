@@ -284,6 +284,22 @@ func TestZTAPIImageResponsePreservesUntrustedUsageCandidate(t *testing.T) {
 	}
 }
 
+func TestZTAPIGeminiImageUsageAllowsImageAndTextOutputDetails(t *testing.T) {
+	usage := dto.GeminiUsageMetadata{
+		PromptTokenCount:     6,
+		CandidatesTokenCount: 1295,
+		TotalTokenCount:      1301,
+		PromptTokensDetails: []dto.GeminiPromptTokensDetails{
+			{Modality: "TEXT", TokenCount: 6},
+		},
+		CandidatesTokensDetails: []dto.GeminiPromptTokensDetails{
+			{Modality: "IMAGE", TokenCount: 1290},
+			{Modality: "TEXT", TokenCount: 5},
+		},
+	}
+	require.Empty(t, ztapiGeminiImageUsagePendingReason(usage))
+}
+
 func TestZTAPIManagedImageDuplicateUsageIsPendingRatherThanHardFailure(t *testing.T) {
 	for _, raw := range [][]byte{
 		[]byte(`{"request_id":"req-duplicate","data":[{"url":"https://example.invalid/x"}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2},"usage":{"input_tokens":2,"output_tokens":1,"total_tokens":3}}`),

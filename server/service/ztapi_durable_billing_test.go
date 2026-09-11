@@ -9,8 +9,41 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/require"
 )
+
+func TestObserveZTAPIBillingResponseDefersBodyFieldRequestID(t *testing.T) {
+	db, user, token := setupServiceTokenQuotaTest(t)
+	require.NoError(t, db.AutoMigrate(&model.ZTAPIRequestSettlement{}, &model.ZTAPIRequestAttempt{}))
+	row, err := model.BeginZTAPIRequestSettlement(model.ZTAPIRequestSettlement{
+		OperationID: "body-request-id-operation", RequestID: "body-request-id-request",
+		UserID: user.Id, TokenID: token.Id, PublicModel: "zt-gemini-2.5-flash-image",
+		TokenUnlimited: token.UnlimitedQuota, PriceSnapshotJSON: `{}`, ReservedQuota: 10,
+	})
+	require.NoError(t, err)
+	attempt, err := model.BeginZTAPIRequestAttempt(row.OperationID, 23, "credential-version", "/v1beta/models/gemini-2.5-flash-image:generateContent")
+	require.NoError(t, err)
+	info := &relaycommon.RelayInfo{
+		ZTAPIPublicationSnapshot: &relaycommon.ZTAPIPublicationSnapshot{
+			ImageProtocolContract: &types.ZTAPIImageProtocolContract{RequestIDSource: types.ZTAPIResponseIDSourceBodyField},
+		},
+	}
+	info.Billing = &ztapiDurableBilling{row: row, info: info, attempt: attempt}
+	require.NoError(t, ObserveZTAPIBillingResponse(info, &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"X-Request-Id": []string{"gateway-request-id"}},
+	}))
+
+	var stored model.ZTAPIRequestAttempt
+	require.NoError(t, db.First(&stored, attempt.ID).Error)
+	require.Equal(t, http.StatusOK, stored.HTTPStatus)
+	require.Empty(t, stored.UpstreamRequestID, "the verified body response ID owns financial lineage")
+	require.NoError(t, model.RecordZTAPIRequestAttemptResponse(row.OperationID, attempt.Attempt, attempt.ChannelID, http.StatusOK, "provider-body-response-id"))
+	require.NoError(t, db.First(&stored, attempt.ID).Error)
+	require.Equal(t, "provider-body-response-id", stored.UpstreamRequestID)
+}
 
 func TestZTAPIDurableBillingDispatchErrorKeepsPendingHold(t *testing.T) {
 	db, user, token := setupServiceTokenQuotaTest(t)

@@ -482,8 +482,17 @@ func ztapiGeminiImageUsagePendingReason(usage dto.GeminiUsageMetadata) string {
 		usage.PromptTokensDetails[0].TokenCount != usage.PromptTokenCount {
 		return "Gemini native image prompt usage detail is missing or inconsistent"
 	}
-	if len(usage.CandidatesTokensDetails) != 1 || usage.CandidatesTokensDetails[0].Modality != "IMAGE" ||
-		usage.CandidatesTokensDetails[0].TokenCount != usage.CandidatesTokenCount {
+	candidateTokenTotal := 0
+	hasImageTokens := false
+	for _, detail := range usage.CandidatesTokensDetails {
+		if detail.TokenCount <= 0 || (detail.Modality != "IMAGE" && detail.Modality != "TEXT") ||
+			candidateTokenTotal > math.MaxInt-detail.TokenCount {
+			return "Gemini native image output usage detail is missing or inconsistent"
+		}
+		candidateTokenTotal += detail.TokenCount
+		hasImageTokens = hasImageTokens || detail.Modality == "IMAGE"
+	}
+	if !hasImageTokens || candidateTokenTotal != usage.CandidatesTokenCount {
 		return "Gemini native image output usage detail is missing or inconsistent"
 	}
 	return ""

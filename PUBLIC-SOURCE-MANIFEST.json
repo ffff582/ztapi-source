@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "5b3c994a57950e0378206f6e9db4f24854792c84",
+  "release_commit": "39e60df1418bbaee1991a583d4dafd720bc44ebd",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-5b3c994a57950e0378206f6e9db4f24854792c84",
+  "source_tag": "production-39e60df1418bbaee1991a583d4dafd720bc44ebd",
   "files": [
     {
       "path": ".dockerignore",
@@ -46,7 +46,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "c81fe0f435eb4b9f828614675c0daff633eb47812b0aeb8b7ef4f62d096d5aaa",
+      "sha256": "b54bc820818b1a10ca3c5908fa48dbd84d8dfd73c64b29a7a9cba7b4dd52023e",
       "size": 695
     },
     {
@@ -61,7 +61,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "769aa233a51b6cb624335358887cc5f4095541fdb27d09c27d886ab14a37f37a",
+      "sha256": "fcf306ad86a7d476a26d7f2f39e2505a3c47831a9a16c0ee160f1040bb9b50ca",
       "size": 942
     },
     {
@@ -3906,13 +3906,13 @@
     },
     {
       "path": "server/relay/ztapi_image_contract.go",
-      "sha256": "623526f12f0d17bc75c3a17fe49a5b4acc23c6e567f23d74ae9db011c0326f99",
-      "size": 24627
+      "sha256": "b4dc11a731aa8c4a6b97c1d6157526d26cecc07810baf87e97c0719ee5b90319",
+      "size": 24970
     },
     {
       "path": "server/relay/ztapi_image_contract_test.go",
-      "sha256": "f85de31f71ff02be291bf3ec36d568642c7674d78922af9bcc4e4355163a8a1b",
-      "size": 29847
+      "sha256": "70a8e462ba4f4c73a2ec4ac3fceb8f09bd9c0afa3b7c68d349a08fac04dbc34f",
+      "size": 30358
     },
     {
       "path": "server/relay/ztapi_image_diagnostic.go",
@@ -4446,13 +4446,13 @@
     },
     {
       "path": "server/service/ztapi_durable_billing.go",
-      "sha256": "8598316811e3c0d4507ca901d5adc14952667af800221416875eba5b9f807b82",
-      "size": 11720
+      "sha256": "5e1a8d00a755de08d81347e0e31d486a3608a9cb59224eb633f128c7bb1b570c",
+      "size": 11978
     },
     {
       "path": "server/service/ztapi_durable_billing_test.go",
-      "sha256": "3f9ff391d0f71b21b4b5d1fe91923e2fa69cf7bc288089a0ed83b02b64bd869d",
-      "size": 9478
+      "sha256": "f23ab243d7f38e7175d0953c441f7c22dd6ded1c63df44acd6b389181cbb264f",
+      "size": 11327
     },
     {
       "path": "server/service/ztapi_embedding_verifier_test.go",

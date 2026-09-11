@@ -213,10 +213,15 @@ func ObserveZTAPIBillingResponse(info *relaycommon.RelayInfo, response *http.Res
 		return model.ErrZTAPISettlementInvalid
 	}
 	id := ""
-	for _, name := range []string{"x-request-id", "request-id", "x-goog-request-id", "x-amzn-requestid"} {
-		if v := response.Header.Get(name); v != "" {
-			id = v
-			break
+	contract := info.ZTAPIPublicationSnapshot
+	bodyFieldOwnsRequestID := contract != nil && contract.ImageProtocolContract != nil &&
+		contract.ImageProtocolContract.RequestIDSource == types.ZTAPIResponseIDSourceBodyField
+	if !bodyFieldOwnsRequestID {
+		for _, name := range []string{"x-request-id", "request-id", "x-goog-request-id", "x-amzn-requestid"} {
+			if v := response.Header.Get(name); v != "" {
+				id = v
+				break
+			}
 		}
 	}
 	return model.RecordZTAPIRequestAttemptResponse(s.row.OperationID, s.attempt.Attempt, s.attempt.ChannelID, response.StatusCode, id)
