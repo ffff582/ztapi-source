@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"net/http"
 	"strings"
 	"testing"
 
@@ -10,6 +11,33 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/stretchr/testify/require"
 )
+
+func TestFetchManagedAIHubGeminiModelsUsesOpenAIListAndBearerAuth(t *testing.T) {
+	baseURL := "https://example.com/hub"
+	channel := &model.Channel{
+		Type:         constant.ChannelTypeGemini,
+		Status:       common.ChannelStatusEnabled,
+		Key:          "test-only-enterprise-key",
+		BaseURL:      &baseURL,
+		ZTAPIManaged: true,
+		ZTAPIFamily:  model.ZTAPIModelFamilyGemini,
+	}
+
+	previous := fetchZTAPIModelListResponseBody
+	fetchZTAPIModelListResponseBody = func(method, url string, got *model.Channel, headers http.Header) ([]byte, error) {
+		require.Equal(t, http.MethodGet, method)
+		require.Equal(t, "https://example.com/hub/v1/models", url)
+		require.Same(t, channel, got)
+		require.Equal(t, "Bearer test-only-enterprise-key", headers.Get("Authorization"))
+		require.Empty(t, headers.Get("x-goog-api-key"))
+		return []byte(`{"data":[{"id":"gemini-2.5-flash-image"},{"id":"gemini-2.5-pro"}]}`), nil
+	}
+	t.Cleanup(func() { fetchZTAPIModelListResponseBody = previous })
+
+	models, err := fetchZTAPIManagedAIHubGeminiModelIDs(channel, baseURL)
+	require.NoError(t, err)
+	require.Equal(t, []string{"gemini-2.5-flash-image", "gemini-2.5-pro"}, models)
+}
 
 func TestFetchManagedChannelModelsRejectsUnsafePersistedBaseURL(t *testing.T) {
 	baseURL := "https://169.254.169.254"

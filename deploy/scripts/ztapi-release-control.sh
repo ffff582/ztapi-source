@@ -71,6 +71,10 @@ stop_watchdog() {
 }
 
 restore_registration_options() {
+  registration_restore_marker="$receipt_dir/registration-options-restored"
+  if [ -s "$registration_restore_marker" ]; then
+    return 0
+  fi
   test "${previous_register_enabled:-}" = true || test "$previous_register_enabled" = false
   test "${previous_password_register_enabled:-}" = true || test "$previous_password_register_enabled" = false
   printf "INSERT INTO options (\`key\`, \`value\`) VALUES ('RegisterEnabled','%s'),('PasswordRegisterEnabled','%s') ON DUPLICATE KEY UPDATE \`value\`=VALUES(\`value\`);\n" \
@@ -79,6 +83,39 @@ restore_registration_options() {
       -f /opt/ztapi/deploy/docker/docker-compose.prod.yml \
       exec -T mysql sh -c \
         'exec mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE"'
+  printf 'restored_at_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$registration_restore_marker.tmp"
+  chmod 0600 "$registration_restore_marker.tmp"
+  mv "$registration_restore_marker.tmp" "$registration_restore_marker"
+}
+
+restore_gemini_rollout_state() {
+  if [ "${gemini_rollout_state_captured:-false}" != true ]; then
+    return 0
+  fi
+  gemini_restore_marker="$receipt_dir/gemini-rollout-restored"
+  if [ -s "$gemini_restore_marker" ]; then
+    return 0
+  fi
+  test -s "${gemini_channel_backup:-}"
+  compose=(docker compose --env-file /opt/ztapi/.env -f /opt/ztapi/deploy/docker/docker-compose.prod.yml)
+  "${compose[@]}" exec -T mysql sh -c \
+    'exec mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE"' < "$gemini_channel_backup"
+  if [ "${gemini_was_published:-false}" != true ]; then
+    "${compose[@]}" exec -T mysql sh -c \
+      'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE"' <<'SQL'
+UPDATE ztapi_model_configs
+SET published = 0,
+    publication_snapshot_id = 0,
+    enabled_groups = '[]',
+    version = version + 1,
+    updated_at = UNIX_TIMESTAMP()
+WHERE source_model = 'gemini-2.5-flash-image'
+  AND published = 1;
+SQL
+  fi
+  printf 'restored_at_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$gemini_restore_marker.tmp"
+  chmod 0600 "$gemini_restore_marker.tmp"
+  mv "$gemini_restore_marker.tmp" "$gemini_restore_marker"
 }
 
 verify_runtime() {
@@ -93,6 +130,7 @@ case "$action" in
     stop_watchdog
     write_receipt completed "external_acceptance=passed"
     remove_rollback_tags
+    rm -f "${gemini_channel_backup:-}"
     rm -f "$state_file"
     rm -f "$active_execution_file"
     ;;
@@ -111,6 +149,7 @@ case "$action" in
       rm -rf "$rollback_dir"
       compose=(docker compose --env-file /opt/ztapi/.env -f /opt/ztapi/deploy/docker/docker-compose.prod.yml)
       "${compose[@]}" up -d mysql redis --wait --wait-timeout 180
+      restore_gemini_rollout_state
       restore_registration_options
       "${compose[@]}" up -d --force-recreate server --wait --wait-timeout 180
       "${compose[@]}" up -d --force-recreate nginx --wait --wait-timeout 120
@@ -118,6 +157,7 @@ case "$action" in
     else
       # The first unlock still mutates the persistent options table. Restore it
       # while the new MySQL stack is available, then remove the unaccepted stack.
+      restore_gemini_rollout_state || rollback_status=$?
       restore_registration_options || rollback_status=$?
       docker compose --env-file /opt/ztapi/.env \
         -f /opt/ztapi/deploy/docker/docker-compose.prod.yml down --remove-orphans || rollback_status=$?
@@ -133,9 +173,11 @@ case "$action" in
       chmod 0600 "$unrelated_after"
       cmp -s "$unrelated_before" "$unrelated_after" || rollback_status=$?
     fi
-    write_receipt rollback "external_acceptance=failed restore_status=$rollback_status"
     test "$rollback_status" -eq 0
+    write_receipt rollback "external_acceptance=failed restore_status=$rollback_status"
     remove_rollback_tags
+    rm -f "${gemini_channel_backup:-}"
+    rm -f "$receipt_dir/gemini-rollout-restored" "$receipt_dir/registration-options-restored"
     rm -f "$state_file"
     rm -f "$active_execution_file"
     ;;

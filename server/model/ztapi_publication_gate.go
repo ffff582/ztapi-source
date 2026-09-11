@@ -94,7 +94,14 @@ func ztapiChannelTypeSupportsProtocol(channelType int, protocol string) bool {
 
 func ztapiRouteMatchesEvidence(route ztapiRouteAuthority, config *ZTAPIModelConfig) bool {
 	if route.Managed {
-		return ztapiChannelTypeSupportsProtocol(route.ChannelType, config.Protocol)
+		if ztapiChannelTypeSupportsProtocol(route.ChannelType, config.Protocol) {
+			return true
+		}
+		return route.ChannelType == constant.ChannelTypeGemini &&
+			route.Family == ZTAPIModelFamilyGemini &&
+			config.Protocol == ZTAPIProtocolOpenAICompatible &&
+			config.ProviderFamily == ZTAPIProviderGoogle &&
+			ZTAPIModelModality(config.SourceModel) == ZTAPIModalityImage
 	}
 	family := ztapiLegacyFamilyForProvider(config.ProviderFamily)
 	if family == "" {

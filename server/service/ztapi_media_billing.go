@@ -207,6 +207,13 @@ func FinalizeZTAPIImageSettlement(operationID string, evidence relaycommon.ZTAPI
 		ChannelId: 0, CreatedAt: row.CreatedAt.Unix(), UpstreamRequestId: evidence.UpstreamRequestID,
 		Other: string(metadata),
 	}
+	usageDimensions := evidence.GetDimensions()
+	if promptTokens, ok := usageDimensions["input_tokens"]; ok {
+		logEntry.PromptTokens = int(promptTokens.IntPart())
+	}
+	if completionTokens, ok := usageDimensions["output_tokens"]; ok {
+		logEntry.CompletionTokens = int(completionTokens.IntPart())
+	}
 	var finalAttempt model.ZTAPIRequestAttempt
 	if model.DB == nil || model.DB.Where("settlement_id = ? AND attempt = ?", row.ID, attempt).Take(&finalAttempt).Error != nil {
 		return nil, model.ErrZTAPISettlementConflict

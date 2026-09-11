@@ -366,6 +366,12 @@ func TestZTAPIMediaPriceContractQuotationEvidenceDoesNotPublish(t *testing.T) {
 			require.Equal(t, "zt-gp-image-2", entry.PublicName)
 			require.Equal(t, ZTAPIProtocolOpenAICompatible, entry.Protocol)
 			require.Equal(t, ZTAPIProviderOpenAI, entry.ProviderFamily)
+		} else if entry.Label == "gm25-fl-IMAGE" {
+			require.Equal(t, "mapped", entry.Status)
+			require.Equal(t, "gemini-2.5-flash-image", entry.SourceModel)
+			require.Equal(t, "zt-gemini-2.5-flash-image", entry.PublicName)
+			require.Equal(t, ZTAPIProtocolOpenAICompatible, entry.Protocol)
+			require.Equal(t, ZTAPIProviderGoogle, entry.ProviderFamily)
 		} else {
 			require.Equal(t, "mapping_pending", entry.Status)
 			require.Empty(t, entry.SourceModel)

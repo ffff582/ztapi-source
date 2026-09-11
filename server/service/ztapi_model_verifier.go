@@ -29,6 +29,8 @@ const (
 	ztapiVerificationSlowRequestTimeout = 60 * time.Second
 	ztapiVerificationBodyLimit          = 1 << 20
 	ztapiVerificationDefaultTokens      = 1024
+	ztapiGemini25ImageModel             = "gemini-2.5-flash-image"
+	ztapiGemini25ImagePath              = "/v1beta/models/gemini-2.5-flash-image:generateContent"
 )
 
 type ztapiModelProbeResult struct {
@@ -121,6 +123,12 @@ func ztapiVerificationEndpoint(channel *model.Channel, sourceModel string) (stri
 		return "", errors.New("managed verification channel URL is not public")
 	}
 	baseURL = strings.TrimRight(baseURL, "/")
+	if sourceModel == ztapiGemini25ImageModel {
+		if channel.Type != constant.ChannelTypeGemini {
+			return "", errors.New("Gemini image verification requires a Gemini channel")
+		}
+		return baseURL + ztapiGemini25ImagePath, nil
+	}
 	suffix := "/chat/completions"
 	if model.ZTAPIModelModality(sourceModel) == model.ZTAPIModalityEmbedding {
 		suffix = "/embeddings"
@@ -170,6 +178,43 @@ func ztapiGPTImage2ProtocolContract(requestIDHeader string) (types.ZTAPIImagePro
 			"model": types.ZTAPIImageRequestFieldRequired, "prompt": types.ZTAPIImageRequestFieldRequired,
 			"n": types.ZTAPIImageRequestFieldRequired, "size": types.ZTAPIImageRequestFieldRequired,
 			"quality": types.ZTAPIImageRequestFieldRequired, "response_format": types.ZTAPIImageRequestFieldOmit,
+		},
+	}
+	return types.SealZTAPIImageProtocolContract(contract)
+}
+
+func ztapiGemini25ImageProtocolContract() (types.ZTAPIImageProtocolContract, string, error) {
+	contract := types.ZTAPIImageProtocolContract{
+		Version:       types.ZTAPIImageProtocolContractVersionV2,
+		ProviderModel: ztapiGemini25ImageModel,
+		EndpointType:  types.ZTAPIImageEndpointGeneration,
+		Method:        http.MethodPost,
+		Path:          "/v1/images/generations",
+		WireProtocol:  types.ZTAPIImageWireProtocolGeminiGenerateContent,
+		ProviderPath:  ztapiGemini25ImagePath,
+		Capabilities: types.ZTAPIImageCapabilities{
+			Sizes: []string{"1024x1024"}, Qualities: []string{"standard"},
+			ResponseFormats: []string{"b64_json"}, MinCount: 1, MaxCount: 1,
+		},
+		Response: types.ZTAPIImageResponseContract{
+			Schema: types.ZTAPIImageResponseSchemaGeminiInlineImages, ResultsField: "candidates",
+			ResultFields: map[string]string{"b64_json": "content.parts.inlineData.data"},
+		},
+		Usage: types.ZTAPIImageUsageContract{
+			UsageField: "usageMetadata", TotalField: "totalTokenCount",
+			Fields:         map[string]string{"input_tokens": "promptTokenCount", "output_tokens": "candidatesTokenCount"},
+			TotalSemantics: "sum_of_dimensions", CacheSemantics: "not_reported",
+		},
+		Reservations: []types.ZTAPIImageReservationAuthority{{
+			Size: "1024x1024", Quality: "standard", ResponseFormat: "b64_json", N: 1,
+			MaximumDimensions: map[string]string{"input_tokens": "300000", "output_tokens": "2000"},
+		}},
+		RequestIDSource: types.ZTAPIResponseIDSourceBodyField, RequestIDKey: "responseId",
+		EvidenceVersion: types.ZTAPIImageEvidenceVersion,
+		UpstreamRequestFields: map[string]string{
+			"model": types.ZTAPIImageRequestFieldOmit, "prompt": types.ZTAPIImageRequestFieldRequired,
+			"n": types.ZTAPIImageRequestFieldOmit, "size": types.ZTAPIImageRequestFieldOmit,
+			"quality": types.ZTAPIImageRequestFieldOmit, "response_format": types.ZTAPIImageRequestFieldOmit,
 		},
 	}
 	return types.SealZTAPIImageProtocolContract(contract)
@@ -253,6 +298,102 @@ func performZTAPIGPTImageProbe(
 		PromptTokens:     int(root.Get("usage.input_tokens").Int()),
 		CompletionTokens: int(root.Get("usage.output_tokens").Int()),
 		TotalTokens:      int(root.Get("usage.total_tokens").Int()),
+	}
+	return usage, canonical, response.StatusCode, nil
+}
+
+func performZTAPIGeminiImageProbe(
+	ctx context.Context,
+	client *http.Client,
+	endpoint string,
+	key string,
+) (ztapiProbeUsage, string, int, error) {
+	payload := map[string]any{
+		"contents": []any{map[string]any{
+			"role": "user", "parts": []any{map[string]any{"text": "Generate a neutral blue circle."}},
+		}},
+		"generationConfig": map[string]any{"responseModalities": []string{"TEXT", "IMAGE"}},
+	}
+	body, err := common.Marshal(payload)
+	if err != nil {
+		return ztapiProbeUsage{}, "", 0, err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return ztapiProbeUsage{}, "", 0, err
+	}
+	request.Header.Set("Authorization", "Bearer "+key)
+	request.Header.Set("Content-Type", "application/json")
+	response, err := client.Do(request)
+	if err != nil {
+		return ztapiProbeUsage{}, "", 0, err
+	}
+	defer response.Body.Close()
+	const imageBodyLimit = 20 << 20
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, ztapiVerificationBodyLimit))
+		return ztapiProbeUsage{}, "", response.StatusCode, errors.New("upstream rejected Gemini image verification request")
+	}
+	body, err = io.ReadAll(io.LimitReader(response.Body, imageBodyLimit+1))
+	if err != nil || len(body) > imageBodyLimit || common.RejectDuplicateJsonObjectMembers(bytes.NewReader(body)) != nil {
+		return ztapiProbeUsage{}, "", response.StatusCode, errors.New("upstream Gemini image verification response is incomplete or malformed")
+	}
+	root := gjson.ParseBytes(body)
+	responseID := root.Get("responseId")
+	if responseID.Type != gjson.String || strings.TrimSpace(responseID.String()) == "" {
+		return ztapiProbeUsage{}, "", response.StatusCode, errors.New("upstream Gemini image verification response has no request ID")
+	}
+	candidates := root.Get("candidates").Array()
+	if len(candidates) != 1 || candidates[0].Get("finishReason").String() != "STOP" {
+		return ztapiProbeUsage{}, "", response.StatusCode, errors.New("upstream Gemini image verification response has an invalid candidate")
+	}
+	parts := candidates[0].Get("content.parts").Array()
+	imageData := ""
+	for _, part := range parts {
+		inlineData := part.Get("inlineData")
+		textPart := part.Get("text")
+		switch {
+		case inlineData.Exists() && !textPart.Exists() && inlineData.Get("mimeType").String() == "image/png" && imageData == "":
+			imageData = inlineData.Get("data").String()
+		case textPart.Exists() && !inlineData.Exists() && textPart.Type == gjson.String && strings.TrimSpace(textPart.String()) != "":
+			// Gemini may accompany the generated image with descriptive text.
+		default:
+			return ztapiProbeUsage{}, "", response.StatusCode, errors.New("upstream Gemini image verification response has an invalid result")
+		}
+	}
+	if imageData == "" {
+		return ztapiProbeUsage{}, "", response.StatusCode, errors.New("upstream Gemini image verification response has no image result")
+	}
+	decoded, err := base64.StdEncoding.DecodeString(imageData)
+	if err != nil {
+		return ztapiProbeUsage{}, "", response.StatusCode, errors.New("upstream Gemini image verification result is not valid base64")
+	}
+	imageConfig, format, err := image.DecodeConfig(bytes.NewReader(decoded))
+	if err != nil || format != "png" || imageConfig.Width != 1024 || imageConfig.Height != 1024 {
+		return ztapiProbeUsage{}, "", response.StatusCode, errors.New("upstream Gemini image verification result is not the required 1024x1024 PNG")
+	}
+	usage := ztapiProbeUsage{
+		PromptTokens:     int(root.Get("usageMetadata.promptTokenCount").Int()),
+		CompletionTokens: int(root.Get("usageMetadata.candidatesTokenCount").Int()),
+		TotalTokens:      int(root.Get("usageMetadata.totalTokenCount").Int()),
+	}
+	if !ztapiUsageReconciled(usage) {
+		return ztapiProbeUsage{}, "", response.StatusCode, errors.New("upstream Gemini image verification usage is not reconciled")
+	}
+	promptDetails := root.Get("usageMetadata.promptTokensDetails").Array()
+	candidateDetails := root.Get("usageMetadata.candidatesTokensDetails").Array()
+	if len(promptDetails) != 1 || promptDetails[0].Get("modality").String() != "TEXT" ||
+		int(promptDetails[0].Get("tokenCount").Int()) != usage.PromptTokens ||
+		len(candidateDetails) != 1 || candidateDetails[0].Get("modality").String() != "IMAGE" ||
+		int(candidateDetails[0].Get("tokenCount").Int()) != usage.CompletionTokens ||
+		root.Get("usageMetadata.cachedContentTokenCount").Int() != 0 ||
+		root.Get("usageMetadata.toolUsePromptTokenCount").Int() != 0 ||
+		root.Get("usageMetadata.thoughtsTokenCount").Int() != 0 {
+		return ztapiProbeUsage{}, "", response.StatusCode, errors.New("upstream Gemini image verification usage cannot be settled by the frozen contract")
+	}
+	_, canonical, err := ztapiGemini25ImageProtocolContract()
+	if err != nil {
+		return ztapiProbeUsage{}, "", response.StatusCode, err
 	}
 	return usage, canonical, response.StatusCode, nil
 }
@@ -477,7 +618,8 @@ func runZTAPIModelVerificationProbes(ctx context.Context, channel *model.Channel
 	modality := model.ZTAPIModelModality(sourceModel)
 	embedding := modality == model.ZTAPIModalityEmbedding
 	result := ztapiModelProbeResult{StreamingRequired: !embedding}
-	if channel.Type != constant.ChannelTypeOpenAI {
+	geminiImage := sourceModel == ztapiGemini25ImageModel
+	if channel.Type != constant.ChannelTypeOpenAI && !(geminiImage && channel.Type == constant.ChannelTypeGemini) {
 		return result, errors.New("pilot verifier currently supports OpenAI-compatible text channels only")
 	}
 	endpoint, err := ztapiVerificationEndpoint(channel, sourceModel)
@@ -494,7 +636,11 @@ func runZTAPIModelVerificationProbes(ctx context.Context, channel *model.Channel
 	if modality == model.ZTAPIModalityImage {
 		result.StreamingRequired = false
 		started := time.Now()
-		usage, contractJSON, status, err := performZTAPIGPTImageProbe(ctx, client, endpoint, key)
+		probe := performZTAPIGPTImageProbe
+		if geminiImage {
+			probe = performZTAPIGeminiImageProbe
+		}
+		usage, contractJSON, status, err := probe(ctx, client, endpoint, key)
 		result.LatencyMilliseconds = time.Since(started).Milliseconds()
 		if err != nil {
 			result.StatusCategory = classifyZTAPIVerificationFailure(status, err)
@@ -505,7 +651,7 @@ func runZTAPIModelVerificationProbes(ctx context.Context, channel *model.Channel
 		result.MediaResultValid = true
 		result.ImageProtocolContractJSON = contractJSON
 		result.PromptTokens, result.CompletionTokens, result.TotalTokens = usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens
-		_, _, invalidStatus, invalidErr := performZTAPIGPTImageProbe(ctx, client, endpoint, "ztapi-deliberately-invalid-credential")
+		_, _, invalidStatus, invalidErr := probe(ctx, client, endpoint, "ztapi-deliberately-invalid-credential")
 		result.InvalidKeyClassified = classifyZTAPIVerificationFailure(invalidStatus, invalidErr) == "invalid_key"
 		result.InsufficientBalanceClassified = classifyZTAPIVerificationFailure(http.StatusPaymentRequired, nil) == "insufficient_balance"
 		result.RateLimitClassified = classifyZTAPIVerificationFailure(http.StatusTooManyRequests, nil) == "rate_limit"

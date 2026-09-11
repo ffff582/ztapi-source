@@ -125,6 +125,26 @@ func TestZTAPIPublicationGateAllowsCompleteEvidence(t *testing.T) {
 	require.Empty(t, blockers)
 }
 
+func TestZTAPIRouteMatchesEvidenceAllowsGeminiNativeImageBridge(t *testing.T) {
+	route := ztapiRouteAuthority{
+		ChannelType: constant.ChannelTypeGemini,
+		Managed:     true,
+		Family:      ZTAPIModelFamilyGemini,
+	}
+	config := &ZTAPIModelConfig{
+		SourceModel:    "gemini-2.5-flash-image",
+		Protocol:       ZTAPIProtocolOpenAICompatible,
+		ProviderFamily: ZTAPIProviderGoogle,
+	}
+	require.True(t, ztapiRouteMatchesEvidence(route, config))
+
+	config.SourceModel = "gemini-2.5-pro"
+	require.False(t, ztapiRouteMatchesEvidence(route, config), "the native bridge is image-only")
+	config.SourceModel = "gemini-2.5-flash-image"
+	config.ProviderFamily = ZTAPIProviderOpenAI
+	require.False(t, ztapiRouteMatchesEvidence(route, config), "the bridge must retain Google provider identity")
+}
+
 func TestZTAPIPublicationGateBlocksMissingOrStaleDiscovery(t *testing.T) {
 	requireZTAPIPublicationBlocker(t, func(f *ztapiPublicationGateFixture) {
 		require.NoError(t, f.db.Model(&f.snapshot).Update("fetched_at", time.Now().Add(-48*time.Hour).Unix()).Error)

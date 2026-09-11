@@ -259,6 +259,31 @@ func getUpstreamModelUpdateMinCheckIntervalSeconds() int64 {
 	return interval
 }
 
+var fetchZTAPIModelListResponseBody = GetResponseBody
+
+func fetchZTAPIManagedAIHubGeminiModelIDs(channel *model.Channel, baseURL string) ([]string, error) {
+	key, _, apiErr := channel.GetNextEnabledKey()
+	if apiErr != nil {
+		return nil, fmt.Errorf("获取渠道密钥失败: %w", apiErr)
+	}
+	body, err := fetchZTAPIModelListResponseBody(
+		http.MethodGet,
+		fmt.Sprintf("%s/v1/models", baseURL),
+		channel,
+		GetAuthHeader(strings.TrimSpace(key)),
+	)
+	if err != nil {
+		return nil, err
+	}
+	var result OpenAIModelsResponse
+	if err := common.Unmarshal(body, &result); err != nil {
+		return nil, err
+	}
+	return normalizeModelNames(lo.Map(result.Data, func(item OpenAIModel, _ int) string {
+		return item.ID
+	})), nil
+}
+
 func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 	baseURL := constant.ChannelBaseURLs[channel.Type]
 	if channel.GetBaseURL() != "" {
@@ -279,6 +304,10 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 		return normalizeModelNames(lo.Map(models, func(item ollama.OllamaModel, _ int) string {
 			return item.Name
 		})), nil
+	}
+
+	if channel.Type == constant.ChannelTypeGemini && channel.ZTAPIManaged && channel.ZTAPIFamily == model.ZTAPIModelFamilyGemini {
+		return fetchZTAPIManagedAIHubGeminiModelIDs(channel, baseURL)
 	}
 
 	if channel.Type == constant.ChannelTypeGemini {

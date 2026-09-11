@@ -506,3 +506,182 @@ func TestVerifyZTAPIGPTImage2UsesRealGenerationAndPersistsExactProtocol(t *testi
 	require.NoError(t, model.DB.First(&stored, verification.ID).Error)
 	require.Equal(t, verification.ImageProtocolContractJSON, stored.ImageProtocolContractJSON)
 }
+
+func TestVerifyZTAPIGemini25ImageUsesNativeGenerationAndPersistsExactProtocol(t *testing.T) {
+	channel, config := setupZTAPIModelVerifierTestDB(t)
+	baseURL := "https://upstream.example.com/hub"
+	require.NoError(t, model.DB.Model(&channel).Updates(map[string]any{
+		"type": constant.ChannelTypeGemini, "base_url": baseURL,
+	}).Error)
+	channel.Type, channel.BaseURL = constant.ChannelTypeGemini, &baseURL
+	require.NoError(t, model.DB.Model(&config).Update("source_model", "gemini-2.5-flash-image").Error)
+
+	oldTransport := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = oldTransport })
+	calls := 0
+	http.DefaultTransport = ztapiVerifierRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		calls++
+		require.Equal(t, "/hub/v1beta/models/gemini-2.5-flash-image:generateContent", r.URL.Path)
+		if calls == 2 {
+			require.Equal(t, "Bearer ztapi-deliberately-invalid-credential", r.Header.Get("Authorization"))
+			return &http.Response{StatusCode: http.StatusUnauthorized, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"error":{"message":"RAW_SECRET_BODY"}}`))}, nil
+		}
+		require.Equal(t, "Bearer synthetic-verifier-key", r.Header.Get("Authorization"))
+		var payload map[string]any
+		require.NoError(t, common.DecodeJson(r.Body, &payload))
+		require.Equal(t, map[string]any{
+			"contents": []any{map[string]any{
+				"role": "user", "parts": []any{map[string]any{"text": "Generate a neutral blue circle."}},
+			}},
+			"generationConfig": map[string]any{"responseModalities": []any{"TEXT", "IMAGE"}},
+		}, payload)
+		body, err := common.Marshal(map[string]any{
+			"responseId": "provider-gemini-image-request-1",
+			"candidates": []any{map[string]any{
+				"finishReason": "STOP",
+				"content": map[string]any{"parts": []any{
+					map[string]any{"text": "Here is the requested image."},
+					map[string]any{"inlineData": map[string]any{"mimeType": "image/png", "data": ztapiVerifierPNG(t, 1024, 1024)}},
+				}},
+			}},
+			"usageMetadata": map[string]any{
+				"promptTokenCount": 18, "candidatesTokenCount": 196, "totalTokenCount": 214,
+				"promptTokensDetails":     []any{map[string]any{"modality": "TEXT", "tokenCount": 18}},
+				"candidatesTokensDetails": []any{map[string]any{"modality": "IMAGE", "tokenCount": 196}},
+			},
+		})
+		require.NoError(t, err)
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": {"application/json"}},
+			Body:       io.NopCloser(bytes.NewReader(body)),
+		}, nil
+	})
+
+	verification, err := VerifyZTAPIModel(context.Background(), channel.Id, "gemini-2.5-flash-image", 36)
+	require.NoError(t, err)
+	require.Equal(t, 2, calls)
+	require.Equal(t, model.ZTAPIModalityImage, verification.Modality)
+	require.True(t, verification.NonStreamingPassed)
+	require.False(t, verification.StreamingRequired)
+	require.True(t, verification.UsageReconciled)
+	require.True(t, verification.MediaResultValid)
+	require.True(t, verification.InvalidKeyClassified)
+	require.Equal(t, 18, verification.PromptTokens)
+	require.Equal(t, 196, verification.CompletionTokens)
+	require.Equal(t, 214, verification.TotalTokens)
+
+	contract, canonical, err := types.ParseZTAPIImageProtocolContract(verification.ImageProtocolContractJSON)
+	require.NoError(t, err)
+	require.Equal(t, verification.ImageProtocolContractJSON, canonical)
+	require.Equal(t, types.ZTAPIImageWireProtocolGeminiGenerateContent, contract.WireProtocol)
+	require.Equal(t, "/v1beta/models/gemini-2.5-flash-image:generateContent", contract.ProviderPath)
+	require.Equal(t, types.ZTAPIResponseIDSourceBodyField, contract.RequestIDSource)
+	require.Equal(t, "responseId", contract.RequestIDKey)
+	require.Equal(t, map[string]string{"input_tokens": "300000", "output_tokens": "2000"}, contract.Reservations[0].MaximumDimensions)
+
+	var stored model.ZTAPIModelVerification
+	require.NoError(t, model.DB.First(&stored, verification.ID).Error)
+	require.Equal(t, verification.ImageProtocolContractJSON, stored.ImageProtocolContractJSON)
+}
+
+func TestGeminiImageVerifierRejectsUsageThatRuntimeCannotSettle(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mutate func(map[string]any)
+	}{
+		{
+			name: "missing modality details",
+			mutate: func(usage map[string]any) {
+				delete(usage, "promptTokensDetails")
+			},
+		},
+		{
+			name: "unsupported cached input",
+			mutate: func(usage map[string]any) {
+				usage["cachedContentTokenCount"] = 1
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			usage := map[string]any{
+				"promptTokenCount": 18, "candidatesTokenCount": 196, "totalTokenCount": 214,
+				"promptTokensDetails":     []any{map[string]any{"modality": "TEXT", "tokenCount": 18}},
+				"candidatesTokensDetails": []any{map[string]any{"modality": "IMAGE", "tokenCount": 196}},
+			}
+			tc.mutate(usage)
+			body, err := common.Marshal(map[string]any{
+				"responseId": "provider-gemini-image-request-usage",
+				"candidates": []any{map[string]any{
+					"finishReason": "STOP",
+					"content": map[string]any{"parts": []any{map[string]any{
+						"inlineData": map[string]any{"mimeType": "image/png", "data": ztapiVerifierPNG(t, 1024, 1024)},
+					}}},
+				}},
+				"usageMetadata": usage,
+			})
+			require.NoError(t, err)
+			client := &http.Client{Transport: ztapiVerifierRoundTripFunc(func(*http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(bytes.NewReader(body))}, nil
+			})}
+
+			_, _, _, err = performZTAPIGeminiImageProbe(context.Background(), client, "https://example.com/generate", "test-key")
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "usage")
+		})
+	}
+}
+
+func TestGeminiImageVerifierRejectsRuntimeIncompatibleResponseShapes(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mutate func(map[string]any)
+	}{
+		{
+			name: "non-string response id",
+			mutate: func(response map[string]any) {
+				response["responseId"] = 12345
+			},
+		},
+		{
+			name: "empty text part",
+			mutate: func(response map[string]any) {
+				response["candidates"] = []any{map[string]any{
+					"finishReason": "STOP",
+					"content": map[string]any{"parts": []any{
+						map[string]any{"text": ""},
+						map[string]any{"inlineData": map[string]any{"mimeType": "image/png", "data": ztapiVerifierPNG(t, 1024, 1024)}},
+					}},
+				}}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			response := map[string]any{
+				"responseId": "provider-gemini-image-request-shape",
+				"candidates": []any{map[string]any{
+					"finishReason": "STOP",
+					"content": map[string]any{"parts": []any{
+						map[string]any{"text": "Image generated."},
+						map[string]any{"inlineData": map[string]any{"mimeType": "image/png", "data": ztapiVerifierPNG(t, 1024, 1024)}},
+					}},
+				}},
+				"usageMetadata": map[string]any{
+					"promptTokenCount": 18, "candidatesTokenCount": 196, "totalTokenCount": 214,
+					"promptTokensDetails":     []any{map[string]any{"modality": "TEXT", "tokenCount": 18}},
+					"candidatesTokensDetails": []any{map[string]any{"modality": "IMAGE", "tokenCount": 196}},
+				},
+			}
+			tc.mutate(response)
+			body, err := common.Marshal(response)
+			require.NoError(t, err)
+			client := &http.Client{Transport: ztapiVerifierRoundTripFunc(func(*http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(bytes.NewReader(body))}, nil
+			})}
+
+			_, _, _, err = performZTAPIGeminiImageProbe(context.Background(), client, "https://example.com/generate", "test-key")
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "response")
+		})
+	}
+}

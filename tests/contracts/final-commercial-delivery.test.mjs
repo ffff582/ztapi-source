@@ -415,10 +415,77 @@ test('deployment verifies, publishes, and bills GPT Image 2 through an ordinary 
   assert.match(source, /\/v1\/images\/generations/);
   assert.match(source, /image_request_id/);
   assert.match(source, /image_billed_amount/);
-  assert.match(source, /published_media_count:1/);
+  assert.match(source, /image:\{model:\$image_model,request_id:\$image_request_id,status:"success",billed_amount:\$image_billed_amount\}/);
 });
 
-test('pre-cutover media guard permits the already-published GPT Image 2 only', () => {
+test('deployment verifies, publishes, and bills Gemini 2.5 image through the native bridge', () => {
+  const source = read(workflowPath);
+  const channelProvisioning = source.slice(
+    source.indexOf('provision_gemini_image_channel'),
+    source.indexOf('blocked_media_count='),
+  );
+  assert.ok(channelProvisioning.length > 0, 'deployment must provision the native Gemini route before cutover');
+  assert.match(channelProvisioning, /ztapi_key_ciphertext/);
+  assert.match(channelProvisioning, /ztapi_family[^\n]*'gemini'/);
+  assert.match(channelProvisioning, /type[^\n]*24/);
+  assert.match(channelProvisioning, /source\.name = 'Yunxin enterprise'/);
+  assert.match(channelProvisioning, /UPDATE channels AS target[\s\S]*target\.name = 'Yunxin enterprise Gemini'/);
+  assert.doesNotMatch(
+    channelProvisioning,
+    /AIHUB_SK|AIHUB_TOKEN|sk-[A-Za-z0-9]/,
+    'Gemini route provisioning must copy encrypted server state without embedding a plaintext upstream key',
+  );
+  assert.match(source, /ztapi_gemini_image_channel_id/);
+  assert.match(
+    source,
+    /SELECT c\.id[\s\S]*c\.name = 'Yunxin enterprise Gemini'[\s\S]*fetch_models\/\$ztapi_gemini_image_channel_id\?import=true/,
+    'Gemini discovery, verification, and publication must pin the dedicated enterprise channel by name',
+  );
+  assert.match(source, /fetch_models\/\$ztapi_gemini_image_channel_id\?import=true/);
+  assert.match(source, /gemini-2\.5-flash-image/);
+  assert.match(source, /zt-gemini-2\.5-flash-image/);
+  assert.match(source, /models\/ztapi\/\$ztapi_gemini_image_model_id\/verify/);
+  assert.match(source, /gemini_image_media_price_contract/);
+  assert.match(source, /gemini_image_request_id/);
+  assert.match(source, /gemini_image_billed_amount/);
+  assert.match(source, /gemini_image_settlement/);
+  assert.match(source, /price_rule_ids\.input_tokens/);
+  assert.match(source, /expected_charged_quota/);
+  assert.match(source, /restore_gemini_rollout_state/);
+  assert.match(source, /gemini_was_published/);
+  assert.match(source, /gemini_channel_backup/);
+  assert.match(source, /UNHEX\('/);
+  assert.match(source, /printf 'gemini_rollout_state_captured=%q/);
+  const releaseControl = read('deploy/scripts/ztapi-release-control.sh');
+  assert.match(releaseControl, /restore_gemini_rollout_state/);
+  assert.match(releaseControl, /gemini_channel_backup/);
+  assert.match(releaseControl, /source_model = 'gemini-2\.5-flash-image'/);
+  const restoreFunction = releaseControl.slice(
+    releaseControl.indexOf('restore_gemini_rollout_state()'),
+    releaseControl.indexOf('\nverify_runtime()'),
+  );
+  assert.doesNotMatch(
+    restoreFunction,
+    /rm -f "\$gemini_channel_backup"/,
+    'a successful channel restore must retain its backup until the entire rollback succeeds',
+  );
+  assert.match(restoreFunction, /gemini-rollout-restored/);
+  assert.match(releaseControl, /registration-options-restored/);
+  const rollbackCase = releaseControl.slice(
+    releaseControl.indexOf('  rollback)'),
+    releaseControl.indexOf('\n  *)', releaseControl.indexOf('  rollback)')),
+  );
+  const rollbackSucceeded = rollbackCase.indexOf('test "$rollback_status" -eq 0');
+  const writeRollbackReceipt = rollbackCase.indexOf('write_receipt rollback');
+  const removeGeminiBackup = rollbackCase.indexOf('rm -f "${gemini_channel_backup:-}"');
+  assert.ok(
+    rollbackSucceeded >= 0 && writeRollbackReceipt > rollbackSucceeded && removeGeminiBackup > writeRollbackReceipt,
+    'the terminal rollback receipt and channel-backup cleanup must happen only after every rollback step succeeds',
+  );
+  assert.match(source, /published_media_count:2/);
+});
+
+test('pre-cutover media guard permits both published image products', () => {
   const source = read(workflowPath);
   const guard = source.slice(
     source.indexOf('blocked_media_count='),
@@ -431,8 +498,12 @@ test('pre-cutover media guard permits the already-published GPT Image 2 only', (
     /'gpt-image-2'/,
     'an idempotent redeploy must not reject the already-published GPT Image 2',
   );
+	assert.doesNotMatch(
+		guard,
+		/'gemini-2\.5-flash-image'/,
+		'an idempotent redeploy must not reject the published Gemini image product',
+	);
   for (const unresolvedModel of [
-    'gemini-2.5-flash-image',
     'doubao-seedance-2.0',
     'doubao-seedance-2.0-fast',
     'doubao-seedance-2.0-mini',
@@ -445,13 +516,17 @@ test('pre-cutover media guard permits the already-published GPT Image 2 only', (
 test('exact catalog comparison rejects an unpublished substitution at the same count', () => {
   const baseline = JSON.parse(read('server/model/testdata/ztapi_public_pricing_baseline_v1.json'));
   const quotation = JSON.parse(read('server/model/ztapi_quotation_v1.json'));
-  const expected = [...sortedModelNames(baseline), 'zt-gp-image-2'].sort();
+	const expected = [
+		...sortedModelNames(baseline),
+		'zt-gp-image-2',
+		'zt-gemini-2.5-flash-image',
+	].sort();
   const unpublished = quotation.entries
     .filter((entry) => entry.status === 'mapping_pending')
     .map((entry) => `zt-${entry.label.toLowerCase().replaceAll(' ', '-')}`)
     .sort();
 
-  assert.equal(expected.length, 38);
+	assert.equal(expected.length, 39);
   assert.ok(unpublished.length > 0, 'quotation must retain blocked media candidates');
 
   const swapped = [...expected.slice(1), unpublished[0]];

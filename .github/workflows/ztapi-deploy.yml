@@ -294,6 +294,12 @@ jobs:
           registration_options_mutated=false
           previous_register_enabled=""
           previous_password_register_enabled=""
+          gemini_rollout_state_captured=false
+          gemini_was_published=false
+          gemini_channel_preexisting=false
+          gemini_channel_previous_status=""
+          gemini_channel_id=""
+          gemini_channel_backup=""
           watchdog_unit=""
           active_execution_file="/opt/ztapi/release-receipts/active-execution.env"
           global_control_lock="/opt/ztapi/release-receipts/release-control.lock"
@@ -467,6 +473,29 @@ jobs:
                 'exec mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE"'
             registration_options_mutated=false
           }
+          restore_gemini_rollout_state() {
+            if [ "$gemini_rollout_state_captured" != true ]; then
+              return 0
+            fi
+            test -s "$gemini_channel_backup"
+            "${compose[@]}" exec -T mysql sh -c \
+              'exec mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE"' < "$gemini_channel_backup"
+            if [ "$gemini_was_published" != true ]; then
+              "${compose[@]}" exec -T mysql sh -c \
+                'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE"' <<'SQL'
+          UPDATE ztapi_model_configs
+          SET published = 0,
+              publication_snapshot_id = 0,
+              enabled_groups = '[]',
+              version = version + 1,
+              updated_at = UNIX_TIMESTAMP()
+          WHERE source_model = 'gemini-2.5-flash-image'
+            AND published = 1;
+          SQL
+            fi
+            rm -f "$gemini_channel_backup"
+            gemini_rollout_state_captured=false
+          }
           cleanup_synthetic_acceptance() {
             if [ -z "$acceptance_user_id" ] || [ "$acceptance_cleanup_done" = true ]; then
               return 0
@@ -604,6 +633,7 @@ jobs:
             if [ "$status" -ne 0 ] && [ "$deployment_completed" != true ]; then
               rollback_status=0
               restore_registration_options || rollback_status=$?
+              restore_gemini_rollout_state || rollback_status=$?
               restore_previous_release || rollback_status=$?
               if [ -s "$unrelated_before" ]; then
                 snapshot_unrelated_containers > "$unrelated_after" || rollback_status=1
@@ -934,6 +964,160 @@ jobs:
             ('general_setting.docs_link', 'https://ztapi.vip')
           ON DUPLICATE KEY UPDATE `value` = VALUES(`value`);
           SQL
+
+          provision_gemini_image_channel() {
+            gemini_rollout_state=$("${compose[@]}" exec -T mysql sh -c \
+              'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names' <<'SQL'
+          SELECT CONCAT(
+            (SELECT COUNT(*) FROM ztapi_model_configs WHERE source_model = 'gemini-2.5-flash-image' AND published = 1), '|',
+            (SELECT COUNT(*) FROM channels WHERE name = 'Yunxin enterprise Gemini'), '|',
+            COALESCE((SELECT id FROM channels WHERE name = 'Yunxin enterprise Gemini' ORDER BY id ASC LIMIT 1), 0), '|',
+            COALESCE((SELECT status FROM channels WHERE name = 'Yunxin enterprise Gemini' ORDER BY id ASC LIMIT 1), -1)
+          );
+          SQL
+            )
+            IFS='|' read -r gemini_published_count gemini_target_count gemini_channel_id gemini_channel_previous_status <<< "$gemini_rollout_state"
+            [[ "$gemini_published_count" =~ ^[01]$ ]]
+            [[ "$gemini_target_count" =~ ^[01]$ ]]
+            [[ "$gemini_channel_id" =~ ^[0-9]+$ ]]
+            [[ "$gemini_channel_previous_status" =~ ^-?[0-9]+$ ]]
+            if [ "$gemini_published_count" = 1 ]; then
+              gemini_was_published=true
+            fi
+            if [ "$gemini_target_count" = 1 ]; then
+              gemini_channel_preexisting=true
+            fi
+            gemini_channel_backup="$receipt_dir/gemini-channel-before.sql"
+            rm -f "$gemini_channel_backup"
+            if [ "$gemini_channel_preexisting" = true ]; then
+              "${compose[@]}" exec -T mysql sh -c \
+                'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names --raw' <<'SQL' > "$gemini_channel_backup"
+          SELECT CONCAT(
+            'UPDATE channels SET type=', type,
+            ', `key`=', IF(`key` IS NULL, 'NULL', CONCAT('UNHEX(''', HEX(`key`), ''')')),
+            ', status=', status,
+            ', weight=', IFNULL(CAST(weight AS CHAR), 'NULL'),
+            ', base_url=', IF(base_url IS NULL, 'NULL', CONCAT('UNHEX(''', HEX(base_url), ''')')),
+            ', models=', IF(models IS NULL, 'NULL', CONCAT('UNHEX(''', HEX(models), ''')')),
+            ', `group`=', IF(`group` IS NULL, 'NULL', CONCAT('UNHEX(''', HEX(`group`), ''')')),
+            ', priority=', IFNULL(CAST(priority AS CHAR), 'NULL'),
+            ', auto_ban=', IFNULL(CAST(auto_ban AS CHAR), 'NULL'),
+            ', channel_info=', IF(channel_info IS NULL, 'NULL', CONCAT('UNHEX(''', HEX(channel_info), ''')')),
+            ', settings=', IF(settings IS NULL, 'NULL', CONCAT('UNHEX(''', HEX(settings), ''')')),
+            ', ztapi_managed=', ztapi_managed,
+            ', ztapi_family=', IF(ztapi_family IS NULL, 'NULL', CONCAT('UNHEX(''', HEX(ztapi_family), ''')')),
+            ', ztapi_key_ciphertext=', IF(ztapi_key_ciphertext IS NULL, 'NULL', CONCAT('UNHEX(''', HEX(ztapi_key_ciphertext), ''')')),
+            ' WHERE id=', id, ' AND name=''Yunxin enterprise Gemini'';'
+          )
+          FROM channels
+          WHERE name = 'Yunxin enterprise Gemini';
+          SQL
+              test -s "$gemini_channel_backup"
+              chmod 0600 "$gemini_channel_backup"
+            else
+              printf "UPDATE channels SET status=2 WHERE name='Yunxin enterprise Gemini';\n" > "$gemini_channel_backup"
+              chmod 0600 "$gemini_channel_backup"
+            fi
+            gemini_enterprise_source_count=$("${compose[@]}" exec -T mysql sh -c \
+              'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names' <<'SQL'
+          SELECT COUNT(*)
+          FROM channels AS source
+          WHERE source.name = 'Yunxin enterprise'
+            AND source.status = 1
+            AND source.ztapi_managed = 1
+            AND source.type = 1
+            AND source.ztapi_family = 'openai'
+            AND FIND_IN_SET('default', source.`group`) > 0
+            AND source.ztapi_key_ciphertext <> '';
+          SQL
+            )
+            test "$gemini_enterprise_source_count" = 1
+            gemini_rollout_state_captured=true
+            "${compose[@]}" exec -T mysql sh -c \
+              'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE"' <<'SQL'
+          START TRANSACTION;
+          INSERT INTO channels (
+            type, `key`, status, name, weight, created_time, base_url, models, `group`, priority,
+            auto_ban, channel_info, settings, ztapi_managed, ztapi_family, ztapi_key_ciphertext
+          )
+          SELECT
+            source.type, '', 1, 'Yunxin enterprise Gemini', source.weight, UNIX_TIMESTAMP(),
+            source.base_url, 'gemini-2.5-flash-image', source.`group`, source.priority,
+            source.auto_ban, source.channel_info, source.settings, 1,
+            source.ztapi_family, source.ztapi_key_ciphertext
+          FROM (
+            SELECT
+              24 AS type, weight, base_url, `group`, priority, auto_ban, channel_info, settings,
+              'gemini' AS ztapi_family, ztapi_key_ciphertext
+            FROM channels
+            WHERE name = 'Yunxin enterprise'
+              AND status = 1
+              AND ztapi_managed = 1
+              AND type = 1
+              AND ztapi_family = 'openai'
+              AND FIND_IN_SET('default', `group`) > 0
+              AND ztapi_key_ciphertext <> ''
+            LIMIT 1
+          ) AS source
+          WHERE NOT EXISTS (
+            SELECT 1
+            FROM channels existing
+            WHERE existing.name = 'Yunxin enterprise Gemini'
+          );
+          UPDATE channels AS target
+          JOIN channels AS source
+            ON source.name = 'Yunxin enterprise'
+           AND source.status = 1
+           AND source.ztapi_managed = 1
+           AND source.type = 1
+           AND source.ztapi_family = 'openai'
+           AND FIND_IN_SET('default', source.`group`) > 0
+           AND source.ztapi_key_ciphertext <> ''
+          SET target.type = 24,
+              target.`key` = '',
+              target.status = 1,
+              target.weight = source.weight,
+              target.base_url = source.base_url,
+              target.models = 'gemini-2.5-flash-image',
+              target.`group` = source.`group`,
+              target.priority = source.priority,
+              target.auto_ban = source.auto_ban,
+              target.channel_info = source.channel_info,
+              target.settings = source.settings,
+              target.ztapi_managed = 1,
+              target.ztapi_family = 'gemini',
+              target.ztapi_key_ciphertext = source.ztapi_key_ciphertext
+          WHERE target.name = 'Yunxin enterprise Gemini';
+          COMMIT;
+          SQL
+            gemini_channel_id=$("${compose[@]}" exec -T mysql sh -c \
+              'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names' <<'SQL'
+          SELECT id FROM channels WHERE name = 'Yunxin enterprise Gemini' LIMIT 1;
+          SQL
+            )
+            [[ "$gemini_channel_id" =~ ^[1-9][0-9]*$ ]]
+            if [ "$gemini_channel_preexisting" != true ]; then
+              printf "UPDATE channels SET status=2 WHERE id=%s AND name='Yunxin enterprise Gemini';\n" \
+                "$gemini_channel_id" > "$gemini_channel_backup"
+              chmod 0600 "$gemini_channel_backup"
+            fi
+          }
+          provision_gemini_image_channel
+          gemini_image_channel_count=$("${compose[@]}" exec -T mysql sh -c \
+            'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names' <<'SQL'
+          SELECT COUNT(*)
+          FROM channels
+          WHERE status = 1
+            AND name = 'Yunxin enterprise Gemini'
+            AND ztapi_managed = 1
+            AND type = 24
+            AND ztapi_family = 'gemini'
+            AND FIND_IN_SET('default', `group`) > 0
+            AND `key` = ''
+            AND ztapi_key_ciphertext <> '';
+          SQL
+          )
+          test "$gemini_image_channel_count" = "1"
           "${compose[@]}" up -d --force-recreate server --wait \
             --wait-timeout 120
           private_status=$("${compose[@]}" exec -T server \
@@ -946,7 +1130,6 @@ jobs:
           FROM ztapi_model_configs
           WHERE published = 1
             AND source_model IN (
-              'gemini-2.5-flash-image',
               'doubao-seedance-2.0',
               'doubao-seedance-2.0-fast',
               'doubao-seedance-2.0-mini'
@@ -1217,6 +1400,195 @@ jobs:
             echo "$image_publish_result" | jq -e \
               '.success == true and .data.published == true and .data.public_name == "zt-gp-image-2"' >/dev/null
           fi
+
+          # Publish Gemini 2.5 Flash Image only through the dedicated native
+          # Gemini route. The credential remains encrypted in the database.
+          ztapi_gemini_image_channel_id=$("${compose[@]}" exec -T mysql sh -c \
+            'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names' <<'SQL'
+          SELECT c.id
+          FROM channels c
+          WHERE c.status = 1
+            AND c.ztapi_managed = 1
+            AND c.type = 24
+            AND c.ztapi_family = 'gemini'
+            AND c.name = 'Yunxin enterprise Gemini'
+            AND FIND_IN_SET('default', c.`group`) > 0
+          ORDER BY COALESCE(c.priority, 0) ASC, c.id ASC
+          LIMIT 1;
+          SQL
+          )
+          if [[ ! "$ztapi_gemini_image_channel_id" =~ ^[1-9][0-9]*$ ]]; then
+            echo 'no enabled managed Gemini enterprise channel is available for Gemini image discovery' >&2
+            exit 1
+          fi
+          gemini_image_discovery_result=$(curl --fail --silent --show-error \
+            --resolve admin.ztapi.vip:443:127.0.0.1 \
+            --header "Authorization: Bearer $admin_access_token" \
+            --header "New-API-User: $admin_user_id" \
+            "https://admin.ztapi.vip/api/channel/ztapi/fetch_models/$ztapi_gemini_image_channel_id?import=true")
+          echo "$gemini_image_discovery_result" | jq -e \
+            '.success == true and any(.data.model_ids[]; . == "gemini-2.5-flash-image")' >/dev/null
+
+          gemini_image_model_list=$(curl --fail --silent --show-error \
+            --resolve admin.ztapi.vip:443:127.0.0.1 \
+            --header "Authorization: Bearer $admin_access_token" \
+            --header "New-API-User: $admin_user_id" \
+            'https://admin.ztapi.vip/api/models/ztapi/?keyword=gemini-2.5-flash-image&page_size=100')
+          ztapi_gemini_image_model=$(echo "$gemini_image_model_list" | jq -cer \
+            '.data.items | map(select(.source_model == "gemini-2.5-flash-image")) | select(length == 1) | .[0]')
+          ztapi_gemini_image_model_id=$(echo "$ztapi_gemini_image_model" | jq -er '.id')
+          if ! echo "$ztapi_gemini_image_model" | jq -e '
+              .public_name == "zt-gemini-2.5-flash-image"
+              and .protocol == "openai_compatible"
+              and .provider_family == "google"' >/dev/null; then
+            gemini_image_identity_payload=$(echo "$ztapi_gemini_image_model" | jq -c \
+              --arg checksum "$(jq -er '.sha256' /opt/ztapi/server/model/ztapi_quotation_v1.json)" '
+                {
+                  version:.version,
+                  source_model:"gemini-2.5-flash-image",
+                  public_name:"zt-gemini-2.5-flash-image",
+                  protocol:"openai_compatible",
+                  provider_family:"google",
+                  source_reference:("quotation:" + $checksum + ":gm25-fl-IMAGE"),
+                  reason:"verified Gemini 2.5 Flash Image quotation mapping",
+                  confirm:true
+                }')
+            gemini_image_identity_result=$(printf '%s' "$gemini_image_identity_payload" | curl --fail --silent --show-error \
+              --request PUT \
+              --resolve admin.ztapi.vip:443:127.0.0.1 \
+              --header 'Content-Type: application/json' \
+              --header "Authorization: Bearer $admin_access_token" \
+              --header "New-API-User: $admin_user_id" \
+              --data-binary @- \
+              "https://admin.ztapi.vip/api/models/ztapi/$ztapi_gemini_image_model_id/identity")
+            echo "$gemini_image_identity_result" | jq -e \
+              '.success == true and .data.model.public_name == "zt-gemini-2.5-flash-image"' >/dev/null
+          fi
+
+          gemini_image_quote=/opt/ztapi/server/model/ztapi_quotation_v1.json
+          gemini_image_media_price_contract=$(jq -er '
+            .entries[]
+            | select(.source_model == "gemini-2.5-flash-image" and .public_name == "zt-gemini-2.5-flash-image")
+            | .quote_rows[]
+            | select(.media_price_contract != null)
+            | .media_price_contract' "$gemini_image_quote")
+          gemini_image_media_price_sha=$(printf '%s' "$gemini_image_media_price_contract" | sha256sum | cut -d ' ' -f 1)
+          current_gemini_image_price_sha=$("${compose[@]}" exec -T mysql sh -c \
+            'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names' <<SQL
+          SELECT COALESCE((
+            SELECT SHA2(media_price_contract_json, 256)
+            FROM ztapi_model_price_sources
+            WHERE model_config_id = $ztapi_gemini_image_model_id
+              AND source_model = 'gemini-2.5-flash-image'
+              AND resource_type = 'enterprise'
+              AND source_document_checksum = '$(jq -er '.sha256' "$gemini_image_quote")'
+            ORDER BY version DESC, id DESC
+            LIMIT 1
+          ), '');
+          SQL
+          )
+          if [ "$current_gemini_image_price_sha" != "$gemini_image_media_price_sha" ]; then
+            ztapi_gemini_image_model=$(curl --fail --silent --show-error \
+              --resolve admin.ztapi.vip:443:127.0.0.1 \
+              --header "Authorization: Bearer $admin_access_token" \
+              --header "New-API-User: $admin_user_id" \
+              "https://admin.ztapi.vip/api/models/ztapi/$ztapi_gemini_image_model_id" | jq -cer '.data')
+            gemini_image_price_payload=$(echo "$ztapi_gemini_image_model" | jq -c \
+              --arg media_contract "$gemini_image_media_price_contract" \
+              --arg checksum "$(jq -er '.sha256' "$gemini_image_quote")" '
+                {
+                  version:.version,
+                  source_model:"gemini-2.5-flash-image",
+                  resource_type:"enterprise",
+                  price_policy:"enterprise_40_margin",
+                  spend_tier:"9.1 quotation",
+                  billing_dimensions:["input_tokens","output_tokens"],
+                  currency:"USD",
+                  input_per_million:"0.246",
+                  output_per_million:"2.05",
+                  cache_read_per_million:"0",
+                  cache_write_per_million:"0",
+                  cache_write_5m_per_million:"0",
+                  cache_write_1h_per_million:"0",
+                  image_unit_cost:"0",
+                  audio_unit_cost:"0",
+                  request_unit_cost:"0",
+                  cny_per_usd:"0",
+                  media_price_contract:$media_contract,
+                  quotation_effective_at:1788192000,
+                  source_document_checksum:$checksum,
+                  reason:"import exact Gemini 2.5 Flash Image enterprise quotation",
+                  confirm:true
+                }')
+            gemini_image_price_result=$(printf '%s' "$gemini_image_price_payload" | curl --fail --silent --show-error \
+              --resolve admin.ztapi.vip:443:127.0.0.1 \
+              --header 'Content-Type: application/json' \
+              --header "Authorization: Bearer $admin_access_token" \
+              --header "New-API-User: $admin_user_id" \
+              --data-binary @- \
+              "https://admin.ztapi.vip/api/models/ztapi/$ztapi_gemini_image_model_id/price-sources")
+            echo "$gemini_image_price_result" | jq -e '
+              .success == true
+              and .data.preview.price_policy == "enterprise_40_margin"
+              and .data.preview.input_sale_usd_per_million == "0.4100000000"
+              and .data.preview.output_sale_usd_per_million == "3.4166666667"' >/dev/null
+          fi
+
+          gemini_image_verification_result=$(jq -cn --argjson channel_id "$ztapi_gemini_image_channel_id" \
+            '{channel_id:$channel_id}' | curl --fail --silent --show-error \
+              --resolve admin.ztapi.vip:443:127.0.0.1 \
+              --header 'Content-Type: application/json' \
+              --header "Authorization: Bearer $admin_access_token" \
+              --header "New-API-User: $admin_user_id" \
+              --data-binary @- \
+              "https://admin.ztapi.vip/api/models/ztapi/$ztapi_gemini_image_model_id/verify")
+          echo "$gemini_image_verification_result" | jq -e '
+            .success == true
+            and .data.verification.modality == "image"
+            and .data.verification.non_streaming_passed == true
+            and .data.verification.streaming_required == false
+            and .data.verification.usage_reconciled == true
+            and .data.verification.media_result_valid == true
+            and (.data.verification.image_protocol_contract | length) > 0' >/dev/null
+
+          ztapi_gemini_image_model=$(curl --fail --silent --show-error \
+            --resolve admin.ztapi.vip:443:127.0.0.1 \
+            --header "Authorization: Bearer $admin_access_token" \
+            --header "New-API-User: $admin_user_id" \
+            "https://admin.ztapi.vip/api/models/ztapi/$ztapi_gemini_image_model_id" | jq -cer '.data')
+          if ! echo "$ztapi_gemini_image_model" | jq -e '.published == true' >/dev/null; then
+            gemini_image_publish_payload=$(echo "$ztapi_gemini_image_model" | jq -c '
+              {
+                version:.version,
+                source_model:.source_model,
+                public_name:.public_name,
+                family:.family,
+                input_cost_per_million:.input_cost_per_million,
+                output_cost_per_million:.output_cost_per_million,
+                input_price_per_million:.input_price_per_million,
+                output_price_per_million:.output_price_per_million,
+                cache_read_ratio:.cache_read_ratio,
+                cache_creation_ratio:.cache_creation_ratio,
+                cache_creation_5m_ratio:.cache_creation_5m_ratio,
+                cache_creation_1h_ratio:.cache_creation_1h_ratio,
+                image_ratio:.image_ratio,
+                audio_ratio:.audio_ratio,
+                audio_completion_ratio:.audio_completion_ratio,
+                enabled_groups:["default"],
+                published:true,
+                confirm_below_cost:false
+              }')
+            gemini_image_publish_result=$(printf '%s' "$gemini_image_publish_payload" | curl --fail --silent --show-error \
+              --request PUT \
+              --resolve admin.ztapi.vip:443:127.0.0.1 \
+              --header 'Content-Type: application/json' \
+              --header "Authorization: Bearer $admin_access_token" \
+              --header "New-API-User: $admin_user_id" \
+              --data-binary @- \
+              "https://admin.ztapi.vip/api/models/ztapi/$ztapi_gemini_image_model_id")
+            echo "$gemini_image_publish_result" | jq -e \
+              '.success == true and .data.published == true and .data.public_name == "zt-gemini-2.5-flash-image"' >/dev/null
+          fi
           test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
             --resolve ztapi.vip:443:127.0.0.1 \
             https://ztapi.vip/v1/models)" = "401"
@@ -1452,7 +1824,7 @@ jobs:
               (.input_price_per_million | tonumber) >= 0
               and (.output_price_per_million | tonumber) >= 0
               and (.pricing_version | length) > 0))
-            and ([.catalog[] | select(.modality == "image" and .model_name == "zt-gp-image-2")] | length) == 1
+            and ([.catalog[] | select(.modality == "image" and (.model_name == "zt-gp-image-2" or .model_name == "zt-gemini-2.5-flash-image"))] | length) == 2
             and ([.catalog[] | select(.modality == "video")] | length) == 0
             and ([.. | objects | keys[] | select(. == "source_model" or . == "channel_id")] | length) == 0' >/dev/null
           acceptance_catalog_count=$(echo "$acceptance_catalog" | jq -er '.catalog | length')
@@ -1465,8 +1837,9 @@ jobs:
           {
             jq -r '.[].model_name' "$pricing_baseline"
             echo 'zt-gp-image-2'
+            echo 'zt-gemini-2.5-flash-image'
           } | LC_ALL=C sort -u > "$expected_published_models"
-          test "$(wc -l < "$expected_published_models" | tr -d ' ')" = 38
+          test "$(wc -l < "$expected_published_models" | tr -d ' ')" = 39
           jq -r '[.entries[] | select(.status == "mapping_pending" and .public_name != "") | .public_name] | unique[]' \
             "$quotation" | LC_ALL=C sort > "$expected_unpublished_models"
           test "$(jq -r '.entries | length' "$quotation")" = 46
@@ -1562,6 +1935,34 @@ jobs:
           [[ "$image_request_id" =~ ^[A-Za-z0-9_-]{8,64}$ ]]
           rm -f "$image_headers" "$image_body"
 
+          gemini_image_headers=$(mktemp /tmp/ztapi-gemini-image-headers.XXXXXX)
+          gemini_image_body=$(mktemp /tmp/ztapi-gemini-image-body.XXXXXX)
+          gemini_image_http_status=$(jq -cn '{
+              model:"zt-gemini-2.5-flash-image",
+              prompt:"A simple blue circle centered on a white background.",
+              n:1,
+              size:"1024x1024",
+              quality:"standard",
+              response_format:"b64_json"
+            }' |
+            curl --silent --show-error --max-time 180 \
+              --dump-header "$gemini_image_headers" \
+              --output "$gemini_image_body" --write-out '%{http_code}' \
+              --header 'Content-Type: application/json' \
+              --header "Authorization: Bearer $acceptance_api_key" \
+              --data-binary @- \
+              "$acceptance_origin/v1/images/generations")
+          test "$gemini_image_http_status" = 200
+          jq -e '
+            (.data | length) == 1
+            and (.data[0].b64_json | type == "string" and length > 100)
+            and (.created | type == "number" and . > 0)
+            and ([.. | objects | keys[] | select(. == "candidates" or . == "usageMetadata" or . == "responseId")] | length) == 0' \
+            "$gemini_image_body" >/dev/null
+          gemini_image_request_id=$(awk 'tolower($1) == "x-request-id:" {print $2}' "$gemini_image_headers" | tr -d '\r' | tail -n 1)
+          [[ "$gemini_image_request_id" =~ ^[A-Za-z0-9_-]{8,64}$ ]]
+          rm -f "$gemini_image_headers" "$gemini_image_body"
+
           for acceptance_log_attempt in $(seq 1 20); do
             chat_user_log=$(curl --fail --silent --show-error \
               --header "Authorization: Bearer $acceptance_user_access_token" \
@@ -1575,12 +1976,24 @@ jobs:
               --header "Authorization: Bearer $acceptance_user_access_token" \
               --header "New-API-User: $acceptance_user_id" \
               "$acceptance_origin/api/log/self?request_id=$image_request_id&p=1&page_size=10")
+            gemini_image_user_log=$(curl --fail --silent --show-error \
+              --header "Authorization: Bearer $acceptance_user_access_token" \
+              --header "New-API-User: $acceptance_user_id" \
+              "$acceptance_origin/api/log/self?request_id=$gemini_image_request_id&p=1&page_size=10")
             if echo "$chat_user_log" | jq -e \
                 '.success == true and .data.total == 1 and .data.items[0].model == "zt-gpt-4.1-nano" and .data.items[0].status == "success"' >/dev/null &&
               echo "$embedding_user_log" | jq -e \
                 '.success == true and .data.total == 1 and .data.items[0].model == "zt-text-embedding-3-small" and .data.items[0].status == "success"' >/dev/null &&
               echo "$image_user_log" | jq -e \
-                '.success == true and .data.total == 1 and .data.items[0].model == "zt-gp-image-2" and .data.items[0].status == "success"' >/dev/null; then
+                '.success == true and .data.total == 1 and .data.items[0].model == "zt-gp-image-2" and .data.items[0].status == "success"' >/dev/null &&
+              echo "$gemini_image_user_log" | jq -e \
+                '.success == true
+                  and .data.total == 1
+                  and .data.items[0].model == "zt-gemini-2.5-flash-image"
+                  and .data.items[0].status == "success"
+                  and .data.items[0].prompt_tokens > 0
+                  and .data.items[0].completion_tokens > 0
+                  and .data.items[0].total_tokens == (.data.items[0].prompt_tokens + .data.items[0].completion_tokens)' >/dev/null; then
               break
             fi
             sleep 1
@@ -1591,6 +2004,62 @@ jobs:
             'select(.data.total == 1 and .data.items[0].status == "success") | .data.items[0].billed_amount')
           image_billed_amount=$(echo "$image_user_log" | jq -er \
             'select(.data.total == 1 and .data.items[0].status == "success" and (.data.items[0].billed_amount | tonumber) > 0) | .data.items[0].billed_amount')
+          gemini_image_billed_amount=$(echo "$gemini_image_user_log" | jq -er \
+            'select(.data.total == 1 and .data.items[0].status == "success" and (.data.items[0].billed_amount | tonumber) > 0) | .data.items[0].billed_amount')
+          gemini_image_settlement=$("${compose[@]}" exec -T mysql sh -c \
+            'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names --raw' <<SQL
+          SELECT JSON_OBJECT(
+            'status', settlement.status,
+            'user_id', settlement.user_id,
+            'token_id', settlement.token_id,
+            'charged_quota', settlement.charged_quota,
+            'dimension_charged_quota', COALESCE((
+              SELECT SUM(dim.charged_quota)
+              FROM JSON_TABLE(
+                settlement.charge_dimensions_json,
+                '\$[*]' COLUMNS(charged_quota BIGINT PATH '\$.charged_quota')
+              ) AS dim
+            ), 0),
+            'quota_per_unit', CAST(JSON_UNQUOTE(JSON_EXTRACT(settlement.price_snapshot_json, '\$.ztapi_quota_per_unit')) AS DECIMAL(30,10)),
+            'input_tokens', CAST(JSON_UNQUOTE(JSON_EXTRACT(settlement.usage_json, '\$.dimensions.input_tokens')) AS UNSIGNED),
+            'output_tokens', CAST(JSON_UNQUOTE(JSON_EXTRACT(settlement.usage_json, '\$.dimensions.output_tokens')) AS UNSIGNED),
+            'selected_rule_id', JSON_UNQUOTE(JSON_EXTRACT(settlement.usage_json, '\$.selected_rule_id')),
+            'input_rule_id', JSON_UNQUOTE(JSON_EXTRACT(settlement.usage_json, '\$.price_rule_ids.input_tokens')),
+            'output_rule_id', JSON_UNQUOTE(JSON_EXTRACT(settlement.usage_json, '\$.price_rule_ids.output_tokens')),
+            'upstream_request_id', JSON_UNQUOTE(JSON_EXTRACT(settlement.usage_json, '\$.upstream_request_id')),
+            'expected_charged_quota', CAST(ROUND((
+              CAST(JSON_UNQUOTE(JSON_EXTRACT(settlement.usage_json, '\$.dimensions.input_tokens')) AS DECIMAL(30,10)) * 0.4100000000 +
+              CAST(JSON_UNQUOTE(JSON_EXTRACT(settlement.usage_json, '\$.dimensions.output_tokens')) AS DECIMAL(30,10)) * 3.4166666667
+            ) * CAST(JSON_UNQUOTE(JSON_EXTRACT(settlement.price_snapshot_json, '\$.ztapi_quota_per_unit')) AS DECIMAL(30,10)) / 1000000, 0) AS SIGNED)
+          )
+          FROM ztapi_request_settlements AS settlement
+          WHERE settlement.request_id = '$gemini_image_request_id'
+            AND settlement.public_model = 'zt-gemini-2.5-flash-image'
+          LIMIT 1;
+          SQL
+          )
+          echo "$gemini_image_settlement" | jq -e \
+            --argjson user_id "$acceptance_user_id" \
+            --argjson token_id "$acceptance_token_id" '
+              .status == "settled"
+              and .user_id == $user_id
+              and .token_id == $token_id
+              and .charged_quota > 0
+              and .charged_quota == .dimension_charged_quota
+              and .charged_quota == .expected_charged_quota
+              and .quota_per_unit > 0
+              and .input_tokens > 0
+              and .input_tokens <= 200000
+              and .output_tokens > 0
+              and .selected_rule_id == "lte_200k"
+              and .input_rule_id == "lte_200k"
+              and .output_rule_id == "lte_200k"
+              and (.upstream_request_id | type == "string" and length > 0)' >/dev/null
+          gemini_image_expected_billed_amount=$(echo "$gemini_image_settlement" | jq -er '.charged_quota / .quota_per_unit')
+          jq -en \
+            --argjson logged "$gemini_image_billed_amount" \
+            --argjson expected "$gemini_image_expected_billed_amount" \
+            '($logged - $expected | if . < 0 then -. else . end) < 0.00000001' >/dev/null
 
           for acceptance_admin_log_attempt in $(seq 1 20); do
             chat_admin_log=$(curl --fail --silent --show-error \
@@ -1608,11 +2077,18 @@ jobs:
               --header "Authorization: Bearer $admin_access_token" \
               --header "New-API-User: $admin_user_id" \
               "https://admin.ztapi.vip/api/admin/request-logs?request_id=$image_request_id&user_id=$acceptance_user_id&p=1&page_size=10")
+            gemini_image_admin_log=$(curl --fail --silent --show-error \
+              --resolve admin.ztapi.vip:443:127.0.0.1 \
+              --header "Authorization: Bearer $admin_access_token" \
+              --header "New-API-User: $admin_user_id" \
+              "https://admin.ztapi.vip/api/admin/request-logs?request_id=$gemini_image_request_id&user_id=$acceptance_user_id&p=1&page_size=10")
             if echo "$chat_admin_log" | jq -e --argjson user_id "$acceptance_user_id" \
                 '.success == true and .data.total == 1 and .data.items[0].user_id == $user_id' >/dev/null &&
               echo "$embedding_admin_log" | jq -e --argjson user_id "$acceptance_user_id" \
                 '.success == true and .data.total == 1 and .data.items[0].user_id == $user_id' >/dev/null &&
               echo "$image_admin_log" | jq -e --argjson user_id "$acceptance_user_id" \
+                '.success == true and .data.total == 1 and .data.items[0].user_id == $user_id' >/dev/null &&
+              echo "$gemini_image_admin_log" | jq -e --argjson user_id "$acceptance_user_id" \
                 '.success == true and .data.total == 1 and .data.items[0].user_id == $user_id' >/dev/null; then
               break
             fi
@@ -1623,6 +2099,8 @@ jobs:
           echo "$embedding_admin_log" | jq -e --argjson user_id "$acceptance_user_id" \
             '.data.total == 1 and .data.items[0].user_id == $user_id' >/dev/null
           echo "$image_admin_log" | jq -e --argjson user_id "$acceptance_user_id" \
+            '.data.total == 1 and .data.items[0].user_id == $user_id' >/dev/null
+          echo "$gemini_image_admin_log" | jq -e --argjson user_id "$acceptance_user_id" \
             '.data.total == 1 and .data.items[0].user_id == $user_id' >/dev/null
 
           acceptance_ledger_before_cleanup=$(curl --fail --silent --show-error \
@@ -1675,6 +2153,9 @@ jobs:
             --arg image_model "zt-gp-image-2" \
             --arg image_request_id "$image_request_id" \
             --argjson image_billed_amount "$image_billed_amount" \
+            --arg gemini_image_model "zt-gemini-2.5-flash-image" \
+            --arg gemini_image_request_id "$gemini_image_request_id" \
+            --argjson gemini_image_billed_amount "$gemini_image_billed_amount" \
             --argjson seed_ledger_id "$acceptance_seed_ledger_id" \
             --argjson cleanup_ledger_id "$acceptance_cleanup_ledger_id" \
             --arg usdt_trade_no "$acceptance_usdt_trade_no" \
@@ -1689,10 +2170,11 @@ jobs:
               unpaid_usdt_order:{trade_no:$usdt_trade_no,created:"pending",cancelled_by_user:true,final:"expired",balance_credited:false},
               quotation_allowlist_count:46,
               public_catalog_count:$catalog_count,
-              published_media_count:1,
+              published_media_count:2,
               text:{model:$chat_model,request_id:$chat_request_id,status:"success",billed_amount:$chat_billed_amount},
               embedding:{model:$embedding_model,request_id:$embedding_request_id,status:"success",billed_amount:$embedding_billed_amount},
               image:{model:$image_model,request_id:$image_request_id,status:"success",billed_amount:$image_billed_amount},
+              gemini_image:{model:$gemini_image_model,request_id:$gemini_image_request_id,status:"success",billed_amount:$gemini_image_billed_amount},
               seed_ledger_id:$seed_ledger_id,
               cleanup_ledger_id:$cleanup_ledger_id,
               acceptance_final_quota:0,
@@ -1721,6 +2203,12 @@ jobs:
             printf 'previous_password_register_enabled=%q\n' "$previous_password_register_enabled"
             printf 'host_nginx_was_active=%q\n' "$host_nginx_was_active"
             printf 'unrelated_before=%q\n' "$unrelated_before"
+            printf 'gemini_rollout_state_captured=%q\n' "$gemini_rollout_state_captured"
+            printf 'gemini_was_published=%q\n' "$gemini_was_published"
+            printf 'gemini_channel_preexisting=%q\n' "$gemini_channel_preexisting"
+            printf 'gemini_channel_previous_status=%q\n' "$gemini_channel_previous_status"
+            printf 'gemini_channel_id=%q\n' "$gemini_channel_id"
+            printf 'gemini_channel_backup=%q\n' "$gemini_channel_backup"
           } > "$rollback_state"
           chmod 0600 "$rollback_state"
           watchdog_unit="ztapi-release-watchdog-${ZTAPI_RELEASE_VERSION:0:12}-$ZTAPI_RELEASE_EXECUTION_ID"

@@ -159,14 +159,22 @@ func validateZTAPIMediaQuotationEntry(entry ZTAPIQuotationEntry, identity ztapiM
 	if entry.Modality != identity.modality {
 		return false
 	}
-	if entry.Label == "gp-image-2" {
+	switch entry.Label {
+	case "gp-image-2":
 		if entry.Status != "mapped" || entry.SourceModel != "gpt-image-2" || entry.PublicName != "zt-gp-image-2" ||
 			entry.Protocol != ZTAPIProtocolOpenAICompatible || entry.ProviderFamily != ZTAPIProviderOpenAI {
 			return false
 		}
-	} else if entry.Status != "mapping_pending" || entry.SourceModel != "" || entry.PublicName != "" ||
-		entry.Protocol != "" || entry.ProviderFamily != "" {
-		return false
+	case "gm25-fl-IMAGE":
+		if entry.Status != "mapped" || entry.SourceModel != "gemini-2.5-flash-image" || entry.PublicName != "zt-gemini-2.5-flash-image" ||
+			entry.Protocol != ZTAPIProtocolOpenAICompatible || entry.ProviderFamily != ZTAPIProviderGoogle {
+			return false
+		}
+	default:
+		if entry.Status != "mapping_pending" || entry.SourceModel != "" || entry.PublicName != "" ||
+			entry.Protocol != "" || entry.ProviderFamily != "" {
+			return false
+		}
 	}
 	contractRows := 0
 	for _, row := range entry.QuoteRows {
@@ -333,7 +341,7 @@ func parseZTAPIQuotationManifest(raw []byte) (ztapiQuotationManifest, error) {
 			return manifest, ErrZTAPIQuotationManifestInvalid
 		}
 	}
-	if mapped != 42 || pending != 4 || text != 39 || embedding != 2 || media != len(ztapiMediaPriceIdentities) {
+	if mapped != 43 || pending != 3 || text != 39 || embedding != 2 || media != len(ztapiMediaPriceIdentities) {
 		return manifest, ErrZTAPIQuotationManifestInvalid
 	}
 	for sourceModel := range ztapiPoolPricePolicyIdentities {

@@ -59,7 +59,7 @@ test('freezes the quotation and current publication baseline', () => {
   }
 });
 
-test('maps only the evidenced GPT Image 2 media row', () => {
+test('maps both evidenced image rows while video rows remain pending', () => {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
   const media = manifest.entries
     .filter(({ modality }) => modality === 'image' || modality === 'video')
@@ -71,7 +71,7 @@ test('maps only the evidenced GPT Image 2 media row', () => {
   );
   assert.deepEqual(media.map(({ label, status }) => `${label}\0${status}`).sort(), [
     'gp-image-2\0mapped',
-    'gm25-fl-IMAGE\0mapping_pending',
+    'gm25-fl-IMAGE\0mapped',
     'seedance-2.0\0mapping_pending',
     'Seedance 2.0 Fast\0mapping_pending',
     'Seedance 2.0 Mini\0mapping_pending',
@@ -89,6 +89,21 @@ test('maps only the evidenced GPT Image 2 media row', () => {
       public_name: 'zt-gp-image-2',
       protocol: 'openai_compatible',
       provider_family: 'openai',
+    },
+  );
+  const geminiImage = manifest.entries.find(({ label }) => label === 'gm25-fl-IMAGE');
+  assert.deepEqual(
+    {
+      source_model: geminiImage.source_model,
+      public_name: geminiImage.public_name,
+      protocol: geminiImage.protocol,
+      provider_family: geminiImage.provider_family,
+    },
+    {
+      source_model: 'gemini-2.5-flash-image',
+      public_name: 'zt-gemini-2.5-flash-image',
+      protocol: 'openai_compatible',
+      provider_family: 'google',
     },
   );
 });

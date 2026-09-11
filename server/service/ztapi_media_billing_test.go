@@ -523,6 +523,12 @@ func TestFinalizeZTAPIImageSettlementUsesFrozenExactDecimalEvidence(t *testing.T
 	require.EqualValues(t, 2, ledgers)
 	require.EqualValues(t, 1, logs)
 	require.EqualValues(t, 1, charges)
+	var outbox model.ZTAPISettlementLogOutbox
+	require.NoError(t, db.Where("operation_id = ?", row.OperationID).Take(&outbox).Error)
+	var consumeLog model.Log
+	require.NoError(t, common.UnmarshalJsonStr(outbox.PayloadJSON, &consumeLog))
+	require.Equal(t, 10, consumeLog.PromptTokens)
+	require.Equal(t, 7, consumeLog.CompletionTokens)
 
 	conflict := evidence.Clone()
 	conflict.UpstreamRequestID = "different-upstream-request"
