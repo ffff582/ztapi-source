@@ -1,0 +1,422 @@
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type PropsWithChildren,
+} from 'react';
+
+export type Locale = 'zh-CN' | 'en';
+
+const STORAGE_KEY = 'ztapi.locale';
+const COMPATIBLE_STORAGE_KEYS = ['i18nextLng'] as const;
+
+const english: Record<string, string> = {
+  '语言': 'Language',
+  '切换到中文': 'Switch to Chinese',
+  '切换到英文': 'Switch to English',
+  'ZTAPI 首页': 'ZTAPI home',
+  '打开导航菜单': 'Open navigation menu',
+  '关闭导航菜单': 'Close navigation menu',
+  '公共导航': 'Public navigation',
+  '模型价格': 'Pricing',
+  '快速接入': 'Quickstart',
+  '网关能力': 'Gateway',
+  '登录': 'Sign in',
+  '开始使用': 'Get started',
+  '概览': 'Overview',
+  'API 密钥': 'API keys',
+  '模型支持': 'Supported models',
+  '使用说明': 'Integration guide',
+  '使用日志': 'Usage logs',
+  '余额充值': 'Add funds',
+  '控制台导航': 'Console navigation',
+  '当前账号': 'Current account',
+  '退出登录': 'Sign out',
+  '登录 ZTAPI': 'Sign in to ZTAPI',
+  '创建 ZTAPI 账号': 'Create a ZTAPI account',
+  '使用概览': 'Usage overview',
+  '模型与价格': 'Models and pricing',
+  '一个 Key，连接全球主流 AI 模型': 'One key connects leading AI models worldwide',
+  '一个 Key，连接全球主流': 'One key connects leading',
+  'AI 模型': 'AI models worldwide',
+  'ZTAPI 网关信息': 'ZTAPI gateway information',
+  '一个接口，': 'One interface,',
+  '连接模型与业务。': 'connecting models and your business.',
+  'OpenAI 兼容接口': 'OpenAI-compatible API',
+  '按量计费': 'Usage-based billing',
+  '可配置路由': 'Configurable routing',
+  '返回首页': 'Back to home',
+  '进入控制台，管理 API Key、调用记录与用量。': 'Manage API keys, request logs, and usage from your console.',
+  '账号': 'Username',
+  '密码': 'Password',
+  '账号需为 3-32 字节，仅可使用字母、数字、下划线或连字符': 'Username must be 3-32 bytes and contain only letters, numbers, underscores, or hyphens.',
+  '密码需至少 10 个字符且不超过 256 字节': 'Password must contain at least 10 characters and no more than 256 bytes.',
+  '登录中...': 'Signing in...',
+  '还没有账号？': 'New to ZTAPI?',
+  '创建账号': 'Create account',
+  '创建账号后即可进入控制台并生成 API Key。': 'Create an account to access the console and generate an API key.',
+  '3-32 字节，可使用字母、数字、下划线或连字符': '3-32 bytes; letters, numbers, underscores, and hyphens are allowed.',
+  '至少 10 个字符，最多 256 字节': 'At least 10 characters and no more than 256 bytes.',
+  '创建中...': 'Creating...',
+  '已有账号？': 'Already have an account?',
+  '兼容 OpenAI SDK，统一管理调用、用量和模型路由。': 'OpenAI SDK compatible, with unified requests, usage, and model routing.',
+  '查看模型价格': 'View model pricing',
+  '每一次调用都清晰、可控、可追踪': 'Every request is clear, controlled, and traceable',
+  '透明用量': 'Transparent usage',
+  '按实际 API 用量记录调用与费用归属。': 'Track every request and charge from actual API usage.',
+  '可控路由': 'Controlled routing',
+  '通过统一模型名称管理可用路由。': 'Manage available routes through unified model names.',
+  '请求记录': 'Request history',
+  '在控制台查看调用结果与用量记录。': 'Review request results and usage in the console.',
+  '开始使用 ZTAPI': 'Get started with ZTAPI',
+  '从今天开始': 'Start today',
+  '用一个统一接口，让模型选择更自由': 'Choose models freely through one unified API',
+  '统一模型 API': 'Unified model API',
+  'ZTAPI 对应源码': 'ZTAPI source code',
+  '通用与推理模型': 'General-purpose and reasoning models',
+  '长文本与复杂任务': 'Long context and complex tasks',
+  '多模态模型能力': 'Multimodal capabilities',
+  '流式响应': 'Streaming responses',
+  '3 分钟接入': 'Integrate in 3 minutes',
+  '只需替换 Base URL': 'Just replace the Base URL',
+  '保留熟悉的 SDK 和调用方式，使用 ZTAPI Key 即可请求公开模型。': 'Keep your existing SDK and request pattern, then use a ZTAPI key to call public models.',
+  '模型系列': 'Model families',
+  '请求流程': 'Request flow',
+  '发送兼容请求': 'Send a compatible request',
+  '鉴权并选择路由': 'Authenticate and select a route',
+  '返回流式或完整响应': 'Return a streamed or complete response',
+  '复制代码': 'Copy code',
+  '已复制': 'Copied',
+  '复制失败，请手动复制': 'Copy failed. Please copy manually.',
+  '实时模型目录': 'Live model catalog',
+  '文本、图片与视频，通过一个账户统一调用': 'Text, image, and video models through one account',
+  '查看全部模型与价格': 'View all models and pricing',
+  '支持的能力类型': 'Supported capability types',
+  '文本模型': 'Text models',
+  '图片生成': 'Image generation',
+  '视频生成': 'Video generation',
+  '正在读取实时模型...': 'Loading live models...',
+  '暂时无法读取实时模型，请稍后查看模型价格页。': 'Live models are temporarily unavailable. Please check the pricing page later.',
+  '模型目录正在配置，开放后将在这里展示实时价格。': 'The model catalog is being configured. Live pricing will appear here when available.',
+  '{{count}} 个实时公开模型': '{{count}} live public models',
+  '当前可用的图片生成模型': 'Currently available image generation model',
+  '当前可用的视频生成模型': 'Currently available video generation model',
+  '当前可用的公开模型': 'Currently available public model',
+  '价格': 'Price',
+  '按规格计费': 'Priced by configuration',
+  '输入': 'Input',
+  '输出': 'Output',
+  '账户与使用': 'Account and usage',
+  '查看当前会话与最近请求的实际统计。': 'Review the current session and actual statistics from recent requests.',
+  '正在加载使用数据...': 'Loading usage data...',
+  '使用数据加载失败，请稍后重试。': 'Usage data could not be loaded. Please try again later.',
+  '实时统计': 'Live statistics',
+  '当前账户': 'Current account',
+  '最近一分钟请求': 'Requests in the last minute',
+  '最近一分钟 Tokens': 'Tokens in the last minute',
+  '最近活动': 'Recent activity',
+  '最近请求': 'Recent requests',
+  '{{count}} 条': '{{count}} records',
+  '当前账户还没有请求记录。': 'This account has no request history yet.',
+  '模型': 'Model',
+  '实际费用': 'Actual charge',
+  'Token 用量': 'Token usage',
+  '状态与耗时': 'Status and latency',
+  '调用时间': 'Request time',
+  '请求 ID': 'Request ID',
+  '本次实际扣费': 'Actual charge for this request',
+  '输入 {{count}}': 'Input {{count}}',
+  '输出 {{count}}': 'Output {{count}}',
+  '总计 {{count}}': 'Total {{count}}',
+  '成功': 'Success',
+  '失败': 'Failed',
+  '记录': 'Recorded',
+  '{{count}} 秒': '{{count}} sec',
+  '公开请求记录': 'Public request history',
+  '仅展示 ZTAPI 请求标识、公开模型、用量与计费结果。': 'Shows only ZTAPI request IDs, public models, usage, and billing results.',
+  '正在加载使用日志...': 'Loading usage logs...',
+  '使用日志加载失败，请稍后重试。': 'Usage logs could not be loaded. Please try again later.',
+  '当前账户还没有请求日志。': 'This account has no usage logs yet.',
+  '使用日志列表': 'Usage log list',
+  '第 {{page}} 页': 'Page {{page}}',
+  '请求明细': 'Request details',
+  '日志分页': 'Usage log pagination',
+  '上一页': 'Previous page',
+  '下一页': 'Next page',
+  '第 {{page}} / {{pages}} 页': 'Page {{page}} of {{pages}}',
+  '其他': 'Other',
+  '实时公开目录': 'Live public catalog',
+  '公开模型与实时售价': 'Public models and live pricing',
+  '公开模型目录': 'Public model catalog',
+  '{{count}} 个公开模型': '{{count}} public models',
+  '正在加载模型价格...': 'Loading model pricing...',
+  '模型价格加载失败，请稍后重试。': 'Model pricing could not be loaded. Please try again later.',
+  '当前没有可展示的公开模型。': 'No public models are currently available.',
+  '{{count}} 个模型': '{{count}} models',
+  '{{name}} 模型价格表格': '{{name}} model pricing table',
+  '公开模型': 'Public model',
+  '说明': 'Description',
+  '售价明细': 'Pricing details',
+  '{{name}} 售价': '{{name}} pricing',
+  '按规则计费': 'Rule-based pricing',
+  '服务目录': 'Service catalog',
+  '仅展示当前账户分组实际可调用的公开模型与实时售价。': 'Shows the public models and live prices available to this account group.',
+  '可调用模型': 'Available models',
+  '{{count}} 个可用模型': '{{count}} available models',
+  '正在加载模型目录...': 'Loading model catalog...',
+  '模型目录加载失败，请刷新后重试。': 'The model catalog could not be loaded. Refresh and try again.',
+  '当前账户暂无可调用模型。': 'No models are currently available to this account.',
+  '模型分类': 'Model categories',
+  '全部': 'All',
+  '国产模型': 'Chinese models',
+  '向量模型': 'Embedding models',
+  '图片模型': 'Image models',
+  '视频模型': 'Video models',
+  '搜索模型': 'Search models',
+  '搜索模型 ID 或厂商': 'Search model ID or provider',
+  '显示 {{visible}} / {{total}}': 'Showing {{visible}} of {{total}}',
+  '{{name}} 已复制': '{{name}} copied',
+  '{{name}} 复制失败，请手动复制': 'Could not copy {{name}}. Please copy it manually.',
+  '没有符合筛选条件的模型。': 'No models match these filters.',
+  '模型 ID': 'Model ID',
+  '厂商': 'Provider',
+  '接口协议': 'API protocol',
+  '调用地址': 'Endpoint',
+  '操作': 'Actions',
+  'OpenAI 兼容': 'OpenAI compatible',
+  '文本向量 Embeddings': 'Text embeddings',
+  '异步视频任务': 'Asynchronous video tasks',
+  '缓存读取': 'Cache read',
+  '缓存写入': 'Cache write',
+  '5 分钟缓存写入': '5-minute cache write',
+  '1 小时缓存写入': '1-hour cache write',
+  '图片': 'Image',
+  '音频': 'Audio',
+  '请求': 'Request',
+  '计费单位': 'billing unit',
+  '次': 'request',
+  '文本输入': 'Text input',
+  '文本缓存输入': 'Cached text input',
+  '图片输入': 'Image input',
+  '图片缓存输入': 'Cached image input',
+  '图片输出': 'Image output',
+  '含视频输入': 'Includes video input',
+  '无视频输入': 'No video input',
+  '{{min}}-{{max}} 张': '{{min}}-{{max}} images',
+  '支持视频输入': 'Supports video input',
+  '{{name}} 条件售价': '{{name}} conditional pricing',
+  '复制 {{name}}': 'Copy {{name}}',
+  '复制模型 ID': 'Copy model ID',
+  '用量与计费': 'Usage and billing',
+  '计费以上游返回的实际用量为准。部分模型上游会附带额外上下文，这部分同样计入用量。部分模型上游不严格遵守': 'Billing follows the actual usage reported by the upstream provider. Some providers add extra context, which is also included in usage. Some providers do not strictly honor',
+  '，实际输出可能超出该值并计入用量。': '; actual output may exceed this value and will be billed.',
+  '适用模型：Claude 全线、GPT 5.4 及以上、GLM / Qwen 推理系。': 'Applies to all Claude models, GPT 5.4 and later, and GLM / Qwen reasoning models.',
+  '正在确认会话...': 'Checking your session...',
+  '隐藏密码': 'Hide password',
+  '显示密码': 'Show password',
+  '接入文档': 'Integration documentation',
+  '端点选择': 'Endpoint selection',
+  '请按模型支持页的调用地址选择示例。Responses-only 模型必须使用': 'Choose an example according to the endpoint shown on the supported models page. Responses-only models must use',
+  '，不适用 Chat Completions 示例。': '; the Chat Completions example does not apply.',
+  '开始调用': 'Start making requests',
+  '三步完成接入': 'Integrate in three steps',
+  '创建 API Key': 'Create an API key',
+  '密钥只在创建时完整显示一次，请立即妥善保存。': 'The full key is shown only once when created. Store it securely now.',
+  '选择模型 ID': 'Choose a model ID',
+  '在模型支持页查看当前账户实际可调用的模型。': 'Check the supported models page for models available to this account.',
+  '发送请求': 'Send a request',
+  '在服务端设置 ZTAPI_API_KEY，再替换示例中的模型 ID。': 'Set ZTAPI_API_KEY on your server, then replace the model ID in the example.',
+  '创建 API 密钥': 'Create API key',
+  '查看可用模型': 'View available models',
+  'OpenAI 兼容入口': 'OpenAI-compatible endpoint',
+  '接口信息': 'API details',
+  '请求地址': 'Request endpoint',
+  '鉴权方式': 'Authentication',
+  '代码示例': 'Code example',
+  '发送第一条请求': 'Send your first request',
+  '调用接口': 'API endpoint',
+  '保护你的 API Key': 'Protect your API key',
+  '不要在浏览器前端、移动端安装包或公开仓库中暴露 API Key。': 'Never expose an API key in browser code, mobile app packages, or public repositories.',
+  '账户余额': 'Account balance',
+  '可用余额': 'Available balance',
+  '正在读取余额...': 'Loading balance...',
+  '余额加载失败，请刷新重试。': 'Balance could not be loaded. Refresh and try again.',
+  '刷新余额': 'Refresh balance',
+  '待核账预留': 'Pending settlement holds',
+  '尚未计费': 'Not yet charged',
+  '刷新预留记录': 'Refresh holds',
+  '预留金额已从可用余额中暂时扣除，最终费用以结算结果为准。': 'Held amounts are temporarily deducted from available balance. The final charge follows settlement.',
+  '正在读取预留记录...': 'Loading settlement holds...',
+  '预留记录加载失败，请刷新重试。': 'Settlement holds could not be loaded. Refresh and try again.',
+  '暂无待核账预留。': 'No pending settlement holds.',
+  '本页暂无预留记录。': 'No holds on this page.',
+  '请求预留列表': 'Request hold list',
+  '请求 ID / 创建时间': 'Request ID / created',
+  '预留金额 (USD)': 'Held amount (USD)',
+  '状态': 'Status',
+  '预留中': 'Held',
+  '待核账': 'Pending settlement',
+  '预留记录分页': 'Settlement hold pagination',
+  '上一页预留记录': 'Previous hold page',
+  '下一页预留记录': 'Next hold page',
+  '充值记录': 'Top-up history',
+  '最近 30 天': 'Last 30 days',
+  '刷新充值记录': 'Refresh top-up history',
+  '正在读取充值记录...': 'Loading top-up history...',
+  '充值记录加载失败，请刷新重试。': 'Top-up history could not be loaded. Refresh and try again.',
+  '暂无充值记录。': 'No top-up history.',
+  '充值订单列表': 'Top-up order list',
+  '订单号 / 创建时间': 'Order / created',
+  '订单金额': 'Order amount',
+  '已入账余额 (USD)': 'Credited balance (USD)',
+  '到账时间': 'Settled at',
+  '已到账': 'Settled',
+  '待确认': 'Pending',
+  '已过期': 'Expired',
+  '已拒绝': 'Rejected',
+  '待人工核验': 'Manual review',
+  '确认中': 'Confirming',
+  '待核验': 'Pending review',
+  '充值记录分页': 'Top-up history pagination',
+  '第 {{page}} 页 · 共 {{total}} 条': 'Page {{page}} · {{total}} total',
+  '上一页充值记录': 'Previous top-up page',
+  '下一页充值记录': 'Next top-up page',
+  '等待链上确认': 'Waiting for on-chain confirmation',
+  '仅按下方唯一金额转账，系统正在核验 TRON 链上到账记录。': 'Send exactly the unique amount below while ZTAPI verifies the TRON transfer.',
+  '正在确认到账': 'Confirming payment',
+  '付款窗口已经结束，请勿继续转账。系统正在核验有效期内发出的链上交易。': 'The payment window has ended. Do not send another transfer while ZTAPI checks transactions sent in time.',
+  '充值已到账': 'Top-up credited',
+  '链上转账已确认，充值额度已经计入当前账户。': 'The transfer is confirmed and the balance has been credited to this account.',
+  '订单已过期': 'Order expired',
+  '该唯一金额已失效，请重新创建订单后再转账。': 'This unique amount has expired. Create a new order before transferring.',
+  '订单待人工核验': 'Order requires manual review',
+  '系统发现需要人工确认的链上记录，请勿重复转账。': 'ZTAPI found an on-chain record that needs manual review. Do not transfer again.',
+  '最低充值 {{amount}} USDT，且只能输入整数。': 'Minimum top-up is {{amount}} USDT and the amount must be a whole number.',
+  '暂时无法创建充值订单，请稍后重试。': 'The top-up order could not be created. Please try again later.',
+  '复制失败，请手动选择并复制。': 'Copy failed. Select and copy the value manually.',
+  '通过 TRON Mainnet 的 USDT（TRC-20）为当前 ZTAPI 账户充值。': 'Add funds to this ZTAPI account with USDT (TRC-20) on TRON Mainnet.',
+  '正在加载充值配置...': 'Loading top-up settings...',
+  '充值配置加载失败，请稍后重试。': 'Top-up settings could not be loaded. Please try again later.',
+  'USDT 充值当前未开放。': 'USDT top-ups are currently unavailable.',
+  'USDT 充值': 'USDT top-up',
+  '输入需要到账的整数额度。系统会生成一个 10 分钟有效的唯一付款金额。': 'Enter the whole-number balance you need. ZTAPI will create a unique payment amount valid for 10 minutes.',
+  '充值数量': 'Top-up amount',
+  '最低 {{amount}} USDT，只计入整数额度。': 'Minimum {{amount}} USDT. Only the whole-number balance is credited.',
+  '继续支付现有订单': 'Continue existing payment',
+  '查看确认进度': 'View confirmation progress',
+  '正在创建...': 'Creating...',
+  '创建支付订单': 'Create payment order',
+  '充值规则': 'Top-up rules',
+  '到账后自动入账': 'Credited automatically after confirmation',
+  '订单有效期 10 分钟': 'Order valid for 10 minutes',
+  '仅支持 TRC-20': 'TRC-20 only',
+  '关闭支付详情': 'Close payment details',
+  '本次入账': 'Balance credited',
+  '实际支付': 'Amount paid',
+  '订单号': 'Order number',
+  '链上交易': 'On-chain transaction',
+  'USDT 收款地址二维码': 'USDT receiving address QR code',
+  '必须支付的唯一金额': 'Exact unique amount to pay',
+  '复制唯一付款金额': 'Copy exact payment amount',
+  '复制金额': 'Copy amount',
+  '复制': 'Copy',
+  '网络': 'Network',
+  '收款地址': 'Receiving address',
+  '复制收款地址': 'Copy receiving address',
+  '复制地址': 'Copy address',
+  '剩余时间': 'Time remaining',
+  '订单状态': 'Order status',
+  '已确认': 'Confirmed',
+  '已结束': 'Ended',
+  '人工核验中': 'Under manual review',
+  '只发送 USDT（TRC-20），且金额必须与上方数字完全一致。转错网络或金额无法自动入账。': 'Send USDT (TRC-20) only and match the exact amount above. Transfers on the wrong network or with the wrong amount cannot be credited automatically.',
+  '充值说明': 'Top-up instructions',
+  '付款流程': 'Payment flow',
+  '创建唯一付款金额': 'Create a unique payment amount',
+  '使用 TRON 钱包准确转账': 'Send the exact transfer from a TRON wallet',
+  '链上确认后自动到账': 'Balance is credited after on-chain confirmation',
+  '没有待支付订单时，后台不会持续查询链上交易。': 'ZTAPI does not continuously query the blockchain when there is no pending order.',
+};
+
+type TranslationValues = Record<string, string | number>;
+
+function normalizeLocale(value: string | null | undefined): Locale | null {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized.startsWith('zh')) return 'zh-CN';
+  if (normalized.startsWith('en')) return 'en';
+  return null;
+}
+
+function initialLocale(): Locale {
+  if (typeof window === 'undefined') return 'zh-CN';
+
+  try {
+    const ownPreference = normalizeLocale(window.localStorage.getItem(STORAGE_KEY));
+    if (ownPreference !== null) return ownPreference;
+    for (const key of COMPATIBLE_STORAGE_KEYS) {
+      const compatiblePreference = normalizeLocale(window.localStorage.getItem(key));
+      if (compatiblePreference !== null) return compatiblePreference;
+    }
+  } catch {
+    // Storage can be unavailable in hardened browser contexts.
+  }
+
+  return window.navigator.language.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en';
+}
+
+function translate(locale: Locale, key: string, values?: TranslationValues) {
+  const template = locale === 'en' ? english[key] ?? key : key;
+  if (values === undefined) return template;
+  return Object.entries(values).reduce(
+    (result, [name, value]) => result.replaceAll(`{{${name}}}`, String(value)),
+    template,
+  );
+}
+
+type LocaleContextValue = {
+  locale: Locale;
+  setLocale: (locale: Locale) => void;
+  t: (key: string, values?: TranslationValues) => string;
+};
+
+const fallbackContext: LocaleContextValue = {
+  locale: 'zh-CN',
+  setLocale: () => undefined,
+  t: (key, values) => translate('zh-CN', key, values),
+};
+
+const LocaleContext = createContext<LocaleContextValue>(fallbackContext);
+
+export function LocaleProvider({ children }: PropsWithChildren) {
+  const [locale, setLocaleState] = useState<Locale>(initialLocale);
+
+  useEffect(() => {
+    document.documentElement.lang = locale;
+  }, [locale]);
+
+  const value = useMemo<LocaleContextValue>(() => ({
+    locale,
+    setLocale: (nextLocale) => {
+      setLocaleState(nextLocale);
+      try {
+        window.localStorage.setItem(STORAGE_KEY, nextLocale);
+      } catch {
+        // The in-memory selection still works when storage is unavailable.
+      }
+    },
+    t: (key, values) => translate(locale, key, values),
+  }), [locale]);
+
+  return <LocaleContext.Provider value={value}>{children}</LocaleContext.Provider>;
+}
+
+export function useLocale() {
+  return useContext(LocaleContext);
+}
+
+export function localeTag(locale: Locale) {
+  return locale === 'zh-CN' ? 'zh-CN' : 'en-US';
+}

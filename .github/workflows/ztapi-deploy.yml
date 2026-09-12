@@ -1,0 +1,2475 @@
+name: ZTAPI production deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_commit:
+        description: Exact 40-character commit SHA approved for production
+        required: true
+        type: string
+      drop_legacy_token_key:
+        description: Drop tokens.key only after phase-one verification and backup
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: ztapi-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment: production
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out ZTAPI source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_commit }}
+
+      - name: Verify and record checked out release
+        env:
+          ZTAPI_RELEASE_COMMIT: ${{ inputs.release_commit }}
+          ZTAPI_RELEASE_EXECUTION_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          [[ "$ZTAPI_RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$ZTAPI_RELEASE_EXECUTION_ID" =~ ^[0-9]+-[0-9]+$ ]]
+          test "$(git rev-parse HEAD)" = "$ZTAPI_RELEASE_COMMIT"
+          echo "ZTAPI_RELEASE_VERSION=$ZTAPI_RELEASE_COMMIT" >> "$GITHUB_ENV"
+          echo "ZTAPI_RELEASE_EXECUTION_ID=$ZTAPI_RELEASE_EXECUTION_ID" >> "$GITHUB_ENV"
+
+      - name: Verify mandatory CI for exact release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ZTAPI_RELEASE_COMMIT: ${{ inputs.release_commit }}
+        run: |
+          set -euo pipefail
+          ci_runs=$(curl --fail --silent --show-error \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/ffff582/kuaiyi-assistant-candidate/actions/workflows/ztapi-financial-ci.yml/runs?head_sha=$ZTAPI_RELEASE_COMMIT&event=workflow_dispatch&per_page=10")
+          echo "$ci_runs" | jq -e \
+            --arg release_commit "$ZTAPI_RELEASE_COMMIT" '
+              [.workflow_runs[] | select(
+                .head_sha == $release_commit
+                and .status == "completed"
+                and .conclusion == "success"
+                and .path == ".github/workflows/ztapi-financial-ci.yml"
+                and .event == "workflow_dispatch"
+              )] | length > 0' >/dev/null
+
+      - name: Verify corresponding public source
+        env:
+          ZTAPI_RELEASE_VERSION: ${{ inputs.release_commit }}
+        run: |
+          set -euo pipefail
+          source_tag="production-$ZTAPI_RELEASE_VERSION"
+          source_repository="https://github.com/ffff582/ztapi-source"
+          tag_ref=$(curl --fail --silent --show-error \
+            "https://api.github.com/repos/ffff582/ztapi-source/git/ref/tags/production-$ZTAPI_RELEASE_VERSION")
+          public_source_commit=$(echo "$tag_ref" | jq -er \
+            'select(.object.type == "commit") | .object.sha')
+          [[ "$public_source_commit" =~ ^[0-9a-f]{40}$ ]]
+          verification_root=$(mktemp -d)
+          trap 'rm -rf "$verification_root"' EXIT
+          public_archive="$verification_root/public-source.tar.gz"
+          archive_entries="$verification_root/archive-entries.txt"
+          public_tree="$verification_root/public-tree"
+          source_export="$verification_root/export"
+          mkdir -p "$public_tree"
+          curl --fail --silent --show-error \
+            --output "$public_archive" \
+            "https://codeload.github.com/ffff582/ztapi-source/tar.gz/$public_source_commit"
+          tar -tzf "$public_archive" > "$archive_entries"
+          if grep -Eq '(^/|(^|/)\.\.(/|$))' "$archive_entries"; then
+            echo "::error::Public source archive contains an unsafe path."
+            exit 1
+          fi
+          grep -Eq '^[^/]+/PUBLIC-SOURCE-MANIFEST\.json$' "$archive_entries"
+          tar -xzf "$public_archive" \
+            --directory "$public_tree" \
+            --strip-components=1 \
+            --no-same-owner \
+            --no-same-permissions
+          test -z "$(find "$public_tree" -type l -print -quit)"
+          public_manifest="$public_tree/PUBLIC-SOURCE-MANIFEST.json"
+          test -s "$public_manifest"
+          jq -e \
+            --arg release_commit "$ZTAPI_RELEASE_VERSION" \
+            --arg source_tag "$source_tag" \
+            --arg source_repository "$source_repository" '
+              .schema_version == 1
+              and .release_commit == $release_commit
+              and .source_tag == $source_tag
+              and .source_repository == $source_repository
+              and (.files | type == "array" and length > 0)' \
+            "$public_manifest" >/dev/null
+          node tools/public-source/export.mjs \
+            --commit "$ZTAPI_RELEASE_VERSION" \
+            --output "$source_export" >/dev/null
+          cmp -s "$source_export/PUBLIC-SOURCE-MANIFEST.json" "$public_manifest"
+          expected_paths="$verification_root/expected-paths.txt"
+          actual_paths="$verification_root/actual-paths.txt"
+          {
+            jq -r '.files[].path' "$public_manifest"
+            echo PUBLIC-SOURCE-MANIFEST.json
+          } | LC_ALL=C sort > "$expected_paths"
+          find "$public_tree" -type f -printf '%P\n' | LC_ALL=C sort > "$actual_paths"
+          cmp -s "$expected_paths" "$actual_paths"
+          while IFS=$'\t' read -r source_path expected_size expected_sha256; do
+            [[ "$source_path" != /* && "$source_path" != *".."* ]]
+            public_file="$public_tree/$source_path"
+            test "$(stat -c %s "$public_file")" = "$expected_size"
+            test "$(sha256sum "$public_file" | cut -d ' ' -f 1)" = "$expected_sha256"
+          done < <(jq -r '.files[] | [.path, (.size | tostring), .sha256] | @tsv' "$public_manifest")
+          for required_source_file in \
+            LICENSE NOTICE THIRD-PARTY-LICENSES.md MODIFICATIONS.md SOURCE-OFFER.md; do
+            grep -Fxq "$required_source_file" "$expected_paths"
+          done
+          git clone --quiet --filter=blob:none --no-checkout \
+            https://github.com/ffff582/ztapi-source.git "$verification_root/public-history"
+          test "$(git -C "$verification_root/public-history" rev-parse "refs/tags/$source_tag^{commit}")" = "$public_source_commit"
+          git -C "$verification_root/public-history" show -s --format='%P' "$public_source_commit" \
+            > "$verification_root/public-parent-shas.txt"
+          parent_count=$(wc -w < "$verification_root/public-parent-shas.txt" | tr -d ' ')
+          echo "Verified public parent_count=$parent_count"
+          echo "Verified public parent SHAs: $(cat "$verification_root/public-parent-shas.txt")"
+          if git -C "$verification_root/public-history" cat-file -e "$ZTAPI_RELEASE_VERSION^{commit}" 2>/dev/null; then
+            echo "::error::Private production commit is reachable from public history."
+            exit 1
+          fi
+          echo "ZTAPI_SOURCE_COMMIT=$public_source_commit" >> "$GITHUB_ENV"
+
+      - name: Install SSH tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dnsutils
+
+      - name: Configure deployment SSH key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.ZTAPI_DEPLOY_SSH_KEY }}
+
+      - name: Verify server host key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -T 60 -t ed25519 123.254.104.157 > ~/.ssh/ztapi_known_hosts
+          ssh-keygen -lf ~/.ssh/ztapi_known_hosts |
+            grep 'SHA256:gz3lHpV1JPP65SRRGQjRv76qlMA3xsoHGZ1ak9n979g'
+
+      - name: Package source
+        run: |
+          tar \
+            --exclude='.git' \
+            --exclude='node_modules' \
+            --exclude='**/node_modules' \
+            --exclude='**/dist' \
+            --exclude='test-results' \
+            --exclude='.superpowers' \
+            -czf /tmp/ztapi-source.tgz .
+
+      - name: Deploy ZTAPI
+        id: deploy_ztapi
+        env:
+          ZTAPI_MYSQL_PASSWORD: ${{ secrets.ZTAPI_MYSQL_PASSWORD }}
+          ZTAPI_MYSQL_ROOT_PASSWORD: ${{ secrets.ZTAPI_MYSQL_ROOT_PASSWORD }}
+          ZTAPI_REDIS_PASSWORD: ${{ secrets.ZTAPI_REDIS_PASSWORD }}
+          ZTAPI_SESSION_SIGNING_KEY: ${{ secrets.ZTAPI_SESSION_SIGNING_KEY }}
+          ZTAPI_CRYPTO_SECRET: ${{ secrets.ZTAPI_CRYPTO_SECRET }}
+          ZTAPI_UPSTREAM_MASTER_KEY: ${{ secrets.ZTAPI_UPSTREAM_MASTER_KEY }}
+          TRONGRID_API_KEY: ${{ secrets.TRONGRID_API_KEY }}
+          ZTAPI_USDT_RECEIVING_ADDRESS: ${{ secrets.ZTAPI_USDT_RECEIVING_ADDRESS }}
+          ZTAPI_ADMIN_USERNAME: ${{ secrets.ZTAPI_ADMIN_USERNAME }}
+          ZTAPI_ADMIN_PASSWORD: ${{ secrets.ZTAPI_ADMIN_PASSWORD }}
+          ZTAPI_DROP_LEGACY_TOKEN_KEY: ${{ inputs.drop_legacy_token_key }}
+          ZTAPI_RELEASE_EXECUTION_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          umask 077
+          validate_secret() {
+            local name=$1
+            local value=$2
+            local minimum_length=$3
+            local maximum_length=$4
+            if [[ ! "$value" =~ ^[A-Za-z0-9_-]+$ ]] ||
+              (( ${#value} < minimum_length || ${#value} > maximum_length )); then
+              echo "::error::$name must use $minimum_length-$maximum_length letters, numbers, underscores, or hyphens."
+              exit 1
+            fi
+          }
+          validate_tron_address() {
+            local value=$1
+            if [[ ! "$value" =~ ^T[1-9A-HJ-NP-Za-km-z]{33}$ ]]; then
+              echo "::error::ZTAPI_USDT_RECEIVING_ADDRESS must be a plausible Tron base58 address."
+              exit 1
+            fi
+          }
+          validate_secret ZTAPI_MYSQL_PASSWORD "$ZTAPI_MYSQL_PASSWORD" 24 128
+          validate_secret ZTAPI_MYSQL_ROOT_PASSWORD "$ZTAPI_MYSQL_ROOT_PASSWORD" 24 128
+          validate_secret ZTAPI_REDIS_PASSWORD "$ZTAPI_REDIS_PASSWORD" 24 128
+          validate_secret ZTAPI_SESSION_SIGNING_KEY "$ZTAPI_SESSION_SIGNING_KEY" 32 128
+          validate_secret ZTAPI_CRYPTO_SECRET "$ZTAPI_CRYPTO_SECRET" 32 128
+          validate_secret ZTAPI_UPSTREAM_MASTER_KEY "$ZTAPI_UPSTREAM_MASTER_KEY" 32 128
+          validate_secret TRONGRID_API_KEY "$TRONGRID_API_KEY" 32 128
+          validate_tron_address "$ZTAPI_USDT_RECEIVING_ADDRESS"
+          validate_secret ZTAPI_ADMIN_USERNAME "$ZTAPI_ADMIN_USERNAME" 3 12
+          validate_secret ZTAPI_ADMIN_PASSWORD "$ZTAPI_ADMIN_PASSWORD" 16 128
+          if [[ "$ZTAPI_DROP_LEGACY_TOKEN_KEY" != true && "$ZTAPI_DROP_LEGACY_TOKEN_KEY" != false ]]; then
+            echo "::error::ZTAPI_DROP_LEGACY_TOKEN_KEY must be true or false."
+            exit 1
+          fi
+          [[ "$ZTAPI_RELEASE_EXECUTION_ID" =~ ^[0-9]+-[0-9]+$ ]]
+
+          deploy_env=/tmp/ztapi-deploy.env
+          {
+            printf 'ZTAPI_MYSQL_PASSWORD=%q\n' "$ZTAPI_MYSQL_PASSWORD"
+            printf 'ZTAPI_MYSQL_ROOT_PASSWORD=%q\n' "$ZTAPI_MYSQL_ROOT_PASSWORD"
+            printf 'ZTAPI_REDIS_PASSWORD=%q\n' "$ZTAPI_REDIS_PASSWORD"
+            printf 'ZTAPI_SESSION_SIGNING_KEY=%q\n' "$ZTAPI_SESSION_SIGNING_KEY"
+            printf 'ZTAPI_CRYPTO_SECRET=%q\n' "$ZTAPI_CRYPTO_SECRET"
+            printf 'ZTAPI_UPSTREAM_MASTER_KEY=%q\n' "$ZTAPI_UPSTREAM_MASTER_KEY"
+            printf 'TRONGRID_API_KEY=%q\n' "$TRONGRID_API_KEY"
+            printf 'ZTAPI_USDT_RECEIVING_ADDRESS=%q\n' "$ZTAPI_USDT_RECEIVING_ADDRESS"
+            printf 'ZTAPI_ADMIN_USERNAME=%q\n' "$ZTAPI_ADMIN_USERNAME"
+            printf 'ZTAPI_ADMIN_PASSWORD=%q\n' "$ZTAPI_ADMIN_PASSWORD"
+            printf 'ZTAPI_DROP_LEGACY_TOKEN_KEY=%q\n' "$ZTAPI_DROP_LEGACY_TOKEN_KEY"
+            printf 'ZTAPI_RELEASE_VERSION=%q\n' "$ZTAPI_RELEASE_VERSION"
+            printf 'ZTAPI_SOURCE_COMMIT=%q\n' "$ZTAPI_SOURCE_COMMIT"
+            printf 'ZTAPI_RELEASE_EXECUTION_ID=%q\n' "$ZTAPI_RELEASE_EXECUTION_ID"
+          } > "$deploy_env"
+          trap 'rm -f "$deploy_env"' EXIT
+
+          scp \
+            -o UserKnownHostsFile="$HOME/.ssh/ztapi_known_hosts" \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=60 \
+            /tmp/ztapi-source.tgz \
+            "$deploy_env" \
+            ztapi-deploy@123.254.104.157:/tmp/
+
+          ssh \
+            -o UserKnownHostsFile="$HOME/.ssh/ztapi_known_hosts" \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=60 \
+            ztapi-deploy@123.254.104.157 \
+            "sudo -n bash -s" <<'REMOTE'
+          deploy_ztapi() {
+          set -euo pipefail
+          umask 077
+          export DEBIAN_FRONTEND=noninteractive
+          deploy_env=/tmp/ztapi-deploy.env
+          set -a
+          . "$deploy_env"
+          set +a
+          rm -f "$deploy_env"
+          receipt_dir="/opt/ztapi/release-receipts/$ZTAPI_RELEASE_VERSION/$ZTAPI_RELEASE_EXECUTION_ID"
+          host_nginx_was_active=false
+          docker_nginx_was_active=false
+          deployment_completed=false
+          release_mutated=false
+          had_previous_release=false
+          release_backup=""
+          env_backup=""
+          rollback_server_image=""
+          rollback_nginx_image=""
+          old_compose_working_dir=""
+          old_compose_environment_file=""
+          old_compose_paths=()
+          old_compose_args=()
+          unrelated_before=""
+          unrelated_after=""
+          acceptance_user_id=""
+          acceptance_user_access_token=""
+          acceptance_token_id=""
+          acceptance_token_deleted=false
+          acceptance_cleanup_ledger_id=""
+          acceptance_cleanup_done=false
+          acceptance_outstanding_trade_no=""
+          registration_options_mutated=false
+          previous_register_enabled=""
+          previous_password_register_enabled=""
+          gemini_rollout_state_captured=false
+          gemini_was_published=false
+          gemini_channel_preexisting=false
+          gemini_channel_previous_status=""
+          gemini_channel_id=""
+          gemini_channel_backup=""
+          watchdog_unit=""
+          active_execution_file="/opt/ztapi/release-receipts/active-execution.env"
+          global_control_lock="/opt/ztapi/release-receipts/release-control.lock"
+          release_execution_claimed=false
+          write_receipt() {
+            phase=$1
+            detail=${2:-}
+            mkdir -p "$receipt_dir"
+            receipt_tmp="$receipt_dir/$phase.receipt.tmp"
+            {
+              printf 'commit=%s\n' "$ZTAPI_RELEASE_VERSION"
+              printf 'execution_id=%s\n' "$ZTAPI_RELEASE_EXECUTION_ID"
+              printf 'phase=%s\n' "$phase"
+              printf 'at_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+              printf 'detail=%s\n' "$detail"
+            } > "$receipt_tmp"
+            chmod 0600 "$receipt_tmp"
+            mv "$receipt_tmp" "$receipt_dir/$phase.receipt"
+          }
+          require_receipt() {
+            phase=$1
+            receipt="$receipt_dir/$phase.receipt"
+            test -s "$receipt"
+            grep -Fxq "commit=$ZTAPI_RELEASE_VERSION" "$receipt"
+            grep -Fxq "execution_id=$ZTAPI_RELEASE_EXECUTION_ID" "$receipt"
+            grep -Fxq "phase=$phase" "$receipt"
+          }
+          claim_release_execution() {
+            mkdir -p /opt/ztapi/release-receipts "$receipt_dir"
+            exec 8>"$global_control_lock"
+            flock 8
+            systemctl stop 'ztapi-release-watchdog-*.timer' >/dev/null 2>&1 || true
+            systemctl reset-failed \
+              'ztapi-release-watchdog-*.timer' \
+              'ztapi-release-watchdog-*.service' >/dev/null 2>&1 || true
+            active_execution_tmp="$active_execution_file.$ZTAPI_RELEASE_EXECUTION_ID.tmp"
+            {
+              printf 'commit=%s\n' "$ZTAPI_RELEASE_VERSION"
+              printf 'execution_id=%s\n' "$ZTAPI_RELEASE_EXECUTION_ID"
+            } > "$active_execution_tmp"
+            chmod 0600 "$active_execution_tmp"
+            mv "$active_execution_tmp" "$active_execution_file"
+            release_execution_claimed=true
+            flock -u 8
+            exec 8>&-
+          }
+          release_execution_claim() {
+            [ "$release_execution_claimed" = true ] || return 0
+            exec 8>"$global_control_lock"
+            flock 8
+            if [ -s "$active_execution_file" ] &&
+              grep -Fxq "commit=$ZTAPI_RELEASE_VERSION" "$active_execution_file" &&
+              grep -Fxq "execution_id=$ZTAPI_RELEASE_EXECUTION_ID" "$active_execution_file"; then
+              rm -f "$active_execution_file"
+            fi
+            release_execution_claimed=false
+            flock -u 8
+            exec 8>&-
+          }
+          snapshot_unrelated_containers() {
+            docker inspect deploy-api-1 deploy-database-1 kuaiyi-database-1 |
+              jq -S -c '[.[] | {
+                id:.Id,
+                name:.Name,
+                image:.Image,
+                state:.State.Status,
+                health:(.State.Health.Status // "none"),
+                started_at:.State.StartedAt,
+                restart_count:.RestartCount
+              }] | sort_by(.name)'
+          }
+          verify_ztapi_runtime() {
+            for required_container in \
+              ztapi-server-1 ztapi-nginx-1 ztapi-mysql-1 ztapi-redis-1; do
+              test "$(docker inspect --format '{{.State.Status}}' "$required_container")" = running || return 1
+              test "$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$required_container")" = healthy || return 1
+            done
+          }
+          remove_rollback_image_tags() {
+            if [ -n "$rollback_server_image" ]; then
+              docker image rm "$rollback_server_image" >/dev/null 2>&1 || true
+            fi
+            if [ -n "$rollback_nginx_image" ]; then
+              docker image rm "$rollback_nginx_image" >/dev/null 2>&1 || true
+            fi
+          }
+          capture_existing_compose() {
+            old_compose_csv=$(docker inspect --format \
+              '{{ index .Config.Labels "com.docker.compose.project.config_files" }}' \
+              ztapi-server-1)
+            old_compose_environment_file=$(docker inspect --format \
+              '{{ index .Config.Labels "com.docker.compose.project.environment_file" }}' \
+              ztapi-server-1)
+            old_compose_working_dir=$(docker inspect --format \
+              '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' \
+              ztapi-server-1)
+            test -n "$old_compose_csv"
+            test -s "$old_compose_environment_file"
+            test -d "$old_compose_working_dir"
+            IFS=',' read -r -a old_compose_paths <<< "$old_compose_csv"
+            test "${#old_compose_paths[@]}" -gt 0
+            old_compose_args=(docker compose --env-file "$old_compose_environment_file")
+            for compose_file in "${old_compose_paths[@]}"; do
+              test -s "$compose_file"
+              test "$(stat -c '%U' "$compose_file")" = root
+              old_compose_args+=(-f "$compose_file")
+            done
+            (
+              cd "$old_compose_working_dir"
+              "${old_compose_args[@]}" config >/dev/null
+            )
+          }
+          restore_previous_release() {
+            if [ "$release_mutated" = true ] && [ "$had_previous_release" = true ]; then
+              test -s "$release_backup" || return 1
+              test -s "$env_backup" || return 1
+              rm -rf /tmp/ztapi-rollback || return 1
+              mkdir -p /tmp/ztapi-rollback || return 1
+              tar -xzf "$release_backup" -C /tmp/ztapi-rollback || return 1
+              rsync -a --chown=root:root --delete \
+                --exclude='.env' \
+                --exclude='tls/' \
+                --exclude='backups/' \
+                --exclude='release-receipts/' \
+                /tmp/ztapi-rollback/ /opt/ztapi/ || return 1
+              install -m 0600 "$env_backup" /opt/ztapi/.env || return 1
+              rm -rf /tmp/ztapi-rollback || return 1
+              compose_restore_status=0
+              (
+                cd "$old_compose_working_dir"
+                "${old_compose_args[@]}" config >/dev/null
+                "${old_compose_args[@]}" up -d mysql redis server --wait --wait-timeout 180
+                "${old_compose_args[@]}" up -d nginx --wait --wait-timeout 120
+              ) || compose_restore_status=$?
+              verify_ztapi_runtime || return 1
+              if [ "$compose_restore_status" -ne 0 ]; then
+                echo "ZTAPI rollback Compose returned $compose_restore_status, but final runtime health verification passed." >&2
+              fi
+            elif [ "$release_mutated" = true ]; then
+              if [ -s /opt/ztapi/.env ] && [ -s /opt/ztapi/deploy/docker/docker-compose.prod.yml ]; then
+                docker compose --env-file /opt/ztapi/.env \
+                  -f /opt/ztapi/deploy/docker/docker-compose.prod.yml \
+                  down --remove-orphans || return 1
+              fi
+              if [ "$host_nginx_was_active" = true ]; then
+                systemctl enable --now nginx || return 1
+              fi
+            elif [ "$docker_nginx_was_active" = true ]; then
+              compose_restore_status=0
+              (
+                cd "$old_compose_working_dir"
+                "${old_compose_args[@]}" up -d nginx --wait --wait-timeout 120
+              ) || compose_restore_status=$?
+              verify_ztapi_runtime || return 1
+              if [ "$compose_restore_status" -ne 0 ]; then
+                echo "ZTAPI Nginx restore returned $compose_restore_status, but final runtime health verification passed." >&2
+              fi
+            elif [ "$host_nginx_was_active" = true ]; then
+              systemctl enable --now nginx
+            fi
+          }
+          restore_registration_options() {
+            if [ "$registration_options_mutated" != true ]; then
+              return 0
+            fi
+            [[ "$previous_register_enabled" == true || "$previous_register_enabled" == false ]]
+            [[ "$previous_password_register_enabled" == true || "$previous_password_register_enabled" == false ]]
+            printf "INSERT INTO options (\`key\`, \`value\`) VALUES ('RegisterEnabled','%s'),('PasswordRegisterEnabled','%s') ON DUPLICATE KEY UPDATE \`value\`=VALUES(\`value\`);\n" \
+              "$previous_register_enabled" "$previous_password_register_enabled" |
+              "${compose[@]}" exec -T mysql sh -c \
+                'exec mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE"'
+            registration_options_mutated=false
+          }
+          restore_gemini_rollout_state() {
+            if [ "$gemini_rollout_state_captured" != true ]; then
+              return 0
+            fi
+            test -s "$gemini_channel_backup" || return 1
+            "${compose[@]}" exec -T mysql sh -c \
+              'exec mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE"' < "$gemini_channel_backup" || return 1
+            if [ "$gemini_was_published" != true ]; then
+              "${compose[@]}" exec -T mysql sh -c \
+                'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE"' <<'SQL' || return 1
+          UPDATE ztapi_model_configs
+          SET published = 0,
+              publication_snapshot_id = 0,
+              enabled_groups = '[]',
+              version = version + 1,
+              updated_at = UNIX_TIMESTAMP()
+          WHERE source_model = 'gemini-2.5-flash-image'
+            AND published = 1;
+          SQL
+            fi
+            rm -f "$gemini_channel_backup" || return 1
+            gemini_rollout_state_captured=false
+          }
+          cleanup_synthetic_acceptance() {
+            if [ -z "$acceptance_user_id" ] || [ "$acceptance_cleanup_done" = true ]; then
+              return 0
+            fi
+            cleanup_status=0
+            if [ -n "$acceptance_outstanding_trade_no" ] && [ -n "$acceptance_user_access_token" ]; then
+              acceptance_order_cancelled=false
+              if acceptance_cancel_result=$(curl --fail --silent --show-error \
+                  --request POST \
+                  --header "Authorization: Bearer $acceptance_user_access_token" \
+                  --header "New-API-User: $acceptance_user_id" \
+                  "$acceptance_origin/api/user/topup/usdt-trc20/orders/$acceptance_outstanding_trade_no/cancel") &&
+                echo "$acceptance_cancel_result" |
+                  jq -e '.success == true and .data.status == "expired"' >/dev/null; then
+                acceptance_order_cancelled=true
+              elif acceptance_cancel_probe=$(curl --fail --silent --show-error \
+                  --header "Authorization: Bearer $acceptance_user_access_token" \
+                  --header "New-API-User: $acceptance_user_id" \
+                  "$acceptance_origin/api/user/topup/usdt-trc20/orders/$acceptance_outstanding_trade_no") &&
+                echo "$acceptance_cancel_probe" |
+                  jq -e '.success == true and .data.status == "expired"' >/dev/null; then
+                acceptance_order_cancelled=true
+              fi
+              if [ "$acceptance_order_cancelled" = true ]; then
+                acceptance_outstanding_trade_no=""
+              else
+                return 1
+              fi
+            fi
+            if [ -n "$acceptance_token_id" ] && [ "$acceptance_token_deleted" != true ] && \
+              [ -n "$acceptance_user_access_token" ]; then
+              if curl --fail --silent --show-error \
+                  --request DELETE \
+                  --header "Authorization: Bearer $acceptance_user_access_token" \
+                  --header "New-API-User: $acceptance_user_id" \
+                  "$acceptance_origin/api/token/$acceptance_token_id" |
+                jq -e '.success == true' >/dev/null; then
+                acceptance_token_deleted=true
+              else
+                cleanup_status=1
+              fi
+            fi
+            if [ -n "${admin_access_token:-}" ] && [ -n "${admin_user_id:-}" ]; then
+              acceptance_user_loaded=false
+              if acceptance_user_result=$(curl --fail --silent --show-error \
+                --resolve admin.ztapi.vip:443:127.0.0.1 \
+                --header "Authorization: Bearer $admin_access_token" \
+                --header "New-API-User: $admin_user_id" \
+                "https://admin.ztapi.vip/api/admin/users/$acceptance_user_id"); then
+                if acceptance_remaining_quota=$(echo "$acceptance_user_result" | jq -er '.data.quota') &&
+                  acceptance_current_status=$(echo "$acceptance_user_result" | jq -er '.data.status'); then
+                  acceptance_user_loaded=true
+                else
+                  cleanup_status=1
+                fi
+              else
+                cleanup_status=1
+              fi
+              if [ "$acceptance_user_loaded" = true ] && [ "$acceptance_remaining_quota" -ne 0 ]; then
+                if acceptance_cleanup_result=$(jq -cn \
+                  --argjson delta "$((-acceptance_remaining_quota))" \
+                  --arg key "ordinary-cleanup-$acceptance_user_id" \
+                  '{delta:$delta,reason:"commercial acceptance credit cleanup",idempotency_key:$key}' |
+                  curl --fail --silent --show-error \
+                    --resolve admin.ztapi.vip:443:127.0.0.1 \
+                    --header 'Content-Type: application/json' \
+                    --header "Authorization: Bearer $admin_access_token" \
+                    --header "New-API-User: $admin_user_id" \
+                    --data-binary @- \
+                    "https://admin.ztapi.vip/api/admin/users/$acceptance_user_id/balance-adjustments"); then
+                  if ! acceptance_cleanup_ledger_id=$(echo "$acceptance_cleanup_result" | jq -er \
+                    'select(.success == true and .data.balance_after == 0) | .data.id'); then
+                    cleanup_status=1
+                  fi
+                else
+                  cleanup_status=1
+                fi
+              fi
+              if [ "$acceptance_user_loaded" = true ] && [ "$acceptance_current_status" -eq 1 ]; then
+                if ! jq -cn '{status:2,expected_status:1,reason:"commercial acceptance completed"}' |
+                  curl --fail --silent --show-error \
+                    --resolve admin.ztapi.vip:443:127.0.0.1 \
+                    --request PATCH \
+                    --header 'Content-Type: application/json' \
+                    --header "Authorization: Bearer $admin_access_token" \
+                    --header "New-API-User: $admin_user_id" \
+                    --data-binary @- \
+                    "https://admin.ztapi.vip/api/admin/users/$acceptance_user_id/status" |
+                  jq -e '.success == true and .data.status == 2' >/dev/null; then
+                  cleanup_status=1
+                fi
+              fi
+              if acceptance_final_result=$(curl --fail --silent --show-error \
+                  --resolve admin.ztapi.vip:443:127.0.0.1 \
+                  --header "Authorization: Bearer $admin_access_token" \
+                  --header "New-API-User: $admin_user_id" \
+                  "https://admin.ztapi.vip/api/admin/users/$acceptance_user_id"); then
+                if ! acceptance_final_quota=$(echo "$acceptance_final_result" | jq -er '.data.quota') ||
+                  ! acceptance_final_status=$(echo "$acceptance_final_result" | jq -er '.data.status') ||
+                  [ "$acceptance_final_quota" -ne 0 ] || [ "$acceptance_final_status" -ne 2 ]; then
+                  cleanup_status=1
+                fi
+              else
+                cleanup_status=1
+              fi
+            else
+              cleanup_status=1
+            fi
+            if [ "$cleanup_status" -eq 0 ]; then
+              acceptance_cleanup_done=true
+            fi
+            return "$cleanup_status"
+          }
+          cleanup_synthetic_acceptance_with_retry() {
+            for cleanup_attempt in 1 2 3; do
+              if cleanup_synthetic_acceptance; then
+                return 0
+              fi
+              if [ "$cleanup_attempt" -lt 3 ]; then
+                sleep 2
+              fi
+            done
+            return 1
+          }
+          cleanup_and_restore() {
+            status=$?
+            trap - EXIT
+            rm -f "$deploy_env" /tmp/ztapi-source.tgz
+            if [ "$status" -ne 0 ] && [ -n "$watchdog_unit" ]; then
+              systemctl stop "$watchdog_unit.timer" >/dev/null 2>&1 || true
+              systemctl reset-failed "$watchdog_unit.timer" "$watchdog_unit.service" >/dev/null 2>&1 || true
+            fi
+            acceptance_cleanup_status=0
+            cleanup_synthetic_acceptance_with_retry || acceptance_cleanup_status=$?
+            if [ "$status" -ne 0 ] && [ "$deployment_completed" != true ]; then
+              rollback_status=0
+              restore_registration_options || rollback_status=$?
+              restore_gemini_rollout_state || rollback_status=$?
+              restore_previous_release || rollback_status=$?
+              if [ -s "$unrelated_before" ]; then
+                snapshot_unrelated_containers > "$unrelated_after" || rollback_status=1
+                cmp -s "$unrelated_before" "$unrelated_after" || rollback_status=1
+              fi
+              if [ "$acceptance_cleanup_status" -ne 0 ]; then
+                rollback_status=1
+              fi
+              write_receipt rollback "original_status=$status restore_status=$rollback_status" || true
+              if [ "$rollback_status" -ne 0 ]; then
+                echo "ZTAPI rollback or isolation verification failed with status $rollback_status" >&2
+              fi
+            fi
+            if [ "$deployment_completed" = true ] || [ "$release_mutated" != true ]; then
+              remove_rollback_image_tags
+            fi
+            if [ "$status" -ne 0 ] &&
+              { [ "$release_mutated" != true ] || [ "${rollback_status:-1}" -eq 0 ]; }; then
+              release_execution_claim
+            fi
+            exit "$status"
+          }
+          trap cleanup_and_restore EXIT
+
+          command -v docker >/dev/null
+          command -v flock >/dev/null
+          command -v systemctl >/dev/null
+          claim_release_execution
+          docker compose version
+          apt-get update
+          apt-get install -y argon2 certbot jq rsync
+
+          rm -rf /tmp/ztapi-release
+          mkdir -p /tmp/ztapi-release /opt/ztapi/tls /opt/ztapi/backups "$receipt_dir"
+          tar -xzf /tmp/ztapi-source.tgz -C /tmp/ztapi-release
+          test -s /tmp/ztapi-release/deploy/docker/docker-compose.prod.yml
+          if [ -s /opt/ztapi/.env ] && \
+            [ -s /opt/ztapi/deploy/docker/docker-compose.prod.yml ] && \
+            docker inspect ztapi-server-1 >/dev/null 2>&1; then
+            had_previous_release=true
+            verify_ztapi_runtime
+            capture_existing_compose
+          else
+            for partial_container in ztapi-server-1 ztapi-nginx-1 ztapi-mysql-1 ztapi-redis-1; do
+              if docker inspect "$partial_container" >/dev/null 2>&1; then
+                echo "Incomplete first-unlock state contains $partial_container" >&2
+                exit 1
+              fi
+            done
+          fi
+          for required_container in deploy-api-1 deploy-database-1 kuaiyi-database-1; do
+            test "$(docker inspect --format '{{.State.Status}}' "$required_container")" = running
+            test "$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$required_container")" = healthy
+          done
+          unrelated_before="$receipt_dir/unrelated-containers.before.json"
+          unrelated_after="$receipt_dir/unrelated-containers.after.json"
+          snapshot_unrelated_containers > "$unrelated_before"
+          chmod 0600 "$unrelated_before"
+          df -P /opt/ztapi >/dev/null
+          write_receipt preflight "had_previous_release=$had_previous_release compose_layers=${#old_compose_paths[@]}"
+
+          require_receipt preflight
+          backup_stamp=$(date -u +%Y%m%dT%H%M%SZ)
+          release_backup="/opt/ztapi/backups/release-$backup_stamp.tgz"
+          env_backup="/opt/ztapi/backups/env-$backup_stamp"
+          if [ "$had_previous_release" = true ]; then
+          old_server_image_id=$(docker inspect --format '{{.Image}}' ztapi-server-1)
+          old_nginx_image_id=$(docker inspect --format '{{.Image}}' ztapi-nginx-1)
+          [[ "$old_server_image_id" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$old_nginx_image_id" =~ ^sha256:[0-9a-f]{64}$ ]]
+          rollback_server_image="ztapi-server:rollback-$backup_stamp"
+          rollback_nginx_image="ztapi-nginx:rollback-$backup_stamp"
+          docker tag "$old_server_image_id" "$rollback_server_image"
+          docker tag "$old_nginx_image_id" "$rollback_nginx_image"
+          tar \
+            --exclude='.env' \
+            --exclude='backups' \
+            --exclude='tls' \
+            --exclude='release-receipts' \
+            -czf "$release_backup" \
+            -C /opt/ztapi .
+          test -s "$release_backup"
+          chmod 0600 "$release_backup"
+          grep -Ev '^(ZTAPI_SERVER_IMAGE|ZTAPI_NGINX_IMAGE)=' \
+            /opt/ztapi/.env > "$env_backup"
+          {
+            printf 'ZTAPI_SERVER_IMAGE=%s\n' "$rollback_server_image"
+            printf 'ZTAPI_NGINX_IMAGE=%s\n' "$rollback_nginx_image"
+          } >> "$env_backup"
+          chmod 0600 "$env_backup"
+          for compose_file in "${old_compose_paths[@]}"; do
+            chmod 0600 "$compose_file"
+          done
+          current_compose=(docker compose --env-file /opt/ztapi/.env -f /opt/ztapi/deploy/docker/docker-compose.prod.yml)
+          "${current_compose[@]}" up -d mysql --wait --wait-timeout 120
+          database_backup="/opt/ztapi/backups/database-$backup_stamp.sql.gz"
+          "${current_compose[@]}" exec -T mysql sh -c \
+            'exec mysqldump --single-transaction --quick --lock-tables=false --no-tablespaces --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE"' |
+            gzip -c > "$database_backup"
+          test -s "$database_backup"
+          gzip -t "$database_backup"
+          sha256sum "$database_backup" > "$database_backup.sha256"
+          stat -c '%U:%G %a %s' "$database_backup" > "$database_backup.stat"
+          chmod 0600 "$database_backup" "$database_backup.sha256" "$database_backup.stat"
+          database_backup_sha256=$(cut -d ' ' -f 1 "$database_backup.sha256")
+          write_receipt backup "database=$database_backup sha256=$database_backup_sha256 release=$release_backup env=$env_backup"
+          else
+            release_backup=""
+            env_backup=""
+            write_receipt backup "first_unlock=true no_previous_database=true"
+          fi
+
+          require_receipt backup
+          build_env=/tmp/ztapi-release/.ztapi-build.env
+          cat > "$build_env" <<EOF
+          MYSQL_DATABASE=ztapi
+          MYSQL_USER=ztapi
+          MYSQL_PASSWORD=$ZTAPI_MYSQL_PASSWORD
+          MYSQL_ROOT_PASSWORD=$ZTAPI_MYSQL_ROOT_PASSWORD
+          REDIS_PASSWORD=$ZTAPI_REDIS_PASSWORD
+          ZTAPI_SESSION_SIGNING_KEY=$ZTAPI_SESSION_SIGNING_KEY
+          CRYPTO_SECRET=$ZTAPI_CRYPTO_SECRET
+          ZTAPI_UPSTREAM_MASTER_KEY=$ZTAPI_UPSTREAM_MASTER_KEY
+          TRONGRID_API_KEY=$TRONGRID_API_KEY
+          ZTAPI_USDT_RECEIVING_ADDRESS=$ZTAPI_USDT_RECEIVING_ADDRESS
+          ZTAPI_TRUSTED_PROXY_CIDRS=172.30.0.0/24
+          ZTAPI_DROP_LEGACY_TOKEN_KEY=$ZTAPI_DROP_LEGACY_TOKEN_KEY
+          ZTAPI_LEGACY_PAYMENT_ENABLED=false
+          ZTAPI_TLS_DIR=/opt/ztapi/tls
+          ZTAPI_RELEASE_VERSION=$ZTAPI_RELEASE_VERSION
+          ZTAPI_SOURCE_COMMIT=$ZTAPI_SOURCE_COMMIT
+          ZTAPI_SERVER_IMAGE=ztapi-server:$ZTAPI_RELEASE_VERSION
+          ZTAPI_NGINX_IMAGE=ztapi-nginx:$ZTAPI_RELEASE_VERSION
+          TZ=Asia/Shanghai
+          EOF
+          chmod 0600 "$build_env"
+          build_compose=(docker compose --env-file "$build_env" -f /tmp/ztapi-release/deploy/docker/docker-compose.prod.yml)
+          "${build_compose[@]}" config >/dev/null
+          "${build_compose[@]}" build server nginx
+          server_image_id=$(docker image inspect --format '{{.Id}}' "ztapi-server:$ZTAPI_RELEASE_VERSION")
+          nginx_image_id=$(docker image inspect --format '{{.Id}}' "ztapi-nginx:$ZTAPI_RELEASE_VERSION")
+          [[ "$server_image_id" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$nginx_image_id" =~ ^sha256:[0-9a-f]{64}$ ]]
+          current_image_acceptance_fingerprint=$(bash \
+            /tmp/ztapi-release/deploy/scripts/ztapi-image-acceptance-fingerprint.sh \
+            /tmp/ztapi-release)
+          previous_image_acceptance_fingerprint=""
+          ztapi_image_code_changed=true
+          if [ "$had_previous_release" = true ]; then
+            previous_image_acceptance_fingerprint=$(bash \
+              /tmp/ztapi-release/deploy/scripts/ztapi-image-acceptance-fingerprint.sh \
+              /opt/ztapi)
+            ztapi_image_code_changed=false
+            if [ "$previous_image_acceptance_fingerprint" != "$current_image_acceptance_fingerprint" ]; then
+              ztapi_image_code_changed=true
+            fi
+          fi
+          rm -f "$build_env"
+          write_receipt build "server_image_id=$server_image_id nginx_image_id=$nginx_image_id gpt_image_acceptance_required=$ztapi_image_code_changed previous_gpt_image_fingerprint=${previous_image_acceptance_fingerprint:-none} current_gpt_image_fingerprint=$current_image_acceptance_fingerprint"
+
+          require_receipt build
+          release_mutated=true
+          rsync -a --chown=root:root --delete \
+            --exclude='.env' \
+            --exclude='tls/' \
+            --exclude='backups/' \
+            --exclude='release-receipts/' \
+            /tmp/ztapi-release/ /opt/ztapi/
+          rm -rf /tmp/ztapi-release /tmp/ztapi-source.tgz
+
+          cat > /opt/ztapi/.env <<EOF
+          MYSQL_DATABASE=ztapi
+          MYSQL_USER=ztapi
+          MYSQL_PASSWORD=$ZTAPI_MYSQL_PASSWORD
+          MYSQL_ROOT_PASSWORD=$ZTAPI_MYSQL_ROOT_PASSWORD
+          REDIS_PASSWORD=$ZTAPI_REDIS_PASSWORD
+          ZTAPI_SESSION_SIGNING_KEY=$ZTAPI_SESSION_SIGNING_KEY
+          CRYPTO_SECRET=$ZTAPI_CRYPTO_SECRET
+          ZTAPI_UPSTREAM_MASTER_KEY=$ZTAPI_UPSTREAM_MASTER_KEY
+          TRONGRID_API_KEY=$TRONGRID_API_KEY
+          ZTAPI_USDT_RECEIVING_ADDRESS=$ZTAPI_USDT_RECEIVING_ADDRESS
+          ZTAPI_TRUSTED_PROXY_CIDRS=172.30.0.0/24
+          ZTAPI_DROP_LEGACY_TOKEN_KEY=$ZTAPI_DROP_LEGACY_TOKEN_KEY
+          ZTAPI_LEGACY_PAYMENT_ENABLED=false
+          ZTAPI_TLS_DIR=/opt/ztapi/tls
+          ZTAPI_RELEASE_VERSION=$ZTAPI_RELEASE_VERSION
+          ZTAPI_SOURCE_COMMIT=$ZTAPI_SOURCE_COMMIT
+          ZTAPI_SERVER_IMAGE=$server_image_id
+          ZTAPI_NGINX_IMAGE=$nginx_image_id
+          TZ=Asia/Shanghai
+          EOF
+          chmod 600 /opt/ztapi/.env
+          cd /opt/ztapi
+          compose=(docker compose --env-file .env -f deploy/docker/docker-compose.prod.yml)
+          "${compose[@]}" config >/dev/null
+          write_receipt migration
+
+          if systemctl is-active --quiet nginx; then
+            host_nginx_was_active=true
+          fi
+          if systemctl list-unit-files nginx.service >/dev/null 2>&1; then
+            systemctl disable --now nginx
+          fi
+          if [ -f /opt/ztapi/deploy/docker/docker-compose.prod.yml ]; then
+            if docker compose \
+              --env-file /opt/ztapi/.env \
+              -f /opt/ztapi/deploy/docker/docker-compose.prod.yml \
+              ps --status running --quiet nginx |
+              grep -q .; then
+              docker_nginx_was_active=true
+              docker compose \
+                --env-file /opt/ztapi/.env \
+                -f /opt/ztapi/deploy/docker/docker-compose.prod.yml \
+                stop nginx
+            fi
+          fi
+
+          certificate_path=/etc/letsencrypt/live/ztapi.vip/fullchain.pem
+          # openssl x509 -checkhost exits 0 even when the name does NOT match; it
+          # only reports the verdict on stdout. Every check must therefore be
+          # gated on the printed text, otherwise any certificate is treated as
+          # covering every hostname.
+          if [ -s "$certificate_path" ] &&
+            openssl x509 -checkend 604800 -noout -in "$certificate_path" &&
+            openssl x509 -checkhost ztapi.vip -noout -in "$certificate_path" |
+              grep -q 'does match certificate' &&
+            openssl x509 -checkhost www.ztapi.vip -noout -in "$certificate_path" |
+              grep -q 'does match certificate' &&
+            openssl x509 -checkhost admin.ztapi.vip -noout -in "$certificate_path" |
+              grep -q 'does match certificate'; then
+            echo "certificate is still valid; reusing it"
+          else
+            for attempt in $(seq 1 12); do
+              if ! pgrep -x certbot >/dev/null; then
+                break
+              fi
+              if [ "$attempt" = 12 ]; then
+                echo "certbot remained busy for 60 seconds" >&2
+                exit 1
+              fi
+              sleep 5
+            done
+            # --cert-name pins the lineage so the live path stays
+            # /etc/letsencrypt/live/ztapi.vip (hardcoded below); without it a
+            # changed domain set can produce a ztapi.vip-0001 lineage instead.
+            # --expand is required whenever the requested domain set grows
+            # beyond the existing certificate, otherwise certbot prompts and
+            # --non-interactive turns that prompt into a hard failure.
+            certbot certonly --standalone \
+              --non-interactive \
+              --agree-tos \
+              --register-unsafely-without-email \
+              --keep-until-expiring \
+              --cert-name ztapi.vip \
+              --expand \
+              --preferred-challenges http \
+              -d ztapi.vip \
+              -d www.ztapi.vip \
+              -d admin.ztapi.vip
+          fi
+
+          install -m 0644 /etc/letsencrypt/live/ztapi.vip/fullchain.pem \
+            /opt/ztapi/tls/fullchain.pem
+          install -m 0600 /etc/letsencrypt/live/ztapi.vip/privkey.pem \
+            /opt/ztapi/tls/privkey.pem
+
+          cd /opt/ztapi
+          compose=(docker compose --env-file .env -f deploy/docker/docker-compose.prod.yml)
+          export COMPOSE_PARALLEL_LIMIT=1
+          trap '"${compose[@]}" ps; "${compose[@]}" logs --tail=150 nginx server' ERR
+
+          "${compose[@]}" config >/dev/null
+          require_receipt migration
+          "${compose[@]}" up -d mysql redis server --wait --wait-timeout 180
+          test "$(docker inspect --format '{{.Image}}' "$("${compose[@]}" ps --quiet server)")" = "$server_image_id"
+          write_receipt private "server_image_id=$server_image_id"
+
+          require_receipt private
+          setup_state=$("${compose[@]}" exec -T server \
+            wget -qO- http://127.0.0.1:3000/api/setup)
+          if echo "$setup_state" | grep -q '"status":false'; then
+            setup_payload=$(jq -cn \
+              --arg username "$ZTAPI_ADMIN_USERNAME" \
+              --arg password "$ZTAPI_ADMIN_PASSWORD" \
+              '{
+                username: $username,
+                password: $password,
+                confirmPassword: $password,
+                SelfUseModeEnabled: false,
+                DemoSiteEnabled: false
+              }')
+            setup_result=$(printf '%s' "$setup_payload" |
+              "${compose[@]}" exec -T server \
+                wget -qO- \
+                  --header='Content-Type: application/json' \
+                  --post-file=- \
+                  http://127.0.0.1:3000/api/setup)
+            echo "$setup_result" | grep -q '"success":true'
+          else
+            echo "$setup_state" | grep -q '"status":true'
+          fi
+
+          legacy_admin_count=$("${compose[@]}" exec -T mysql sh -c \
+            'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names' <<SQL
+          SELECT COUNT(*)
+          FROM users
+          WHERE username = '$ZTAPI_ADMIN_USERNAME'
+            AND role = 100
+            AND (
+              password NOT LIKE '\$argon2id\$v=19\$m=65536,t=3,p=2\$%'
+              OR CHAR_LENGTH(password) <> 97
+            );
+          SQL
+          )
+          if [ "$legacy_admin_count" = "1" ]; then
+            admin_password_salt=$(openssl rand -hex 8)
+            admin_password_hash=$(printf '%s' "$ZTAPI_ADMIN_PASSWORD" |
+              argon2 "$admin_password_salt" -id -t 3 -m 16 -p 2 -l 32 -e)
+            [[ "$admin_password_hash" == '$argon2id$v=19$m=65536,t=3,p=2$'* ]]
+            "${compose[@]}" exec -T mysql sh -c \
+              'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE"' <<SQL
+          UPDATE users
+          SET password = '$admin_password_hash'
+          WHERE username = '$ZTAPI_ADMIN_USERNAME'
+            AND role = 100
+            AND (
+              password NOT LIKE '\$argon2id\$v=19\$m=65536,t=3,p=2\$%'
+              OR CHAR_LENGTH(password) <> 97
+            );
+          SQL
+          fi
+
+          "${compose[@]}" exec -T mysql sh -c \
+            'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE"' <<'SQL'
+          INSERT INTO options (`key`, `value`) VALUES
+            ('SystemName', 'ZTAPI'),
+            ('ServerAddress', 'https://ztapi.vip'),
+            ('Logo', '/logo.png'),
+            ('passkey.rp_display_name', 'ZTAPI'),
+            ('passkey.rp_id', 'ztapi.vip'),
+            ('passkey.origins', 'https://ztapi.vip'),
+            ('general_setting.docs_link', 'https://ztapi.vip')
+          ON DUPLICATE KEY UPDATE `value` = VALUES(`value`);
+          SQL
+
+          provision_gemini_image_channel() {
+            gemini_rollout_state=$("${compose[@]}" exec -T mysql sh -c \
+              'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names' <<'SQL'
+          SELECT CONCAT(
+            (SELECT COUNT(*) FROM ztapi_model_configs WHERE source_model = 'gemini-2.5-flash-image' AND published = 1), '|',
+            (SELECT COUNT(*) FROM channels WHERE name = 'Yunxin enterprise Gemini'), '|',
+            COALESCE((SELECT id FROM channels WHERE name = 'Yunxin enterprise Gemini' ORDER BY id ASC LIMIT 1), 0), '|',
+            COALESCE((SELECT status FROM channels WHERE name = 'Yunxin enterprise Gemini' ORDER BY id ASC LIMIT 1), -1)
+          );
+          SQL
+            )
+            IFS='|' read -r gemini_published_count gemini_target_count gemini_channel_id gemini_channel_previous_status <<< "$gemini_rollout_state"
+            [[ "$gemini_published_count" =~ ^[01]$ ]]
+            [[ "$gemini_target_count" =~ ^[01]$ ]]
+            [[ "$gemini_channel_id" =~ ^[0-9]+$ ]]
+            [[ "$gemini_channel_previous_status" =~ ^-?[0-9]+$ ]]
+            if [ "$gemini_published_count" = 1 ]; then
+              gemini_was_published=true
+            fi
+            if [ "$gemini_target_count" = 1 ]; then
+              gemini_channel_preexisting=true
+            fi
+            gemini_channel_backup="$receipt_dir/gemini-channel-before.sql"
+            rm -f "$gemini_channel_backup"
+            if [ "$gemini_channel_preexisting" = true ]; then
+              "${compose[@]}" exec -T mysql sh -c \
+                'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names --raw' <<'SQL' > "$gemini_channel_backup"
+          SELECT CONCAT(
+            'UPDATE channels SET type=', type,
+            ', `key`=', IF(`key` IS NULL, 'NULL', CONCAT('UNHEX(''', HEX(`key`), ''')')),
+            ', status=', status,
+            ', weight=', IFNULL(CAST(weight AS CHAR), 'NULL'),
+            ', base_url=', IF(base_url IS NULL, 'NULL', CONCAT('UNHEX(''', HEX(base_url), ''')')),
+            ', models=', IF(models IS NULL, 'NULL', CONCAT('UNHEX(''', HEX(models), ''')')),
+            ', `group`=', IF(`group` IS NULL, 'NULL', CONCAT('UNHEX(''', HEX(`group`), ''')')),
+            ', priority=', IFNULL(CAST(priority AS CHAR), 'NULL'),
+            ', auto_ban=', IFNULL(CAST(auto_ban AS CHAR), 'NULL'),
+            ', channel_info=', IF(channel_info IS NULL, 'NULL', CONCAT('CONVERT(UNHEX(''', HEX(channel_info), ''') USING utf8mb4)')),
+            ', settings=', IF(settings IS NULL, 'NULL', CONCAT('CONVERT(UNHEX(''', HEX(settings), ''') USING utf8mb4)')),
+            ', ztapi_managed=', ztapi_managed,
+            ', ztapi_family=', IF(ztapi_family IS NULL, 'NULL', CONCAT('UNHEX(''', HEX(ztapi_family), ''')')),
+            ', ztapi_key_ciphertext=', IF(ztapi_key_ciphertext IS NULL, 'NULL', CONCAT('UNHEX(''', HEX(ztapi_key_ciphertext), ''')')),
+            ' WHERE id=', id, ' AND name=''Yunxin enterprise Gemini'';'
+          )
+          FROM channels
+          WHERE name = 'Yunxin enterprise Gemini';
+          SQL
+              test -s "$gemini_channel_backup"
+              chmod 0600 "$gemini_channel_backup"
+            else
+              printf "UPDATE channels SET status=2 WHERE name='Yunxin enterprise Gemini';\n" > "$gemini_channel_backup"
+              chmod 0600 "$gemini_channel_backup"
+            fi
+            gemini_enterprise_source_count=$("${compose[@]}" exec -T mysql sh -c \
+              'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names' <<'SQL'
+          SELECT COUNT(*)
+          FROM channels AS source
+          WHERE source.name = 'Yunxin enterprise'
+            AND source.status = 1
+            AND source.ztapi_managed = 1
+            AND source.type = 1
+            AND source.ztapi_family = 'openai'
+            AND FIND_IN_SET('default', source.`group`) > 0
+            AND source.ztapi_key_ciphertext <> '';
+          SQL
+            )
+            test "$gemini_enterprise_source_count" = 1
+            gemini_rollout_state_captured=true
+            "${compose[@]}" exec -T mysql sh -c \
+              'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE"' <<'SQL'
+          START TRANSACTION;
+          INSERT INTO channels (
+            type, `key`, status, name, weight, created_time, base_url, models, `group`, priority,
+            auto_ban, channel_info, settings, ztapi_managed, ztapi_family, ztapi_key_ciphertext
+          )
+          SELECT
+            source.type, '', 1, 'Yunxin enterprise Gemini', source.weight, UNIX_TIMESTAMP(),
+            source.base_url, 'gemini-2.5-flash-image', source.`group`, source.priority,
+            source.auto_ban, source.channel_info, source.settings, 1,
+            source.ztapi_family, source.ztapi_key_ciphertext
+          FROM (
+            SELECT
+              24 AS type, weight, base_url, `group`, priority, auto_ban, channel_info, settings,
+              'gemini' AS ztapi_family, ztapi_key_ciphertext
+            FROM channels
+            WHERE name = 'Yunxin enterprise'
+              AND status = 1
+              AND ztapi_managed = 1
+              AND type = 1
+              AND ztapi_family = 'openai'
+              AND FIND_IN_SET('default', `group`) > 0
+              AND ztapi_key_ciphertext <> ''
+            LIMIT 1
+          ) AS source
+          WHERE NOT EXISTS (
+            SELECT 1
+            FROM channels existing
+            WHERE existing.name = 'Yunxin enterprise Gemini'
+          );
+          UPDATE channels AS target
+          JOIN channels AS source
+            ON source.name = 'Yunxin enterprise'
+           AND source.status = 1
+           AND source.ztapi_managed = 1
+           AND source.type = 1
+           AND source.ztapi_family = 'openai'
+           AND FIND_IN_SET('default', source.`group`) > 0
+           AND source.ztapi_key_ciphertext <> ''
+          SET target.type = 24,
+              target.`key` = '',
+              target.status = 1,
+              target.weight = source.weight,
+              target.base_url = source.base_url,
+              target.models = 'gemini-2.5-flash-image',
+              target.`group` = source.`group`,
+              target.priority = source.priority,
+              target.auto_ban = source.auto_ban,
+              target.channel_info = source.channel_info,
+              target.settings = source.settings,
+              target.ztapi_managed = 1,
+              target.ztapi_family = 'gemini',
+              target.ztapi_key_ciphertext = source.ztapi_key_ciphertext
+          WHERE target.name = 'Yunxin enterprise Gemini';
+          COMMIT;
+          SQL
+            gemini_channel_id=$("${compose[@]}" exec -T mysql sh -c \
+              'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names' <<'SQL'
+          SELECT id FROM channels WHERE name = 'Yunxin enterprise Gemini' LIMIT 1;
+          SQL
+            )
+            [[ "$gemini_channel_id" =~ ^[1-9][0-9]*$ ]]
+            if [ "$gemini_channel_preexisting" != true ]; then
+              printf "UPDATE channels SET status=2 WHERE id=%s AND name='Yunxin enterprise Gemini';\n" \
+                "$gemini_channel_id" > "$gemini_channel_backup"
+              chmod 0600 "$gemini_channel_backup"
+            fi
+          }
+          provision_gemini_image_channel
+          gemini_image_channel_count=$("${compose[@]}" exec -T mysql sh -c \
+            'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names' <<'SQL'
+          SELECT COUNT(*)
+          FROM channels
+          WHERE status = 1
+            AND name = 'Yunxin enterprise Gemini'
+            AND ztapi_managed = 1
+            AND type = 24
+            AND ztapi_family = 'gemini'
+            AND FIND_IN_SET('default', `group`) > 0
+            AND `key` = ''
+            AND ztapi_key_ciphertext <> '';
+          SQL
+          )
+          test "$gemini_image_channel_count" = "1"
+          "${compose[@]}" up -d --force-recreate server --wait \
+            --wait-timeout 120
+          private_status=$("${compose[@]}" exec -T server \
+            wget -qO- http://127.0.0.1:3000/api/status)
+          echo "$private_status" | grep -q '"success":true'
+          echo "$private_status" | grep -q '"system_name":"ZTAPI"'
+          blocked_media_count=$("${compose[@]}" exec -T mysql sh -c \
+            'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names' <<'SQL'
+          SELECT COUNT(*)
+          FROM ztapi_model_configs
+          WHERE published = 1
+            AND source_model IN (
+              'doubao-seedance-2.0',
+              'doubao-seedance-2.0-fast',
+              'doubao-seedance-2.0-mini'
+            );
+          SQL
+          )
+          test "$blocked_media_count" = "0"
+          "${compose[@]}" run --rm --no-deps nginx nginx -t
+          write_receipt smoke
+
+          require_receipt smoke
+          "${compose[@]}" up -d nginx --wait --wait-timeout 120
+          test "$(docker inspect --format '{{.Image}}' "$("${compose[@]}" ps --quiet nginx)")" = "$nginx_image_id"
+          write_receipt cutover "nginx_image_id=$nginx_image_id"
+
+          cat > /usr/local/sbin/ztapi-copy-certificate <<'SCRIPT'
+          #!/bin/sh
+          set -eu
+          certificate_path=/etc/letsencrypt/live/ztapi.vip/fullchain.pem
+          # See the deploy step: -checkhost never fails on mismatch, so the
+          # renewal hook must gate on the printed verdict or it guards nothing.
+          openssl x509 -checkhost ztapi.vip -noout -in "$certificate_path" |
+            grep -q 'does match certificate'
+          openssl x509 -checkhost www.ztapi.vip -noout -in "$certificate_path" |
+            grep -q 'does match certificate'
+          openssl x509 -checkhost admin.ztapi.vip -noout -in "$certificate_path" |
+            grep -q 'does match certificate'
+          install -m 0644 "$certificate_path" /opt/ztapi/tls/fullchain.pem
+          install -m 0600 /etc/letsencrypt/live/ztapi.vip/privkey.pem /opt/ztapi/tls/privkey.pem
+          cd /opt/ztapi
+          docker compose --env-file .env -f deploy/docker/docker-compose.prod.yml exec -T nginx nginx -t
+          SCRIPT
+          chmod 0755 /usr/local/sbin/ztapi-copy-certificate
+
+          cat > /etc/cron.d/ztapi-cert-renew <<'CRON'
+          17 3,15 * * * root certbot renew --quiet --standalone --pre-hook "cd /opt/ztapi && docker compose --env-file .env -f deploy/docker/docker-compose.prod.yml stop nginx" --deploy-hook "/usr/local/sbin/ztapi-copy-certificate" --post-hook "cd /opt/ztapi && docker compose --env-file .env -f deploy/docker/docker-compose.prod.yml up -d nginx"
+          CRON
+          chmod 0644 /etc/cron.d/ztapi-cert-renew
+          systemctl restart cron || systemctl restart cron.service
+
+          require_receipt cutover
+          acceptance_origin="http://127.0.0.1:18081"
+          runtime_status=$(curl --fail --silent --show-error \
+            --resolve ztapi.vip:443:127.0.0.1 \
+            https://ztapi.vip/api/status)
+          echo "$runtime_status" | grep -q '"success":true'
+          echo "$runtime_status" | grep -q '"system_name":"ZTAPI"'
+          echo "$runtime_status" | grep -q '"server_address":"https:\/\/ztapi.vip"'
+          admin_login_payload=$(jq -cn \
+            --arg username "$ZTAPI_ADMIN_USERNAME" \
+            --arg password "$ZTAPI_ADMIN_PASSWORD" \
+            '{username: $username, password: $password}')
+          admin_login_result=$(printf '%s' "$admin_login_payload" |
+            curl --fail --silent --show-error \
+              --resolve admin.ztapi.vip:443:127.0.0.1 \
+              --header 'Content-Type: application/json' \
+              --data-binary @- \
+              https://admin.ztapi.vip/api/auth/login)
+          echo "$admin_login_result" |
+            jq -e '.success == true and .data.user.role == 100' >/dev/null
+          curl --fail --silent --show-error \
+            --resolve ztapi.vip:443:127.0.0.1 \
+            https://ztapi.vip/ |
+            grep -q 'ZTAPI'
+          curl --fail --silent --show-error \
+            --resolve admin.ztapi.vip:443:127.0.0.1 \
+            https://admin.ztapi.vip/ |
+            grep -Fq 'ZTAPI 管理后台'
+          curl --fail --silent --show-error --head \
+            --resolve admin.ztapi.vip:443:127.0.0.1 \
+            https://admin.ztapi.vip/ |
+            grep -qi 'X-Robots-Tag: noindex'
+          # Field name must match ztAPIAuthData in server/controller/auth.go,
+          # which serialises the session token as access_token.
+          admin_access_token=$(echo "$admin_login_result" | jq -er '.data.access_token')
+          admin_user_id=$(echo "$admin_login_result" | jq -er '.data.user.id')
+          admin_to=$(date +%s)
+          admin_from=$((admin_to - 86400))
+          curl --fail --silent --show-error \
+            --resolve admin.ztapi.vip:443:127.0.0.1 \
+            --header "Authorization: Bearer $admin_access_token" \
+            --header "New-API-User: $admin_user_id" \
+            "https://admin.ztapi.vip/api/admin/overview?from=$admin_from&to=$admin_to" |
+            jq -e '.success == true' >/dev/null
+
+          # Reprice every currently published model in one database transaction.
+          # Pool-quoted models sell at 80% of official price; all other models
+          # sell at actual enterprise cost / 0.8 (20% gross margin).
+          published_pricing_count=$("${compose[@]}" exec -T mysql sh -c \
+            'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names' <<'SQL'
+          SELECT COUNT(*) FROM ztapi_model_configs WHERE published = 1;
+          SQL
+          )
+          if [[ ! "$published_pricing_count" =~ ^[1-9][0-9]*$ ]]; then
+            echo 'commercial repricing requires at least one published model' >&2
+            exit 1
+          fi
+          commercial_pricing_result=$(jq -cn '{confirm:true}' |
+            curl --fail --silent --show-error \
+              --request POST \
+              --resolve admin.ztapi.vip:443:127.0.0.1 \
+              --header 'Content-Type: application/json' \
+              --header "Authorization: Bearer $admin_access_token" \
+              --header "New-API-User: $admin_user_id" \
+              --data-binary @- \
+              https://admin.ztapi.vip/api/models/ztapi/reprice-commercial-v2)
+          echo "$commercial_pricing_result" | jq -e \
+            --argjson expected "$published_pricing_count" '
+              .success == true
+              and ((.data.imported + .data.unchanged) == $expected)
+              and (.data.republished == .data.imported)' >/dev/null
+          commercial_pricing_imported=$(echo "$commercial_pricing_result" | jq -er '.data.imported')
+          commercial_pricing_unchanged=$(echo "$commercial_pricing_result" | jq -er '.data.unchanged')
+          write_receipt commercial_pricing_v2 \
+            "published=$published_pricing_count imported=$commercial_pricing_imported unchanged=$commercial_pricing_unchanged"
+          require_receipt commercial_pricing_v2
+
+          # Publish GPT Image 2 only after enterprise-route discovery and exact
+          # quotation import. A real generated-image verification is repeated
+          # only when the image acceptance surface or stored model state changes.
+          # Higher route priority wins in New API, so the lowest-priority
+          # enabled route is the enterprise fallback while the pool is primary.
+          ztapi_image_channel_id=$("${compose[@]}" exec -T mysql sh -c \
+            'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names' <<'SQL'
+          SELECT c.id
+          FROM channels c
+          WHERE c.status = 1
+            AND c.ztapi_managed = 1
+            AND c.ztapi_family = 'openai'
+            AND FIND_IN_SET('default', c.`group`) > 0
+          ORDER BY COALESCE(c.priority, 0) ASC, c.id ASC
+          LIMIT 1;
+          SQL
+          )
+          if [[ ! "$ztapi_image_channel_id" =~ ^[1-9][0-9]*$ ]]; then
+            echo 'no enabled managed OpenAI enterprise fallback channel is available for GPT Image 2 discovery' >&2
+            exit 1
+          fi
+          image_discovery_result=$(curl --fail --silent --show-error \
+            --resolve admin.ztapi.vip:443:127.0.0.1 \
+            --header "Authorization: Bearer $admin_access_token" \
+            --header "New-API-User: $admin_user_id" \
+            "https://admin.ztapi.vip/api/channel/ztapi/fetch_models/$ztapi_image_channel_id?import=true")
+          echo "$image_discovery_result" | jq -e \
+            '.success == true and any(.data.model_ids[]; . == "gpt-image-2")' >/dev/null
+
+          image_model_list=$(curl --fail --silent --show-error \
+            --resolve admin.ztapi.vip:443:127.0.0.1 \
+            --header "Authorization: Bearer $admin_access_token" \
+            --header "New-API-User: $admin_user_id" \
+            'https://admin.ztapi.vip/api/models/ztapi/?keyword=gpt-image-2&page_size=100')
+          ztapi_image_model=$(echo "$image_model_list" | jq -cer \
+            '.data.items | map(select(.source_model == "gpt-image-2")) | select(length == 1) | .[0]')
+          ztapi_image_model_id=$(echo "$ztapi_image_model" | jq -er '.id')
+          ztapi_image_requires_acceptance="$ztapi_image_code_changed"
+          if ! echo "$ztapi_image_model" | jq -e '.published == true' >/dev/null; then
+            ztapi_image_requires_acceptance=true
+          fi
+          if ! echo "$ztapi_image_model" | jq -e '
+              .public_name == "zt-gp-image-2"
+              and .protocol == "openai_compatible"
+              and .provider_family == "openai"' >/dev/null; then
+            ztapi_image_requires_acceptance=true
+            image_identity_payload=$(echo "$ztapi_image_model" | jq -c \
+              --arg checksum "$(jq -er '.sha256' /opt/ztapi/server/model/ztapi_quotation_v1.json)" '
+                {
+                  version:.version,
+                  source_model:"gpt-image-2",
+                  public_name:"zt-gp-image-2",
+                  protocol:"openai_compatible",
+                  provider_family:"openai",
+                  source_reference:("quotation:" + $checksum + ":gp-image-2"),
+                  reason:"verified GPT Image 2 quotation mapping",
+                  confirm:true
+                }')
+            image_identity_result=$(printf '%s' "$image_identity_payload" | curl --fail --silent --show-error \
+              --request PUT \
+              --resolve admin.ztapi.vip:443:127.0.0.1 \
+              --header 'Content-Type: application/json' \
+              --header "Authorization: Bearer $admin_access_token" \
+              --header "New-API-User: $admin_user_id" \
+              --data-binary @- \
+              "https://admin.ztapi.vip/api/models/ztapi/$ztapi_image_model_id/identity")
+            echo "$image_identity_result" | jq -e \
+              '.success == true and .data.model.public_name == "zt-gp-image-2"' >/dev/null
+          fi
+
+          image_quote=/opt/ztapi/server/model/ztapi_quotation_v1.json
+          image_media_price_contract=$(jq -er '
+            .entries[]
+            | select(.source_model == "gpt-image-2" and .public_name == "zt-gp-image-2")
+            | .quote_rows[]
+            | select(.media_price_contract != null)
+            | .media_price_contract' "$image_quote")
+          image_media_price_sha=$(printf '%s' "$image_media_price_contract" | sha256sum | cut -d ' ' -f 1)
+          current_image_price_sha=$("${compose[@]}" exec -T mysql sh -c \
+            'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names' <<SQL
+          SELECT COALESCE((
+            SELECT SHA2(media_price_contract_json, 256)
+            FROM ztapi_model_price_sources
+            WHERE model_config_id = $ztapi_image_model_id
+              AND source_model = 'gpt-image-2'
+              AND resource_type = 'pool'
+              AND price_policy = 'pool_official_80'
+              AND source_document_checksum = '$(jq -er '.sha256' "$image_quote")'
+            ORDER BY version DESC, id DESC
+            LIMIT 1
+          ), '');
+          SQL
+          )
+          if [ "$current_image_price_sha" != "$image_media_price_sha" ]; then
+            ztapi_image_requires_acceptance=true
+            ztapi_image_model=$(curl --fail --silent --show-error \
+              --resolve admin.ztapi.vip:443:127.0.0.1 \
+              --header "Authorization: Bearer $admin_access_token" \
+              --header "New-API-User: $admin_user_id" \
+              "https://admin.ztapi.vip/api/models/ztapi/$ztapi_image_model_id" | jq -cer '.data')
+            image_price_payload=$(echo "$ztapi_image_model" | jq -c \
+              --arg media_contract "$image_media_price_contract" \
+              --arg checksum "$(jq -er '.sha256' "$image_quote")" '
+                {
+                  version:.version,
+                  source_model:"gpt-image-2",
+                  resource_type:"pool",
+                  price_policy:"pool_official_80",
+                  spend_tier:"9.1 quotation",
+                  billing_dimensions:["input_tokens","output_tokens"],
+                  currency:"USD",
+                  input_per_million:"1.65",
+                  output_per_million:"9.90",
+                  cache_read_per_million:"0",
+                  cache_write_per_million:"0",
+                  cache_write_5m_per_million:"0",
+                  cache_write_1h_per_million:"0",
+                  image_unit_cost:"0",
+                  audio_unit_cost:"0",
+                  request_unit_cost:"0",
+                  cny_per_usd:"0",
+                  media_price_contract:$media_contract,
+                  quotation_effective_at:1788192000,
+                  source_document_checksum:$checksum,
+                  reason:"import exact GPT Image 2 pool quotation and official 80 percent sale price",
+                  confirm:true
+                }')
+            image_price_result=$(printf '%s' "$image_price_payload" | curl --fail --silent --show-error \
+              --resolve admin.ztapi.vip:443:127.0.0.1 \
+              --header 'Content-Type: application/json' \
+              --header "Authorization: Bearer $admin_access_token" \
+              --header "New-API-User: $admin_user_id" \
+              --data-binary @- \
+              "https://admin.ztapi.vip/api/models/ztapi/$ztapi_image_model_id/price-sources")
+            echo "$image_price_result" | jq -e '
+              .success == true
+              and .data.preview.price_policy == "pool_official_80"
+              and .data.preview.input_sale_usd_per_million == "4.0000000000"
+              and .data.preview.output_sale_usd_per_million == "24.0000000000"' >/dev/null
+          fi
+
+          if [ "$ztapi_image_requires_acceptance" = true ]; then
+            image_verification_result=$(jq -cn --argjson channel_id "$ztapi_image_channel_id" \
+              '{channel_id:$channel_id}' | curl --fail --silent --show-error \
+                --resolve admin.ztapi.vip:443:127.0.0.1 \
+                --header 'Content-Type: application/json' \
+                --header "Authorization: Bearer $admin_access_token" \
+                --header "New-API-User: $admin_user_id" \
+                --data-binary @- \
+                "https://admin.ztapi.vip/api/models/ztapi/$ztapi_image_model_id/verify")
+            echo "$image_verification_result" | jq -e '
+              .success == true
+              and .data.verification.modality == "image"
+              and .data.verification.non_streaming_passed == true
+              and .data.verification.streaming_required == false
+              and .data.verification.usage_reconciled == true
+              and .data.verification.media_result_valid == true
+              and (.data.verification.image_protocol_contract | length) > 0' >/dev/null
+          fi
+
+          ztapi_image_model=$(curl --fail --silent --show-error \
+            --resolve admin.ztapi.vip:443:127.0.0.1 \
+            --header "Authorization: Bearer $admin_access_token" \
+            --header "New-API-User: $admin_user_id" \
+            "https://admin.ztapi.vip/api/models/ztapi/$ztapi_image_model_id" | jq -cer '.data')
+          if ! echo "$ztapi_image_model" | jq -e '.published == true' >/dev/null; then
+            image_publish_payload=$(echo "$ztapi_image_model" | jq -c '
+              {
+                version:.version,
+                source_model:.source_model,
+                public_name:.public_name,
+                family:.family,
+                input_cost_per_million:.input_cost_per_million,
+                output_cost_per_million:.output_cost_per_million,
+                input_price_per_million:.input_price_per_million,
+                output_price_per_million:.output_price_per_million,
+                cache_read_ratio:.cache_read_ratio,
+                cache_creation_ratio:.cache_creation_ratio,
+                cache_creation_5m_ratio:.cache_creation_5m_ratio,
+                cache_creation_1h_ratio:.cache_creation_1h_ratio,
+                image_ratio:.image_ratio,
+                audio_ratio:.audio_ratio,
+                audio_completion_ratio:.audio_completion_ratio,
+                enabled_groups:["default"],
+                published:true,
+                confirm_below_cost:false
+              }')
+            image_publish_result=$(printf '%s' "$image_publish_payload" | curl --fail --silent --show-error \
+              --request PUT \
+              --resolve admin.ztapi.vip:443:127.0.0.1 \
+              --header 'Content-Type: application/json' \
+              --header "Authorization: Bearer $admin_access_token" \
+              --header "New-API-User: $admin_user_id" \
+              --data-binary @- \
+              "https://admin.ztapi.vip/api/models/ztapi/$ztapi_image_model_id")
+            echo "$image_publish_result" | jq -e \
+              '.success == true and .data.published == true and .data.public_name == "zt-gp-image-2"' >/dev/null
+          fi
+
+          # Publish Gemini 2.5 Flash Image only through the dedicated native
+          # Gemini route. The credential remains encrypted in the database.
+          gemini_image_requires_acceptance=true
+          if [ "$gemini_was_published" = true ]; then
+            gemini_image_requires_acceptance=false
+          fi
+          ztapi_gemini_image_channel_id=$("${compose[@]}" exec -T mysql sh -c \
+            'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names' <<'SQL'
+          SELECT c.id
+          FROM channels c
+          WHERE c.status = 1
+            AND c.ztapi_managed = 1
+            AND c.type = 24
+            AND c.ztapi_family = 'gemini'
+            AND c.name = 'Yunxin enterprise Gemini'
+            AND FIND_IN_SET('default', c.`group`) > 0
+          ORDER BY COALESCE(c.priority, 0) ASC, c.id ASC
+          LIMIT 1;
+          SQL
+          )
+          if [[ ! "$ztapi_gemini_image_channel_id" =~ ^[1-9][0-9]*$ ]]; then
+            echo 'no enabled managed Gemini enterprise channel is available for Gemini image discovery' >&2
+            exit 1
+          fi
+          gemini_image_discovery_result=$(curl --fail --silent --show-error \
+            --resolve admin.ztapi.vip:443:127.0.0.1 \
+            --header "Authorization: Bearer $admin_access_token" \
+            --header "New-API-User: $admin_user_id" \
+            "https://admin.ztapi.vip/api/channel/ztapi/fetch_models/$ztapi_gemini_image_channel_id?import=true")
+          echo "$gemini_image_discovery_result" | jq -e \
+            '.success == true and any(.data.model_ids[]; . == "gemini-2.5-flash-image")' >/dev/null
+
+          gemini_image_model_list=$(curl --fail --silent --show-error \
+            --resolve admin.ztapi.vip:443:127.0.0.1 \
+            --header "Authorization: Bearer $admin_access_token" \
+            --header "New-API-User: $admin_user_id" \
+            'https://admin.ztapi.vip/api/models/ztapi/?keyword=gemini-2.5-flash-image&page_size=100')
+          ztapi_gemini_image_model=$(echo "$gemini_image_model_list" | jq -cer \
+            '.data.items | map(select(.source_model == "gemini-2.5-flash-image")) | select(length == 1) | .[0]')
+          ztapi_gemini_image_model_id=$(echo "$ztapi_gemini_image_model" | jq -er '.id')
+          if ! echo "$ztapi_gemini_image_model" | jq -e '
+              .public_name == "zt-gemini-2.5-flash-image"
+              and .protocol == "openai_compatible"
+              and .provider_family == "google"' >/dev/null; then
+            gemini_image_requires_acceptance=true
+            gemini_image_identity_payload=$(echo "$ztapi_gemini_image_model" | jq -c \
+              --arg checksum "$(jq -er '.sha256' /opt/ztapi/server/model/ztapi_quotation_v1.json)" '
+                {
+                  version:.version,
+                  source_model:"gemini-2.5-flash-image",
+                  public_name:"zt-gemini-2.5-flash-image",
+                  protocol:"openai_compatible",
+                  provider_family:"google",
+                  source_reference:("quotation:" + $checksum + ":gm25-fl-IMAGE"),
+                  reason:"verified Gemini 2.5 Flash Image quotation mapping",
+                  confirm:true
+                }')
+            gemini_image_identity_result=$(printf '%s' "$gemini_image_identity_payload" | curl --fail --silent --show-error \
+              --request PUT \
+              --resolve admin.ztapi.vip:443:127.0.0.1 \
+              --header 'Content-Type: application/json' \
+              --header "Authorization: Bearer $admin_access_token" \
+              --header "New-API-User: $admin_user_id" \
+              --data-binary @- \
+              "https://admin.ztapi.vip/api/models/ztapi/$ztapi_gemini_image_model_id/identity")
+            echo "$gemini_image_identity_result" | jq -e \
+              '.success == true and .data.model.public_name == "zt-gemini-2.5-flash-image"' >/dev/null
+          fi
+
+          gemini_image_quote=/opt/ztapi/server/model/ztapi_quotation_v1.json
+          gemini_image_media_price_contract=$(jq -er '
+            .entries[]
+            | select(.source_model == "gemini-2.5-flash-image" and .public_name == "zt-gemini-2.5-flash-image")
+            | .quote_rows[]
+            | select(.media_price_contract != null)
+            | .media_price_contract' "$gemini_image_quote")
+          gemini_image_media_price_sha=$(printf '%s' "$gemini_image_media_price_contract" | sha256sum | cut -d ' ' -f 1)
+          current_gemini_image_price_sha=$("${compose[@]}" exec -T mysql sh -c \
+            'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names' <<SQL
+          SELECT COALESCE((
+            SELECT SHA2(media_price_contract_json, 256)
+            FROM ztapi_model_price_sources
+            WHERE model_config_id = $ztapi_gemini_image_model_id
+              AND source_model = 'gemini-2.5-flash-image'
+              AND resource_type = 'enterprise'
+              AND price_policy = 'enterprise_20_margin'
+              AND source_document_checksum = '$(jq -er '.sha256' "$gemini_image_quote")'
+            ORDER BY version DESC, id DESC
+            LIMIT 1
+          ), '');
+          SQL
+          )
+          if [ "$current_gemini_image_price_sha" != "$gemini_image_media_price_sha" ]; then
+            gemini_image_requires_acceptance=true
+            ztapi_gemini_image_model=$(curl --fail --silent --show-error \
+              --resolve admin.ztapi.vip:443:127.0.0.1 \
+              --header "Authorization: Bearer $admin_access_token" \
+              --header "New-API-User: $admin_user_id" \
+              "https://admin.ztapi.vip/api/models/ztapi/$ztapi_gemini_image_model_id" | jq -cer '.data')
+            gemini_image_price_payload=$(echo "$ztapi_gemini_image_model" | jq -c \
+              --arg media_contract "$gemini_image_media_price_contract" \
+              --arg checksum "$(jq -er '.sha256' "$gemini_image_quote")" '
+                {
+                  version:.version,
+                  source_model:"gemini-2.5-flash-image",
+                  resource_type:"enterprise",
+                  price_policy:"enterprise_20_margin",
+                  spend_tier:"9.1 quotation",
+                  billing_dimensions:["input_tokens","output_tokens"],
+                  currency:"USD",
+                  input_per_million:"0.246",
+                  output_per_million:"2.05",
+                  cache_read_per_million:"0",
+                  cache_write_per_million:"0",
+                  cache_write_5m_per_million:"0",
+                  cache_write_1h_per_million:"0",
+                  image_unit_cost:"0",
+                  audio_unit_cost:"0",
+                  request_unit_cost:"0",
+                  cny_per_usd:"0",
+                  media_price_contract:$media_contract,
+                  quotation_effective_at:1788192000,
+                  source_document_checksum:$checksum,
+                  reason:"import exact Gemini 2.5 Flash Image enterprise quotation",
+                  confirm:true
+                }')
+            gemini_image_price_result=$(printf '%s' "$gemini_image_price_payload" | curl --fail --silent --show-error \
+              --resolve admin.ztapi.vip:443:127.0.0.1 \
+              --header 'Content-Type: application/json' \
+              --header "Authorization: Bearer $admin_access_token" \
+              --header "New-API-User: $admin_user_id" \
+              --data-binary @- \
+              "https://admin.ztapi.vip/api/models/ztapi/$ztapi_gemini_image_model_id/price-sources")
+            echo "$gemini_image_price_result" | jq -e '
+              .success == true
+              and .data.preview.price_policy == "enterprise_20_margin"
+              and .data.preview.input_sale_usd_per_million == "0.3075000000"
+              and .data.preview.output_sale_usd_per_million == "2.5625000000"' >/dev/null
+          fi
+
+          if [ "$gemini_image_requires_acceptance" = true ]; then
+            gemini_image_verification_result=$(jq -cn --argjson channel_id "$ztapi_gemini_image_channel_id" \
+              '{channel_id:$channel_id}' | curl --fail --silent --show-error \
+                --resolve admin.ztapi.vip:443:127.0.0.1 \
+                --header 'Content-Type: application/json' \
+                --header "Authorization: Bearer $admin_access_token" \
+                --header "New-API-User: $admin_user_id" \
+                --data-binary @- \
+                "https://admin.ztapi.vip/api/models/ztapi/$ztapi_gemini_image_model_id/verify")
+            echo "$gemini_image_verification_result" | jq -e '
+              .success == true
+              and .data.verification.modality == "image"
+              and .data.verification.non_streaming_passed == true
+              and .data.verification.streaming_required == false
+              and .data.verification.usage_reconciled == true
+              and .data.verification.media_result_valid == true
+              and (.data.verification.image_protocol_contract | length) > 0' >/dev/null
+          fi
+
+          ztapi_gemini_image_model=$(curl --fail --silent --show-error \
+            --resolve admin.ztapi.vip:443:127.0.0.1 \
+            --header "Authorization: Bearer $admin_access_token" \
+            --header "New-API-User: $admin_user_id" \
+            "https://admin.ztapi.vip/api/models/ztapi/$ztapi_gemini_image_model_id" | jq -cer '.data')
+          if ! echo "$ztapi_gemini_image_model" | jq -e '.published == true' >/dev/null; then
+            gemini_image_publish_payload=$(echo "$ztapi_gemini_image_model" | jq -c '
+              {
+                version:.version,
+                source_model:.source_model,
+                public_name:.public_name,
+                family:.family,
+                input_cost_per_million:.input_cost_per_million,
+                output_cost_per_million:.output_cost_per_million,
+                input_price_per_million:.input_price_per_million,
+                output_price_per_million:.output_price_per_million,
+                cache_read_ratio:.cache_read_ratio,
+                cache_creation_ratio:.cache_creation_ratio,
+                cache_creation_5m_ratio:.cache_creation_5m_ratio,
+                cache_creation_1h_ratio:.cache_creation_1h_ratio,
+                image_ratio:.image_ratio,
+                audio_ratio:.audio_ratio,
+                audio_completion_ratio:.audio_completion_ratio,
+                enabled_groups:["default"],
+                published:true,
+                confirm_below_cost:false
+              }')
+            gemini_image_publish_result=$(printf '%s' "$gemini_image_publish_payload" | curl --fail --silent --show-error \
+              --request PUT \
+              --resolve admin.ztapi.vip:443:127.0.0.1 \
+              --header 'Content-Type: application/json' \
+              --header "Authorization: Bearer $admin_access_token" \
+              --header "New-API-User: $admin_user_id" \
+              --data-binary @- \
+              "https://admin.ztapi.vip/api/models/ztapi/$ztapi_gemini_image_model_id")
+            echo "$gemini_image_publish_result" | jq -e \
+              '.success == true and .data.published == true and .data.public_name == "zt-gemini-2.5-flash-image"' >/dev/null
+          fi
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            --resolve ztapi.vip:443:127.0.0.1 \
+            https://ztapi.vip/v1/models)" = "401"
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            "$acceptance_origin/v1/models")" = "401"
+          snapshot_unrelated_containers > "$unrelated_after"
+          chmod 0600 "$unrelated_after"
+          cmp -s "$unrelated_before" "$unrelated_after"
+          write_receipt postcheck "server_image_id=$server_image_id nginx_image_id=$nginx_image_id"
+          require_receipt postcheck
+
+          # Reusing the release-derived UUID makes a retried deployment read the
+          # same durable audited job instead of sending a duplicate alert.
+          alert_operation_id="${ZTAPI_RELEASE_VERSION:0:8}-${ZTAPI_RELEASE_VERSION:8:4}-${ZTAPI_RELEASE_VERSION:12:4}-${ZTAPI_RELEASE_VERSION:16:4}-${ZTAPI_RELEASE_VERSION:20:12}"
+          alert_create_result=$(jq -cn --arg operation_id "$alert_operation_id" \
+            '{operation_id: $operation_id}' |
+            curl --fail --silent --show-error \
+              --resolve admin.ztapi.vip:443:127.0.0.1 \
+              --header 'Content-Type: application/json' \
+              --header "Authorization: Bearer $admin_access_token" \
+              --header "New-API-User: $admin_user_id" \
+              --data-binary @- \
+              https://admin.ztapi.vip/api/models/ztapi/health/test-alert)
+          echo "$alert_create_result" |
+            jq -e --arg operation_id "$alert_operation_id" \
+              '.success == true and .data.operation_id == $operation_id and .data.kind == "alert_test"' >/dev/null
+
+          alert_poll_file=$(mktemp /tmp/ztapi-alert-poll.XXXXXX)
+          alert_receipt_tmp="$receipt_dir/telegram-alert-production-code.json.tmp"
+          rm -f "$alert_receipt_tmp"
+          for alert_poll_attempt in $(seq 1 40); do
+            curl --fail --silent --show-error \
+              --resolve admin.ztapi.vip:443:127.0.0.1 \
+              --header "Authorization: Bearer $admin_access_token" \
+              --header "New-API-User: $admin_user_id" \
+              "https://admin.ztapi.vip/api/models/ztapi/health/test-alert/$alert_operation_id" \
+              > "$alert_poll_file"
+            alert_status=$(jq -er '.data.status' "$alert_poll_file")
+            if [ "$alert_status" = done ]; then
+              jq -e --arg release_commit "$ZTAPI_RELEASE_VERSION" '
+                .data as $d
+                | ($d.delivery_receipt | fromjson) as $receipt
+                | {
+                    release_commit: $release_commit,
+                    operation_id: $d.operation_id,
+                    outbox_id: $d.id,
+                    status: $d.status,
+                    attempts: $d.attempts,
+                    telegram_message_id: $receipt.result.message_id,
+                    telegram_delivery_timestamp: $receipt.result.date,
+                    delivered_at: $d.delivered_at,
+                    last_error: $d.last_error
+                  }
+                | select(
+                    .status == "done"
+                    and .outbox_id > 0
+                    and .attempts > 0
+                    and .telegram_message_id > 0
+                    and .telegram_delivery_timestamp >= 0
+                    and .delivered_at > 0
+                    and .last_error == ""
+                  )' "$alert_poll_file" > "$alert_receipt_tmp"
+              break
+            fi
+            [[ "$alert_status" == pending || "$alert_status" == leased ]]
+            sleep 5
+          done
+          rm -f "$alert_poll_file"
+          test -s "$alert_receipt_tmp"
+          chmod 0600 "$alert_receipt_tmp"
+          mv "$alert_receipt_tmp" "$receipt_dir/telegram-alert-production-code.json"
+          alert_outbox_id=$(jq -er '.outbox_id' "$receipt_dir/telegram-alert-production-code.json")
+          alert_attempts=$(jq -er '.attempts' "$receipt_dir/telegram-alert-production-code.json")
+          alert_message_id=$(jq -er '.telegram_message_id' "$receipt_dir/telegram-alert-production-code.json")
+          alert_delivered_at=$(jq -er '.delivered_at' "$receipt_dir/telegram-alert-production-code.json")
+          write_receipt telegram_alert "outbox_id=$alert_outbox_id attempts=$alert_attempts telegram_message_id=$alert_message_id delivered_at=$alert_delivered_at"
+          require_receipt telegram_alert
+          echo 'Production-code Telegram receipt:'
+          cat "$receipt_dir/telegram-alert-production-code.json"
+
+          previous_registration_status=$(curl --fail --silent --show-error \
+            --resolve ztapi.vip:443:127.0.0.1 \
+            https://ztapi.vip/api/status)
+          previous_register_enabled=$(echo "$previous_registration_status" | jq -er '.data.register_enabled | select(type == "boolean")')
+          previous_password_register_enabled=$(echo "$previous_registration_status" | jq -er '.data.password_register_enabled | select(type == "boolean")')
+          registration_options_mutated=true
+          for registration_option in RegisterEnabled PasswordRegisterEnabled; do
+            registration_update=$(jq -cn --arg key "$registration_option" \
+              '{key:$key,value:true}' |
+              curl --fail --silent --show-error --request PUT \
+                --resolve admin.ztapi.vip:443:127.0.0.1 \
+                --header 'Content-Type: application/json' \
+                --header "Authorization: Bearer $admin_access_token" \
+                --header "New-API-User: $admin_user_id" \
+                --data-binary @- \
+                https://admin.ztapi.vip/api/option/)
+            echo "$registration_update" | jq -e '.success == true' >/dev/null
+          done
+          registration_status=$(curl --fail --silent --show-error \
+            --resolve ztapi.vip:443:127.0.0.1 \
+            https://ztapi.vip/api/status)
+          echo "$registration_status" | jq -e \
+            '.data.register_enabled == true and .data.password_register_enabled == true' >/dev/null
+
+          acceptance_username="qa$(openssl rand -hex 5)"
+          acceptance_password="Q$(openssl rand -hex 16)"
+          acceptance_registration_payload=$(jq -cn \
+            --arg username "$acceptance_username" \
+            --arg password "$acceptance_password" \
+            '{username:$username,password:$password}')
+          acceptance_register_result=$(printf '%s' "$acceptance_registration_payload" |
+            curl --fail --silent --show-error \
+              --resolve ztapi.vip:443:127.0.0.1 \
+              --header 'Content-Type: application/json' \
+              --data-binary @- \
+              https://ztapi.vip/api/auth/register)
+          echo "$acceptance_register_result" |
+            jq -e '.success == true and .data.user.role == 1' >/dev/null
+
+          acceptance_login_payload=$(jq -cn \
+            --arg username "$acceptance_username" \
+            --arg password "$acceptance_password" \
+            '{username:$username,password:$password}')
+          acceptance_login_result=$(printf '%s' "$acceptance_login_payload" |
+            curl --fail --silent --show-error \
+              --resolve ztapi.vip:443:127.0.0.1 \
+              --header 'Content-Type: application/json' \
+              --data-binary @- \
+              https://ztapi.vip/api/auth/login)
+          acceptance_user_id=$(echo "$acceptance_login_result" | jq -er \
+            'select(.success == true and .data.user.role == 1) | .data.user.id')
+          acceptance_user_access_token=$(echo "$acceptance_login_result" | jq -er '.data.access_token')
+
+          admin_host_common_login_status=$(printf '%s' "$acceptance_login_payload" |
+            curl --silent --show-error \
+              --output /dev/null --write-out '%{http_code}' \
+              --resolve admin.ztapi.vip:443:127.0.0.1 \
+              --header 'Content-Type: application/json' \
+              --data-binary @- \
+              https://admin.ztapi.vip/api/auth/login)
+          test "$admin_host_common_login_status" = "401"
+
+          admin_host_common_api_status=$(curl --silent --show-error \
+            --output /dev/null --write-out '%{http_code}' \
+            --resolve admin.ztapi.vip:443:127.0.0.1 \
+            --header "Authorization: Bearer $acceptance_user_access_token" \
+            --header "New-API-User: $acceptance_user_id" \
+            https://admin.ztapi.vip/api/user/models)
+          test "$admin_host_common_api_status" = "403"
+
+          acceptance_token_result=$(jq -cn \
+            '{name:"commercial-acceptance",status:1,expired_time:-1,unlimited_quota:true}' |
+            curl --fail --silent --show-error \
+              --header 'Content-Type: application/json' \
+              --header "Authorization: Bearer $acceptance_user_access_token" \
+              --header "New-API-User: $acceptance_user_id" \
+              --data-binary @- \
+              "$acceptance_origin/api/token/")
+          acceptance_token_id=$(echo "$acceptance_token_result" | jq -er \
+            'select(.success == true and (.data.key | startswith("sk-zt-"))) | .data.id')
+          acceptance_api_key=$(echo "$acceptance_token_result" | jq -er '.data.key')
+
+          acceptance_pre_order_quota=$(curl --fail --silent --show-error \
+            --resolve admin.ztapi.vip:443:127.0.0.1 \
+            --header "Authorization: Bearer $admin_access_token" \
+            --header "New-API-User: $admin_user_id" \
+            "https://admin.ztapi.vip/api/admin/users/$acceptance_user_id" | jq -er '.data.quota')
+          acceptance_usdt_create_result=$(jq -cn '{amount:10}' |
+            curl --fail --silent --show-error \
+              --request POST \
+              --header 'Content-Type: application/json' \
+              --header "Authorization: Bearer $acceptance_user_access_token" \
+              --header "New-API-User: $acceptance_user_id" \
+              --data-binary @- \
+              "$acceptance_origin/api/user/topup/usdt-trc20/orders")
+          acceptance_outstanding_trade_no=$(echo "$acceptance_usdt_create_result" | jq -er '
+            select(.success == true
+              and .data.status == "pending"
+              and .data.credit_units == 10
+              and (.data.pay_amount | test("^10\\.[0-9]{2}$"))
+              and (.data.receiving_address | test("^T[1-9A-HJ-NP-Za-km-z]{33}$"))
+              and .data.expires_at > now)
+            | .data.trade_no')
+          acceptance_usdt_get_result=$(curl --fail --silent --show-error \
+            --header "Authorization: Bearer $acceptance_user_access_token" \
+            --header "New-API-User: $acceptance_user_id" \
+            "$acceptance_origin/api/user/topup/usdt-trc20/orders/$acceptance_outstanding_trade_no")
+          echo "$acceptance_usdt_get_result" | jq -e \
+            --arg trade_no "$acceptance_outstanding_trade_no" \
+            '.success == true and .data.trade_no == $trade_no and .data.status == "pending"' >/dev/null
+          acceptance_usdt_cancel_result=$(curl --fail --silent --show-error \
+            --request POST \
+            --header "Authorization: Bearer $acceptance_user_access_token" \
+            --header "New-API-User: $acceptance_user_id" \
+            "$acceptance_origin/api/user/topup/usdt-trc20/orders/$acceptance_outstanding_trade_no/cancel")
+          echo "$acceptance_usdt_cancel_result" | jq -e \
+            --arg trade_no "$acceptance_outstanding_trade_no" \
+            '.success == true and .data.trade_no == $trade_no and .data.status == "expired"' >/dev/null
+          acceptance_usdt_trade_no="$acceptance_outstanding_trade_no"
+          acceptance_outstanding_trade_no=""
+          acceptance_post_cancel_quota=$(curl --fail --silent --show-error \
+            --resolve admin.ztapi.vip:443:127.0.0.1 \
+            --header "Authorization: Bearer $admin_access_token" \
+            --header "New-API-User: $admin_user_id" \
+            "https://admin.ztapi.vip/api/admin/users/$acceptance_user_id" | jq -er '.data.quota')
+          test "$acceptance_post_cancel_quota" = "$acceptance_pre_order_quota"
+
+          # Keep enough temporary credit for the image protocol's 653,822-quota
+          # maximum reservation plus the text and embedding acceptance calls.
+          acceptance_seed_quota=5000000
+          acceptance_seed_result=$(jq -cn \
+            --arg key "ordinary-seed-$acceptance_user_id" \
+            --argjson delta "$acceptance_seed_quota" \
+            '{delta:$delta,reason:"commercial acceptance temporary credit",idempotency_key:$key}' |
+            curl --fail --silent --show-error \
+              --resolve admin.ztapi.vip:443:127.0.0.1 \
+              --header 'Content-Type: application/json' \
+              --header "Authorization: Bearer $admin_access_token" \
+              --header "New-API-User: $admin_user_id" \
+              --data-binary @- \
+              "https://admin.ztapi.vip/api/admin/users/$acceptance_user_id/balance-adjustments")
+          acceptance_seed_ledger_id=$(echo "$acceptance_seed_result" | jq -er \
+            --argjson seed_quota "$acceptance_seed_quota" \
+            'select(.success == true and .data.applied == true and .data.user_id > 0 and .data.balance_after == $seed_quota) | .data.id')
+
+          acceptance_catalog=$(curl --fail --silent --show-error \
+            --header "Authorization: Bearer $acceptance_user_access_token" \
+            --header "New-API-User: $acceptance_user_id" \
+            "$acceptance_origin/api/user/models")
+          echo "$acceptance_catalog" | jq -e '
+            .success == true
+            and (all(.catalog[];
+              (.pricing_version | length) > 0
+              and (if (.modality == "image" or .modality == "video") then
+                .input_price_per_million == ""
+                and .output_price_per_million == ""
+                and (.billing_dimensions | length) == 0
+                and (.sale_usd | length) == 0
+                and .billing_rule == "multi_dimension"
+                and (.supported_options | type) == "object"
+                and (.pricing_rules | length) > 0
+                and (.billing_unit | length) > 0
+              else
+                (.input_price_per_million | tonumber) >= 0
+                and (.output_price_per_million | tonumber) >= 0
+              end)))
+            and ([.catalog[] | select(.modality == "image" and (.model_name == "zt-gp-image-2" or .model_name == "zt-gemini-2.5-flash-image"))] | length) == 2
+            and ([.catalog[] | select(.modality == "video")] | length) == 0
+            and ([.. | objects | keys[] | select(. == "source_model" or . == "channel_id")] | length) == 0' >/dev/null
+          acceptance_pricing=$(curl --fail --silent --show-error \
+            "$acceptance_origin/api/pricing")
+          echo "$acceptance_pricing" | jq -e '
+            .success == true
+            and (all(.data[];
+              if (.modality == "image" or .modality == "video") then
+                has("input_price_per_million")
+                and has("output_price_per_million")
+                and has("billing_dimensions")
+                and has("sale_usd")
+                and .input_price_per_million == ""
+                and .output_price_per_million == ""
+                and (.billing_dimensions | length) == 0
+                and (.sale_usd | length) == 0
+                and .billing_rule == "multi_dimension"
+                and (.supported_options | type) == "object"
+                and (.pricing_rules | length) > 0
+                and (.billing_unit | length) > 0
+              else true end))
+            and ([.data[] | select(.modality == "image")] | length) == 2
+            and ([.data[] | select(.modality == "video")] | length) == 0' >/dev/null
+          acceptance_catalog_count=$(echo "$acceptance_catalog" | jq -er '.catalog | length')
+          pricing_baseline=/opt/ztapi/server/model/testdata/ztapi_public_pricing_baseline_v1.json
+          quotation=/opt/ztapi/server/model/ztapi_quotation_v1.json
+          expected_published_models=$(mktemp /tmp/ztapi-expected-published.XXXXXX)
+          expected_unpublished_models=$(mktemp /tmp/ztapi-expected-unpublished.XXXXXX)
+          user_catalog_models=$(mktemp /tmp/ztapi-user-catalog.XXXXXX)
+          openai_catalog_models=$(mktemp /tmp/ztapi-openai-catalog.XXXXXX)
+          {
+            jq -r '.[].model_name' "$pricing_baseline"
+            echo 'zt-gp-image-2'
+            echo 'zt-gemini-2.5-flash-image'
+          } | LC_ALL=C sort -u > "$expected_published_models"
+          expected_pricing_model_count=$(jq -er 'length' "$pricing_baseline")
+          expected_public_model_count=$((expected_pricing_model_count + 2))
+          test "$(wc -l < "$expected_published_models" | tr -d ' ')" = "$expected_public_model_count"
+          jq -r '[.entries[] | select(.status == "mapping_pending" and .public_name != "") | .public_name] | unique[]' \
+            "$quotation" | LC_ALL=C sort > "$expected_unpublished_models"
+          test "$(jq -r '.entries | length' "$quotation")" = 46
+          test "$(jq -r '[.entries[] | select(.modality == "image" or .modality == "video")] | length' "$quotation")" = 5
+          echo "$acceptance_catalog" | jq -r '.catalog[].model_name' | LC_ALL=C sort -u > "$user_catalog_models"
+          cmp -s "$expected_published_models" "$user_catalog_models"
+          test ! -s <(comm -12 "$expected_unpublished_models" "$user_catalog_models")
+
+          acceptance_models=$(curl --fail --silent --show-error \
+            --header "Authorization: Bearer $acceptance_api_key" \
+            "$acceptance_origin/v1/models")
+          echo "$acceptance_models" | jq -e '.success == true' >/dev/null
+          echo "$acceptance_models" | jq -r '.data[].id' | LC_ALL=C sort -u > "$openai_catalog_models"
+          cmp -s "$expected_published_models" "$openai_catalog_models"
+          test ! -s <(comm -12 "$expected_unpublished_models" "$openai_catalog_models")
+          rm -f "$expected_published_models" "$expected_unpublished_models" \
+            "$user_catalog_models" "$openai_catalog_models"
+
+          test "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            "$acceptance_origin/wallet")" = 200
+
+          chat_headers=$(mktemp /tmp/ztapi-chat-headers.XXXXXX)
+          chat_body=$(mktemp /tmp/ztapi-chat-body.XXXXXX)
+          chat_http_status=$(jq -cn '{
+              model:"zt-gpt-4.1-nano",
+              messages:[
+                {role:"system",content:"You are a concise assistant."},
+                {role:"user",content:"What is 35 plus 42?"}
+              ],
+              max_tokens:16,
+              stream:false
+            }' |
+            curl --silent --show-error --max-time 120 \
+              --dump-header "$chat_headers" \
+              --output "$chat_body" --write-out '%{http_code}' \
+              --header 'Content-Type: application/json' \
+              --header "Authorization: Bearer $acceptance_api_key" \
+              --data-binary @- \
+              "$acceptance_origin/v1/chat/completions")
+          test "$chat_http_status" = 200
+          jq -e '.choices[0].message.content | type == "string" and length > 0' "$chat_body" >/dev/null
+          chat_request_id=$(awk 'tolower($1) == "x-request-id:" {print $2}' "$chat_headers" | tr -d '\r' | tail -n 1)
+          [[ "$chat_request_id" =~ ^[A-Za-z0-9_-]{8,64}$ ]]
+          rm -f "$chat_headers" "$chat_body"
+
+          embedding_headers=$(mktemp /tmp/ztapi-embedding-headers.XXXXXX)
+          embedding_body=$(mktemp /tmp/ztapi-embedding-body.XXXXXX)
+          embedding_http_status=$(jq -cn '{model:"zt-text-embedding-3-small",input:"ZTAPI commercial acceptance"}' |
+            curl --silent --show-error --max-time 120 \
+              --dump-header "$embedding_headers" \
+              --output "$embedding_body" --write-out '%{http_code}' \
+              --header 'Content-Type: application/json' \
+              --header "Authorization: Bearer $acceptance_api_key" \
+              --data-binary @- \
+              "$acceptance_origin/v1/embeddings")
+          test "$embedding_http_status" = 200
+          jq -e '.data[0].embedding | type == "array" and length > 0' "$embedding_body" >/dev/null
+          embedding_request_id=$(awk 'tolower($1) == "x-request-id:" {print $2}' "$embedding_headers" | tr -d '\r' | tail -n 1)
+          [[ "$embedding_request_id" =~ ^[A-Za-z0-9_-]{8,64}$ ]]
+          rm -f "$embedding_headers" "$embedding_body"
+
+          image_acceptance_status="previously_accepted_unchanged"
+          image_request_id=""
+          image_billed_amount=0
+          image_user_log=""
+          image_admin_log=""
+          if [ "$ztapi_image_requires_acceptance" = true ]; then
+            image_headers=$(mktemp /tmp/ztapi-image-headers.XXXXXX)
+            image_body=$(mktemp /tmp/ztapi-image-body.XXXXXX)
+            image_http_status=$(jq -cn '{
+                model:"zt-gp-image-2",
+                prompt:"A simple blue circle centered on a white background.",
+                n:1,
+                size:"1024x1024",
+                quality:"low",
+                response_format:"b64_json"
+              }' |
+              curl --silent --show-error --max-time 180 \
+                --dump-header "$image_headers" \
+                --output "$image_body" --write-out '%{http_code}' \
+                --header 'Content-Type: application/json' \
+                --header "Authorization: Bearer $acceptance_api_key" \
+                --data-binary @- \
+                "$acceptance_origin/v1/images/generations")
+            test "$image_http_status" = 200
+            jq -e '
+              (.data | length) == 1
+              and (.data[0].b64_json | type == "string" and length > 100)
+              and .usage.input_tokens > 0
+              and .usage.input_tokens_details.text_tokens > 0
+              and .usage.input_tokens_details.image_tokens == 0
+              and .usage.output_tokens > 0
+              and .usage.output_tokens_details.image_tokens == .usage.output_tokens
+              and .usage.output_tokens_details.text_tokens == 0
+              and .usage.total_tokens == (.usage.input_tokens + .usage.output_tokens)
+              and ([.usage | .. | objects | keys[] | select(test("cache"; "i"))] | length) == 0' \
+              "$image_body" >/dev/null
+            image_request_id=$(awk 'tolower($1) == "x-request-id:" {print $2}' "$image_headers" | tr -d '\r' | tail -n 1)
+            [[ "$image_request_id" =~ ^[A-Za-z0-9_-]{8,64}$ ]]
+            rm -f "$image_headers" "$image_body"
+            image_acceptance_status="success"
+          fi
+
+          gemini_image_acceptance_status="previously_accepted_unchanged"
+          gemini_image_request_id=""
+          gemini_image_billed_amount=0
+          gemini_image_user_log=""
+          gemini_image_admin_log=""
+          if [ "$gemini_image_requires_acceptance" = true ]; then
+            gemini_image_headers=$(mktemp /tmp/ztapi-gemini-image-headers.XXXXXX)
+            gemini_image_body=$(mktemp /tmp/ztapi-gemini-image-body.XXXXXX)
+            gemini_image_http_status=$(jq -cn '{
+                model:"zt-gemini-2.5-flash-image",
+                prompt:"A simple blue circle centered on a white background.",
+                n:1,
+                size:"1024x1024",
+                quality:"standard",
+                response_format:"b64_json"
+              }' |
+              curl --silent --show-error --max-time 180 \
+                --dump-header "$gemini_image_headers" \
+                --output "$gemini_image_body" --write-out '%{http_code}' \
+                --header 'Content-Type: application/json' \
+                --header "Authorization: Bearer $acceptance_api_key" \
+                --data-binary @- \
+                "$acceptance_origin/v1/images/generations")
+            test "$gemini_image_http_status" = 200
+            jq -e '
+              (.data | length) == 1
+              and (.data[0].b64_json | type == "string" and length > 100)
+              and (.created | type == "number" and . > 0)
+              and ([.. | objects | keys[] | select(. == "candidates" or . == "usageMetadata" or . == "responseId")] | length) == 0' \
+              "$gemini_image_body" >/dev/null
+            gemini_image_request_id=$(awk 'tolower($1) == "x-request-id:" {print $2}' "$gemini_image_headers" | tr -d '\r' | tail -n 1)
+            [[ "$gemini_image_request_id" =~ ^[A-Za-z0-9_-]{8,64}$ ]]
+            rm -f "$gemini_image_headers" "$gemini_image_body"
+            gemini_image_acceptance_status="success"
+          fi
+
+          for acceptance_log_attempt in $(seq 1 20); do
+            chat_user_log=$(curl --fail --silent --show-error \
+              --header "Authorization: Bearer $acceptance_user_access_token" \
+              --header "New-API-User: $acceptance_user_id" \
+              "$acceptance_origin/api/log/self?request_id=$chat_request_id&p=1&page_size=10")
+            embedding_user_log=$(curl --fail --silent --show-error \
+              --header "Authorization: Bearer $acceptance_user_access_token" \
+              --header "New-API-User: $acceptance_user_id" \
+              "$acceptance_origin/api/log/self?request_id=$embedding_request_id&p=1&page_size=10")
+            image_log_ready=true
+            if [ "$ztapi_image_requires_acceptance" = true ]; then
+              image_user_log=$(curl --fail --silent --show-error \
+                --header "Authorization: Bearer $acceptance_user_access_token" \
+                --header "New-API-User: $acceptance_user_id" \
+                "$acceptance_origin/api/log/self?request_id=$image_request_id&p=1&page_size=10")
+              if ! echo "$image_user_log" | jq -e '
+                  .success == true
+                    and .data.total == 1
+                    and .data.items[0].model == "zt-gp-image-2"
+                    and .data.items[0].status == "success"' >/dev/null; then
+                image_log_ready=false
+              fi
+            fi
+            gemini_image_log_ready=true
+            if [ "$gemini_image_requires_acceptance" = true ]; then
+              gemini_image_user_log=$(curl --fail --silent --show-error \
+                --header "Authorization: Bearer $acceptance_user_access_token" \
+                --header "New-API-User: $acceptance_user_id" \
+                "$acceptance_origin/api/log/self?request_id=$gemini_image_request_id&p=1&page_size=10")
+              if ! echo "$gemini_image_user_log" | jq -e '
+                  .success == true
+                    and .data.total == 1
+                    and .data.items[0].model == "zt-gemini-2.5-flash-image"
+                    and .data.items[0].status == "success"
+                    and .data.items[0].prompt_tokens > 0
+                    and .data.items[0].completion_tokens > 0
+                    and .data.items[0].total_tokens == (.data.items[0].prompt_tokens + .data.items[0].completion_tokens)' >/dev/null; then
+                gemini_image_log_ready=false
+              fi
+            fi
+            if echo "$chat_user_log" | jq -e \
+                '.success == true and .data.total == 1 and .data.items[0].model == "zt-gpt-4.1-nano" and .data.items[0].status == "success"' >/dev/null &&
+              echo "$embedding_user_log" | jq -e \
+                '.success == true and .data.total == 1 and .data.items[0].model == "zt-text-embedding-3-small" and .data.items[0].status == "success"' >/dev/null &&
+              [ "$image_log_ready" = true ] &&
+              [ "$gemini_image_log_ready" = true ]; then
+              break
+            fi
+            sleep 1
+          done
+          chat_billed_amount=$(echo "$chat_user_log" | jq -er \
+            'select(.data.total == 1 and .data.items[0].status == "success") | .data.items[0].billed_amount')
+          embedding_billed_amount=$(echo "$embedding_user_log" | jq -er \
+            'select(.data.total == 1 and .data.items[0].status == "success") | .data.items[0].billed_amount')
+          if [ "$ztapi_image_requires_acceptance" = true ]; then
+            image_billed_amount=$(echo "$image_user_log" | jq -er \
+              'select(.data.total == 1 and .data.items[0].status == "success" and (.data.items[0].billed_amount | tonumber) > 0) | .data.items[0].billed_amount')
+          fi
+          if [ "$gemini_image_requires_acceptance" = true ]; then
+            gemini_image_billed_amount=$(echo "$gemini_image_user_log" | jq -er \
+              'select(.data.total == 1 and .data.items[0].status == "success" and (.data.items[0].billed_amount | tonumber) > 0) | .data.items[0].billed_amount')
+            gemini_image_settlement=$("${compose[@]}" exec -T mysql sh -c \
+              'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names --raw' <<SQL
+          SELECT JSON_OBJECT(
+            'status', settlement.status,
+            'user_id', settlement.user_id,
+            'token_id', settlement.token_id,
+            'charged_quota', settlement.charged_quota,
+            'dimension_charged_quota', COALESCE((
+              SELECT SUM(dim.charged_quota)
+              FROM JSON_TABLE(
+                settlement.charge_dimensions_json,
+                '\$[*]' COLUMNS(charged_quota BIGINT PATH '\$.charged_quota')
+              ) AS dim
+            ), 0),
+            'quota_per_unit', CAST(JSON_UNQUOTE(JSON_EXTRACT(settlement.price_snapshot_json, '\$.ztapi_quota_per_unit')) AS DECIMAL(30,10)),
+            'input_tokens', CAST(JSON_UNQUOTE(JSON_EXTRACT(settlement.usage_json, '\$.dimensions.input_tokens')) AS UNSIGNED),
+            'output_tokens', CAST(JSON_UNQUOTE(JSON_EXTRACT(settlement.usage_json, '\$.dimensions.output_tokens')) AS UNSIGNED),
+            'selected_rule_id', JSON_UNQUOTE(JSON_EXTRACT(settlement.usage_json, '\$.selected_rule_id')),
+            'input_rule_id', JSON_UNQUOTE(JSON_EXTRACT(settlement.usage_json, '\$.price_rule_ids.input_tokens')),
+            'output_rule_id', JSON_UNQUOTE(JSON_EXTRACT(settlement.usage_json, '\$.price_rule_ids.output_tokens')),
+            'upstream_request_id', JSON_UNQUOTE(JSON_EXTRACT(settlement.usage_json, '\$.upstream_request_id')),
+            'expected_charged_quota', CAST(ROUND((
+              CAST(JSON_UNQUOTE(JSON_EXTRACT(settlement.usage_json, '\$.dimensions.input_tokens')) AS DECIMAL(30,10)) * 0.3075000000 +
+              CAST(JSON_UNQUOTE(JSON_EXTRACT(settlement.usage_json, '\$.dimensions.output_tokens')) AS DECIMAL(30,10)) * 2.5625000000
+            ) * CAST(JSON_UNQUOTE(JSON_EXTRACT(settlement.price_snapshot_json, '\$.ztapi_quota_per_unit')) AS DECIMAL(30,10)) / 1000000, 0) AS SIGNED)
+          )
+          FROM ztapi_request_settlements AS settlement
+          WHERE settlement.request_id = '$gemini_image_request_id'
+            AND settlement.public_model = 'zt-gemini-2.5-flash-image'
+          LIMIT 1;
+          SQL
+            )
+            echo "$gemini_image_settlement" | jq -e \
+              --argjson user_id "$acceptance_user_id" \
+              --argjson token_id "$acceptance_token_id" '
+                .status == "settled"
+                and .user_id == $user_id
+                and .token_id == $token_id
+                and .charged_quota > 0
+                and .charged_quota == .dimension_charged_quota
+                and .charged_quota == .expected_charged_quota
+                and .quota_per_unit > 0
+                and .input_tokens > 0
+                and .input_tokens <= 200000
+                and .output_tokens > 0
+                and .selected_rule_id == "lte_200k"
+                and .input_rule_id == "lte_200k"
+                and .output_rule_id == "lte_200k"
+                and (.upstream_request_id | type == "string" and length > 0)' >/dev/null
+            gemini_image_expected_billed_amount=$(echo "$gemini_image_settlement" | jq -er '.charged_quota / .quota_per_unit')
+            jq -en \
+              --argjson logged "$gemini_image_billed_amount" \
+              --argjson expected "$gemini_image_expected_billed_amount" \
+              '($logged - $expected | if . < 0 then -. else . end) < 0.00000001' >/dev/null
+          fi
+
+          for acceptance_admin_log_attempt in $(seq 1 20); do
+            chat_admin_log=$(curl --fail --silent --show-error \
+              --resolve admin.ztapi.vip:443:127.0.0.1 \
+              --header "Authorization: Bearer $admin_access_token" \
+              --header "New-API-User: $admin_user_id" \
+              "https://admin.ztapi.vip/api/admin/request-logs?request_id=$chat_request_id&user_id=$acceptance_user_id&p=1&page_size=10")
+            embedding_admin_log=$(curl --fail --silent --show-error \
+              --resolve admin.ztapi.vip:443:127.0.0.1 \
+              --header "Authorization: Bearer $admin_access_token" \
+              --header "New-API-User: $admin_user_id" \
+              "https://admin.ztapi.vip/api/admin/request-logs?request_id=$embedding_request_id&user_id=$acceptance_user_id&p=1&page_size=10")
+            image_admin_log_ready=true
+            if [ "$ztapi_image_requires_acceptance" = true ]; then
+              image_admin_log=$(curl --fail --silent --show-error \
+                --resolve admin.ztapi.vip:443:127.0.0.1 \
+                --header "Authorization: Bearer $admin_access_token" \
+                --header "New-API-User: $admin_user_id" \
+                "https://admin.ztapi.vip/api/admin/request-logs?request_id=$image_request_id&user_id=$acceptance_user_id&p=1&page_size=10")
+              if ! echo "$image_admin_log" | jq -e --argjson user_id "$acceptance_user_id" \
+                  '.success == true and .data.total == 1 and .data.items[0].user_id == $user_id' >/dev/null; then
+                image_admin_log_ready=false
+              fi
+            fi
+            gemini_image_admin_log_ready=true
+            if [ "$gemini_image_requires_acceptance" = true ]; then
+              gemini_image_admin_log=$(curl --fail --silent --show-error \
+                --resolve admin.ztapi.vip:443:127.0.0.1 \
+                --header "Authorization: Bearer $admin_access_token" \
+                --header "New-API-User: $admin_user_id" \
+                "https://admin.ztapi.vip/api/admin/request-logs?request_id=$gemini_image_request_id&user_id=$acceptance_user_id&p=1&page_size=10")
+              if ! echo "$gemini_image_admin_log" | jq -e --argjson user_id "$acceptance_user_id" \
+                  '.success == true and .data.total == 1 and .data.items[0].user_id == $user_id' >/dev/null; then
+                gemini_image_admin_log_ready=false
+              fi
+            fi
+            if echo "$chat_admin_log" | jq -e --argjson user_id "$acceptance_user_id" \
+                '.success == true and .data.total == 1 and .data.items[0].user_id == $user_id' >/dev/null &&
+              echo "$embedding_admin_log" | jq -e --argjson user_id "$acceptance_user_id" \
+                '.success == true and .data.total == 1 and .data.items[0].user_id == $user_id' >/dev/null &&
+              [ "$image_admin_log_ready" = true ] &&
+              [ "$gemini_image_admin_log_ready" = true ]; then
+              break
+            fi
+            sleep 1
+          done
+          echo "$chat_admin_log" | jq -e --argjson user_id "$acceptance_user_id" \
+            '.data.total == 1 and .data.items[0].user_id == $user_id' >/dev/null
+          echo "$embedding_admin_log" | jq -e --argjson user_id "$acceptance_user_id" \
+            '.data.total == 1 and .data.items[0].user_id == $user_id' >/dev/null
+          if [ "$ztapi_image_requires_acceptance" = true ]; then
+            echo "$image_admin_log" | jq -e --argjson user_id "$acceptance_user_id" \
+              '.data.total == 1 and .data.items[0].user_id == $user_id' >/dev/null
+          fi
+          if [ "$gemini_image_requires_acceptance" = true ]; then
+            echo "$gemini_image_admin_log" | jq -e --argjson user_id "$acceptance_user_id" \
+              '.data.total == 1 and .data.items[0].user_id == $user_id' >/dev/null
+          fi
+
+          acceptance_ledger_before_cleanup=$(curl --fail --silent --show-error \
+            --resolve admin.ztapi.vip:443:127.0.0.1 \
+            --header "Authorization: Bearer $admin_access_token" \
+            --header "New-API-User: $admin_user_id" \
+            "https://admin.ztapi.vip/api/admin/users/$acceptance_user_id/balance-ledger?p=1&page_size=100")
+          echo "$acceptance_ledger_before_cleanup" | jq -e \
+            --argjson user_id "$acceptance_user_id" \
+            --argjson seed_id "$acceptance_seed_ledger_id" \
+            --argjson seed_quota "$acceptance_seed_quota" \
+            '.success == true
+              and any(.data.items[]; .id == $seed_id and .user_id == $user_id and .delta == $seed_quota)
+              and all(.data.items[]; .user_id == $user_id)' >/dev/null
+
+          cleanup_synthetic_acceptance_with_retry
+          test "$acceptance_cleanup_done" = true
+          acceptance_final_ledger=$(curl --fail --silent --show-error \
+            --resolve admin.ztapi.vip:443:127.0.0.1 \
+            --header "Authorization: Bearer $admin_access_token" \
+            --header "New-API-User: $admin_user_id" \
+            "https://admin.ztapi.vip/api/admin/users/$acceptance_user_id/balance-ledger?p=1&page_size=100")
+          echo "$acceptance_final_ledger" | jq -e \
+            --argjson user_id "$acceptance_user_id" \
+            --argjson cleanup_id "$acceptance_cleanup_ledger_id" \
+            '.success == true
+              and any(.data.items[]; .id == $cleanup_id and .user_id == $user_id and .balance_after == 0)
+              and all(.data.items[]; .user_id == $user_id)' >/dev/null
+
+          registration_status=$(curl --fail --silent --show-error \
+            --resolve ztapi.vip:443:127.0.0.1 \
+            https://ztapi.vip/api/status)
+          echo "$registration_status" | jq -e \
+            '.data.register_enabled == true and .data.password_register_enabled == true' >/dev/null
+          write_receipt registration_gate "register_enabled=true password_register_enabled=true"
+          require_receipt registration_gate
+
+          ordinary_receipt_tmp="$receipt_dir/ordinary-user-production-code.json.tmp"
+          jq -n \
+            --arg release_commit "$ZTAPI_RELEASE_VERSION" \
+            --argjson user_id "$acceptance_user_id" \
+            --argjson token_id "$acceptance_token_id" \
+            --argjson catalog_count "$acceptance_catalog_count" \
+            --arg chat_model "zt-gpt-4.1-nano" \
+            --arg chat_request_id "$chat_request_id" \
+            --argjson chat_billed_amount "$chat_billed_amount" \
+            --arg embedding_model "zt-text-embedding-3-small" \
+            --arg embedding_request_id "$embedding_request_id" \
+            --argjson embedding_billed_amount "$embedding_billed_amount" \
+            --arg image_model "zt-gp-image-2" \
+            --arg image_status "$image_acceptance_status" \
+            --arg image_request_id "$image_request_id" \
+            --argjson image_billed_amount "$image_billed_amount" \
+            --arg gemini_image_model "zt-gemini-2.5-flash-image" \
+            --arg gemini_image_status "$gemini_image_acceptance_status" \
+            --arg gemini_image_request_id "$gemini_image_request_id" \
+            --argjson gemini_image_billed_amount "$gemini_image_billed_amount" \
+            --argjson seed_ledger_id "$acceptance_seed_ledger_id" \
+            --argjson cleanup_ledger_id "$acceptance_cleanup_ledger_id" \
+            --arg usdt_trade_no "$acceptance_usdt_trade_no" \
+            '{
+              release_commit:$release_commit,
+              synthetic_user_id:$user_id,
+              synthetic_token_id:$token_id,
+              production_main_domain_registration:"passed",
+              login:"passed",
+              api_key_creation:"passed",
+              wallet_navigation:"passed",
+              unpaid_usdt_order:{trade_no:$usdt_trade_no,created:"pending",cancelled_by_user:true,final:"expired",balance_credited:false},
+              quotation_allowlist_count:46,
+              public_catalog_count:$catalog_count,
+              published_media_count:2,
+              text:{model:$chat_model,request_id:$chat_request_id,status:"success",billed_amount:$chat_billed_amount},
+              embedding:{model:$embedding_model,request_id:$embedding_request_id,status:"success",billed_amount:$embedding_billed_amount},
+              image:{model:$image_model,request_id:$image_request_id,status:$image_status,billed_amount:$image_billed_amount},
+              gemini_image:{model:$gemini_image_model,request_id:$gemini_image_request_id,status:$gemini_image_status,billed_amount:$gemini_image_billed_amount},
+              seed_ledger_id:$seed_ledger_id,
+              cleanup_ledger_id:$cleanup_ledger_id,
+              acceptance_final_quota:0,
+              acceptance_final_status:2,
+              api_key_deleted:true,
+              registration_enabled:true
+            }' > "$ordinary_receipt_tmp"
+          chmod 0600 "$ordinary_receipt_tmp"
+          mv "$ordinary_receipt_tmp" "$receipt_dir/ordinary-user-production-code.json"
+          write_receipt ordinary_user "user_id=$acceptance_user_id token_id=$acceptance_token_id catalog=$acceptance_catalog_count cleanup_ledger_id=$acceptance_cleanup_ledger_id"
+          require_receipt ordinary_user
+          echo 'Ordinary-user production receipt:'
+          cat "$receipt_dir/ordinary-user-production-code.json"
+          control_script="$receipt_dir/release-control.sh"
+          install -m 0700 /opt/ztapi/deploy/scripts/ztapi-release-control.sh "$control_script"
+          rollback_state="$receipt_dir/rollback-state.env"
+          {
+            printf 'ZTAPI_RELEASE_VERSION=%q\n' "$ZTAPI_RELEASE_VERSION"
+            printf 'ZTAPI_RELEASE_EXECUTION_ID=%q\n' "$ZTAPI_RELEASE_EXECUTION_ID"
+            printf 'had_previous_release=%q\n' "$had_previous_release"
+            printf 'release_backup=%q\n' "$release_backup"
+            printf 'env_backup=%q\n' "$env_backup"
+            printf 'rollback_server_image=%q\n' "$rollback_server_image"
+            printf 'rollback_nginx_image=%q\n' "$rollback_nginx_image"
+            printf 'previous_register_enabled=%q\n' "$previous_register_enabled"
+            printf 'previous_password_register_enabled=%q\n' "$previous_password_register_enabled"
+            printf 'host_nginx_was_active=%q\n' "$host_nginx_was_active"
+            printf 'unrelated_before=%q\n' "$unrelated_before"
+            printf 'gemini_rollout_state_captured=%q\n' "$gemini_rollout_state_captured"
+            printf 'gemini_was_published=%q\n' "$gemini_was_published"
+            printf 'gemini_channel_preexisting=%q\n' "$gemini_channel_preexisting"
+            printf 'gemini_channel_previous_status=%q\n' "$gemini_channel_previous_status"
+            printf 'gemini_channel_id=%q\n' "$gemini_channel_id"
+            printf 'gemini_channel_backup=%q\n' "$gemini_channel_backup"
+          } > "$rollback_state"
+          chmod 0600 "$rollback_state"
+          watchdog_unit="ztapi-release-watchdog-${ZTAPI_RELEASE_VERSION:0:12}-$ZTAPI_RELEASE_EXECUTION_ID"
+          command -v systemd-run >/dev/null
+          systemctl stop "$watchdog_unit.timer" >/dev/null 2>&1 || true
+          systemctl reset-failed "$watchdog_unit.timer" "$watchdog_unit.service" >/dev/null 2>&1 || true
+          write_receipt external_acceptance_pending "public_endpoint_verification=pending watchdog=$watchdog_unit.timer"
+          "${compose[@]}" ps
+          systemd-run --quiet \
+            --unit="$watchdog_unit" \
+            --on-active=10m \
+            --timer-property=AccuracySec=1s \
+            --property=Type=oneshot \
+            "$control_script" rollback "$ZTAPI_RELEASE_VERSION" "$ZTAPI_RELEASE_EXECUTION_ID"
+          systemctl is-active --quiet "$watchdog_unit.timer"
+          }
+          deploy_ztapi </dev/null
+          REMOTE
+          echo "rollback_ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Verify public endpoints
+        id: verify_public_endpoints
+        run: |
+          public_curl() {
+            curl --silent --show-error \
+              --connect-timeout 10 \
+              --max-time 30 \
+              --retry 3 \
+              --retry-delay 2 \
+              --retry-connrefused \
+              --retry-all-errors \
+              "$@"
+          }
+          for domain in ztapi.vip www.ztapi.vip admin.ztapi.vip; do
+            test "$(dig +short A "$domain" | sort -u)" = "123.254.104.157"
+            test -z "$(dig +short AAAA "$domain")"
+          done
+          public_status=$(public_curl --fail \
+            --resolve ztapi.vip:443:123.254.104.157 \
+            https://ztapi.vip/api/status)
+          grep -q '"success":true' <<< "$public_status"
+          echo "$public_status" | jq -e \
+            '.data.register_enabled == true and .data.password_register_enabled == true' >/dev/null
+          public_source=$(public_curl --fail \
+            --resolve ztapi.vip:443:123.254.104.157 \
+            https://ztapi.vip/.well-known/source)
+          echo "$public_source" | jq -e \
+            --arg release_commit "$ZTAPI_RELEASE_VERSION" \
+            --arg source_commit "$ZTAPI_SOURCE_COMMIT" '
+              .success == true
+              and .data.production_commit == $release_commit
+              and .data.source_tag == ("production-" + $release_commit)
+              and .data.source_repository == "https://github.com/ffff582/ztapi-source"
+              and .data.source_commit == $source_commit
+              and .data.source_url == ("https://github.com/ffff582/ztapi-source/tree/" + $source_commit)' >/dev/null
+          public_landing=$(public_curl --fail \
+            --resolve ztapi.vip:443:123.254.104.157 \
+            https://ztapi.vip/)
+          grep -q 'ZTAPI' <<< "$public_landing"
+          admin_landing=$(public_curl --fail \
+            --resolve admin.ztapi.vip:443:123.254.104.157 \
+            https://admin.ztapi.vip/)
+          grep -Fq 'ZTAPI 管理后台' <<< "$admin_landing"
+          public_headers=$(public_curl --fail --head \
+            --resolve ztapi.vip:443:123.254.104.157 \
+            https://ztapi.vip/)
+          grep -Fqi "X-ZTAPI-Source: https://github.com/ffff582/ztapi-source/tree/$ZTAPI_SOURCE_COMMIT" <<< "$public_headers"
+          grep -Fqi 'Link: <https://ztapi.vip/.well-known/source>; rel="source"' <<< "$public_headers"
+          admin_headers=$(public_curl --fail --head \
+            --resolve admin.ztapi.vip:443:123.254.104.157 \
+            https://admin.ztapi.vip/)
+          grep -qi 'X-Robots-Tag: noindex' <<< "$admin_headers"
+          test "$(public_curl --retry 0 --output /dev/null --write-out '%{http_code}' \
+            --resolve ztapi.vip:443:123.254.104.157 \
+            https://ztapi.vip/v1/models)" = "401"
+          test "$(public_curl --retry 0 --output /dev/null --write-out '%{http_code}' \
+            --request POST \
+            --resolve ztapi.vip:443:123.254.104.157 \
+            https://ztapi.vip/api/auth/login)" = "401"
+          if public_curl --retry 0 \
+              --connect-timeout 3 \
+              --max-time 5 \
+              --output /dev/null \
+              http://123.254.104.157:18081; then
+            echo '::error::loopback acceptance port 18081 is externally reachable'
+            exit 1
+          fi
+
+      - name: Finalize verified deployment
+        id: finalize_deployment
+        run: |
+          set -euo pipefail
+          ssh \
+            -o UserKnownHostsFile="$HOME/.ssh/ztapi_known_hosts" \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=60 \
+            ztapi-deploy@123.254.104.157 \
+            "sudo -n /opt/ztapi/release-receipts/$ZTAPI_RELEASE_VERSION/$ZTAPI_RELEASE_EXECUTION_ID/release-control.sh finalize $ZTAPI_RELEASE_VERSION $ZTAPI_RELEASE_EXECUTION_ID"
+
+      - name: Roll back failed external acceptance
+        if: always() && steps.deploy_ztapi.outputs.rollback_ready == 'true' && steps.finalize_deployment.outcome != 'success'
+        run: |
+          set -euo pipefail
+          ssh \
+            -o UserKnownHostsFile="$HOME/.ssh/ztapi_known_hosts" \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=60 \
+            ztapi-deploy@123.254.104.157 \
+            "sudo -n /opt/ztapi/release-receipts/$ZTAPI_RELEASE_VERSION/$ZTAPI_RELEASE_EXECUTION_ID/release-control.sh rollback $ZTAPI_RELEASE_VERSION $ZTAPI_RELEASE_EXECUTION_ID"
