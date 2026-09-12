@@ -415,7 +415,61 @@ test('deployment verifies, publishes, and bills GPT Image 2 through an ordinary 
   assert.match(source, /\/v1\/images\/generations/);
   assert.match(source, /image_request_id/);
   assert.match(source, /image_billed_amount/);
-  assert.match(source, /image:\{model:\$image_model,request_id:\$image_request_id,status:"success",billed_amount:\$image_billed_amount\}/);
+  assert.match(source, /image_acceptance_status="success"/);
+  assert.match(source, /image:\{model:\$image_model,request_id:\$image_request_id,status:\$image_status,billed_amount:\$image_billed_amount\}/);
+});
+
+test('unchanged GPT Image 2 code and pricing skip paid deployment acceptance', () => {
+  const source = read(workflowPath);
+  const fingerprint = read('deploy/scripts/ztapi-image-acceptance-fingerprint.sh');
+  const rollout = source.slice(
+    source.indexOf('# Publish GPT Image 2'),
+    source.indexOf('# Publish Gemini 2.5 Flash Image'),
+  );
+  const ordinaryAcceptance = source.slice(
+    source.indexOf('image_acceptance_status='),
+    source.indexOf('gemini_image_acceptance_status='),
+  );
+
+  assert.match(fingerprint, /server\/relay\/channel\/openai\/relay_image\.go/);
+  assert.match(fingerprint, /server\/service\/ztapi_media_billing\.go/);
+  assert.match(fingerprint, /server\/model\/ztapi_quotation_v1\.json/);
+  assert.match(fingerprint, /\.github\/workflows\/ztapi-deploy\.yml/);
+  assert.match(
+    source,
+    /current_image_acceptance_fingerprint=\$\(bash[\s\S]*?ztapi-image-acceptance-fingerprint\.sh[\s\S]*?previous_image_acceptance_fingerprint=""[\s\S]*?if \[ "\$had_previous_release" = true \]; then[\s\S]*?previous_image_acceptance_fingerprint=\$\(bash[\s\S]*?ztapi-image-acceptance-fingerprint\.sh[\s\S]*?ztapi_image_code_changed=false/,
+    'deployment must compare the previous and candidate image acceptance surfaces before replacing the release',
+  );
+  assert.match(
+    source,
+    /if \[ "\$previous_image_acceptance_fingerprint" != "\$current_image_acceptance_fingerprint" \]; then[\s\S]*ztapi_image_code_changed=true/,
+    'a changed image acceptance surface must force a fresh paid acceptance',
+  );
+  assert.match(
+    rollout,
+    /ztapi_image_requires_acceptance="\$ztapi_image_code_changed"[\s\S]*if ! echo "\$ztapi_image_model"[\s\S]*ztapi_image_requires_acceptance=true/,
+    'identity drift must force a fresh paid acceptance',
+  );
+  assert.match(
+    rollout,
+    /if \[ "\$current_image_price_sha" != "\$image_media_price_sha" \]; then[\s\S]*ztapi_image_requires_acceptance=true/,
+    'price-contract drift must force a fresh paid acceptance',
+  );
+  assert.match(
+    rollout,
+    /if \[ "\$ztapi_image_requires_acceptance" = true \]; then[\s\S]*image_verification_result=[\s\S]*models\/ztapi\/\$ztapi_image_model_id\/verify[\s\S]*fi/,
+    'the paid admin verifier must be conditional',
+  );
+  assert.match(
+    ordinaryAcceptance,
+    /image_acceptance_status="previously_accepted_unchanged"[\s\S]*if \[ "\$ztapi_image_requires_acceptance" = true \]; then[\s\S]*model:"zt-gp-image-2"[\s\S]*image_acceptance_status="success"[\s\S]*fi/,
+    'the paid ordinary-user generation must use the same change gate',
+  );
+  assert.match(
+    source,
+    /image:\{model:\$image_model,request_id:\$image_request_id,status:\$image_status,billed_amount:\$image_billed_amount\}/,
+    'the receipt must distinguish a fresh image call from an unchanged prior acceptance',
+  );
 });
 
 test('deployment verifies, publishes, and bills Gemini 2.5 image through the native bridge', () => {

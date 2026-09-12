@@ -777,8 +777,22 @@ jobs:
           nginx_image_id=$(docker image inspect --format '{{.Id}}' "ztapi-nginx:$ZTAPI_RELEASE_VERSION")
           [[ "$server_image_id" =~ ^sha256:[0-9a-f]{64}$ ]]
           [[ "$nginx_image_id" =~ ^sha256:[0-9a-f]{64}$ ]]
+          current_image_acceptance_fingerprint=$(bash \
+            /tmp/ztapi-release/deploy/scripts/ztapi-image-acceptance-fingerprint.sh \
+            /tmp/ztapi-release)
+          previous_image_acceptance_fingerprint=""
+          ztapi_image_code_changed=true
+          if [ "$had_previous_release" = true ]; then
+            previous_image_acceptance_fingerprint=$(bash \
+              /tmp/ztapi-release/deploy/scripts/ztapi-image-acceptance-fingerprint.sh \
+              /opt/ztapi)
+            ztapi_image_code_changed=false
+            if [ "$previous_image_acceptance_fingerprint" != "$current_image_acceptance_fingerprint" ]; then
+              ztapi_image_code_changed=true
+            fi
+          fi
           rm -f "$build_env"
-          write_receipt build "server_image_id=$server_image_id nginx_image_id=$nginx_image_id"
+          write_receipt build "server_image_id=$server_image_id nginx_image_id=$nginx_image_id gpt_image_acceptance_required=$ztapi_image_code_changed previous_gpt_image_fingerprint=${previous_image_acceptance_fingerprint:-none} current_gpt_image_fingerprint=$current_image_acceptance_fingerprint"
 
           require_receipt build
           release_mutated=true
@@ -1215,8 +1229,9 @@ jobs:
             "https://admin.ztapi.vip/api/admin/overview?from=$admin_from&to=$admin_to" |
             jq -e '.success == true' >/dev/null
 
-          # Publish GPT Image 2 only after a fresh enterprise-route discovery,
-          # exact quotation import, and a real generated-image verification.
+          # Publish GPT Image 2 only after enterprise-route discovery and exact
+          # quotation import. A real generated-image verification is repeated
+          # only when the image acceptance surface or stored model state changes.
           # Higher route priority wins in New API, so the lowest-priority
           # enabled route is the enterprise fallback while the pool is primary.
           ztapi_image_channel_id=$("${compose[@]}" exec -T mysql sh -c \
@@ -1251,10 +1266,15 @@ jobs:
           ztapi_image_model=$(echo "$image_model_list" | jq -cer \
             '.data.items | map(select(.source_model == "gpt-image-2")) | select(length == 1) | .[0]')
           ztapi_image_model_id=$(echo "$ztapi_image_model" | jq -er '.id')
+          ztapi_image_requires_acceptance="$ztapi_image_code_changed"
+          if ! echo "$ztapi_image_model" | jq -e '.published == true' >/dev/null; then
+            ztapi_image_requires_acceptance=true
+          fi
           if ! echo "$ztapi_image_model" | jq -e '
               .public_name == "zt-gp-image-2"
               and .protocol == "openai_compatible"
               and .provider_family == "openai"' >/dev/null; then
+            ztapi_image_requires_acceptance=true
             image_identity_payload=$(echo "$ztapi_image_model" | jq -c \
               --arg checksum "$(jq -er '.sha256' /opt/ztapi/server/model/ztapi_quotation_v1.json)" '
                 {
@@ -1302,6 +1322,7 @@ jobs:
           SQL
           )
           if [ "$current_image_price_sha" != "$image_media_price_sha" ]; then
+            ztapi_image_requires_acceptance=true
             ztapi_image_model=$(curl --fail --silent --show-error \
               --resolve admin.ztapi.vip:443:127.0.0.1 \
               --header "Authorization: Bearer $admin_access_token" \
@@ -1345,22 +1366,24 @@ jobs:
               '.success == true and .data.preview.price_policy == "enterprise_40_margin"' >/dev/null
           fi
 
-          image_verification_result=$(jq -cn --argjson channel_id "$ztapi_image_channel_id" \
-            '{channel_id:$channel_id}' | curl --fail --silent --show-error \
-              --resolve admin.ztapi.vip:443:127.0.0.1 \
-              --header 'Content-Type: application/json' \
-              --header "Authorization: Bearer $admin_access_token" \
-              --header "New-API-User: $admin_user_id" \
-              --data-binary @- \
-              "https://admin.ztapi.vip/api/models/ztapi/$ztapi_image_model_id/verify")
-          echo "$image_verification_result" | jq -e '
-            .success == true
-            and .data.verification.modality == "image"
-            and .data.verification.non_streaming_passed == true
-            and .data.verification.streaming_required == false
-            and .data.verification.usage_reconciled == true
-            and .data.verification.media_result_valid == true
-            and (.data.verification.image_protocol_contract | length) > 0' >/dev/null
+          if [ "$ztapi_image_requires_acceptance" = true ]; then
+            image_verification_result=$(jq -cn --argjson channel_id "$ztapi_image_channel_id" \
+              '{channel_id:$channel_id}' | curl --fail --silent --show-error \
+                --resolve admin.ztapi.vip:443:127.0.0.1 \
+                --header 'Content-Type: application/json' \
+                --header "Authorization: Bearer $admin_access_token" \
+                --header "New-API-User: $admin_user_id" \
+                --data-binary @- \
+                "https://admin.ztapi.vip/api/models/ztapi/$ztapi_image_model_id/verify")
+            echo "$image_verification_result" | jq -e '
+              .success == true
+              and .data.verification.modality == "image"
+              and .data.verification.non_streaming_passed == true
+              and .data.verification.streaming_required == false
+              and .data.verification.usage_reconciled == true
+              and .data.verification.media_result_valid == true
+              and (.data.verification.image_protocol_contract | length) > 0' >/dev/null
+          fi
 
           ztapi_image_model=$(curl --fail --silent --show-error \
             --resolve admin.ztapi.vip:443:127.0.0.1 \
@@ -1909,39 +1932,47 @@ jobs:
           [[ "$embedding_request_id" =~ ^[A-Za-z0-9_-]{8,64}$ ]]
           rm -f "$embedding_headers" "$embedding_body"
 
-          image_headers=$(mktemp /tmp/ztapi-image-headers.XXXXXX)
-          image_body=$(mktemp /tmp/ztapi-image-body.XXXXXX)
-          image_http_status=$(jq -cn '{
-              model:"zt-gp-image-2",
-              prompt:"A simple blue circle centered on a white background.",
-              n:1,
-              size:"1024x1024",
-              quality:"low",
-              response_format:"b64_json"
-            }' |
-            curl --silent --show-error --max-time 180 \
-              --dump-header "$image_headers" \
-              --output "$image_body" --write-out '%{http_code}' \
-              --header 'Content-Type: application/json' \
-              --header "Authorization: Bearer $acceptance_api_key" \
-              --data-binary @- \
-              "$acceptance_origin/v1/images/generations")
-          test "$image_http_status" = 200
-          jq -e '
-            (.data | length) == 1
-            and (.data[0].b64_json | type == "string" and length > 100)
-            and .usage.input_tokens > 0
-            and .usage.input_tokens_details.text_tokens > 0
-            and .usage.input_tokens_details.image_tokens == 0
-            and .usage.output_tokens > 0
-            and .usage.output_tokens_details.image_tokens == .usage.output_tokens
-            and .usage.output_tokens_details.text_tokens == 0
-            and .usage.total_tokens == (.usage.input_tokens + .usage.output_tokens)
-            and ([.usage | .. | objects | keys[] | select(test("cache"; "i"))] | length) == 0' \
-            "$image_body" >/dev/null
-          image_request_id=$(awk 'tolower($1) == "x-request-id:" {print $2}' "$image_headers" | tr -d '\r' | tail -n 1)
-          [[ "$image_request_id" =~ ^[A-Za-z0-9_-]{8,64}$ ]]
-          rm -f "$image_headers" "$image_body"
+          image_acceptance_status="previously_accepted_unchanged"
+          image_request_id=""
+          image_billed_amount=0
+          image_user_log=""
+          image_admin_log=""
+          if [ "$ztapi_image_requires_acceptance" = true ]; then
+            image_headers=$(mktemp /tmp/ztapi-image-headers.XXXXXX)
+            image_body=$(mktemp /tmp/ztapi-image-body.XXXXXX)
+            image_http_status=$(jq -cn '{
+                model:"zt-gp-image-2",
+                prompt:"A simple blue circle centered on a white background.",
+                n:1,
+                size:"1024x1024",
+                quality:"low",
+                response_format:"b64_json"
+              }' |
+              curl --silent --show-error --max-time 180 \
+                --dump-header "$image_headers" \
+                --output "$image_body" --write-out '%{http_code}' \
+                --header 'Content-Type: application/json' \
+                --header "Authorization: Bearer $acceptance_api_key" \
+                --data-binary @- \
+                "$acceptance_origin/v1/images/generations")
+            test "$image_http_status" = 200
+            jq -e '
+              (.data | length) == 1
+              and (.data[0].b64_json | type == "string" and length > 100)
+              and .usage.input_tokens > 0
+              and .usage.input_tokens_details.text_tokens > 0
+              and .usage.input_tokens_details.image_tokens == 0
+              and .usage.output_tokens > 0
+              and .usage.output_tokens_details.image_tokens == .usage.output_tokens
+              and .usage.output_tokens_details.text_tokens == 0
+              and .usage.total_tokens == (.usage.input_tokens + .usage.output_tokens)
+              and ([.usage | .. | objects | keys[] | select(test("cache"; "i"))] | length) == 0' \
+              "$image_body" >/dev/null
+            image_request_id=$(awk 'tolower($1) == "x-request-id:" {print $2}' "$image_headers" | tr -d '\r' | tail -n 1)
+            [[ "$image_request_id" =~ ^[A-Za-z0-9_-]{8,64}$ ]]
+            rm -f "$image_headers" "$image_body"
+            image_acceptance_status="success"
+          fi
 
           gemini_image_acceptance_status="previously_accepted_unchanged"
           gemini_image_request_id=""
@@ -1988,10 +2019,20 @@ jobs:
               --header "Authorization: Bearer $acceptance_user_access_token" \
               --header "New-API-User: $acceptance_user_id" \
               "$acceptance_origin/api/log/self?request_id=$embedding_request_id&p=1&page_size=10")
-            image_user_log=$(curl --fail --silent --show-error \
-              --header "Authorization: Bearer $acceptance_user_access_token" \
-              --header "New-API-User: $acceptance_user_id" \
-              "$acceptance_origin/api/log/self?request_id=$image_request_id&p=1&page_size=10")
+            image_log_ready=true
+            if [ "$ztapi_image_requires_acceptance" = true ]; then
+              image_user_log=$(curl --fail --silent --show-error \
+                --header "Authorization: Bearer $acceptance_user_access_token" \
+                --header "New-API-User: $acceptance_user_id" \
+                "$acceptance_origin/api/log/self?request_id=$image_request_id&p=1&page_size=10")
+              if ! echo "$image_user_log" | jq -e '
+                  .success == true
+                    and .data.total == 1
+                    and .data.items[0].model == "zt-gp-image-2"
+                    and .data.items[0].status == "success"' >/dev/null; then
+                image_log_ready=false
+              fi
+            fi
             gemini_image_log_ready=true
             if [ "$gemini_image_requires_acceptance" = true ]; then
               gemini_image_user_log=$(curl --fail --silent --show-error \
@@ -2013,8 +2054,7 @@ jobs:
                 '.success == true and .data.total == 1 and .data.items[0].model == "zt-gpt-4.1-nano" and .data.items[0].status == "success"' >/dev/null &&
               echo "$embedding_user_log" | jq -e \
                 '.success == true and .data.total == 1 and .data.items[0].model == "zt-text-embedding-3-small" and .data.items[0].status == "success"' >/dev/null &&
-              echo "$image_user_log" | jq -e \
-                '.success == true and .data.total == 1 and .data.items[0].model == "zt-gp-image-2" and .data.items[0].status == "success"' >/dev/null &&
+              [ "$image_log_ready" = true ] &&
               [ "$gemini_image_log_ready" = true ]; then
               break
             fi
@@ -2024,8 +2064,10 @@ jobs:
             'select(.data.total == 1 and .data.items[0].status == "success") | .data.items[0].billed_amount')
           embedding_billed_amount=$(echo "$embedding_user_log" | jq -er \
             'select(.data.total == 1 and .data.items[0].status == "success") | .data.items[0].billed_amount')
-          image_billed_amount=$(echo "$image_user_log" | jq -er \
-            'select(.data.total == 1 and .data.items[0].status == "success" and (.data.items[0].billed_amount | tonumber) > 0) | .data.items[0].billed_amount')
+          if [ "$ztapi_image_requires_acceptance" = true ]; then
+            image_billed_amount=$(echo "$image_user_log" | jq -er \
+              'select(.data.total == 1 and .data.items[0].status == "success" and (.data.items[0].billed_amount | tonumber) > 0) | .data.items[0].billed_amount')
+          fi
           if [ "$gemini_image_requires_acceptance" = true ]; then
             gemini_image_billed_amount=$(echo "$gemini_image_user_log" | jq -er \
               'select(.data.total == 1 and .data.items[0].status == "success" and (.data.items[0].billed_amount | tonumber) > 0) | .data.items[0].billed_amount')
@@ -2096,11 +2138,18 @@ jobs:
               --header "Authorization: Bearer $admin_access_token" \
               --header "New-API-User: $admin_user_id" \
               "https://admin.ztapi.vip/api/admin/request-logs?request_id=$embedding_request_id&user_id=$acceptance_user_id&p=1&page_size=10")
-            image_admin_log=$(curl --fail --silent --show-error \
-              --resolve admin.ztapi.vip:443:127.0.0.1 \
-              --header "Authorization: Bearer $admin_access_token" \
-              --header "New-API-User: $admin_user_id" \
-              "https://admin.ztapi.vip/api/admin/request-logs?request_id=$image_request_id&user_id=$acceptance_user_id&p=1&page_size=10")
+            image_admin_log_ready=true
+            if [ "$ztapi_image_requires_acceptance" = true ]; then
+              image_admin_log=$(curl --fail --silent --show-error \
+                --resolve admin.ztapi.vip:443:127.0.0.1 \
+                --header "Authorization: Bearer $admin_access_token" \
+                --header "New-API-User: $admin_user_id" \
+                "https://admin.ztapi.vip/api/admin/request-logs?request_id=$image_request_id&user_id=$acceptance_user_id&p=1&page_size=10")
+              if ! echo "$image_admin_log" | jq -e --argjson user_id "$acceptance_user_id" \
+                  '.success == true and .data.total == 1 and .data.items[0].user_id == $user_id' >/dev/null; then
+                image_admin_log_ready=false
+              fi
+            fi
             gemini_image_admin_log_ready=true
             if [ "$gemini_image_requires_acceptance" = true ]; then
               gemini_image_admin_log=$(curl --fail --silent --show-error \
@@ -2117,8 +2166,7 @@ jobs:
                 '.success == true and .data.total == 1 and .data.items[0].user_id == $user_id' >/dev/null &&
               echo "$embedding_admin_log" | jq -e --argjson user_id "$acceptance_user_id" \
                 '.success == true and .data.total == 1 and .data.items[0].user_id == $user_id' >/dev/null &&
-              echo "$image_admin_log" | jq -e --argjson user_id "$acceptance_user_id" \
-                '.success == true and .data.total == 1 and .data.items[0].user_id == $user_id' >/dev/null &&
+              [ "$image_admin_log_ready" = true ] &&
               [ "$gemini_image_admin_log_ready" = true ]; then
               break
             fi
@@ -2128,8 +2176,10 @@ jobs:
             '.data.total == 1 and .data.items[0].user_id == $user_id' >/dev/null
           echo "$embedding_admin_log" | jq -e --argjson user_id "$acceptance_user_id" \
             '.data.total == 1 and .data.items[0].user_id == $user_id' >/dev/null
-          echo "$image_admin_log" | jq -e --argjson user_id "$acceptance_user_id" \
-            '.data.total == 1 and .data.items[0].user_id == $user_id' >/dev/null
+          if [ "$ztapi_image_requires_acceptance" = true ]; then
+            echo "$image_admin_log" | jq -e --argjson user_id "$acceptance_user_id" \
+              '.data.total == 1 and .data.items[0].user_id == $user_id' >/dev/null
+          fi
           if [ "$gemini_image_requires_acceptance" = true ]; then
             echo "$gemini_image_admin_log" | jq -e --argjson user_id "$acceptance_user_id" \
               '.data.total == 1 and .data.items[0].user_id == $user_id' >/dev/null
@@ -2183,6 +2233,7 @@ jobs:
             --arg embedding_request_id "$embedding_request_id" \
             --argjson embedding_billed_amount "$embedding_billed_amount" \
             --arg image_model "zt-gp-image-2" \
+            --arg image_status "$image_acceptance_status" \
             --arg image_request_id "$image_request_id" \
             --argjson image_billed_amount "$image_billed_amount" \
             --arg gemini_image_model "zt-gemini-2.5-flash-image" \
@@ -2206,7 +2257,7 @@ jobs:
               published_media_count:2,
               text:{model:$chat_model,request_id:$chat_request_id,status:"success",billed_amount:$chat_billed_amount},
               embedding:{model:$embedding_model,request_id:$embedding_request_id,status:"success",billed_amount:$embedding_billed_amount},
-              image:{model:$image_model,request_id:$image_request_id,status:"success",billed_amount:$image_billed_amount},
+              image:{model:$image_model,request_id:$image_request_id,status:$image_status,billed_amount:$image_billed_amount},
               gemini_image:{model:$gemini_image_model,request_id:$gemini_image_request_id,status:$gemini_image_status,billed_amount:$gemini_image_billed_amount},
               seed_ledger_id:$seed_ledger_id,
               cleanup_ledger_id:$cleanup_ledger_id,
