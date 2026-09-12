@@ -125,6 +125,15 @@ func TestZTAPIPublicPricingPreservesMediaCapabilityAndConditionalSaleContract(t 
 	require.Empty(t, pricing[0].InputPricePerMillion)
 	require.Zero(t, pricing[0].ModelRatio)
 	require.Zero(t, pricing[0].CompletionRatio)
+
+	encoded, err := json.Marshal(pricing[0])
+	require.NoError(t, err)
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(encoded, &payload))
+	require.Equal(t, "", payload["input_price_per_million"])
+	require.Equal(t, "", payload["output_price_per_million"])
+	require.Equal(t, []any{}, payload["billing_dimensions"])
+	require.Equal(t, map[string]any{}, payload["sale_usd"])
 }
 
 func TestZTAPIPublicPricingHidesUnreportedGPTImageCacheBuckets(t *testing.T) {

@@ -1079,7 +1079,7 @@ func projectZTAPIPublicPricing(publications []ZTAPIRuntimePublication) []Pricing
 		item.VendorName = public.ProviderName
 		item.InputPricePerMillion = public.InputPricePerMillion
 		item.OutputPricePerMillion = public.OutputPricePerMillion
-		item.BillingDimensions = append([]string(nil), public.BillingDimensions...)
+		item.BillingDimensions = append([]string{}, public.BillingDimensions...)
 		item.SaleUSD = copyZTAPIStringMap(public.SaleUSD)
 		item.BillingRule = public.BillingRule
 		item.SupportedEndpointTypes = append([]constant.EndpointType(nil), public.SupportedEndpointTypes...)

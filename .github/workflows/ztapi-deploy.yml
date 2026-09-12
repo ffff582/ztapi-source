@@ -1869,6 +1869,27 @@ jobs:
             and ([.catalog[] | select(.modality == "image" and (.model_name == "zt-gp-image-2" or .model_name == "zt-gemini-2.5-flash-image"))] | length) == 2
             and ([.catalog[] | select(.modality == "video")] | length) == 0
             and ([.. | objects | keys[] | select(. == "source_model" or . == "channel_id")] | length) == 0' >/dev/null
+          acceptance_pricing=$(curl --fail --silent --show-error \
+            "$acceptance_origin/api/pricing")
+          echo "$acceptance_pricing" | jq -e '
+            .success == true
+            and (all(.data[];
+              if (.modality == "image" or .modality == "video") then
+                has("input_price_per_million")
+                and has("output_price_per_million")
+                and has("billing_dimensions")
+                and has("sale_usd")
+                and .input_price_per_million == ""
+                and .output_price_per_million == ""
+                and (.billing_dimensions | length) == 0
+                and (.sale_usd | length) == 0
+                and .billing_rule == "multi_dimension"
+                and (.supported_options | type) == "object"
+                and (.pricing_rules | length) > 0
+                and (.billing_unit | length) > 0
+              else true end))
+            and ([.data[] | select(.modality == "image")] | length) == 2
+            and ([.data[] | select(.modality == "video")] | length) == 0' >/dev/null
           acceptance_catalog_count=$(echo "$acceptance_catalog" | jq -er '.catalog | length')
           pricing_baseline=/opt/ztapi/server/model/testdata/ztapi_public_pricing_baseline_v1.json
           quotation=/opt/ztapi/server/model/ztapi_quotation_v1.json

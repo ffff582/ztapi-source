@@ -39,10 +39,10 @@ type Pricing struct {
 	PricingVersion         string                       `json:"pricing_version,omitempty"`
 	ProviderFamily         string                       `json:"provider_family,omitempty"`
 	VendorName             string                       `json:"vendor_name,omitempty"`
-	InputPricePerMillion   string                       `json:"input_price_per_million,omitempty"`
-	OutputPricePerMillion  string                       `json:"output_price_per_million,omitempty"`
-	BillingDimensions      []string                     `json:"billing_dimensions,omitempty"`
-	SaleUSD                map[string]string            `json:"sale_usd,omitempty"`
+	InputPricePerMillion   string                       `json:"input_price_per_million"`
+	OutputPricePerMillion  string                       `json:"output_price_per_million"`
+	BillingDimensions      []string                     `json:"billing_dimensions"`
+	SaleUSD                map[string]string            `json:"sale_usd"`
 	BillingRule            string                       `json:"billing_rule,omitempty"`
 	SupportedOptions       *ZTAPIPublicSupportedOptions `json:"supported_options,omitempty"`
 	PricingRules           []ZTAPIPublicPricingRule     `json:"pricing_rules,omitempty"`

@@ -678,6 +678,20 @@ test('deployment validates media and token catalog shapes separately', () => {
   assert.match(catalogCheck, /\(\.pricing_rules \| length\) > 0/);
   assert.match(catalogCheck, /\(\.billing_unit \| length\) > 0/);
   assert.match(catalogCheck, /else[\s\S]*\(\.input_price_per_million \| tonumber\) >= 0/);
+
+  const pricingCheck = source.slice(
+    source.indexOf('acceptance_pricing=$(curl'),
+    source.indexOf('acceptance_catalog_count=', source.indexOf('acceptance_pricing=$(curl')),
+  );
+  assert.match(pricingCheck, /acceptance_origin\/api\/pricing/);
+  assert.match(pricingCheck, /has\("input_price_per_million"\)/);
+  assert.match(pricingCheck, /has\("output_price_per_million"\)/);
+  assert.match(pricingCheck, /has\("billing_dimensions"\)/);
+  assert.match(pricingCheck, /has\("sale_usd"\)/);
+  assert.match(pricingCheck, /\.input_price_per_million == ""/);
+  assert.match(pricingCheck, /\.output_price_per_million == ""/);
+  assert.match(pricingCheck, /\(\.billing_dimensions \| length\) == 0/);
+  assert.match(pricingCheck, /\(\.sale_usd \| length\) == 0/);
 });
 
 test('anonymous history evidence records parents, tag target, and private SHA absence', () => {
