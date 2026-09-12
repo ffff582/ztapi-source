@@ -38,11 +38,11 @@ func gpImage2ContractForTest(t *testing.T) string {
 	cases := []struct {
 		id, cost, sale, cell string
 	}{
-		{"text_input", "3.90", "6.50", "G42"},
-		{"text_cached_input", "0.975", "1.625", "H42"},
-		{"image_input", "6.24", "10.40", "G43"},
-		{"image_cached_input", "1.56", "2.60", "H43"},
-		{"image_output", "23.40", "39.00", "J43"},
+		{"text_input", "1.65", "4.00", "G56"},
+		{"text_cached_input", "0.4125", "1.00", "H56"},
+		{"image_input", "2.64", "6.40", "G57"},
+		{"image_cached_input", "0.66", "1.60", "H57"},
+		{"image_output", "9.90", "24.00", "J57"},
 	}
 	rules := make([]ZTAPIMediaPriceRule, 0, len(cases))
 	for _, tc := range cases {
@@ -61,11 +61,11 @@ func geminiImageContractForTest(t *testing.T) string {
 	return mediaContractJSON(t, ZTAPIModalityImage, []ZTAPIMediaPriceRule{
 		mediaRule("lte_200k", map[string]string{"prompt_tokens_tier": "lte_200k"},
 			map[string]string{"input_tokens": "0.246", "output_tokens": "2.05"},
-			map[string]string{"input_tokens": "0.41", "output_tokens": "3.4166666667"},
+			map[string]string{"input_tokens": "0.3075", "output_tokens": "2.5625"},
 			map[string]string{"input_tokens": "F67", "output_tokens": "J67"}),
 		mediaRule("gt_200k", map[string]string{"prompt_tokens_tier": "gt_200k"},
 			map[string]string{"input_tokens": "0.246", "output_tokens": "24.60"},
-			map[string]string{"input_tokens": "0.41", "output_tokens": "41.00"},
+			map[string]string{"input_tokens": "0.3075", "output_tokens": "30.75"},
 			map[string]string{"input_tokens": "F68", "output_tokens": "J68"}),
 	})
 }
@@ -76,14 +76,14 @@ func seedanceContractForTest(t *testing.T) string {
 		resolution, containsVideo, cost, sale, cell string
 	}
 	cases := []priceCase{
-		{"480p", "false", "6.2515277778", "10.4192129630", "F2"},
-		{"480p", "true", "3.8052777778", "6.3421296297", "G2"},
-		{"720p", "false", "6.2515277778", "10.4192129630", "F2"},
-		{"720p", "true", "3.8052777778", "6.3421296297", "G2"},
-		{"1080p", "false", "6.9310416667", "11.5517361112", "F3"},
-		{"1080p", "true", "4.2129861111", "7.0216435185", "G3"},
-		{"4k", "false", "3.5334722222", "5.8891203703", "F4"},
-		{"4k", "true", "2.1744444444", "3.6240740740", "G4"},
+		{"480p", "false", "6.2515277778", "7.8144097223", "F2"},
+		{"480p", "true", "3.8052777778", "4.7565972223", "G2"},
+		{"720p", "false", "6.2515277778", "7.8144097223", "F2"},
+		{"720p", "true", "3.8052777778", "4.7565972223", "G2"},
+		{"1080p", "false", "6.9310416667", "8.6638020834", "F3"},
+		{"1080p", "true", "4.2129861111", "5.2662326389", "G3"},
+		{"4k", "false", "3.5334722222", "4.4168402778", "F4"},
+		{"4k", "true", "2.1744444444", "2.7180555555", "G4"},
 	}
 	rules := make([]ZTAPIMediaPriceRule, 0, len(cases))
 	for _, tc := range cases {
@@ -117,25 +117,25 @@ func TestZTAPIMediaPriceContractSelectsExactQuotedCases(t *testing.T) {
 		wantID              string
 		wantCost, wantSale  map[string]string
 	}{
-		{"gp text", gpImage2ContractForTest(t), ZTAPIModalityImage, map[string]string{"token_bucket": "text_input"}, "text_input", map[string]string{"text_input": "3.90"}, map[string]string{"text_input": "6.50"}},
-		{"gp cached text", gpImage2ContractForTest(t), ZTAPIModalityImage, map[string]string{"token_bucket": "text_cached_input"}, "text_cached_input", map[string]string{"text_cached_input": "0.975"}, map[string]string{"text_cached_input": "1.625"}},
-		{"gp image", gpImage2ContractForTest(t), ZTAPIModalityImage, map[string]string{"token_bucket": "image_input"}, "image_input", map[string]string{"image_input": "6.24"}, map[string]string{"image_input": "10.40"}},
-		{"gp cached image", gpImage2ContractForTest(t), ZTAPIModalityImage, map[string]string{"token_bucket": "image_cached_input"}, "image_cached_input", map[string]string{"image_cached_input": "1.56"}, map[string]string{"image_cached_input": "2.60"}},
-		{"gp output", gpImage2ContractForTest(t), ZTAPIModalityImage, map[string]string{"token_bucket": "image_output"}, "image_output", map[string]string{"image_output": "23.40"}, map[string]string{"image_output": "39.00"}},
-		{"gemini short", geminiImageContractForTest(t), ZTAPIModalityImage, map[string]string{"prompt_tokens_tier": "lte_200k"}, "lte_200k", map[string]string{"input_tokens": "0.246", "output_tokens": "2.05"}, map[string]string{"input_tokens": "0.41", "output_tokens": "3.4166666667"}},
-		{"gemini long", geminiImageContractForTest(t), ZTAPIModalityImage, map[string]string{"prompt_tokens_tier": "gt_200k"}, "gt_200k", map[string]string{"input_tokens": "0.246", "output_tokens": "24.60"}, map[string]string{"input_tokens": "0.41", "output_tokens": "41.00"}},
-		{"seedance 480p no video", seedanceContractForTest(t), ZTAPIModalityVideo, map[string]string{"resolution": "480p", "contains_video_input": "false"}, "480p_video_false", map[string]string{"input_tokens": "6.2515277778"}, map[string]string{"input_tokens": "10.4192129630"}},
-		{"seedance 480p video", seedanceContractForTest(t), ZTAPIModalityVideo, map[string]string{"resolution": "480p", "contains_video_input": "true"}, "480p_video_true", map[string]string{"input_tokens": "3.8052777778"}, map[string]string{"input_tokens": "6.3421296297"}},
-		{"seedance 720p no video", seedanceContractForTest(t), ZTAPIModalityVideo, map[string]string{"resolution": "720p", "contains_video_input": "false"}, "720p_video_false", map[string]string{"input_tokens": "6.2515277778"}, map[string]string{"input_tokens": "10.4192129630"}},
-		{"seedance 720p video", seedanceContractForTest(t), ZTAPIModalityVideo, map[string]string{"resolution": "720p", "contains_video_input": "true"}, "720p_video_true", map[string]string{"input_tokens": "3.8052777778"}, map[string]string{"input_tokens": "6.3421296297"}},
-		{"seedance 1080p no video", seedanceContractForTest(t), ZTAPIModalityVideo, map[string]string{"resolution": "1080p", "contains_video_input": "false"}, "1080p_video_false", map[string]string{"input_tokens": "6.9310416667"}, map[string]string{"input_tokens": "11.5517361112"}},
-		{"seedance 1080p video", seedanceContractForTest(t), ZTAPIModalityVideo, map[string]string{"resolution": "1080p", "contains_video_input": "true"}, "1080p_video_true", map[string]string{"input_tokens": "4.2129861111"}, map[string]string{"input_tokens": "7.0216435185"}},
-		{"seedance quoted cheap 4k no video", seedanceContractForTest(t), ZTAPIModalityVideo, map[string]string{"resolution": "4k", "contains_video_input": "false"}, "4k_video_false", map[string]string{"input_tokens": "3.5334722222"}, map[string]string{"input_tokens": "5.8891203703"}},
-		{"seedance quoted cheap 4k video", seedanceContractForTest(t), ZTAPIModalityVideo, map[string]string{"resolution": "4k", "contains_video_input": "true"}, "4k_video_true", map[string]string{"input_tokens": "2.1744444444"}, map[string]string{"input_tokens": "3.6240740740"}},
-		{"fast no video", seedanceVariantContractForTest(t, "5.0284027778", "8.3806712963", "F5", "2.9898611111", "4.9831018518", "G5"), ZTAPIModalityVideo, map[string]string{"contains_video_input": "false"}, "without_video_input", map[string]string{"input_tokens": "5.0284027778"}, map[string]string{"input_tokens": "8.3806712963"}},
-		{"fast video", seedanceVariantContractForTest(t, "5.0284027778", "8.3806712963", "F5", "2.9898611111", "4.9831018518", "G5"), ZTAPIModalityVideo, map[string]string{"contains_video_input": "true"}, "with_video_input", map[string]string{"input_tokens": "2.9898611111"}, map[string]string{"input_tokens": "4.9831018518"}},
-		{"mini no video", seedanceVariantContractForTest(t, "3.1257638889", "5.2096064815", "F6", "1.9026388889", "3.1710648148", "G6"), ZTAPIModalityVideo, map[string]string{"contains_video_input": "false"}, "without_video_input", map[string]string{"input_tokens": "3.1257638889"}, map[string]string{"input_tokens": "5.2096064815"}},
-		{"mini video", seedanceVariantContractForTest(t, "3.1257638889", "5.2096064815", "F6", "1.9026388889", "3.1710648148", "G6"), ZTAPIModalityVideo, map[string]string{"contains_video_input": "true"}, "with_video_input", map[string]string{"input_tokens": "1.9026388889"}, map[string]string{"input_tokens": "3.1710648148"}},
+		{"gp text", gpImage2ContractForTest(t), ZTAPIModalityImage, map[string]string{"token_bucket": "text_input"}, "text_input", map[string]string{"text_input": "1.65"}, map[string]string{"text_input": "4.00"}},
+		{"gp cached text", gpImage2ContractForTest(t), ZTAPIModalityImage, map[string]string{"token_bucket": "text_cached_input"}, "text_cached_input", map[string]string{"text_cached_input": "0.4125"}, map[string]string{"text_cached_input": "1.00"}},
+		{"gp image", gpImage2ContractForTest(t), ZTAPIModalityImage, map[string]string{"token_bucket": "image_input"}, "image_input", map[string]string{"image_input": "2.64"}, map[string]string{"image_input": "6.40"}},
+		{"gp cached image", gpImage2ContractForTest(t), ZTAPIModalityImage, map[string]string{"token_bucket": "image_cached_input"}, "image_cached_input", map[string]string{"image_cached_input": "0.66"}, map[string]string{"image_cached_input": "1.60"}},
+		{"gp output", gpImage2ContractForTest(t), ZTAPIModalityImage, map[string]string{"token_bucket": "image_output"}, "image_output", map[string]string{"image_output": "9.90"}, map[string]string{"image_output": "24.00"}},
+		{"gemini short", geminiImageContractForTest(t), ZTAPIModalityImage, map[string]string{"prompt_tokens_tier": "lte_200k"}, "lte_200k", map[string]string{"input_tokens": "0.246", "output_tokens": "2.05"}, map[string]string{"input_tokens": "0.3075", "output_tokens": "2.5625"}},
+		{"gemini long", geminiImageContractForTest(t), ZTAPIModalityImage, map[string]string{"prompt_tokens_tier": "gt_200k"}, "gt_200k", map[string]string{"input_tokens": "0.246", "output_tokens": "24.60"}, map[string]string{"input_tokens": "0.3075", "output_tokens": "30.75"}},
+		{"seedance 480p no video", seedanceContractForTest(t), ZTAPIModalityVideo, map[string]string{"resolution": "480p", "contains_video_input": "false"}, "480p_video_false", map[string]string{"input_tokens": "6.2515277778"}, map[string]string{"input_tokens": "7.8144097223"}},
+		{"seedance 480p video", seedanceContractForTest(t), ZTAPIModalityVideo, map[string]string{"resolution": "480p", "contains_video_input": "true"}, "480p_video_true", map[string]string{"input_tokens": "3.8052777778"}, map[string]string{"input_tokens": "4.7565972223"}},
+		{"seedance 720p no video", seedanceContractForTest(t), ZTAPIModalityVideo, map[string]string{"resolution": "720p", "contains_video_input": "false"}, "720p_video_false", map[string]string{"input_tokens": "6.2515277778"}, map[string]string{"input_tokens": "7.8144097223"}},
+		{"seedance 720p video", seedanceContractForTest(t), ZTAPIModalityVideo, map[string]string{"resolution": "720p", "contains_video_input": "true"}, "720p_video_true", map[string]string{"input_tokens": "3.8052777778"}, map[string]string{"input_tokens": "4.7565972223"}},
+		{"seedance 1080p no video", seedanceContractForTest(t), ZTAPIModalityVideo, map[string]string{"resolution": "1080p", "contains_video_input": "false"}, "1080p_video_false", map[string]string{"input_tokens": "6.9310416667"}, map[string]string{"input_tokens": "8.6638020834"}},
+		{"seedance 1080p video", seedanceContractForTest(t), ZTAPIModalityVideo, map[string]string{"resolution": "1080p", "contains_video_input": "true"}, "1080p_video_true", map[string]string{"input_tokens": "4.2129861111"}, map[string]string{"input_tokens": "5.2662326389"}},
+		{"seedance quoted cheap 4k no video", seedanceContractForTest(t), ZTAPIModalityVideo, map[string]string{"resolution": "4k", "contains_video_input": "false"}, "4k_video_false", map[string]string{"input_tokens": "3.5334722222"}, map[string]string{"input_tokens": "4.4168402778"}},
+		{"seedance quoted cheap 4k video", seedanceContractForTest(t), ZTAPIModalityVideo, map[string]string{"resolution": "4k", "contains_video_input": "true"}, "4k_video_true", map[string]string{"input_tokens": "2.1744444444"}, map[string]string{"input_tokens": "2.7180555555"}},
+		{"fast no video", seedanceVariantContractForTest(t, "5.0284027778", "6.2855034723", "F5", "2.9898611111", "3.7373263889", "G5"), ZTAPIModalityVideo, map[string]string{"contains_video_input": "false"}, "without_video_input", map[string]string{"input_tokens": "5.0284027778"}, map[string]string{"input_tokens": "6.2855034723"}},
+		{"fast video", seedanceVariantContractForTest(t, "5.0284027778", "6.2855034723", "F5", "2.9898611111", "3.7373263889", "G5"), ZTAPIModalityVideo, map[string]string{"contains_video_input": "true"}, "with_video_input", map[string]string{"input_tokens": "2.9898611111"}, map[string]string{"input_tokens": "3.7373263889"}},
+		{"mini no video", seedanceVariantContractForTest(t, "3.1257638889", "3.9072048611", "F6", "1.9026388889", "2.3782986111", "G6"), ZTAPIModalityVideo, map[string]string{"contains_video_input": "false"}, "without_video_input", map[string]string{"input_tokens": "3.1257638889"}, map[string]string{"input_tokens": "3.9072048611"}},
+		{"mini video", seedanceVariantContractForTest(t, "3.1257638889", "3.9072048611", "F6", "1.9026388889", "2.3782986111", "G6"), ZTAPIModalityVideo, map[string]string{"contains_video_input": "true"}, "with_video_input", map[string]string{"input_tokens": "1.9026388889"}, map[string]string{"input_tokens": "2.3782986111"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -223,10 +223,10 @@ func TestZTAPIMediaPriceContractRejectsUnknownAndIncompleteMatrices(t *testing.T
 			c.Rules[0].ID = "480p_video_yes"
 			c.Rules[0].Conditions["contains_video_input"] = "yes"
 		}},
-		{"variant missing branch", seedanceVariantContractForTest(t, "5.0284027778", "8.3806712963", "F5", "2.9898611111", "4.9831018518", "G5"), func(c *ZTAPIMediaPriceContract) {
+		{"variant missing branch", seedanceVariantContractForTest(t, "5.0284027778", "6.2855034723", "F5", "2.9898611111", "3.7373263889", "G5"), func(c *ZTAPIMediaPriceContract) {
 			c.Rules = c.Rules[:1]
 		}},
-		{"variant extra branch", seedanceVariantContractForTest(t, "3.1257638889", "5.2096064815", "F6", "1.9026388889", "3.1710648148", "G6"), func(c *ZTAPIMediaPriceContract) {
+		{"variant extra branch", seedanceVariantContractForTest(t, "3.1257638889", "3.9072048611", "F6", "1.9026388889", "2.3782986111", "G6"), func(c *ZTAPIMediaPriceContract) {
 			c.Rules = append(c.Rules, mediaRule("unknown_video_input", map[string]string{"contains_video_input": "unknown"},
 				map[string]string{"input_tokens": "0.6"}, map[string]string{"input_tokens": "1"},
 				map[string]string{"input_tokens": "Z99"}))
@@ -263,20 +263,20 @@ func TestZTAPIMediaPriceContractRejectsDuplicateJSONMembersAtEveryDepth(t *testi
 			new: `"conditions":{"token_bucket":"text_input"},"conditions":{"token_bucket":"text_input"}`,
 		},
 		"rule cost object": {
-			old: `"cost_usd":{"text_input":"3.90"}`,
-			new: `"cost_usd":{"text_input":"3.90"},"cost_usd":{"text_input":"3.90"}`,
+			old: `"cost_usd":{"text_input":"1.65"}`,
+			new: `"cost_usd":{"text_input":"1.65"},"cost_usd":{"text_input":"1.65"}`,
 		},
 		"nested condition key": {
 			old: `"conditions":{"token_bucket":"text_input"}`,
 			new: `"conditions":{"token_bucket":"text_input","token_bucket":"text_input"}`,
 		},
 		"nested dimension key": {
-			old: `"cost_usd":{"text_input":"3.90"}`,
-			new: `"cost_usd":{"text_input":"3.90","text_input":"3.90"}`,
+			old: `"cost_usd":{"text_input":"1.65"}`,
+			new: `"cost_usd":{"text_input":"1.65","text_input":"1.65"}`,
 		},
 		"escaped-equivalent nested object field": {
-			old: `"cost_usd":{"text_input":"3.90"}`,
-			new: `"cost_usd":{"text_input":"3.90"},"cost_\u0075sd":{"text_input":"3.90"}`,
+			old: `"cost_usd":{"text_input":"1.65"}`,
+			new: `"cost_usd":{"text_input":"1.65"},"cost_\u0075sd":{"text_input":"1.65"}`,
 		},
 	}
 	for name, tc := range tests {
@@ -291,25 +291,31 @@ func TestZTAPIMediaPriceContractRejectsDuplicateJSONMembersAtEveryDepth(t *testi
 func TestZTAPIMediaPriceContractUsesFrozenDecimalCalculations(t *testing.T) {
 	tests := []struct {
 		name, raw, discount, currency, cost, sale string
+		policy                                    ZTAPIPricePolicy
 	}{
-		{"gp text", "5", "0.78", "USD", "3.90", "6.50"},
-		{"gemini long output", "30", "0.82", "USD", "24.60", "41.00"},
-		{"seedance 480p no video", "46", "0.95", "CNY", "6.2515277778", "10.4192129630"},
-		{"seedance 1080p video", "31", "0.95", "CNY", "4.2129861111", "7.0216435185"},
-		{"seedance quoted cheap 4k no video", "26", "0.95", "CNY", "3.5334722222", "5.8891203703"},
-		{"fast video", "22", "0.95", "CNY", "2.9898611111", "4.9831018518"},
-		{"mini no video", "23", "0.95", "CNY", "3.1257638889", "5.2096064815"},
+		{"gp text", "5", "0.33", "USD", "1.65", "4.00", ZTAPIPricePolicyPoolOfficial80},
+		{"gemini long output", "30", "0.82", "USD", "24.60", "30.75", ZTAPIPricePolicyEnterprise20Margin},
+		{"seedance 480p no video", "46", "0.95", "CNY", "6.2515277778", "7.8144097223", ZTAPIPricePolicyEnterprise20Margin},
+		{"seedance 1080p video", "31", "0.95", "CNY", "4.2129861111", "5.2662326389", ZTAPIPricePolicyEnterprise20Margin},
+		{"seedance quoted cheap 4k no video", "26", "0.95", "CNY", "3.5334722222", "4.4168402778", ZTAPIPricePolicyEnterprise20Margin},
+		{"fast video", "22", "0.95", "CNY", "2.9898611111", "3.7373263889", ZTAPIPricePolicyEnterprise20Margin},
+		{"mini no video", "23", "0.95", "CNY", "3.1257638889", "3.9072048611", ZTAPIPricePolicyEnterprise20Margin},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			cost := decimal.RequireFromString(tc.raw).Mul(decimal.RequireFromString(tc.discount))
+			var err error
 			if tc.currency == "CNY" {
-				var err error
 				cost, err = ConvertZTAPICNYCostToUSD(cost, decimal.RequireFromString("7.2"))
 				require.NoError(t, err)
 			}
 			require.Truef(t, cost.Equal(decimal.RequireFromString(tc.cost)), "cost: got %s want %s", cost, tc.cost)
-			sale, err := CalculateZTAPISalePriceForPolicy(cost, ZTAPIPricePolicyEnterprise40Margin)
+			var sale decimal.Decimal
+			if tc.policy == ZTAPIPricePolicyPoolOfficial80 {
+				sale, err = CalculateZTAPIPoolSalePrice(decimal.RequireFromString(tc.raw))
+			} else {
+				sale, err = CalculateZTAPISalePriceForPolicy(cost, tc.policy)
+			}
 			require.NoError(t, err)
 			require.Truef(t, sale.Equal(decimal.RequireFromString(tc.sale)), "sale: got %s want %s", sale, tc.sale)
 		})
@@ -343,12 +349,13 @@ func TestZTAPIMediaPriceContractQuotationEvidenceDoesNotPublish(t *testing.T) {
 	want := map[string]struct {
 		modality, cell, currency, discount, rate, buffer string
 		contract                                         string
+		policy                                           string
 	}{
-		"gp-image-2":        {ZTAPIModalityImage, "C42", "USD", "78", "", "", gpImage2ContractForTest(t)},
-		"gm25-fl-IMAGE":     {ZTAPIModalityImage, "C67", "USD", "82", "", "", geminiImageContractForTest(t)},
-		"seedance-2.0":      {ZTAPIModalityVideo, "C2", "CNY", "95", "7.2", "1.03", seedanceContractForTest(t)},
-		"Seedance 2.0 Fast": {ZTAPIModalityVideo, "C5", "CNY", "95", "7.2", "1.03", seedanceVariantContractForTest(t, "5.0284027778", "8.3806712963", "F5", "2.9898611111", "4.9831018518", "G5")},
-		"Seedance 2.0 Mini": {ZTAPIModalityVideo, "C6", "CNY", "95", "7.2", "1.03", seedanceVariantContractForTest(t, "3.1257638889", "5.2096064815", "F6", "1.9026388889", "3.1710648148", "G6")},
+		"gp-image-2":        {ZTAPIModalityImage, "C56", "USD", "33", "", "", gpImage2ContractForTest(t), string(ZTAPIPricePolicyPoolOfficial80)},
+		"gm25-fl-IMAGE":     {ZTAPIModalityImage, "C67", "USD", "82", "", "", geminiImageContractForTest(t), string(ZTAPIPricePolicyEnterprise20Margin)},
+		"seedance-2.0":      {ZTAPIModalityVideo, "C2", "CNY", "95", "7.2", "1.03", seedanceContractForTest(t), string(ZTAPIPricePolicyEnterprise20Margin)},
+		"Seedance 2.0 Fast": {ZTAPIModalityVideo, "C5", "CNY", "95", "7.2", "1.03", seedanceVariantContractForTest(t, "5.0284027778", "6.2855034723", "F5", "2.9898611111", "3.7373263889", "G5"), string(ZTAPIPricePolicyEnterprise20Margin)},
+		"Seedance 2.0 Mini": {ZTAPIModalityVideo, "C6", "CNY", "95", "7.2", "1.03", seedanceVariantContractForTest(t, "3.1257638889", "3.9072048611", "F6", "1.9026388889", "2.3782986111", "G6"), string(ZTAPIPricePolicyEnterprise20Margin)},
 	}
 	entries, err := ZTAPIQuotationEntries()
 	require.NoError(t, err)
@@ -393,7 +400,7 @@ func TestZTAPIMediaPriceContractQuotationEvidenceDoesNotPublish(t *testing.T) {
 		require.Equal(t, expected.discount, row.DiscountPercent)
 		require.Equal(t, expected.rate, row.CNYPerUSD)
 		require.Equal(t, expected.buffer, row.FXBuffer)
-		require.Equal(t, string(ZTAPIPricePolicyEnterprise40Margin), row.PricePolicy)
+		require.Equal(t, expected.policy, row.PricePolicy)
 		require.Equal(t, mustCanonicalZTAPIMediaPriceContract(t, expected.contract), row.MediaPriceContractJSON)
 		require.Equal(t, mustCanonicalZTAPIMediaPriceContract(t, row.MediaPriceContractJSON), row.MediaPriceContractJSON)
 	}
@@ -464,6 +471,7 @@ func TestZTAPIMediaPriceContractImportCanonicalizesAndSnapshotCopies(t *testing.
 	source := validZTAPIPriceSourceForTest()
 	source.ModelConfigID = config.ID
 	source.SourceModel = config.SourceModel
+	source.PricePolicy = string(ZTAPIPricePolicyEnterprise20Margin)
 	source.MediaPriceContractJSON = string(uncanonical)
 
 	_, persisted, _, err := ImportZTAPIModelPriceSource(ZTAPIModelPriceSourceImport{

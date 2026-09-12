@@ -94,6 +94,7 @@ type ztapiMediaPriceIdentity struct {
 	cell         string
 	resource     string
 	discount     string
+	pricePolicy  string
 	currency     string
 	cnyPerUSD    string
 	fxBuffer     string
@@ -109,42 +110,47 @@ var ztapiPoolPricePolicyIdentities = map[string]ztapiPoolPricePolicyIdentity{
 		entryLabel: "cl\u2011op5", sheet: "\u56fd\u5916\u6a21\u578b", cell: "C9",
 		rowLabel: "cl\u2011op5", resource: "\u53f7\u6c60\u8d44\u6e90", discount: "44",
 	},
+	"claude-opus-4-8":           {entryLabel: "cl-op48", sheet: "\u56fd\u5916\u6a21\u578b", cell: "C10", rowLabel: "cl\u2011op48", resource: "\u53f7\u6c60\u8d44\u6e90", discount: "44"},
+	"claude-opus-4-7":           {entryLabel: "cl-op47", sheet: "\u56fd\u5916\u6a21\u578b", cell: "C11", rowLabel: "cl\u2011op47", resource: "\u53f7\u6c60\u8d44\u6e90", discount: "44"},
+	"claude-opus-4-6":           {entryLabel: "cl-op46", sheet: "\u56fd\u5916\u6a21\u578b", cell: "C12", rowLabel: "cl\u2011op46", resource: "\u53f7\u6c60\u8d44\u6e90", discount: "44"},
+	"claude-sonnet-5":           {entryLabel: "cl-sn5", sheet: "\u56fd\u5916\u6a21\u578b", cell: "C13", rowLabel: "cl\u2011sn5", resource: "\u53f7\u6c60\u8d44\u6e90", discount: "44"},
+	"claude-sonnet-4-6":         {entryLabel: "cl-sn46", sheet: "\u56fd\u5916\u6a21\u578b", cell: "C14", rowLabel: "cl\u2011sn46", resource: "\u53f7\u6c60\u8d44\u6e90", discount: "44"},
+	"claude-haiku-4-5-20251001": {entryLabel: "cl-hk45", sheet: "\u56fd\u5916\u6a21\u578b", cell: "C15", rowLabel: "cl\u2011hk45", resource: "\u53f7\u6c60\u8d44\u6e90", discount: "44"},
+	"gpt-5.6-sol":               {entryLabel: "gp56-sl", sheet: "\u56fd\u5916\u6a21\u578b", cell: "C44", rowLabel: "gp56\u2011sl", resource: "\u53f7\u6c60\u8d44\u6e90", discount: "33"},
+	"gpt-5.6-terra":             {entryLabel: "gp56-tr", sheet: "\u56fd\u5916\u6a21\u578b", cell: "C46", rowLabel: "gp56\u2011tr", resource: "\u53f7\u6c60\u8d44\u6e90", discount: "33"},
+	"gpt-5.6-luna":              {entryLabel: "gp56-ln", sheet: "\u56fd\u5916\u6a21\u578b", cell: "C48", rowLabel: "gp56-ln", resource: "\u53f7\u6c60\u8d44\u6e90", discount: "33"},
+	"gpt-5.5":                   {entryLabel: "gp55", sheet: "\u56fd\u5916\u6a21\u578b", cell: "C50", rowLabel: "gp55", resource: "\u53f7\u6c60\u8d44\u6e90", discount: "33"},
+	"gpt-5.4":                   {entryLabel: "gp54", sheet: "\u56fd\u5916\u6a21\u578b", cell: "C52", rowLabel: "gp54", resource: "\u53f7\u6c60\u8d44\u6e90", discount: "33"},
+	"gpt-5.4-mini":              {entryLabel: "gp54-mi", sheet: "\u56fd\u5916\u6a21\u578b", cell: "C54", rowLabel: "gp54-mi", resource: "\u53f7\u6c60\u8d44\u6e90", discount: "33"},
+	"gpt-image-2":               {entryLabel: "gp-image-2", sheet: "\u56fd\u5916\u6a21\u578b", cell: "C56", rowLabel: "gp-image-2", resource: "\u53f7\u6c60\u8d44\u6e90", discount: "33"},
 }
 
 var ztapiMediaPriceIdentities = map[string]ztapiMediaPriceIdentity{
 	"gp-image-2": {
-		modality: ZTAPIModalityImage, sheet: "\u56fd\u5916\u6a21\u578b", cell: "C42",
-		resource: "\u4f01\u4e1a\u8d44\u6e90", discount: "78", currency: "USD",
-		contractHash: "13f399079208f8b05d3d902b4d9cbe2e55c1f4db467d9be4fac234732de16126",
+		modality: ZTAPIModalityImage, sheet: "\u56fd\u5916\u6a21\u578b", cell: "C56",
+		resource: "\u53f7\u6c60\u8d44\u6e90", discount: "33", pricePolicy: string(ZTAPIPricePolicyPoolOfficial80), currency: "USD",
+		contractHash: "2cbe422e8a4cadd07f3001d3750e65ef1a90c20c8b6f0d0e56716451bcb6bb41",
 	},
 	"gm25-fl-IMAGE": {
 		modality: ZTAPIModalityImage, sheet: "\u56fd\u5916\u6a21\u578b", cell: "C67",
-		resource: "\u4f01\u4e1a\u8d44\u6e90", discount: "82", currency: "USD",
-		contractHash: "9e2607140055a66dfaa510541e0b902b85c662f29edc751e10ba94f3d95c944e",
+		resource: "\u4f01\u4e1a\u8d44\u6e90", discount: "82", pricePolicy: string(ZTAPIPricePolicyEnterprise20Margin), currency: "USD",
+		contractHash: "5f2a82f9ac86cfbdc1766078282cb918269feb4b0c433b2010793a7a9596174a",
 	},
 	"seedance-2.0": {
 		modality: ZTAPIModalityVideo, sheet: "\u89c6\u9891\u6a21\u578b", cell: "C2",
-		resource: "\u539f\u5382\u8d44\u6e90", discount: "95", currency: "CNY", cnyPerUSD: "7.2", fxBuffer: "1.03",
-		contractHash: "8bcf34caa0bd7a80a01c057e25e8c24f4b3628d769ac2bc5f1971db51bce4a93",
+		resource: "\u539f\u5382\u8d44\u6e90", discount: "95", pricePolicy: string(ZTAPIPricePolicyEnterprise20Margin), currency: "CNY", cnyPerUSD: "7.2", fxBuffer: "1.03",
+		contractHash: "6aaa5e2072c7417c1da029ebd8f1231e5d81764a023e2ede9927f34ae7a9c6b5",
 	},
 	"Seedance 2.0 Fast": {
 		modality: ZTAPIModalityVideo, sheet: "\u89c6\u9891\u6a21\u578b", cell: "C5",
-		resource: "\u539f\u5382\u8d44\u6e90", discount: "95", currency: "CNY", cnyPerUSD: "7.2", fxBuffer: "1.03",
-		contractHash: "0197ba25928817a622c716f10863380d6da595ab489b5c5f3f8e0acf73bb1068",
+		resource: "\u539f\u5382\u8d44\u6e90", discount: "95", pricePolicy: string(ZTAPIPricePolicyEnterprise20Margin), currency: "CNY", cnyPerUSD: "7.2", fxBuffer: "1.03",
+		contractHash: "d1eaf7aac89a15b9e202e44254a93def1ef96e4b162948d7b2cbeca8576b723b",
 	},
 	"Seedance 2.0 Mini": {
 		modality: ZTAPIModalityVideo, sheet: "\u89c6\u9891\u6a21\u578b", cell: "C6",
-		resource: "\u539f\u5382\u8d44\u6e90", discount: "95", currency: "CNY", cnyPerUSD: "7.2", fxBuffer: "1.03",
-		contractHash: "040693b0dcf6b7b9a43afde46b455a0818b185930216bf1607e73f7302f4a051",
+		resource: "\u539f\u5382\u8d44\u6e90", discount: "95", pricePolicy: string(ZTAPIPricePolicyEnterprise20Margin), currency: "CNY", cnyPerUSD: "7.2", fxBuffer: "1.03",
+		contractHash: "64cc784bed072b0864055e4dcab6e16489a24b09bc0b1e6d2ee00120fd001427",
 	},
-}
-
-var ztapiPoolPriceDimensions = []string{
-	ZTAPIBillingDimensionInputTokens,
-	ZTAPIBillingDimensionOutputTokens,
-	ZTAPIBillingDimensionCacheRead,
-	ZTAPIBillingDimensionCacheWrite5m,
-	ZTAPIBillingDimensionCacheWrite1h,
 }
 
 func ztapiQuotationRowHasPricePolicyData(row ZTAPIQuotationRow) bool {
@@ -187,7 +193,7 @@ func validateZTAPIMediaQuotationEntry(entry ZTAPIQuotationEntry, identity ztapiM
 		contractRows++
 		if row.Sheet != identity.sheet || row.Cell != identity.cell || row.Label != entry.Label ||
 			row.Resource != identity.resource || row.DiscountPercent != identity.discount ||
-			row.PricePolicy != string(ZTAPIPricePolicyEnterprise40Margin) || row.Currency != identity.currency ||
+			row.PricePolicy != identity.pricePolicy || row.Currency != identity.currency ||
 			row.CNYPerUSD != identity.cnyPerUSD || row.FXBuffer != identity.fxBuffer {
 			return false
 		}
@@ -205,46 +211,84 @@ func validateZTAPIMediaQuotationEntry(entry ZTAPIQuotationEntry, identity ztapiM
 
 func ztapiQuotationRowMatchesPoolPolicyIdentity(entry ZTAPIQuotationEntry, row ZTAPIQuotationRow) bool {
 	identity, ok := ztapiPoolPricePolicyIdentities[entry.SourceModel]
-	return ok && entry.Label == identity.entryLabel && len(entry.QuoteRows) == 1 &&
+	return ok && entry.Label == identity.entryLabel &&
 		row.Sheet == identity.sheet && row.Cell == identity.cell && row.Label == identity.rowLabel &&
 		row.Resource == identity.resource && row.DiscountPercent == identity.discount &&
-		row.PricePolicy == string(ZTAPIPricePolicyPool60Margin)
+		(row.PricePolicy == string(ZTAPIPricePolicyPool60Margin) || row.PricePolicy == string(ZTAPIPricePolicyPoolOfficial80))
 }
 
 func ztapiPoolPricePolicyContractFromManifest(manifest ztapiQuotationManifest, sourceModel string) (map[string]decimal.Decimal, bool) {
+	official, discount, ok := ztapiPoolOfficialPriceContractFromManifest(manifest, sourceModel)
+	if !ok {
+		return nil, false
+	}
+	expected := make(map[string]decimal.Decimal, len(official))
+	for dimension, price := range official {
+		expected[dimension] = price.Mul(discount)
+	}
+	return expected, true
+}
+
+func ztapiPoolOfficialPriceContractFromManifest(manifest ztapiQuotationManifest, sourceModel string) (map[string]decimal.Decimal, decimal.Decimal, bool) {
 	var matched *ZTAPIQuotationRow
 	for _, entry := range manifest.Entries {
 		if entry.SourceModel != sourceModel {
 			continue
 		}
-		if matched != nil || len(entry.QuoteRows) != 1 ||
-			!ztapiQuotationRowMatchesPoolPolicyIdentity(entry, entry.QuoteRows[0]) {
-			return nil, false
+		for i := range entry.QuoteRows {
+			if !ztapiQuotationRowMatchesPoolPolicyIdentity(entry, entry.QuoteRows[i]) {
+				continue
+			}
+			if matched != nil {
+				return nil, decimal.Zero, false
+			}
+			row := entry.QuoteRows[i]
+			matched = &row
 		}
-		row := entry.QuoteRows[0]
-		matched = &row
 	}
-	if matched == nil || len(matched.RawPriceUSDPerMillion) != len(ztapiPoolPriceDimensions) {
-		return nil, false
+	if matched == nil || len(matched.RawPriceUSDPerMillion) == 0 {
+		return nil, decimal.Zero, false
 	}
 	discount, err := decimal.NewFromString(matched.DiscountPercent)
 	if err != nil || !discount.IsPositive() || discount.GreaterThan(decimal.NewFromInt(100)) {
-		return nil, false
+		return nil, decimal.Zero, false
 	}
 	discount = discount.Div(decimal.NewFromInt(100))
-	expected := make(map[string]decimal.Decimal, len(ztapiPoolPriceDimensions))
-	for _, dimension := range ztapiPoolPriceDimensions {
-		raw, ok := matched.RawPriceUSDPerMillion[dimension]
-		if !ok {
-			return nil, false
+	official := make(map[string]decimal.Decimal, len(matched.RawPriceUSDPerMillion))
+	for dimension, raw := range matched.RawPriceUSDPerMillion {
+		if _, err := parseZTAPIBillingDimensions(`["` + dimension + `"]`); err != nil {
+			return nil, decimal.Zero, false
 		}
 		price, err := decimal.NewFromString(raw)
 		if err != nil || !price.IsPositive() {
-			return nil, false
+			return nil, decimal.Zero, false
 		}
-		expected[dimension] = price.Mul(discount)
+		official[dimension] = price
 	}
-	return expected, true
+	return official, discount, true
+}
+
+func ztapiMediaPriceRowFromManifest(manifest ztapiQuotationManifest, sourceModel string) (ZTAPIQuotationRow, bool) {
+	var matched *ZTAPIQuotationRow
+	for _, entry := range manifest.Entries {
+		if entry.SourceModel != sourceModel {
+			continue
+		}
+		for i := range entry.QuoteRows {
+			if entry.QuoteRows[i].MediaPriceContractJSON == "" {
+				continue
+			}
+			if matched != nil {
+				return ZTAPIQuotationRow{}, false
+			}
+			row := entry.QuoteRows[i]
+			matched = &row
+		}
+	}
+	if matched == nil {
+		return ZTAPIQuotationRow{}, false
+	}
+	return *matched, true
 }
 
 func validateZTAPIPoolPriceSource(source *ZTAPIModelPriceSource, dimensions []string, values map[string]string) error {
@@ -463,8 +507,8 @@ func ztapiQuotationChecksums(db *gorm.DB, ids []int64) (map[int64]string, error)
 	return checksums, nil
 }
 
-// Official/original resources remain the default price basis. The only pool
-// bases are the two policy-bearing quotation exceptions frozen in the manifest.
+// Official/original resources remain the default price basis. Pool pricing is
+// limited to the exact policy-bearing identities frozen in the manifest.
 func ztapiEnterprisePriceBasis(sourceModel, resourceType string) bool {
 	if ztapiQuotationLoadError != nil {
 		return false

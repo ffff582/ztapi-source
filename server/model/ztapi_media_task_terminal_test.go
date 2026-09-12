@@ -37,18 +37,18 @@ func setupZTAPIMediaTerminal(t *testing.T) ztapiMediaTerminalFixture {
 func (f ztapiMediaTerminalFixture) knownObservation(t *testing.T, state ZTAPIMediaTaskState) ZTAPIMediaTaskObservation {
 	t.Helper()
 	dimensions, err := common.Marshal([]ZTAPISupplierRefundDimension{{
-		Dimension: "input_tokens", Units: "6", UnitQuota: "5.2096064815", ChargedQuota: 31,
+		Dimension: "input_tokens", Units: "6", UnitQuota: "3.90720486115", ChargedQuota: 23,
 	}})
 	require.NoError(t, err)
 	return ZTAPIMediaTaskObservation{
 		PublicTaskID: f.task.PublicTaskID, State: state, Attempt: f.attempt.Attempt,
 		UpstreamTaskID: "upstream-task-1", ChargeDisposition: ZTAPIMediaChargeKnown,
-		ActualQuota: 31, UsageJSON: `{"input_tokens":6,"total_tokens":6}`,
+		ActualQuota: 23, UsageJSON: `{"input_tokens":6,"total_tokens":6}`,
 		ChargeDimensionsJSON: string(dimensions),
 		ResultMetadataJSON:   `{"resolution":"720p","url":"https://example.invalid/result.mp4"}`,
 		SettlementEvidence: ZTAPISettlementEvidence{FinalAttempt: f.attempt.Attempt, ConsumeLog: Log{
 			Type: LogTypeConsume, UserId: f.settlement.UserID, TokenId: f.settlement.TokenID,
-			RequestId: f.settlement.RequestID, ModelName: f.settlement.PublicModel, Quota: 31,
+			RequestId: f.settlement.RequestID, ModelName: f.settlement.PublicModel, Quota: 23,
 			ChannelId: f.attempt.ChannelID, CreatedAt: 1, UpstreamRequestId: f.attempt.UpstreamRequestID,
 		}},
 	}
@@ -70,7 +70,7 @@ func TestZTAPIMediaTaskKnownSuccessSettlesAndReplaysExactly(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, ZTAPIMediaTaskSucceeded, completed.State)
 	require.Equal(t, ZTAPIMediaChargeKnown, completed.ChargeDisposition)
-	require.EqualValues(t, 31, completed.ActualQuota)
+	require.EqualValues(t, 23, completed.ActualQuota)
 	require.Equal(t, ZTAPISettlementSettled, completed.SettlementState)
 	require.NotEmpty(t, completed.ResultMetadataHash)
 	require.Equal(t, observation.ResultMetadataJSON, completed.ResultMetadataJSON)
@@ -82,11 +82,11 @@ func TestZTAPIMediaTaskKnownSuccessSettlesAndReplaysExactly(t *testing.T) {
 	var settlement ZTAPIRequestSettlement
 	require.NoError(t, f.db.First(&settlement, f.settlement.ID).Error)
 	require.Equal(t, ZTAPISettlementSettled, settlement.Status)
-	require.EqualValues(t, 31, settlement.ChargedQuota)
+	require.EqualValues(t, 23, settlement.ChargedQuota)
 	require.Equal(t, f.attempt.Attempt, settlement.FinalAttempt)
 	var user User
 	require.NoError(t, f.db.First(&user, f.settlement.UserID).Error)
-	require.Equal(t, f.held+int(f.settlement.ReservedQuota-31), user.Quota)
+	require.Equal(t, f.held+int(f.settlement.ReservedQuota-23), user.Quota)
 	var charges []ZTAPISupplierRefundCharge
 	require.NoError(t, f.db.Where("request_id = ?", f.settlement.RequestID).Find(&charges).Error)
 	require.Len(t, charges, 1)
@@ -104,7 +104,7 @@ func TestZTAPIMediaTaskKnownChargeRejectsAmountOutsideFrozenPrice(t *testing.T) 
 	observation.ActualQuota++
 	observation.SettlementEvidence.ConsumeLog.Quota++
 	dimensions, marshalErr := common.Marshal([]ZTAPISupplierRefundDimension{{
-		Dimension: "input_tokens", Units: "6", UnitQuota: "5.3333333334", ChargedQuota: 32,
+		Dimension: "input_tokens", Units: "6", UnitQuota: "4", ChargedQuota: 24,
 	}})
 	require.NoError(t, marshalErr)
 	observation.ChargeDimensionsJSON = string(dimensions)

@@ -73,7 +73,7 @@ func TestGetZTAPIMediaContractProjectsEvidenceWithoutRawContractsOrSecrets(t *te
 	digest := fmt.Sprintf("%x", sha256.Sum256([]byte(protocol)))
 	body := recorder.Body.String()
 	for _, expected := range []string{
-		`"modality":"image"`, `"quotation_sheet":"国外模型"`, `"quotation_cell":"C42"`,
+		`"modality":"image"`, `"quotation_sheet":"国外模型"`, `"quotation_cell":"C56"`,
 		`"price_policy":"enterprise_40_margin"`, `"frozen_pricing_version":"ztapi-snapshot-91"`,
 		`"price_source_version":3`, `"pending_reconciliation_count":2`, `"protocol_evidence_sha256":"` + digest + `"`,
 	} {

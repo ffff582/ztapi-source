@@ -1508,14 +1508,14 @@ func (f commercialMySQLMediaFixture) processingObservation() ZTAPIMediaTaskObser
 
 func (f commercialMySQLMediaFixture) knownMediaObservation(t *testing.T) ZTAPIMediaTaskObservation {
 	t.Helper()
-	dimensions, err := common.Marshal([]ZTAPISupplierRefundDimension{{Dimension: "input_tokens", Units: "6", UnitQuota: "5.2096064815", ChargedQuota: 31}})
+	dimensions, err := common.Marshal([]ZTAPISupplierRefundDimension{{Dimension: "input_tokens", Units: "6", UnitQuota: "3.90720486115", ChargedQuota: 23}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return ZTAPIMediaTaskObservation{PublicTaskID: f.task.PublicTaskID, State: ZTAPIMediaTaskSucceeded, Attempt: f.attempt.Attempt,
-		UpstreamTaskID: "upstream-task-" + f.input.RequestID, ChargeDisposition: ZTAPIMediaChargeKnown, ActualQuota: 31,
+		UpstreamTaskID: "upstream-task-" + f.input.RequestID, ChargeDisposition: ZTAPIMediaChargeKnown, ActualQuota: 23,
 		UsageJSON: `{"input_tokens":6}`, ChargeDimensionsJSON: string(dimensions), ResultMetadataJSON: `{"resolution":"720p","result_available":true}`,
-		SettlementEvidence: ZTAPISettlementEvidence{FinalAttempt: f.attempt.Attempt, ConsumeLog: Log{Type: LogTypeConsume, UserId: f.user.Id, TokenId: f.token.Id, RequestId: f.input.RequestID, ModelName: f.input.PublicModel, Quota: 31, ChannelId: f.channel.Id, CreatedAt: 1, UpstreamRequestId: "wire-" + f.input.RequestID}}}
+		SettlementEvidence: ZTAPISettlementEvidence{FinalAttempt: f.attempt.Attempt, ConsumeLog: Log{Type: LogTypeConsume, UserId: f.user.Id, TokenId: f.token.Id, RequestId: f.input.RequestID, ModelName: f.input.PublicModel, Quota: 23, ChannelId: f.channel.Id, CreatedAt: 1, UpstreamRequestId: "wire-" + f.input.RequestID}}}
 }
 
 func (f commercialMySQLMediaFixture) noChargeMediaObservation() ZTAPIMediaTaskObservation {
@@ -1543,7 +1543,7 @@ func assertCommercialMySQLMediaFinancialResult(t *testing.T, f commercialMySQLMe
 	if task.State != state || task.SettlementState != settlementState || settlement.Status != settlementState {
 		t.Fatalf("task and finance disagree: task=%+v settlement=%+v", task, settlement)
 	}
-	if settlementState == ZTAPISettlementSettled && (settlement.ChargedQuota != 31 || user.Quota != 99969) {
+	if settlementState == ZTAPISettlementSettled && (settlement.ChargedQuota != 23 || user.Quota != 99977) {
 		t.Fatalf("settled media balance mismatch: settlement=%+v wallet=%d", settlement, user.Quota)
 	}
 	if settlementState == ZTAPISettlementReleased && (settlement.ChargedQuota != 0 || user.Quota != 100000) {
@@ -1685,7 +1685,7 @@ func commercialMySQLMediaPartialRefundCeiling(t *testing.T) {
 		t.Fatalf("media refund exceeded original charge: %v", err)
 	}
 	var user User
-	if err := DB.First(&user, f.user.Id).Error; err != nil || user.Quota != 99989 {
+	if err := DB.First(&user, f.user.Id).Error; err != nil || user.Quota != 99992 {
 		t.Fatalf("media partial refund quota=%d err=%v", user.Quota, err)
 	}
 }

@@ -115,7 +115,7 @@ func TestZTAPIMediaTaskBeginFreezesIdentityAndReplaysExactly(t *testing.T) {
 	changed.Conditions = map[string]string{"contains_video_input": "false", "resolution": "1080p"}
 	_, err = BeginZTAPIMediaTask(ZTAPIMediaTaskInput{PublicTaskID: f.task.PublicTaskID, SettlementID: f.settlement.ID, Selector: changed, VideoSelector: f.video, QuotaPerUnit: "500000", Action: "generate", VideoProtocolContractJSON: f.task.VideoProtocolContractJSON})
 	require.ErrorIs(t, err, ErrZTAPIMediaTaskInvalid)
-	_, err = BeginZTAPIMediaTask(ZTAPIMediaTaskInput{PublicTaskID: f.task.PublicTaskID, SettlementID: f.settlement.ID, Selector: f.selector, VideoSelector: f.video, QuotaPerUnit: "500001", Action: "generate", VideoProtocolContractJSON: f.task.VideoProtocolContractJSON})
+	_, err = BeginZTAPIMediaTask(ZTAPIMediaTaskInput{PublicTaskID: f.task.PublicTaskID, SettlementID: f.settlement.ID, Selector: f.selector, VideoSelector: f.video, QuotaPerUnit: "600000", Action: "generate", VideoProtocolContractJSON: f.task.VideoProtocolContractJSON})
 	require.ErrorIs(t, err, ErrZTAPIMediaTaskInvalid)
 	_, err = BeginZTAPIMediaTask(ZTAPIMediaTaskInput{PublicTaskID: "task_other", SettlementID: f.settlement.ID, Selector: f.selector, VideoSelector: f.video, QuotaPerUnit: "500000", Action: "generate", VideoProtocolContractJSON: f.task.VideoProtocolContractJSON})
 	require.ErrorIs(t, err, ErrZTAPIMediaTaskConflict)

@@ -46,10 +46,10 @@ func TestZTAPIPublicCatalogMediaExposesOnlyPublicCapabilitiesAndSalePricing(t *t
 			ProviderFamily: ZTAPIProviderOpenAI, Protocol: ZTAPIProtocolOpenAICompatible,
 			Groups: []string{"default"}, SnapshotID: 101, MediaPriceContractJSON: imagePrice,
 			ImageProtocolContract: &imageProtocol,
-			InputPriceDisplay:     "6.5000000000", OutputPriceDisplay: "39.0000000000",
+			InputPriceDisplay:     "4.0000000000", OutputPriceDisplay: "24.0000000000",
 			BillingDimensions: []string{ZTAPIBillingDimensionInputTokens, ZTAPIBillingDimensionOutputTokens},
 			SaleUSD: map[string]string{
-				ZTAPIBillingDimensionInputTokens: "6.5000000000", ZTAPIBillingDimensionOutputTokens: "39.0000000000",
+				ZTAPIBillingDimensionInputTokens: "4.0000000000", ZTAPIBillingDimensionOutputTokens: "24.0000000000",
 			},
 		},
 		{
@@ -76,7 +76,7 @@ func TestZTAPIPublicCatalogMediaExposesOnlyPublicCapabilitiesAndSalePricing(t *t
 	require.Equal(t, 2, imageItem.SupportedOptions.MaxCount)
 	require.Equal(t, "usd_per_million_tokens", imageItem.BillingUnit)
 	require.Len(t, imageItem.PricingRules, 5)
-	require.Equal(t, map[string]string{"image_output": "39.00"}, imageItem.PricingRules[2].SaleUSD)
+	require.Equal(t, map[string]string{"image_output": "24.00"}, imageItem.PricingRules[2].SaleUSD)
 	require.Empty(t, imageItem.InputPricePerMillion)
 	require.Empty(t, imageItem.OutputPricePerMillion)
 	require.Empty(t, imageItem.BillingDimensions)
@@ -365,10 +365,19 @@ func TestZTAPIRuntimePublicationCacheDeepCopiesVideoProtocolContract(t *testing.
 	var snapshot ZTAPIModelPublicationSnapshot
 	require.NoError(t, db.First(&snapshot, config.PublicationSnapshotID).Error)
 	require.NoError(t, db.Session(&gorm.Session{SkipHooks: true}).Model(&ZTAPIModelPriceSource{}).
-		Where("id = ?", snapshot.PriceSourceID).Update("media_price_contract_json", mediaPriceContractJSON).Error)
+		Where("id = ?", snapshot.PriceSourceID).Updates(map[string]any{
+		"price_policy":              string(ZTAPIPricePolicyEnterprise20Margin),
+		"media_price_contract_json": mediaPriceContractJSON,
+	}).Error)
 	require.NoError(t, db.Session(&gorm.Session{SkipHooks: true}).Model(&ZTAPIModelPublicationSnapshot{}).
 		Where("id = ?", config.PublicationSnapshotID).
-		Updates(map[string]any{"video_protocol_contract_json": contractJSON, "media_price_contract_json": mediaPriceContractJSON}).Error)
+		Updates(map[string]any{
+			"price_policy":                 string(ZTAPIPricePolicyEnterprise20Margin),
+			"input_price_per_million":      1.25,
+			"output_price_per_million":     2.5,
+			"video_protocol_contract_json": contractJSON,
+			"media_price_contract_json":    mediaPriceContractJSON,
+		}).Error)
 	InvalidateZTAPIAliasCache()
 
 	first, err := GetZTAPIRuntimePublication(config.PublicNameValue())

@@ -39,6 +39,7 @@ func setupZTAPIVideoPublicationContractDB(t *testing.T) (*gorm.DB, ZTAPIModelCon
 	source.ModelConfigID = config.ID
 	source.SourceModel = config.SourceModel
 	source.BillingDimensions = `["input_tokens"]`
+	source.PricePolicy = string(ZTAPIPricePolicyEnterprise20Margin)
 	source.MediaPriceContractJSON = mustCanonicalZTAPIMediaPriceContract(t, seedanceContractForTest(t))
 	require.NoError(t, db.Create(&source).Error)
 	return db, config, source
@@ -62,14 +63,22 @@ func authorizeFixtureSourceAsVideo(t *testing.T, fixture *ztapiPublicationGateFi
 	t.Cleanup(func() { ztapiQuotation = original })
 
 	fixture.config.ProviderFamily = ZTAPIProviderSeedance
+	fixture.config.InputPricePerMillion = 1.25
+	fixture.config.OutputPricePerMillion = 2.5
 	require.NoError(t, fixture.db.Model(&fixture.config).Update("provider_family", fixture.config.ProviderFamily).Error)
+	require.NoError(t, fixture.db.Model(&fixture.config).Updates(map[string]any{
+		"input_price_per_million":  fixture.config.InputPricePerMillion,
+		"output_price_per_million": fixture.config.OutputPricePerMillion,
+	}).Error)
 	require.NoError(t, fixture.db.Model(&fixture.identity).Updates(map[string]any{
 		"provider_family": fixture.config.ProviderFamily,
 		"updated_at":      time.Now().UTC().Unix(),
 	}).Error)
-	require.NoError(t, fixture.db.Model(&fixture.price).Update(
-		"media_price_contract_json", mustCanonicalZTAPIMediaPriceContract(t, seedanceContractForTest(t)),
-	).Error)
+	fixture.price.PricePolicy = string(ZTAPIPricePolicyEnterprise20Margin)
+	require.NoError(t, fixture.db.Model(&fixture.price).Updates(map[string]any{
+		"price_policy":              fixture.price.PricePolicy,
+		"media_price_contract_json": mustCanonicalZTAPIMediaPriceContract(t, seedanceContractForTest(t)),
+	}).Error)
 }
 
 func addVerifiedVideoEvidence(t *testing.T, fixture *ztapiPublicationGateFixture, contractJSON string) ZTAPIModelVerification {

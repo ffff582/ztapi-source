@@ -26,9 +26,9 @@ func validZTAPIPriceSourceForTest() ZTAPIModelPriceSource {
 	}
 }
 
-func TestCalculateZTAPISalePriceUsesFortyPercentGrossMargin(t *testing.T) {
+func TestCalculateZTAPISalePriceUsesTwentyPercentGrossMargin(t *testing.T) {
 	got := CalculateZTAPISalePrice(decimal.RequireFromString("3.9000000000"))
-	require.Equal(t, "6.5000000000", got.StringFixed(10))
+	require.Equal(t, "4.8750000000", got.StringFixed(10))
 }
 
 func TestBuildZTAPIModelPricePreviewConvertsCNYWithThreePercentFXBuffer(t *testing.T) {

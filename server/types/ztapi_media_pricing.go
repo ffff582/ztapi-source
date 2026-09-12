@@ -22,7 +22,11 @@ const (
 	ztapiMediaDimensionOutputTokens          = "output_tokens"
 )
 
-var ztapiEnterpriseSaleCostShare = decimal.RequireFromString("0.60")
+var ztapiSupportedMediaSaleCostShares = []decimal.Decimal{
+	decimal.RequireFromString("0.60"),
+	decimal.RequireFromString("0.80"),
+	decimal.RequireFromString("0.4125"), // 33% pool cost sold at 80% of official price.
+}
 
 type ZTAPIMediaPriceContract struct {
 	Version  uint64                `json:"version"`
@@ -121,6 +125,7 @@ func ParseZTAPIMediaPriceContract(raw string) (ZTAPIMediaPriceContract, error) {
 	ids := make(map[string]bool, len(contract.Rules))
 	conditions := make(map[string]bool, len(contract.Rules))
 	var conditionKeys []string
+	var contractCostShare *decimal.Decimal
 	for index, rule := range contract.Rules {
 		if !ztapiMediaIdentifierPattern.MatchString(rule.ID) || ids[rule.ID] {
 			return contract, errors.New("media price rule IDs must be unique canonical identifiers")
@@ -143,8 +148,12 @@ func ParseZTAPIMediaPriceContract(raw string) (ZTAPIMediaPriceContract, error) {
 			return contract, errors.New("media price rules overlap")
 		}
 		conditions[signature] = true
-		if err := validateZTAPIMediaPriceMaps(rule); err != nil {
+		costShare, err := validateZTAPIMediaPriceMaps(rule, contractCostShare)
+		if err != nil {
 			return contract, fmt.Errorf("media price rule %q: %w", rule.ID, err)
+		}
+		if contractCostShare == nil {
+			contractCostShare = &costShare
 		}
 	}
 	if err := validateZTAPIMediaPriceMatrix(contract.Modality, conditionKeys, contract.Rules); err != nil {
@@ -447,33 +456,43 @@ func validateZTAPIMediaConditions(modality string, conditions map[string]string)
 	return keys, nil
 }
 
-func validateZTAPIMediaPriceMaps(rule ZTAPIMediaPriceRule) error {
+func validateZTAPIMediaPriceMaps(rule ZTAPIMediaPriceRule, expectedShare *decimal.Decimal) (decimal.Decimal, error) {
 	if len(rule.CostUSD) == 0 || len(rule.CostUSD) != len(rule.SaleUSD) || len(rule.CostUSD) != len(rule.SourceCells) {
-		return errors.New("cost, sale, and source-cell dimensions must match")
+		return decimal.Zero, errors.New("cost, sale, and source-cell dimensions must match")
 	}
+	var ruleShare *decimal.Decimal
 	for dimension, rawCost := range rule.CostUSD {
 		if !ztapiMediaDimensions[dimension] {
-			return fmt.Errorf("unsupported billing dimension %q", dimension)
+			return decimal.Zero, fmt.Errorf("unsupported billing dimension %q", dimension)
 		}
 		rawSale, saleExists := rule.SaleUSD[dimension]
 		cell, cellExists := rule.SourceCells[dimension]
 		if !saleExists || !cellExists || !ztapiMediaSourceCellPattern.MatchString(cell) {
-			return fmt.Errorf("missing sale or source cell for %q", dimension)
+			return decimal.Zero, fmt.Errorf("missing sale or source cell for %q", dimension)
 		}
 		if !ztapiMediaDecimalPattern.MatchString(rawCost) || !ztapiMediaDecimalPattern.MatchString(rawSale) {
-			return fmt.Errorf("prices for %q must be positive plain decimal strings", dimension)
+			return decimal.Zero, fmt.Errorf("prices for %q must be positive plain decimal strings", dimension)
 		}
 		cost, costErr := decimal.NewFromString(rawCost)
 		sale, saleErr := decimal.NewFromString(rawSale)
 		if costErr != nil || saleErr != nil || !cost.IsPositive() || !sale.IsPositive() {
-			return fmt.Errorf("prices for %q must be positive", dimension)
+			return decimal.Zero, fmt.Errorf("prices for %q must be positive", dimension)
 		}
-		expected := cost.Div(ztapiEnterpriseSaleCostShare).Round(10)
-		if !sale.Equal(expected) {
-			return fmt.Errorf("sale price for %q does not match enterprise margin policy", dimension)
+		var matched *decimal.Decimal
+		for i := range ztapiSupportedMediaSaleCostShares {
+			share := ztapiSupportedMediaSaleCostShares[i]
+			if sale.Equal(cost.Div(share).Round(10)) {
+				matched = &share
+				break
+			}
 		}
+		if matched == nil || (expectedShare != nil && !matched.Equal(*expectedShare)) ||
+			(ruleShare != nil && !matched.Equal(*ruleShare)) {
+			return decimal.Zero, fmt.Errorf("sale price for %q does not match one consistent supported pricing policy", dimension)
+		}
+		ruleShare = matched
 	}
-	return nil
+	return *ruleShare, nil
 }
 
 func ztapiStringMapSignature(values map[string]string) string {

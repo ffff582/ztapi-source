@@ -11,7 +11,9 @@ import { loadModelHealth } from './model-health.js';
 const modalityLabels = { image: '图片生成', video: '视频生成' };
 const policyLabels = {
   enterprise_40_margin: '企业 40% 毛利',
+  enterprise_20_margin: '企业/原厂 20% 毛利',
   pool_discount_margin: '号池折扣定价',
+  pool_official_80: '号池官方价 8 折',
   quoted_sale_price: '报价单售价',
 };
 const healthLabels = {

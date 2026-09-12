@@ -26,7 +26,25 @@ type ztapiPublicationGateFixture struct {
 
 func canonicalGPImagePriceContractForPublicationTest(t *testing.T) string {
 	t.Helper()
-	return mustCanonicalZTAPIMediaPriceContract(t, gpImage2ContractForTest(t))
+	cases := []struct {
+		id, cost, sale, cell string
+	}{
+		{"text_input", "3.90", "6.50", "G42"},
+		{"text_cached_input", "0.975", "1.625", "H42"},
+		{"image_input", "6.24", "10.40", "G43"},
+		{"image_cached_input", "1.56", "2.60", "H43"},
+		{"image_output", "23.40", "39.00", "J43"},
+	}
+	rules := make([]ZTAPIMediaPriceRule, 0, len(cases))
+	for _, tc := range cases {
+		rules = append(rules, mediaRule(tc.id,
+			map[string]string{"token_bucket": tc.id},
+			map[string]string{tc.id: tc.cost},
+			map[string]string{tc.id: tc.sale},
+			map[string]string{tc.id: tc.cell},
+		))
+	}
+	return mustCanonicalZTAPIMediaPriceContract(t, mediaContractJSON(t, ZTAPIModalityImage, rules))
 }
 
 func setupZTAPIPublicationGateFixture(t *testing.T) ztapiPublicationGateFixture {

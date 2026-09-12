@@ -1229,6 +1229,38 @@ jobs:
             "https://admin.ztapi.vip/api/admin/overview?from=$admin_from&to=$admin_to" |
             jq -e '.success == true' >/dev/null
 
+          # Reprice every currently published model in one database transaction.
+          # Pool-quoted models sell at 80% of official price; all other models
+          # sell at actual enterprise cost / 0.8 (20% gross margin).
+          published_pricing_count=$("${compose[@]}" exec -T mysql sh -c \
+            'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names' <<'SQL'
+          SELECT COUNT(*) FROM ztapi_model_configs WHERE published = 1;
+          SQL
+          )
+          if [[ ! "$published_pricing_count" =~ ^[1-9][0-9]*$ ]]; then
+            echo 'commercial repricing requires at least one published model' >&2
+            exit 1
+          fi
+          commercial_pricing_result=$(jq -cn '{confirm:true}' |
+            curl --fail --silent --show-error \
+              --request POST \
+              --resolve admin.ztapi.vip:443:127.0.0.1 \
+              --header 'Content-Type: application/json' \
+              --header "Authorization: Bearer $admin_access_token" \
+              --header "New-API-User: $admin_user_id" \
+              --data-binary @- \
+              https://admin.ztapi.vip/api/models/ztapi/reprice-commercial-v2)
+          echo "$commercial_pricing_result" | jq -e \
+            --argjson expected "$published_pricing_count" '
+              .success == true
+              and ((.data.imported + .data.unchanged) == $expected)
+              and (.data.republished == .data.imported)' >/dev/null
+          commercial_pricing_imported=$(echo "$commercial_pricing_result" | jq -er '.data.imported')
+          commercial_pricing_unchanged=$(echo "$commercial_pricing_result" | jq -er '.data.unchanged')
+          write_receipt commercial_pricing_v2 \
+            "published=$published_pricing_count imported=$commercial_pricing_imported unchanged=$commercial_pricing_unchanged"
+          require_receipt commercial_pricing_v2
+
           # Publish GPT Image 2 only after enterprise-route discovery and exact
           # quotation import. A real generated-image verification is repeated
           # only when the image acceptance surface or stored model state changes.
@@ -1314,7 +1346,8 @@ jobs:
             FROM ztapi_model_price_sources
             WHERE model_config_id = $ztapi_image_model_id
               AND source_model = 'gpt-image-2'
-              AND resource_type = 'enterprise'
+              AND resource_type = 'pool'
+              AND price_policy = 'pool_official_80'
               AND source_document_checksum = '$(jq -er '.sha256' "$image_quote")'
             ORDER BY version DESC, id DESC
             LIMIT 1
@@ -1334,13 +1367,13 @@ jobs:
                 {
                   version:.version,
                   source_model:"gpt-image-2",
-                  resource_type:"enterprise",
-                  price_policy:"enterprise_40_margin",
+                  resource_type:"pool",
+                  price_policy:"pool_official_80",
                   spend_tier:"9.1 quotation",
                   billing_dimensions:["input_tokens","output_tokens"],
                   currency:"USD",
-                  input_per_million:"3.90",
-                  output_per_million:"23.40",
+                  input_per_million:"1.65",
+                  output_per_million:"9.90",
                   cache_read_per_million:"0",
                   cache_write_per_million:"0",
                   cache_write_5m_per_million:"0",
@@ -1352,7 +1385,7 @@ jobs:
                   media_price_contract:$media_contract,
                   quotation_effective_at:1788192000,
                   source_document_checksum:$checksum,
-                  reason:"import exact GPT Image 2 enterprise quotation",
+                  reason:"import exact GPT Image 2 pool quotation and official 80 percent sale price",
                   confirm:true
                 }')
             image_price_result=$(printf '%s' "$image_price_payload" | curl --fail --silent --show-error \
@@ -1362,8 +1395,11 @@ jobs:
               --header "New-API-User: $admin_user_id" \
               --data-binary @- \
               "https://admin.ztapi.vip/api/models/ztapi/$ztapi_image_model_id/price-sources")
-            echo "$image_price_result" | jq -e \
-              '.success == true and .data.preview.price_policy == "enterprise_40_margin"' >/dev/null
+            echo "$image_price_result" | jq -e '
+              .success == true
+              and .data.preview.price_policy == "pool_official_80"
+              and .data.preview.input_sale_usd_per_million == "4.0000000000"
+              and .data.preview.output_sale_usd_per_million == "24.0000000000"' >/dev/null
           fi
 
           if [ "$ztapi_image_requires_acceptance" = true ]; then
@@ -1509,6 +1545,7 @@ jobs:
             WHERE model_config_id = $ztapi_gemini_image_model_id
               AND source_model = 'gemini-2.5-flash-image'
               AND resource_type = 'enterprise'
+              AND price_policy = 'enterprise_20_margin'
               AND source_document_checksum = '$(jq -er '.sha256' "$gemini_image_quote")'
             ORDER BY version DESC, id DESC
             LIMIT 1
@@ -1529,7 +1566,7 @@ jobs:
                   version:.version,
                   source_model:"gemini-2.5-flash-image",
                   resource_type:"enterprise",
-                  price_policy:"enterprise_40_margin",
+                  price_policy:"enterprise_20_margin",
                   spend_tier:"9.1 quotation",
                   billing_dimensions:["input_tokens","output_tokens"],
                   currency:"USD",
@@ -1558,9 +1595,9 @@ jobs:
               "https://admin.ztapi.vip/api/models/ztapi/$ztapi_gemini_image_model_id/price-sources")
             echo "$gemini_image_price_result" | jq -e '
               .success == true
-              and .data.preview.price_policy == "enterprise_40_margin"
-              and .data.preview.input_sale_usd_per_million == "0.4100000000"
-              and .data.preview.output_sale_usd_per_million == "3.4166666667"' >/dev/null
+              and .data.preview.price_policy == "enterprise_20_margin"
+              and .data.preview.input_sale_usd_per_million == "0.3075000000"
+              and .data.preview.output_sale_usd_per_million == "2.5625000000"' >/dev/null
           fi
 
           if [ "$gemini_image_requires_acceptance" = true ]; then
@@ -2127,8 +2164,8 @@ jobs:
             'output_rule_id', JSON_UNQUOTE(JSON_EXTRACT(settlement.usage_json, '\$.price_rule_ids.output_tokens')),
             'upstream_request_id', JSON_UNQUOTE(JSON_EXTRACT(settlement.usage_json, '\$.upstream_request_id')),
             'expected_charged_quota', CAST(ROUND((
-              CAST(JSON_UNQUOTE(JSON_EXTRACT(settlement.usage_json, '\$.dimensions.input_tokens')) AS DECIMAL(30,10)) * 0.4100000000 +
-              CAST(JSON_UNQUOTE(JSON_EXTRACT(settlement.usage_json, '\$.dimensions.output_tokens')) AS DECIMAL(30,10)) * 3.4166666667
+              CAST(JSON_UNQUOTE(JSON_EXTRACT(settlement.usage_json, '\$.dimensions.input_tokens')) AS DECIMAL(30,10)) * 0.3075000000 +
+              CAST(JSON_UNQUOTE(JSON_EXTRACT(settlement.usage_json, '\$.dimensions.output_tokens')) AS DECIMAL(30,10)) * 2.5625000000
             ) * CAST(JSON_UNQUOTE(JSON_EXTRACT(settlement.price_snapshot_json, '\$.ztapi_quota_per_unit')) AS DECIMAL(30,10)) / 1000000, 0) AS SIGNED)
           )
           FROM ztapi_request_settlements AS settlement

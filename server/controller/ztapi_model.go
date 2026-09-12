@@ -53,6 +53,24 @@ type ztapiModelUpdateRequest struct {
 	ConfirmBelowCost      bool     `json:"confirm_below_cost"`
 }
 
+var ztapiCommercialRepricer = model.ApplyZTAPICommercialPricingV2
+
+func RepriceZTAPICommercialCatalog(c *gin.Context) {
+	var request struct {
+		Confirm bool `json:"confirm"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil || !request.Confirm {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "请确认执行商业价格迁移。"})
+		return
+	}
+	result, err := ztapiCommercialRepricer(c.GetInt("id"))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "商业价格迁移未完成。", "detail": err.Error()})
+		return
+	}
+	common.ApiSuccess(c, result)
+}
+
 type ztapiModelProjection struct {
 	ID                    int      `json:"id"`
 	SourceModel           string   `json:"source_model"`

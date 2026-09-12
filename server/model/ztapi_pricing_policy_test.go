@@ -1,12 +1,33 @@
 package model
 
 import (
+	"sort"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 )
+
+func TestZTAPIQuotationDeclaresEveryQuotedPoolModelForOfficialEightyPercent(t *testing.T) {
+	want := []string{
+		"claude-fable-5", "claude-haiku-4-5-20251001", "claude-opus-4-6", "claude-opus-4-7",
+		"claude-opus-4-8", "claude-opus-5", "claude-sonnet-4-6", "claude-sonnet-5",
+		"gpt-5.4", "gpt-5.4-mini", "gpt-5.5", "gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-image-2",
+	}
+	got := make([]string, 0, len(ztapiPoolPricePolicyIdentities))
+	for sourceModel := range ztapiPoolPricePolicyIdentities {
+		got = append(got, sourceModel)
+	}
+	sort.Strings(got)
+	sort.Strings(want)
+	require.Equal(t, want, got)
+	for _, sourceModel := range want {
+		official, _, ok := ztapiPoolOfficialPriceContractFromManifest(ztapiQuotation, sourceModel)
+		require.Truef(t, ok, "missing official-price contract for %s", sourceModel)
+		require.NotEmpty(t, official)
+	}
+}
 
 func TestZTAPIPricePolicyCalculatesExplicitMargins(t *testing.T) {
 	tests := []struct {
@@ -15,16 +36,21 @@ func TestZTAPIPricePolicyCalculatesExplicitMargins(t *testing.T) {
 		policy ZTAPIPricePolicy
 		want   string
 	}{
-		{name: "enterprise 40 percent margin", cost: "3.90", policy: ZTAPIPricePolicyEnterprise40Margin, want: "6.50"},
-		{name: "pool 60 percent margin", cost: "6.50", policy: ZTAPIPricePolicyPool60Margin, want: "16.25"},
+		{name: "enterprise 20 percent margin", cost: "3.90", policy: ZTAPIPricePolicyEnterprise20Margin, want: "4.875"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			got, err := CalculateZTAPISalePriceForPolicy(decimal.RequireFromString(test.cost), test.policy)
 			require.NoError(t, err)
-			require.Equal(t, test.want, got.StringFixed(2))
+			require.Truef(t, got.Equal(decimal.RequireFromString(test.want)), "got %s want %s", got, test.want)
 		})
 	}
+}
+
+func TestZTAPIPoolPolicySellsAtEightyPercentOfOfficialPrice(t *testing.T) {
+	got, err := CalculateZTAPIPoolSalePrice(decimal.RequireFromString("30"))
+	require.NoError(t, err)
+	require.Equal(t, "24.00", got.StringFixed(2))
 }
 
 func TestZTAPIPricePolicyFailsClosed(t *testing.T) {
@@ -36,8 +62,8 @@ func TestZTAPIPricePolicyFailsClosed(t *testing.T) {
 		resource string
 		policy   ZTAPIPricePolicy
 	}{
-		{name: "pool cannot use enterprise policy", resource: "pool", policy: ZTAPIPricePolicyEnterprise40Margin},
-		{name: "enterprise cannot use pool policy", resource: "enterprise", policy: ZTAPIPricePolicyPool60Margin},
+		{name: "pool cannot use enterprise policy", resource: "pool", policy: ZTAPIPricePolicyEnterprise20Margin},
+		{name: "enterprise cannot use pool policy", resource: "enterprise", policy: ZTAPIPricePolicyPoolOfficial80},
 		{name: "unknown policy", resource: "enterprise", policy: ZTAPIPricePolicy("unknown")},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -56,7 +82,7 @@ func TestZTAPIPricePolicyIsRequiredOnPriceSources(t *testing.T) {
 
 func TestZTAPIPricePolicyPreservesEnterpriseCompatibilityWrapper(t *testing.T) {
 	cost := decimal.RequireFromString("3.9000000000")
-	want, err := CalculateZTAPISalePriceForPolicy(cost, ZTAPIPricePolicyEnterprise40Margin)
+	want, err := CalculateZTAPISalePriceForPolicy(cost, ZTAPIPricePolicyEnterprise20Margin)
 	require.NoError(t, err)
 	require.True(t, want.Equal(CalculateZTAPISalePrice(cost)))
 }
@@ -93,13 +119,13 @@ func validZTAPIPoolPriceSourceForTest(t *testing.T, sourceModel string) (ZTAPIMo
 	}
 	require.Len(t, rows, 1)
 	row := rows[0]
-	require.Equal(t, string(ZTAPIPricePolicyPool60Margin), row.PricePolicy)
+	require.Equal(t, string(ZTAPIPricePolicyPoolOfficial80), row.PricePolicy)
 	require.Len(t, row.RawPriceUSDPerMillion, 5)
 
 	source := validZTAPIPriceSourceForTest()
 	source.SourceModel = sourceModel
 	source.ResourceType = "pool"
-	source.PricePolicy = string(ZTAPIPricePolicyPool60Margin)
+	source.PricePolicy = string(ZTAPIPricePolicyPoolOfficial80)
 	source.SourceDocumentChecksum = ZTAPIQuotationSHA256
 	source.BillingDimensions = `["input_tokens","output_tokens","cache_read","cache_write_5m","cache_write_1h"]`
 	discount, err := decimal.NewFromString(row.DiscountPercent)
@@ -129,9 +155,9 @@ func TestZTAPIFableOpusPoolPricing(t *testing.T) {
 				ZTAPIBillingDimensionOutputTokens: "50",
 			},
 			sale: map[string]string{
-				ZTAPIBillingDimensionInputTokens: "16.25", ZTAPIBillingDimensionCacheWrite5m: "20.3125",
-				ZTAPIBillingDimensionCacheWrite1h: "32.50", ZTAPIBillingDimensionCacheRead: "1.625",
-				ZTAPIBillingDimensionOutputTokens: "81.25",
+				ZTAPIBillingDimensionInputTokens: "8", ZTAPIBillingDimensionCacheWrite5m: "10",
+				ZTAPIBillingDimensionCacheWrite1h: "16", ZTAPIBillingDimensionCacheRead: "0.8",
+				ZTAPIBillingDimensionOutputTokens: "40",
 			},
 		},
 		{
@@ -142,9 +168,9 @@ func TestZTAPIFableOpusPoolPricing(t *testing.T) {
 				ZTAPIBillingDimensionOutputTokens: "25",
 			},
 			sale: map[string]string{
-				ZTAPIBillingDimensionInputTokens: "5.50", ZTAPIBillingDimensionCacheWrite5m: "6.875",
-				ZTAPIBillingDimensionCacheWrite1h: "11.00", ZTAPIBillingDimensionCacheRead: "0.55",
-				ZTAPIBillingDimensionOutputTokens: "27.50",
+				ZTAPIBillingDimensionInputTokens: "4", ZTAPIBillingDimensionCacheWrite5m: "5",
+				ZTAPIBillingDimensionCacheWrite1h: "8", ZTAPIBillingDimensionCacheRead: "0.4",
+				ZTAPIBillingDimensionOutputTokens: "20",
 			},
 		},
 	}
@@ -159,7 +185,7 @@ func TestZTAPIFableOpusPoolPricing(t *testing.T) {
 
 			preview, err := BuildZTAPIModelPricePreview(&source)
 			require.NoError(t, err)
-			require.Equal(t, string(ZTAPIPricePolicyPool60Margin), preview.PricePolicy)
+			require.Equal(t, string(ZTAPIPricePolicyPoolOfficial80), preview.PricePolicy)
 			for dimension, want := range test.sale {
 				got := decimal.RequireFromString(preview.SaleUSD[dimension])
 				require.Truef(t, got.Equal(decimal.RequireFromString(want)), "%s: got %s want %s", dimension, got, want)
@@ -192,7 +218,7 @@ func TestZTAPIFableOpusPoolPricingRejectsUnlistedPoolModel(t *testing.T) {
 	source := validZTAPIPriceSourceForTest()
 	source.SourceModel = "claude-sonnet-5"
 	source.ResourceType = "pool"
-	source.PricePolicy = string(ZTAPIPricePolicyPool60Margin)
+	source.PricePolicy = string(ZTAPIPricePolicyPoolOfficial80)
 	require.Error(t, ValidateZTAPIModelPriceSource(&source))
 }
 

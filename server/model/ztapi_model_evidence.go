@@ -129,7 +129,7 @@ var (
 )
 
 func CalculateZTAPISalePrice(cost decimal.Decimal) decimal.Decimal {
-	price, _ := CalculateZTAPISalePriceForPolicy(cost, ZTAPIPricePolicyEnterprise40Margin)
+	price, _ := CalculateZTAPISalePriceForPolicy(cost, ZTAPIPricePolicyEnterprise20Margin)
 	return price
 }
 
@@ -224,6 +224,9 @@ func ValidateZTAPIModelPriceSource(source *ZTAPIModelPriceSource) error {
 			return err
 		}
 		source.MediaPriceContractJSON = canonical
+		if err := validateZTAPIMediaPriceContractPolicy(source); err != nil {
+			return err
+		}
 	}
 	source.Currency = strings.ToUpper(strings.TrimSpace(source.Currency))
 	if source.Currency != "USD" && source.Currency != "CNY" {
@@ -269,7 +272,8 @@ func ValidateZTAPIModelPriceSource(source *ZTAPIModelPriceSource) error {
 			return errors.New("CNY price source requires a positive CNY-per-USD rate")
 		}
 	}
-	if ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicyPool60Margin {
+	if ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicyPool60Margin ||
+		ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicyPoolOfficial80 {
 		if err := validateZTAPIPoolPriceSource(source, dimensions, values); err != nil {
 			return err
 		}
@@ -292,6 +296,7 @@ func BuildZTAPIModelPricePreview(source *ZTAPIModelPriceSource) (*ZTAPIModelPric
 		preview.CNYPerUSD = rate.StringFixed(10)
 	}
 	values := ztapiPriceSourceValues(source)
+	poolOfficial, _, poolOfficialOK := ztapiPoolOfficialPriceContractFromManifest(ztapiQuotation, source.SourceModel)
 	for _, dimension := range dimensions {
 		cost := decimal.RequireFromString(strings.TrimSpace(values[dimension]))
 		if source.Currency == "CNY" {
@@ -300,7 +305,19 @@ func BuildZTAPIModelPricePreview(source *ZTAPIModelPriceSource) (*ZTAPIModelPric
 			cost = cost.Round(10)
 		}
 		preview.CostUSD[dimension] = cost.StringFixed(10)
-		sale, _ := CalculateZTAPISalePriceForPolicy(cost, ZTAPIPricePolicy(source.PricePolicy))
+		var sale decimal.Decimal
+		if ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicyPoolOfficial80 {
+			if !poolOfficialOK {
+				return nil, errors.New("pool official price contract is unavailable")
+			}
+			official, found := poolOfficial[dimension]
+			if !found {
+				return nil, fmt.Errorf("pool official price is missing for billing dimension %s", dimension)
+			}
+			sale, _ = CalculateZTAPIPoolSalePrice(official)
+		} else {
+			sale, _ = CalculateZTAPISalePriceForPolicy(cost, ZTAPIPricePolicy(source.PricePolicy))
+		}
 		preview.SaleUSD[dimension] = sale.StringFixed(10)
 	}
 	preview.InputCostUSDPerMillion = preview.CostUSD[ZTAPIBillingDimensionInputTokens]

@@ -516,6 +516,34 @@ test('guarded deployment completes and cleans an ordinary-user production journe
   assert.ok(internalUnauthorized >= 0 && internalUnauthorized < postcheck);
 });
 
+test('guarded deployment atomically applies the approved commercial pricing policy', () => {
+  const source = readFileSync(workflowPath, 'utf8');
+
+  assert.match(source, /published_pricing_count=/);
+  assert.match(source, /\/api\/models\/ztapi\/reprice-commercial-v2/);
+  assert.match(source, /\{confirm:true\}/);
+  assert.match(
+    source,
+    /\.data\.imported \+ \.data\.unchanged\) == \$expected/,
+    'the migration must account for every published model',
+  );
+  assert.match(source, /\.data\.republished == \.data\.imported/);
+  assert.match(source, /write_receipt commercial_pricing_v2/);
+  assert.match(source, /require_receipt commercial_pricing_v2/);
+
+  assert.match(source, /resource_type:"pool"[\s\S]{0,120}price_policy:"pool_official_80"/);
+  assert.match(source, /input_per_million:"1\.65"/);
+  assert.match(source, /output_per_million:"9\.90"/);
+  assert.match(source, /input_sale_usd_per_million == "4\.0000000000"/);
+  assert.match(source, /output_sale_usd_per_million == "24\.0000000000"/);
+
+  assert.match(source, /price_policy:"enterprise_20_margin"/);
+  assert.match(source, /input_sale_usd_per_million == "0\.3075000000"/);
+  assert.match(source, /output_sale_usd_per_million == "2\.5625000000"/);
+  assert.doesNotMatch(source, /price_policy:"enterprise_40_margin"/);
+  assert.doesNotMatch(source, /0\.4100000000|3\.4166666667/);
+});
+
 test('guarded deployment proves public registration and leaves it enabled', () => {
   const source = readFileSync(workflowPath, 'utf8');
 
