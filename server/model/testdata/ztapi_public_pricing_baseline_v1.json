@@ -1,0 +1,1466 @@
+[
+  {
+    "model_name": "zt-claude-haiku-4.5",
+    "quota_type": 0,
+    "model_ratio": 0.65,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 5,
+    "cache_ratio": 0.1,
+    "create_cache_ratio": 1.25,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 5,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-98",
+    "provider_family": "anthropic",
+    "vendor_name": "Claude",
+    "input_price_per_million": "1.3000000000",
+    "output_price_per_million": "6.5000000000",
+    "billing_dimensions": [
+      "cache_read",
+      "cache_write",
+      "cache_write_1h",
+      "cache_write_5m",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "0.1300000000",
+      "cache_write": "1.6250000000",
+      "cache_write_1h": "2.6000000000",
+      "cache_write_5m": "1.6250000000",
+      "input_tokens": "1.3000000000",
+      "output_tokens": "6.5000000000"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-claude-opus-4.6",
+    "quota_type": 0,
+    "model_ratio": 3.25,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 5,
+    "cache_ratio": 0.1,
+    "create_cache_ratio": 1.25,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 5,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-134",
+    "provider_family": "anthropic",
+    "vendor_name": "Claude",
+    "input_price_per_million": "6.5000000000",
+    "output_price_per_million": "32.5000000000",
+    "billing_dimensions": [
+      "cache_read",
+      "cache_write",
+      "cache_write_1h",
+      "cache_write_5m",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "0.6500000000",
+      "cache_write": "8.1250000000",
+      "cache_write_1h": "13.0000000000",
+      "cache_write_5m": "8.1250000000",
+      "input_tokens": "6.5000000000",
+      "output_tokens": "32.5000000000"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-claude-opus-4.7",
+    "quota_type": 0,
+    "model_ratio": 3.25,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 5,
+    "cache_ratio": 0.1,
+    "create_cache_ratio": 1.25,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 5,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-135",
+    "provider_family": "anthropic",
+    "vendor_name": "Claude",
+    "input_price_per_million": "6.5000000000",
+    "output_price_per_million": "32.5000000000",
+    "billing_dimensions": [
+      "cache_read",
+      "cache_write",
+      "cache_write_1h",
+      "cache_write_5m",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "0.6500000000",
+      "cache_write": "8.1250000000",
+      "cache_write_1h": "13.0000000000",
+      "cache_write_5m": "8.1250000000",
+      "input_tokens": "6.5000000000",
+      "output_tokens": "32.5000000000"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-claude-opus-4.8",
+    "quota_type": 0,
+    "model_ratio": 3.25,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 5,
+    "cache_ratio": 0.1,
+    "create_cache_ratio": 1.25,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 5,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-136",
+    "provider_family": "anthropic",
+    "vendor_name": "Claude",
+    "input_price_per_million": "6.5000000000",
+    "output_price_per_million": "32.5000000000",
+    "billing_dimensions": [
+      "cache_read",
+      "cache_write",
+      "cache_write_1h",
+      "cache_write_5m",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "0.6500000000",
+      "cache_write": "8.1250000000",
+      "cache_write_1h": "13.0000000000",
+      "cache_write_5m": "8.1250000000",
+      "input_tokens": "6.5000000000",
+      "output_tokens": "32.5000000000"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-claude-sonnet-4.6",
+    "quota_type": 0,
+    "model_ratio": 1.95,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 5,
+    "cache_ratio": 0.1,
+    "create_cache_ratio": 1.25,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 5,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-102",
+    "provider_family": "anthropic",
+    "vendor_name": "Claude",
+    "input_price_per_million": "3.9000000000",
+    "output_price_per_million": "19.5000000000",
+    "billing_dimensions": [
+      "cache_read",
+      "cache_write",
+      "cache_write_1h",
+      "cache_write_5m",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "0.3900000000",
+      "cache_write": "4.8750000000",
+      "cache_write_1h": "7.8000000000",
+      "cache_write_5m": "4.8750000000",
+      "input_tokens": "3.9000000000",
+      "output_tokens": "19.5000000000"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-claude-sonnet-5",
+    "quota_type": 0,
+    "model_ratio": 1.3,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 5,
+    "cache_ratio": 0.1,
+    "create_cache_ratio": 1.25,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 5,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-137",
+    "provider_family": "anthropic",
+    "vendor_name": "Claude",
+    "input_price_per_million": "2.6000000000",
+    "output_price_per_million": "13.0000000000",
+    "billing_dimensions": [
+      "cache_read",
+      "cache_write",
+      "cache_write_1h",
+      "cache_write_5m",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "0.2600000000",
+      "cache_write": "3.2500000000",
+      "cache_write_1h": "5.2000000000",
+      "cache_write_5m": "3.2500000000",
+      "input_tokens": "2.6000000000",
+      "output_tokens": "13.0000000000"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-deepseek-v4-flash",
+    "quota_type": 0,
+    "model_ratio": 0.362676055,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 3.000000013786408,
+    "cache_ratio": 0.03333333,
+    "create_cache_ratio": 1,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 3,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-124",
+    "provider_family": "deepseek",
+    "vendor_name": "DeepSeek",
+    "input_price_per_million": "0.7253521127",
+    "output_price_per_million": "2.1760563380",
+    "billing_dimensions": [
+      "cache_read",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "0.0241784038",
+      "input_tokens": "0.7253521127",
+      "output_tokens": "2.1760563380"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-deepseek-v4-pro",
+    "quota_type": 0,
+    "model_ratio": 1.08802817,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 2.9999999954045307,
+    "cache_ratio": 0.03333333,
+    "create_cache_ratio": 1,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 3,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-125",
+    "provider_family": "deepseek",
+    "vendor_name": "DeepSeek",
+    "input_price_per_million": "2.1760563380",
+    "output_price_per_million": "6.5281690142",
+    "billing_dimensions": [
+      "cache_read",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "0.0725352113",
+      "input_tokens": "2.1760563380",
+      "output_tokens": "6.5281690142"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-glm-4.7",
+    "quota_type": 0,
+    "model_ratio": 0.362676055,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 4.000000013786408,
+    "cache_ratio": 0.2,
+    "create_cache_ratio": 1,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 4,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-126",
+    "provider_family": "glm",
+    "vendor_name": "GLM",
+    "input_price_per_million": "0.7253521127",
+    "output_price_per_million": "2.9014084507",
+    "billing_dimensions": [
+      "cache_read",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "0.1450704225",
+      "input_tokens": "0.7253521127",
+      "output_tokens": "2.9014084507"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-glm-5",
+    "quota_type": 0,
+    "model_ratio": 0.544014085,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 3.6666666636030203,
+    "cache_ratio": 0.25,
+    "create_cache_ratio": 1,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 3.6667,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-127",
+    "provider_family": "glm",
+    "vendor_name": "GLM",
+    "input_price_per_million": "1.0880281690",
+    "output_price_per_million": "3.9894366197",
+    "billing_dimensions": [
+      "cache_read",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "0.2720070423",
+      "input_tokens": "1.0880281690",
+      "output_tokens": "3.9894366197"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-glm-5.1",
+    "quota_type": 0,
+    "model_ratio": 0.725352115,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 3.499999989660194,
+    "cache_ratio": 0.25,
+    "create_cache_ratio": 1,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 3.5,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-128",
+    "provider_family": "glm",
+    "vendor_name": "GLM",
+    "input_price_per_million": "1.4507042253",
+    "output_price_per_million": "5.0774647887",
+    "billing_dimensions": [
+      "cache_read",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "0.3626760563",
+      "input_tokens": "1.4507042253",
+      "output_tokens": "5.0774647887"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-glm-5.2",
+    "quota_type": 0,
+    "model_ratio": 0.725352115,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 3.499999989660194,
+    "cache_ratio": 0.25,
+    "create_cache_ratio": 1,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 3.5,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-171",
+    "provider_family": "glm",
+    "vendor_name": "GLM",
+    "input_price_per_million": "1.4507042253",
+    "output_price_per_million": "5.0774647887",
+    "billing_dimensions": [
+      "cache_read",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "0.3626760563",
+      "input_tokens": "1.4507042253",
+      "output_tokens": "5.0774647887"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-gemini-3-flash-preview",
+    "quota_type": 0,
+    "model_ratio": 0.341666665,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 6.000000029268293,
+    "cache_ratio": 0.1,
+    "create_cache_ratio": 1,
+    "image_ratio": 1,
+    "audio_ratio": 2,
+    "audio_completion_ratio": 6,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-152",
+    "provider_family": "google",
+    "vendor_name": "Gemini",
+    "input_price_per_million": "0.6833333333",
+    "output_price_per_million": "4.1000000000",
+    "billing_dimensions": [
+      "audio",
+      "cache_read",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "audio": "1.3666666667",
+      "cache_read": "0.0683333333",
+      "input_tokens": "0.6833333333",
+      "output_tokens": "4.1000000000"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-gemini-3.1-flash-lite-preview",
+    "quota_type": 0,
+    "model_ratio": 0.170833335,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 5.999999941463415,
+    "cache_ratio": 0.12,
+    "create_cache_ratio": 1,
+    "image_ratio": 1,
+    "audio_ratio": 2,
+    "audio_completion_ratio": 6,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-153",
+    "provider_family": "google",
+    "vendor_name": "Gemini",
+    "input_price_per_million": "0.3416666667",
+    "output_price_per_million": "2.0500000000",
+    "billing_dimensions": [
+      "audio",
+      "cache_read",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "audio": "0.6833333333",
+      "cache_read": "0.0410000000",
+      "input_tokens": "0.3416666667",
+      "output_tokens": "2.0500000000"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-gemini-3.1-pro-preview",
+    "quota_type": 0,
+    "model_ratio": 2.733333335,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 4.499999997256097,
+    "cache_ratio": 0.1,
+    "create_cache_ratio": 1,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 4.5,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-154",
+    "provider_family": "google",
+    "vendor_name": "Gemini",
+    "input_price_per_million": "5.4666666667",
+    "output_price_per_million": "24.6000000000",
+    "billing_dimensions": [
+      "cache_read",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "0.5466666667",
+      "input_tokens": "5.4666666667",
+      "output_tokens": "24.6000000000"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-gemini-3.5-flash",
+    "quota_type": 0,
+    "model_ratio": 1.025,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 6.000000000000001,
+    "cache_ratio": 0.1,
+    "create_cache_ratio": 1,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 6,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-155",
+    "provider_family": "google",
+    "vendor_name": "Gemini",
+    "input_price_per_million": "2.0500000000",
+    "output_price_per_million": "12.3000000000",
+    "billing_dimensions": [
+      "cache_read",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "0.2050000000",
+      "input_tokens": "2.0500000000",
+      "output_tokens": "12.3000000000"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-kimi-k2.5",
+    "quota_type": 0,
+    "model_ratio": 0.353004695,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 5.25000000354103,
+    "cache_ratio": 0.175,
+    "create_cache_ratio": 1,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 5.25,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-130",
+    "provider_family": "moonshot",
+    "vendor_name": "Kimi",
+    "input_price_per_million": "0.7060093897",
+    "output_price_per_million": "3.7065492958",
+    "billing_dimensions": [
+      "cache_read",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "0.1235516432",
+      "input_tokens": "0.7060093897",
+      "output_tokens": "3.7065492958"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-kimi-k2.6",
+    "quota_type": 0,
+    "model_ratio": 0.57363263,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 4.1538461471412464,
+    "cache_ratio": 0.16923077,
+    "create_cache_ratio": 1,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 4.1538,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-90",
+    "provider_family": "moonshot",
+    "vendor_name": "Kimi",
+    "input_price_per_million": "1.1472652582",
+    "output_price_per_million": "4.7655633803",
+    "billing_dimensions": [
+      "cache_read",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "0.1941525822",
+      "input_tokens": "1.1472652582",
+      "output_tokens": "4.7655633803"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-kimi-k2.7-code",
+    "quota_type": 0,
+    "model_ratio": 0.57363263,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 4.1538461471412464,
+    "cache_ratio": 0.2,
+    "create_cache_ratio": 1,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 4.1538,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-149",
+    "provider_family": "moonshot",
+    "vendor_name": "Kimi",
+    "input_price_per_million": "1.1472652582",
+    "output_price_per_million": "4.7655633803",
+    "billing_dimensions": [
+      "cache_read",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "0.2294530517",
+      "input_tokens": "1.1472652582",
+      "output_tokens": "4.7655633803"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-gpt-4.1",
+    "quota_type": 0,
+    "model_ratio": 1.3,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 4,
+    "cache_ratio": 0.25,
+    "create_cache_ratio": 1,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 4,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-138",
+    "provider_family": "openai",
+    "vendor_name": "OpenAI",
+    "input_price_per_million": "2.6000000000",
+    "output_price_per_million": "10.4000000000",
+    "billing_dimensions": [
+      "cache_read",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "0.6500000000",
+      "input_tokens": "2.6000000000",
+      "output_tokens": "10.4000000000"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-gpt-4.1-mini",
+    "quota_type": 0,
+    "model_ratio": 0.26,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 4,
+    "cache_ratio": 0.25,
+    "create_cache_ratio": 1,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 4,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-139",
+    "provider_family": "openai",
+    "vendor_name": "OpenAI",
+    "input_price_per_million": "0.5200000000",
+    "output_price_per_million": "2.0800000000",
+    "billing_dimensions": [
+      "cache_read",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "0.1300000000",
+      "input_tokens": "0.5200000000",
+      "output_tokens": "2.0800000000"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-gpt-4.1-nano",
+    "quota_type": 0,
+    "model_ratio": 0.065,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 4,
+    "cache_ratio": 0.3,
+    "create_cache_ratio": 1,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 4,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-140",
+    "provider_family": "openai",
+    "vendor_name": "OpenAI",
+    "input_price_per_million": "0.1300000000",
+    "output_price_per_million": "0.5200000000",
+    "billing_dimensions": [
+      "cache_read",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "0.0390000000",
+      "input_tokens": "0.1300000000",
+      "output_tokens": "0.5200000000"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-gpt-4o-mini-2024-07-18",
+    "quota_type": 0,
+    "model_ratio": 0.0975,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 4,
+    "cache_ratio": 0.5,
+    "create_cache_ratio": 1,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 4,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-141",
+    "provider_family": "openai",
+    "vendor_name": "OpenAI",
+    "input_price_per_million": "0.1950000000",
+    "output_price_per_million": "0.7800000000",
+    "billing_dimensions": [
+      "cache_read",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "0.0975000000",
+      "input_tokens": "0.1950000000",
+      "output_tokens": "0.7800000000"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-gpt-5-mini",
+    "quota_type": 0,
+    "model_ratio": 0.1625,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 8,
+    "cache_ratio": 0.12,
+    "create_cache_ratio": 1,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 8,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-111",
+    "provider_family": "openai",
+    "vendor_name": "OpenAI",
+    "input_price_per_million": "0.3250000000",
+    "output_price_per_million": "2.6000000000",
+    "billing_dimensions": [
+      "cache_read",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "0.0390000000",
+      "input_tokens": "0.3250000000",
+      "output_tokens": "2.6000000000"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-gpt-5-nano",
+    "quota_type": 0,
+    "model_ratio": 0.0325,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 8,
+    "cache_ratio": 0.2,
+    "create_cache_ratio": 1,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 8,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-142",
+    "provider_family": "openai",
+    "vendor_name": "OpenAI",
+    "input_price_per_million": "0.0650000000",
+    "output_price_per_million": "0.5200000000",
+    "billing_dimensions": [
+      "cache_read",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "0.0130000000",
+      "input_tokens": "0.0650000000",
+      "output_tokens": "0.5200000000"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-gpt-5.4",
+    "quota_type": 0,
+    "model_ratio": 3.25,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 4.5,
+    "cache_ratio": 0.1,
+    "create_cache_ratio": 1,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 4.5,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-113",
+    "provider_family": "openai",
+    "vendor_name": "OpenAI",
+    "input_price_per_million": "6.5000000000",
+    "output_price_per_million": "29.2500000000",
+    "billing_dimensions": [
+      "cache_read",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "0.6500000000",
+      "input_tokens": "6.5000000000",
+      "output_tokens": "29.2500000000"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-gpt-5.4-mini",
+    "quota_type": 0,
+    "model_ratio": 0.4875,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 6,
+    "cache_ratio": 0.1,
+    "create_cache_ratio": 1,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 6,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-143",
+    "provider_family": "openai",
+    "vendor_name": "OpenAI",
+    "input_price_per_million": "0.9750000000",
+    "output_price_per_million": "5.8500000000",
+    "billing_dimensions": [
+      "cache_read",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "0.0975000000",
+      "input_tokens": "0.9750000000",
+      "output_tokens": "5.8500000000"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-gpt-5.4-nano",
+    "quota_type": 0,
+    "model_ratio": 0.13,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 6.25,
+    "cache_ratio": 0.1,
+    "create_cache_ratio": 1,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 6.25,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-144",
+    "provider_family": "openai",
+    "vendor_name": "OpenAI",
+    "input_price_per_million": "0.2600000000",
+    "output_price_per_million": "1.6250000000",
+    "billing_dimensions": [
+      "cache_read",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "0.0260000000",
+      "input_tokens": "0.2600000000",
+      "output_tokens": "1.6250000000"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-gpt-5.4-pro",
+    "quota_type": 0,
+    "model_ratio": 39,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 4.5,
+    "cache_ratio": 1,
+    "create_cache_ratio": 1,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 4.5,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai-response"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-145",
+    "provider_family": "openai",
+    "vendor_name": "OpenAI",
+    "input_price_per_million": "78.0000000000",
+    "output_price_per_million": "351.0000000000",
+    "billing_dimensions": [
+      "cache_read",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "78.0000000000",
+      "input_tokens": "78.0000000000",
+      "output_tokens": "351.0000000000"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-gpt-5.5",
+    "quota_type": 0,
+    "model_ratio": 6.5,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 4.5,
+    "cache_ratio": 0.1,
+    "create_cache_ratio": 1,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 4.5,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-159",
+    "provider_family": "openai",
+    "vendor_name": "OpenAI",
+    "input_price_per_million": "13.0000000000",
+    "output_price_per_million": "58.5000000000",
+    "billing_dimensions": [
+      "cache_read",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "1.3000000000",
+      "input_tokens": "13.0000000000",
+      "output_tokens": "58.5000000000"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-gpt-5.6-luna",
+    "quota_type": 0,
+    "model_ratio": 0.26,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 4.5,
+    "cache_ratio": 0.1,
+    "create_cache_ratio": 1.25,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 4.5,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-118",
+    "provider_family": "openai",
+    "vendor_name": "OpenAI",
+    "input_price_per_million": "0.5200000000",
+    "output_price_per_million": "2.3400000000",
+    "billing_dimensions": [
+      "cache_read",
+      "cache_write",
+      "cache_write_5m",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "0.0520000000",
+      "cache_write": "0.6500000000",
+      "cache_write_5m": "0.6500000000",
+      "input_tokens": "0.5200000000",
+      "output_tokens": "2.3400000000"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-gpt-5.6-sol",
+    "quota_type": 0,
+    "model_ratio": 6.5,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 4.5,
+    "cache_ratio": 0.1,
+    "create_cache_ratio": 1.25,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 4.5,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-157",
+    "provider_family": "openai",
+    "vendor_name": "OpenAI",
+    "input_price_per_million": "13.0000000000",
+    "output_price_per_million": "58.5000000000",
+    "billing_dimensions": [
+      "cache_read",
+      "cache_write",
+      "cache_write_5m",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "1.3000000000",
+      "cache_write": "16.2500000000",
+      "cache_write_5m": "16.2500000000",
+      "input_tokens": "13.0000000000",
+      "output_tokens": "58.5000000000"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-gpt-5.6-terra",
+    "quota_type": 0,
+    "model_ratio": 2.6,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 4.5,
+    "cache_ratio": 0.1,
+    "create_cache_ratio": 1.25,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 4.5,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-172",
+    "provider_family": "openai",
+    "vendor_name": "OpenAI",
+    "input_price_per_million": "5.2000000000",
+    "output_price_per_million": "23.4000000000",
+    "billing_dimensions": [
+      "cache_read",
+      "cache_write",
+      "cache_write_5m",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "0.5200000000",
+      "cache_write": "6.5000000000",
+      "cache_write_5m": "6.5000000000",
+      "input_tokens": "5.2000000000",
+      "output_tokens": "23.4000000000"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-text-embedding-3-small",
+    "quota_type": 0,
+    "model_ratio": 0.013,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 0,
+    "cache_ratio": 0.1,
+    "create_cache_ratio": 1.25,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 1,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "embeddings"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-161",
+    "provider_family": "openai",
+    "vendor_name": "OpenAI",
+    "input_price_per_million": "0.0260000000",
+    "output_price_per_million": "0.0000000000",
+    "billing_dimensions": [
+      "input_tokens"
+    ],
+    "sale_usd": {
+      "input_tokens": "0.0260000000"
+    },
+    "billing_rule": "input_only"
+  },
+  {
+    "model_name": "zt-text-embedding-ada-002",
+    "quota_type": 0,
+    "model_ratio": 0.065,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 0,
+    "cache_ratio": 0.1,
+    "create_cache_ratio": 1.25,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 1,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "embeddings"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-160",
+    "provider_family": "openai",
+    "vendor_name": "OpenAI",
+    "input_price_per_million": "0.1300000000",
+    "output_price_per_million": "0.0000000000",
+    "billing_dimensions": [
+      "input_tokens"
+    ],
+    "sale_usd": {
+      "input_tokens": "0.1300000000"
+    },
+    "billing_rule": "input_only"
+  },
+  {
+    "model_name": "zt-qwen-3.5-flash",
+    "quota_type": 0,
+    "model_ratio": 0.108802815,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 10.000000183818774,
+    "cache_ratio": 0.5,
+    "create_cache_ratio": 1.25,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 10,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-150",
+    "provider_family": "qwen",
+    "vendor_name": "Qwen",
+    "input_price_per_million": "0.2176056338",
+    "output_price_per_million": "2.1760563380",
+    "billing_dimensions": [
+      "cache_read",
+      "cache_write",
+      "cache_write_5m",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "0.1088028168",
+      "cache_write": "0.2720070423",
+      "cache_write_5m": "0.2720070423",
+      "input_tokens": "0.2176056338",
+      "output_tokens": "2.1760563380"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-qwen-3.7-max",
+    "quota_type": 0,
+    "model_ratio": 0.725352115,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 2.9999999931067967,
+    "cache_ratio": 0.2,
+    "create_cache_ratio": 1.25,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 3,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-131",
+    "provider_family": "qwen",
+    "vendor_name": "Qwen",
+    "input_price_per_million": "1.4507042253",
+    "output_price_per_million": "4.3521126760",
+    "billing_dimensions": [
+      "cache_read",
+      "cache_write",
+      "cache_write_5m",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "0.2901408450",
+      "cache_write": "1.8133802817",
+      "cache_write_5m": "1.8133802817",
+      "input_tokens": "1.4507042253",
+      "output_tokens": "4.3521126760"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-qwen-3.7-plus",
+    "quota_type": 0,
+    "model_ratio": 0.544014085,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 4,
+    "cache_ratio": 0.2,
+    "create_cache_ratio": 1.25,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 4,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-132",
+    "provider_family": "qwen",
+    "vendor_name": "Qwen",
+    "input_price_per_million": "1.0880281690",
+    "output_price_per_million": "4.3521126760",
+    "billing_dimensions": [
+      "cache_read",
+      "cache_write",
+      "cache_write_5m",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "0.2176056338",
+      "cache_write": "1.3600352113",
+      "cache_write_5m": "1.3600352113",
+      "input_tokens": "1.0880281690",
+      "output_tokens": "4.3521126760"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-qwen-3.8-max",
+    "quota_type": 0,
+    "model_ratio": 1.08802817,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 2.9999999954045307,
+    "cache_ratio": 0.125,
+    "create_cache_ratio": 1.25,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 3,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-133",
+    "provider_family": "qwen",
+    "vendor_name": "Qwen",
+    "input_price_per_million": "2.1760563380",
+    "output_price_per_million": "6.5281690142",
+    "billing_dimensions": [
+      "cache_read",
+      "cache_write",
+      "cache_write_5m",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "0.2720070423",
+      "cache_write": "2.7200704225",
+      "cache_write_5m": "2.7200704225",
+      "input_tokens": "2.1760563380",
+      "output_tokens": "6.5281690142"
+    },
+    "billing_rule": "multi_dimension"
+  }
+]
