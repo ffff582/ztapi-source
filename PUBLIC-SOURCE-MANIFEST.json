@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "ec67b71990b59b9ab800849bcd8576a92d90bedc",
+  "release_commit": "2cac5daf55c16be9e4324f60f4ed02f15623027b",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-ec67b71990b59b9ab800849bcd8576a92d90bedc",
+  "source_tag": "production-2cac5daf55c16be9e4324f60f4ed02f15623027b",
   "files": [
     {
       "path": ".dockerignore",
@@ -16,8 +16,8 @@
     },
     {
       "path": ".github/workflows/ztapi-deploy.yml",
-      "sha256": "3efe46931e48aa91abeaf44402a6c9801ed5bf3a089b3e89810f27d18344d814",
-      "size": 129366
+      "sha256": "be9f5d114d1496a24cefa1965f4229634dc89b23a7565bcba5b6fd215c898ed9",
+      "size": 129548
     },
     {
       "path": ".github/workflows/ztapi-edge-diagnostic.yml",
@@ -46,7 +46,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "e3fe8624f605017de06e65fc3c7a59f8597f6ad1f0c06d4b76a35bcb42563d2d",
+      "sha256": "11e27d65bc9b45c0f4030d6f6465923e137a8fb5f19c7a27bcfc4912076f8844",
       "size": 695
     },
     {
@@ -61,7 +61,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "ccd218a85a260f2cca17cae4a747c161ae6a12402b8212f3b447b1d8f6c5427c",
+      "sha256": "9385638f9f38909c8717bd4cbed0d9a446c191ff07be7f5a54f009ce3c852ea0",
       "size": 942
     },
     {
@@ -2151,8 +2151,8 @@
     },
     {
       "path": "server/model/testdata/ztapi_public_pricing_baseline_v1.json",
-      "sha256": "176a925a50e729714653b9a010289a5bff64ae7edcaa4bb3b01411785f9610bb",
-      "size": 35502
+      "sha256": "02554b4ae5674586aeadab82c22ef607ba30ca93335e62f95a00aea762360997",
+      "size": 37444
     },
     {
       "path": "server/model/token.go",
@@ -2401,7 +2401,7 @@
     },
     {
       "path": "server/model/ztapi_media_pricing_test.go",
-      "sha256": "4ccb2afd53ae7d19b6f964e4b090129767f6778f0f448aa7d4e80c1bbe807423",
+      "sha256": "914fe1481bb1efb8a721557b844071a2d2d3e647f509cec3554c42ea7dfebd73",
       "size": 35803
     },
     {
@@ -8976,8 +8976,8 @@
     },
     {
       "path": "tests/contracts/final-commercial-delivery.test.mjs",
-      "sha256": "116e9467aa5f0cac8ddb74bcd6e2d75e82c28101dec96403adc7bf59d6cdc54e",
-      "size": 31796
+      "sha256": "965f344fa97e619c5dbdaf7547de98eedb9bab4afa6f6d0da7060bd1e5e5b689",
+      "size": 32089
     },
     {
       "path": "tests/contracts/financial-ci-workflow.test.mjs",
@@ -8996,8 +8996,8 @@
     },
     {
       "path": "tests/contracts/media-delivery-baseline.test.mjs",
-      "sha256": "9fa619a01351dce4a0ea5a7267d129c92d59b28cc76dbc74e2323cd09dfdfe9c",
-      "size": 3658
+      "sha256": "8347663a93d5f71020e48eed2990dced5291dcf77d85d0fdc07fb87a12b0fab3",
+      "size": 3840
     },
     {
       "path": "tests/contracts/production-alert-workflow.test.mjs",

@@ -11,7 +11,7 @@ const pricingFixturePath =
 const quotationSHA256 =
   '3671d5d915b222177b584b19c777712f4f9ebbd6497c514cf8fd580115cb56b3';
 const pricingFixtureSHA256 =
-  '176a925a50e729714653b9a010289a5bff64ae7edcaa4bb3b01411785f9610bb';
+  '02554b4ae5674586aeadab82c22ef607ba30ca93335e62f95a00aea762360997';
 const mediaLabels = [
   'gp-image-2',
   'gm25-fl-IMAGE',
@@ -32,17 +32,23 @@ test('freezes the quotation and current publication baseline', () => {
   assert.equal(manifest.sha256, quotationSHA256);
   assert.equal(manifest.entries.length, 46);
   assert.equal(sha256(pricingFixtureRaw), pricingFixtureSHA256);
-  assert.equal(pricingFixture.length, 37);
+  assert.equal(pricingFixture.length, 39);
   assert.equal(
     new Set(pricingFixture.map(({ pricing_version: version }) => version)).size,
-    37,
+    39,
+  );
+  assert.deepEqual(
+    ['zt-glm-5.2', 'zt-gpt-5.6-terra'].filter(
+      (modelName) => !pricingFixture.some(({ model_name: current }) => current === modelName),
+    ),
+    [],
   );
   const publishedModalities = pricingFixture.map((record) =>
     manifest.entries.find(
       ({ public_name: publicName }) => publicName === record.model_name,
     )?.modality,
   );
-  assert.equal(publishedModalities.filter((value) => value === 'text').length, 35);
+  assert.equal(publishedModalities.filter((value) => value === 'text').length, 37);
   assert.equal(
     publishedModalities.filter((value) => value === 'embedding').length,
     2,

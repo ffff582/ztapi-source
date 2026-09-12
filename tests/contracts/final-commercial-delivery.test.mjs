@@ -390,6 +390,13 @@ test('acceptance compares both catalogs to the frozen exact publication set', ()
   assert.match(source, /cmp -s "\$expected_published_models" "\$openai_catalog_models"/);
   assert.match(source, /comm -12 "\$expected_unpublished_models" "\$user_catalog_models"/);
   assert.match(source, /comm -12 "\$expected_unpublished_models" "\$openai_catalog_models"/);
+  assert.match(source, /expected_pricing_model_count=/);
+  assert.match(source, /expected_public_model_count=/);
+  assert.doesNotMatch(
+    source,
+    /wc -l < "\$expected_published_models"[^\n]*\)" = (?:39|41)/,
+    'publication count must be derived from the frozen pricing baseline',
+  );
   assert.doesNotMatch(source, /\(\.catalog \| length\) == 37/);
 });
 
@@ -643,7 +650,7 @@ test('exact catalog comparison rejects an unpublished substitution at the same c
     .map((entry) => `zt-${entry.label.toLowerCase().replaceAll(' ', '-')}`)
     .sort();
 
-	assert.equal(expected.length, 39);
+	assert.equal(expected.length, 41);
   assert.ok(unpublished.length > 0, 'quotation must retain blocked media candidates');
 
   const swapped = [...expected.slice(1), unpublished[0]];

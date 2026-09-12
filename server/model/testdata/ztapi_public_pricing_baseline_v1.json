@@ -432,6 +432,42 @@
     "billing_rule": "multi_dimension"
   },
   {
+    "model_name": "zt-glm-5.2",
+    "quota_type": 0,
+    "model_ratio": 0.725352115,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 3.499999989660194,
+    "cache_ratio": 0.25,
+    "create_cache_ratio": 1,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 3.5,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-171",
+    "provider_family": "glm",
+    "vendor_name": "GLM",
+    "input_price_per_million": "1.4507042253",
+    "output_price_per_million": "5.0774647887",
+    "billing_dimensions": [
+      "cache_read",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "0.3626760563",
+      "input_tokens": "1.4507042253",
+      "output_tokens": "5.0774647887"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
     "model_name": "zt-gemini-3-flash-preview",
     "quota_type": 0,
     "model_ratio": 0.341666665,
@@ -1160,6 +1196,46 @@
       "cache_write_5m": "16.2500000000",
       "input_tokens": "13.0000000000",
       "output_tokens": "58.5000000000"
+    },
+    "billing_rule": "multi_dimension"
+  },
+  {
+    "model_name": "zt-gpt-5.6-terra",
+    "quota_type": 0,
+    "model_ratio": 2.6,
+    "model_price": 0,
+    "owner_by": "",
+    "completion_ratio": 4.5,
+    "cache_ratio": 0.1,
+    "create_cache_ratio": 1.25,
+    "image_ratio": 1,
+    "audio_ratio": 1,
+    "audio_completion_ratio": 4.5,
+    "enable_groups": [
+      "default"
+    ],
+    "supported_endpoint_types": [
+      "openai"
+    ],
+    "billing_mode": "ratio",
+    "pricing_version": "ztapi-snapshot-172",
+    "provider_family": "openai",
+    "vendor_name": "OpenAI",
+    "input_price_per_million": "5.2000000000",
+    "output_price_per_million": "23.4000000000",
+    "billing_dimensions": [
+      "cache_read",
+      "cache_write",
+      "cache_write_5m",
+      "input_tokens",
+      "output_tokens"
+    ],
+    "sale_usd": {
+      "cache_read": "0.5200000000",
+      "cache_write": "6.5000000000",
+      "cache_write_5m": "6.5000000000",
+      "input_tokens": "5.2000000000",
+      "output_tokens": "23.4000000000"
     },
     "billing_rule": "multi_dimension"
   },

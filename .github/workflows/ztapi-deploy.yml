@@ -1870,7 +1870,9 @@ jobs:
             echo 'zt-gp-image-2'
             echo 'zt-gemini-2.5-flash-image'
           } | LC_ALL=C sort -u > "$expected_published_models"
-          test "$(wc -l < "$expected_published_models" | tr -d ' ')" = 39
+          expected_pricing_model_count=$(jq -er 'length' "$pricing_baseline")
+          expected_public_model_count=$((expected_pricing_model_count + 2))
+          test "$(wc -l < "$expected_published_models" | tr -d ' ')" = "$expected_public_model_count"
           jq -r '[.entries[] | select(.status == "mapping_pending" and .public_name != "") | .public_name] | unique[]' \
             "$quotation" | LC_ALL=C sort > "$expected_unpublished_models"
           test "$(jq -r '.entries | length' "$quotation")" = 46

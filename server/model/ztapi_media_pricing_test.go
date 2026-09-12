@@ -630,7 +630,7 @@ func TestZTAPIExistingPublicationSnapshotsUnchanged(t *testing.T) {
 	require.NoError(t, err)
 	var fixtureRecords []Pricing
 	require.NoError(t, common.Unmarshal(fixtureRaw, &fixtureRecords))
-	require.Len(t, fixtureRecords, 37)
+	require.Len(t, fixtureRecords, 39)
 
 	entries, err := ZTAPIQuotationEntries()
 	require.NoError(t, err)
@@ -674,7 +674,7 @@ func TestZTAPIExistingPublicationSnapshotsUnchanged(t *testing.T) {
 			InputPriceDisplay: record.InputPricePerMillion, OutputPriceDisplay: record.OutputPricePerMillion,
 		})
 	}
-	require.Equal(t, 35, textCount)
+	require.Equal(t, 37, textCount)
 	require.Equal(t, 2, embeddingCount)
 	sort.Slice(publications, func(i, j int) bool {
 		if publications[i].ProviderFamily == publications[j].ProviderFamily {
@@ -700,6 +700,6 @@ func TestZTAPIExistingPublicationSnapshotsUnchanged(t *testing.T) {
 	encoded, err := common.Marshal(tuples)
 	require.NoError(t, err)
 	digest := fmt.Sprintf("%x", sha256.Sum256(encoded))
-	const frozen = "08e6a4e80dcf808dc8bacab9ccb8680b2b5ac0ca1efd7033ffb222a7178dac38"
+	const frozen = "e1164b1db818e814ae1398836680972fe132956531cbf9db42e17b8844f2b6ab"
 	require.Equal(t, frozen, digest)
 }
