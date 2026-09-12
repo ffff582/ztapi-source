@@ -1,0 +1,62 @@
+name: ZTAPI edge diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Install SSH tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sshpass
+
+      - name: Verify server host key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -T 60 -t ed25519 123.254.104.157 > ~/.ssh/ztapi_known_hosts
+          ssh-keygen -lf ~/.ssh/ztapi_known_hosts |
+            grep 'SHA256:gz3lHpV1JPP65SRRGQjRv76qlMA3xsoHGZ1ak9n979g'
+
+      - name: Inspect edge networking
+        env:
+          KUAIYI_SSH_PASSWORD: ${{ secrets.KUAIYI_SSH_PASSWORD }}
+        run: |
+          set -euo pipefail
+          export SSHPASS="$KUAIYI_SSH_PASSWORD"
+          sshpass -e ssh \
+            -o UserKnownHostsFile="$HOME/.ssh/ztapi_known_hosts" \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=60 \
+            root@123.254.104.157 "bash -s" <<'REMOTE'
+          set -u
+          echo '=== compose ==='
+          cd /opt/ztapi
+          docker compose \
+            --env-file .env \
+            -f deploy/docker/docker-compose.prod.yml \
+            ps
+          echo '=== listeners ==='
+          ss -lntp
+          echo '=== forwarding ==='
+          sysctl net.ipv4.ip_forward
+          echo '=== ufw ==='
+          ufw status verbose || true
+          echo '=== iptables input ==='
+          iptables -S INPUT || true
+          echo '=== iptables forward ==='
+          iptables -S FORWARD || true
+          echo '=== docker user ==='
+          iptables -S DOCKER-USER || true
+          echo '=== docker nat ==='
+          iptables -t nat -S DOCKER || true
+          echo '=== local status ==='
+          curl --fail --silent --show-error \
+            --resolve ztapi.vip:443:127.0.0.1 \
+            https://ztapi.vip/api/status
+          REMOTE
