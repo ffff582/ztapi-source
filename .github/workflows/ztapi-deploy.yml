@@ -1852,9 +1852,20 @@ jobs:
           echo "$acceptance_catalog" | jq -e '
             .success == true
             and (all(.catalog[];
-              (.input_price_per_million | tonumber) >= 0
-              and (.output_price_per_million | tonumber) >= 0
-              and (.pricing_version | length) > 0))
+              (.pricing_version | length) > 0
+              and (if (.modality == "image" or .modality == "video") then
+                .input_price_per_million == ""
+                and .output_price_per_million == ""
+                and (.billing_dimensions | length) == 0
+                and (.sale_usd | length) == 0
+                and .billing_rule == "multi_dimension"
+                and (.supported_options | type) == "object"
+                and (.pricing_rules | length) > 0
+                and (.billing_unit | length) > 0
+              else
+                (.input_price_per_million | tonumber) >= 0
+                and (.output_price_per_million | tonumber) >= 0
+              end)))
             and ([.catalog[] | select(.modality == "image" and (.model_name == "zt-gp-image-2" or .model_name == "zt-gemini-2.5-flash-image"))] | length) == 2
             and ([.catalog[] | select(.modality == "video")] | length) == 0
             and ([.. | objects | keys[] | select(. == "source_model" or . == "channel_id")] | length) == 0' >/dev/null

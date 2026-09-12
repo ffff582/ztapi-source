@@ -439,6 +439,11 @@ func buildZTAPIPublicCatalog(publications []ZTAPIRuntimePublication) []ZTAPIPubl
 			if item.SupportedOptions == nil || len(item.PricingRules) == 0 || item.BillingUnit == "" {
 				continue
 			}
+			item.InputPricePerMillion = ""
+			item.OutputPricePerMillion = ""
+			item.BillingDimensions = []string{}
+			item.SaleUSD = map[string]string{}
+			item.BillingRule = "multi_dimension"
 		}
 		items = append(items, item)
 	}

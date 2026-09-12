@@ -661,6 +661,25 @@ test('exact catalog comparison rejects an unpublished substitution at the same c
   );
 });
 
+test('deployment validates media and token catalog shapes separately', () => {
+  const source = read(workflowPath);
+  const catalogCheck = source.slice(
+    source.indexOf('acceptance_catalog=$(curl'),
+    source.indexOf('acceptance_catalog_count=', source.indexOf('acceptance_catalog=$(curl')),
+  );
+
+  assert.match(catalogCheck, /if \(\.modality == "image" or \.modality == "video"\) then/);
+  assert.match(catalogCheck, /\.input_price_per_million == ""/);
+  assert.match(catalogCheck, /\.output_price_per_million == ""/);
+  assert.match(catalogCheck, /\(\.billing_dimensions \| length\) == 0/);
+  assert.match(catalogCheck, /\(\.sale_usd \| length\) == 0/);
+  assert.match(catalogCheck, /\.billing_rule == "multi_dimension"/);
+  assert.match(catalogCheck, /\(\.supported_options \| type\) == "object"/);
+  assert.match(catalogCheck, /\(\.pricing_rules \| length\) > 0/);
+  assert.match(catalogCheck, /\(\.billing_unit \| length\) > 0/);
+  assert.match(catalogCheck, /else[\s\S]*\(\.input_price_per_million \| tonumber\) >= 0/);
+});
+
 test('anonymous history evidence records parents, tag target, and private SHA absence', () => {
   const source = read(workflowPath);
   const gateStart = source.indexOf('- name: Verify corresponding public source');

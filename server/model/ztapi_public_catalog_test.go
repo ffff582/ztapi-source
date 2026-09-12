@@ -46,12 +46,22 @@ func TestZTAPIPublicCatalogMediaExposesOnlyPublicCapabilitiesAndSalePricing(t *t
 			ProviderFamily: ZTAPIProviderOpenAI, Protocol: ZTAPIProtocolOpenAICompatible,
 			Groups: []string{"default"}, SnapshotID: 101, MediaPriceContractJSON: imagePrice,
 			ImageProtocolContract: &imageProtocol,
+			InputPriceDisplay:     "6.5000000000", OutputPriceDisplay: "39.0000000000",
+			BillingDimensions: []string{ZTAPIBillingDimensionInputTokens, ZTAPIBillingDimensionOutputTokens},
+			SaleUSD: map[string]string{
+				ZTAPIBillingDimensionInputTokens: "6.5000000000", ZTAPIBillingDimensionOutputTokens: "39.0000000000",
+			},
 		},
 		{
 			Modality: ZTAPIModalityVideo, SourceModel: "seedance-2.0", PublicName: "zt-seedance-2",
 			ProviderFamily: ZTAPIProviderSeedance, Protocol: ZTAPIProtocolOpenAICompatible,
 			Groups: []string{"default"}, SnapshotID: 102, MediaPriceContractJSON: videoPrice,
 			VideoProtocolContract: &videoProtocol,
+			InputPriceDisplay:     "8.0000000000", OutputPriceDisplay: "30.0000000000",
+			BillingDimensions: []string{ZTAPIBillingDimensionInputTokens, ZTAPIBillingDimensionOutputTokens},
+			SaleUSD: map[string]string{
+				ZTAPIBillingDimensionInputTokens: "8.0000000000", ZTAPIBillingDimensionOutputTokens: "30.0000000000",
+			},
 		},
 	})
 	require.Len(t, items, 2)
@@ -67,6 +77,11 @@ func TestZTAPIPublicCatalogMediaExposesOnlyPublicCapabilitiesAndSalePricing(t *t
 	require.Equal(t, "usd_per_million_tokens", imageItem.BillingUnit)
 	require.Len(t, imageItem.PricingRules, 5)
 	require.Equal(t, map[string]string{"image_output": "39.00"}, imageItem.PricingRules[2].SaleUSD)
+	require.Empty(t, imageItem.InputPricePerMillion)
+	require.Empty(t, imageItem.OutputPricePerMillion)
+	require.Empty(t, imageItem.BillingDimensions)
+	require.Empty(t, imageItem.SaleUSD)
+	require.Equal(t, "multi_dimension", imageItem.BillingRule)
 
 	videoItem := items[1]
 	require.Equal(t, ZTAPIModalityVideo, videoItem.Modality)
@@ -77,6 +92,11 @@ func TestZTAPIPublicCatalogMediaExposesOnlyPublicCapabilitiesAndSalePricing(t *t
 	require.False(t, *videoItem.SupportedOptions.SupportsVideoInput)
 	require.Equal(t, "usd_per_million_tokens", videoItem.BillingUnit)
 	require.Len(t, videoItem.PricingRules, 8)
+	require.Empty(t, videoItem.InputPricePerMillion)
+	require.Empty(t, videoItem.OutputPricePerMillion)
+	require.Empty(t, videoItem.BillingDimensions)
+	require.Empty(t, videoItem.SaleUSD)
+	require.Equal(t, "multi_dimension", videoItem.BillingRule)
 
 	encoded, err := json.Marshal(items)
 	require.NoError(t, err)
