@@ -101,6 +101,7 @@ test('exports a buildable public snapshot from an exact commit', privateHistoryO
       'deploy/nginx/ztapi.conf',
       '.github/workflows/ztapi-financial-ci.yml',
       '.github/workflows/ztapi-deploy.yml',
+      '.gitattributes',
       'README.md',
       'MODIFICATIONS.md',
       'SOURCE-OFFER.md',
@@ -124,6 +125,12 @@ test('exports a buildable public snapshot from an exact commit', privateHistoryO
     assert.match(offer, new RegExp(commit));
     assert.match(offer, new RegExp(`production-${commit}`));
     assert.match(offer, /github\.com\/ffff582\/ztapi-source/);
+
+    assert.equal(
+      readFileSync(path.join(output, '.gitattributes'), 'utf8'),
+      '* -text\n',
+      'public snapshots must disable Git line-ending normalization so manifest hashes remain exact',
+    );
 
     const readme = readFileSync(path.join(output, 'README.md'), 'utf8');
     const stubIndex = readme.indexOf('mkdir -p web/default/dist web/classic/dist');

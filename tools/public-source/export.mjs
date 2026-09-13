@@ -164,6 +164,10 @@ try {
     copyFileSync(path.join(output, 'server', name), path.join(output, name));
   }
 
+  // The manifest authenticates exact bytes. Prevent a publishing checkout from
+  // rewriting mixed or CRLF line endings before those bytes reach Git.
+  writeFileSync(path.join(output, '.gitattributes'), '* -text\n', 'utf8');
+
   const manifest = createManifest(output, args.commit, sourceTag);
   writeFileSync(
     path.join(output, 'PUBLIC-SOURCE-MANIFEST.json'),

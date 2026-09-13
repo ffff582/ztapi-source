@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "5dab6218610ff1ddd65d0f109bd34115a2f68b68",
+  "release_commit": "ab364ab6d468db2a6a1e47f398aa2849d37a7d4f",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-5dab6218610ff1ddd65d0f109bd34115a2f68b68",
+  "source_tag": "production-ab364ab6d468db2a6a1e47f398aa2849d37a7d4f",
   "files": [
     {
       "path": ".dockerignore",
@@ -13,6 +13,11 @@
       "path": ".env.example",
       "sha256": "7da9110a9ce43e0b4c0051cd9ebec61834ed7527cc304f51ef2d0993b616a3db",
       "size": 401
+    },
+    {
+      "path": ".gitattributes",
+      "sha256": "705fd4d6451a31d36b3df7de96f83f30ac976c9b4a6d1e51671d8e2f33e2d0da",
+      "size": 8
     },
     {
       "path": ".github/workflows/ztapi-deploy.yml",
@@ -46,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "a9e922b0f0dc83dc9ca5af383e58fdbf8de3f7b74c69ead1e32d5c59248c895b",
+      "sha256": "37495be79fc8af4583bc0550e7be06147a122db145fd0bd7363930ebe843c1b9",
       "size": 695
     },
     {
@@ -61,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "1c3f4dd290794df72e81086baf13c97833b3d0c06020e47462c2a2c8f4c5e17a",
+      "sha256": "dd08d9ebe01ecb26c0bef714c02dec09cd6b5af263682c89dae5ee91b03b9a0b",
       "size": 942
     },
     {
@@ -9136,8 +9141,8 @@
     },
     {
       "path": "tests/contracts/public-source-export.test.mjs",
-      "sha256": "2e671bd0d2f75b96d4d9d3a15b32282ae282121f948a965eff8e91303684a344",
-      "size": 9669
+      "sha256": "54bee3bc60ed78a811d213f72ef6e3e3fcffcfc5d711046e41377126489190f6",
+      "size": 9904
     },
     {
       "path": "tests/contracts/usdt-replay-ci.test.mjs",
@@ -9211,8 +9216,8 @@
     },
     {
       "path": "tools/public-source/export.mjs",
-      "sha256": "e6bcf2dec6ee3c47760c6e0f57c96d10282ec562490e092c6b1da36be9fb31e1",
-      "size": 4851
+      "sha256": "d333d9d90374e499e8b4788385a115be777682647f739802cc8181a817f8ea82",
+      "size": 5079
     },
     {
       "path": "tools/public-source/policy.mjs",
