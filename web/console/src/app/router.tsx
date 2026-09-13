@@ -12,6 +12,7 @@ import { UsageGuidePage } from '../features/guide/UsageGuidePage';
 import { KeysPage } from '../features/keys/KeysPage';
 import { LogsPage } from '../features/logs/LogsPage';
 import { ModelsPage } from '../features/models/ModelsPage';
+import { PlaygroundPage } from '../features/playground/PlaygroundPage';
 import { SupportedModelsPage } from '../features/models/SupportedModelsPage';
 import { WalletPage } from '../features/wallet/WalletPage';
 
@@ -64,6 +65,10 @@ const routes: RouteObject[] = [
       {
         path: 'models',
         element: <SupportedModelsPage />,
+      },
+      {
+        path: 'test',
+        element: <PlaygroundPage />,
       },
       {
         path: 'guide',

@@ -50,6 +50,8 @@ describe('DashboardPage usage log', () => {
               billed_amount: 0.004321,
             }],
           });
+        case '/api/token/':
+          return success({ page: 1, page_size: 1, total: 1, items: [] });
         case '/api/user/self':
           return success({ quota: 5_000_000 });
         case '/api/status':
@@ -71,5 +73,12 @@ describe('DashboardPage usage log', () => {
     expect(usageLog.getByText('2 秒')).toBeVisible();
     expect(usageLog.getByText('req-usage-clear-001')).toBeVisible();
     expect(usageLog.getByText('成功')).toBeVisible();
+
+    const checklist = screen.getByRole('region', { name: '首次接入进度' });
+    expect(within(checklist).getByText('2 / 4 已完成')).toBeVisible();
+    expect(within(checklist).getByText('创建 API Key').closest('li')).toHaveAttribute('data-complete', 'true');
+    expect(within(checklist).getByText('选择并测试模型').closest('li')).toHaveAttribute('data-complete', 'false');
+    expect(within(checklist).getByText('发送首个请求').closest('li')).toHaveAttribute('data-complete', 'true');
+    expect(within(checklist).getByText('查看费用日志').closest('li')).toHaveAttribute('data-complete', 'false');
   });
 });

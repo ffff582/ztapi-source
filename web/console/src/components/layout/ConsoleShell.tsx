@@ -4,6 +4,7 @@ import {
   KeyRound,
   LayoutDashboard,
   LogOut,
+  PlayCircle,
   ScrollText,
   WalletCards,
 } from 'lucide-react';
@@ -29,6 +30,12 @@ const consoleNavigation = [
     to: '/console/models',
     label: '模型支持',
     icon: Boxes,
+    end: false,
+  },
+  {
+    to: '/console/test',
+    label: '在线测试',
+    icon: PlayCircle,
     end: false,
   },
   {

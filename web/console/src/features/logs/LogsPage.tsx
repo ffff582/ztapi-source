@@ -1,12 +1,14 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { apiClient } from '../../api/client';
+import { type FormEvent, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { apiClient, getAuthSession } from '../../api/client';
 import {
   parseUserLogPage,
   type PageEnvelope,
   type UserLogItem,
 } from '../../api/contracts';
 import { localeTag, useLocale } from '../../i18n/locale';
+import { markLogsVisited } from '../onboarding/onboarding';
 
 function formatTimestamp(timestamp: number, locale: 'zh-CN' | 'en') {
   return new Intl.DateTimeFormat(localeTag(locale), {
@@ -30,17 +32,57 @@ function publicStatus(status: UserLogItem['status'], t: (key: string) => string)
   return t('记录');
 }
 
+type ResultFilter = 'all' | 'success' | 'error';
+
+interface LogFilters {
+  model: string;
+  result: ResultFilter;
+  requestID: string;
+}
+
+function publicErrorCode(code: string | undefined, t: (key: string) => string) {
+  switch (code) {
+    case 'model_not_found':
+    case 'model_unavailable':
+      return t('模型暂不可用');
+    case 'insufficient_quota':
+    case 'insufficient_balance':
+      return t('余额不足');
+    case 'rate_limit_exceeded':
+    case 'rate_limited':
+      return t('请求频率过高');
+    case 'empty_output':
+      return t('模型未返回有效内容');
+    default:
+      return code === undefined ? '' : t('请求失败，请根据请求 ID 联系支持');
+  }
+}
+
 export function LogsPage() {
   const { locale, t } = useLocale();
+  const [searchParams] = useSearchParams();
+  const initialRequestID = searchParams.get('request_id') ?? '';
   const [pageNumber, setPageNumber] = useState(1);
+  const [draftFilters, setDraftFilters] = useState<LogFilters>({ model: '', result: 'all', requestID: initialRequestID });
+  const [filters, setFilters] = useState<LogFilters>({ model: '', result: 'all', requestID: initialRequestID });
   const [page, setPage] = useState<PageEnvelope<UserLogItem> | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
 
   useEffect(() => {
+    const userID = getAuthSession()?.user.id;
+    if (userID !== undefined) markLogsVisited(userID);
+  }, []);
+
+  useEffect(() => {
     let active = true;
     setStatus('loading');
+    const query = new URLSearchParams({ p: String(pageNumber), page_size: '50' });
+    if (filters.model.trim() !== '') query.set('model_name', filters.model.trim());
+    if (filters.requestID.trim() !== '') query.set('request_id', filters.requestID.trim());
+    if (filters.result === 'success') query.set('type', '2');
+    if (filters.result === 'error') query.set('type', '5');
     void apiClient
-      .get<unknown>(`/log/self?p=${pageNumber}&page_size=50`)
+      .get<unknown>(`/log/self?${query.toString()}`)
       .then(parseUserLogPage)
       .then((value) => {
         if (active) {
@@ -56,7 +98,20 @@ export function LogsPage() {
     return () => {
       active = false;
     };
-  }, [pageNumber]);
+  }, [filters, pageNumber]);
+
+  function applyFilters(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPageNumber(1);
+    setFilters(draftFilters);
+  }
+
+  function clearFilters() {
+    const cleared: LogFilters = { model: '', result: 'all', requestID: '' };
+    setDraftFilters(cleared);
+    setFilters(cleared);
+    setPageNumber(1);
+  }
 
   const pageCount =
     page === null ? 1 : Math.max(1, Math.ceil(page.total / page.page_size));
@@ -70,6 +125,43 @@ export function LogsPage() {
         </div>
         <p>{t('仅展示 ZTAPI 请求标识、公开模型、用量与计费结果。')}</p>
       </header>
+
+      <form className="log-filters" aria-label={t('日志筛选')} onSubmit={applyFilters}>
+        <div className="console-field">
+          <label htmlFor="log-model-filter">{t('模型筛选')}</label>
+          <input
+            id="log-model-filter"
+            placeholder={t('输入完整模型 ID')}
+            value={draftFilters.model}
+            onChange={(event) => setDraftFilters((current) => ({ ...current, model: event.target.value }))}
+          />
+        </div>
+        <div className="console-field">
+          <label htmlFor="log-result-filter">{t('结果筛选')}</label>
+          <select
+            id="log-result-filter"
+            value={draftFilters.result}
+            onChange={(event) => setDraftFilters((current) => ({ ...current, result: event.target.value as ResultFilter }))}
+          >
+            <option value="all">{t('全部结果')}</option>
+            <option value="success">{t('仅成功')}</option>
+            <option value="error">{t('仅失败')}</option>
+          </select>
+        </div>
+        <div className="console-field">
+          <label htmlFor="log-request-filter">{t('请求 ID 筛选')}</label>
+          <input
+            id="log-request-filter"
+            placeholder="req_..."
+            value={draftFilters.requestID}
+            onChange={(event) => setDraftFilters((current) => ({ ...current, requestID: event.target.value }))}
+          />
+        </div>
+        <div className="log-filters__actions">
+          <button className="console-button console-button--primary" type="submit">{t('筛选')}</button>
+          <button className="console-button console-button--secondary" type="button" onClick={clearFilters}>{t('清除筛选')}</button>
+        </div>
+      </form>
 
       {status === 'loading' && (
         <div className="console-state" aria-live="polite" aria-busy="true">
@@ -135,6 +227,9 @@ export function LogsPage() {
                         </span>
                         <span>{t('{{count}} 秒', { count: log.latency })}</span>
                       </div>
+                      {log.status === 'error' && publicErrorCode(log.error_code, t) !== '' && (
+                        <small className="usage-log-error">{publicErrorCode(log.error_code, t)}</small>
+                      )}
                     </td>
                     <td>
                       <span aria-hidden="true" className="usage-log-cell-label">{t('调用时间')}</span>

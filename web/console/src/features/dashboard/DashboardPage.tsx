@@ -1,4 +1,4 @@
-import { Activity, Gauge, ListChecks } from 'lucide-react';
+import { Activity, Check, Circle, Gauge, ListChecks } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { apiClient } from '../../api/client';
 import { AccountBalance } from '../wallet/AccountBalance';
@@ -6,17 +6,20 @@ import {
   parseAuthUser,
   parseUserLogPage,
   parseUserLogStat,
+  parseUserTokenPage,
   type AuthUser,
   type UserLogItem,
   type UserLogStat,
 } from '../../api/contracts';
 import { localeTag, useLocale } from '../../i18n/locale';
+import { onboardingProgress } from '../onboarding/onboarding';
 
 interface DashboardData {
   user: AuthUser;
   stat: UserLogStat;
   logs: UserLogItem[];
   total: number;
+  tokenCount: number;
 }
 
 function formatTimestamp(timestamp: number, locale: 'zh-CN' | 'en') {
@@ -40,15 +43,18 @@ export function DashboardPage() {
       apiClient.get<unknown>('/auth/session'),
       apiClient.get<unknown>('/log/self/stat'),
       apiClient.get<unknown>('/log/self?p=1&page_size=5'),
+      apiClient.get<unknown>('/token/?p=1&page_size=1'),
     ])
-      .then(([userValue, statValue, logValue]) => {
+      .then(([userValue, statValue, logValue, tokenValue]) => {
         const page = parseUserLogPage(logValue);
+        const tokenPage = parseUserTokenPage(tokenValue);
         if (active) {
           setData({
             user: parseAuthUser(userValue),
             stat: parseUserLogStat(statValue),
             logs: page.items,
             total: page.total,
+            tokenCount: tokenPage.total,
           });
           setStatus('ready');
         }
@@ -87,6 +93,44 @@ export function DashboardPage() {
       )}
       {status === 'ready' && data !== null && (
         <>
+          {(() => {
+            const progress = onboardingProgress(data.user.id, {
+              tokenCount: data.tokenCount,
+              requestCount: data.total,
+            });
+            const steps = [
+              { complete: progress.hasKey, label: '创建 API Key', href: '/console/keys' },
+              { complete: progress.selectedModel, label: '选择并测试模型', href: '/console/test' },
+              { complete: progress.sentRequest, label: '发送首个请求', href: '/console/test' },
+              { complete: progress.reviewedLogs, label: '查看费用日志', href: '/console/logs' },
+            ];
+            return (
+              <section className="onboarding-progress" aria-label={t('首次接入进度')}>
+                <div className="onboarding-progress__header">
+                  <div>
+                    <p className="console-eyebrow">{t('快速开始')}</p>
+                    <h2>{t('完成首次接入')}</h2>
+                  </div>
+                  <strong>{t('{{count}} / 4 已完成', { count: progress.completed })}</strong>
+                </div>
+                <ol>
+                  {steps.map((step, index) => (
+                    <li data-complete={String(step.complete)} key={step.label}>
+                      <span className="onboarding-progress__icon">
+                        {step.complete ? <Check aria-hidden="true" size={16} /> : <Circle aria-hidden="true" size={16} />}
+                      </span>
+                      <div>
+                        <small>{String(index + 1).padStart(2, '0')}</small>
+                        <strong>{t(step.label)}</strong>
+                      </div>
+                      <a href={step.href}>{step.complete ? t('查看') : t('去完成')}</a>
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            );
+          })()}
+
           <section className="dashboard-summary" aria-label={t('实时统计')}>
             <div className="summary-metric">
               <Activity aria-hidden="true" size={20} />

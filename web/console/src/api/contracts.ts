@@ -158,6 +158,7 @@ export interface UserLogItem {
   completion_tokens: number;
   total_tokens: number;
   billed_amount: number;
+  error_code?: string;
 }
 
 export interface UserLogStat {
@@ -842,6 +843,7 @@ function parseUserLogItem(value: unknown): UserLogItem {
     'completion_tokens',
     'total_tokens',
     'billed_amount',
+    'error_code',
   ]);
   if (Object.keys(value).some((key) => !allowedKeys.has(key))) {
     throw new DataContractError();
@@ -856,7 +858,12 @@ function parseUserLogItem(value: unknown): UserLogItem {
     !nonNegativeInteger(value.completion_tokens) ||
     !nonNegativeInteger(value.total_tokens) ||
     !finiteNumber(value.billed_amount) ||
-    value.billed_amount < 0
+    value.billed_amount < 0 ||
+    (value.error_code !== undefined &&
+      (typeof value.error_code !== 'string' ||
+        value.error_code.length === 0 ||
+        value.error_code.length > 64 ||
+        !/^[A-Za-z0-9_.:-]+$/.test(value.error_code)))
   ) {
     throw new DataContractError();
   }
@@ -871,6 +878,7 @@ function parseUserLogItem(value: unknown): UserLogItem {
     completion_tokens: value.completion_tokens,
     total_tokens: value.total_tokens,
     billed_amount: value.billed_amount,
+    ...(value.error_code === undefined ? {} : { error_code: value.error_code }),
   };
 }
 

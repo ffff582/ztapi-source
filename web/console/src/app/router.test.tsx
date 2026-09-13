@@ -107,6 +107,7 @@ it.each([
   ['/console', '使用概览'],
   ['/console/keys', 'API 密钥'],
   ['/console/models', '模型支持'],
+  ['/console/test', '在线 API 测试'],
   ['/console/guide', '使用说明'],
   ['/console/logs', '使用日志'],
   ['/console/wallet', '余额充值'],
@@ -127,6 +128,10 @@ it('keeps model support and integration guidance in the console navigation', asy
   expect(screen.getByRole('link', { name: '使用说明' })).toHaveAttribute(
     'href',
     '/console/guide',
+  );
+  expect(screen.getByRole('link', { name: '在线测试' })).toHaveAttribute(
+    'href',
+    '/console/test',
   );
 });
 
@@ -184,6 +189,7 @@ it.each([
   ['/console', true, 'Usage overview'],
   ['/console/keys', true, 'API keys'],
   ['/console/models', true, 'Supported models'],
+  ['/console/test', true, 'Online API test'],
   ['/console/guide', true, 'Integration guide'],
   ['/console/logs', true, 'Usage logs'],
   ['/console/wallet', true, 'Add funds'],

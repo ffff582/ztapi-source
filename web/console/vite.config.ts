@@ -7,7 +7,7 @@ export default defineConfig(({ mode }) => {
   const apiOrigin =
     environment.ZTAPI_API_ORIGIN || 'http://localhost:3000';
   const proxy = Object.fromEntries(
-    ['/api', '/v1', '/v1beta'].map((route) => [
+    ['/api', '/pg', '/v1', '/v1beta'].map((route) => [
       route,
       {
         target: apiOrigin,

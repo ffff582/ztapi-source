@@ -451,6 +451,16 @@ export function SupportedModelsPage() {
                           </td>
                           <td className="model-support-actions" role="cell">
                             <span aria-hidden="true" className="model-cell-label">{t('操作')}</span>
+                            {item.modality === 'text' && item.supported_endpoint_types.includes('openai') && (
+                              <a
+                                aria-label={t('测试 {{name}}', { name: item.model_name })}
+                                className="console-icon-action model-test"
+                                href={`/console/test?model=${encodeURIComponent(item.model_name)}`}
+                                title={t('立即测试')}
+                              >
+                                {t('测试')}
+                              </a>
+                            )}
                             <button
                               aria-label={t('复制 {{name}}', { name: item.model_name })}
                               className="console-icon-action model-copy"

@@ -34,7 +34,7 @@ function authResponse() {
   });
 }
 
-function logItem(requestID: string, timestamp: number) {
+function logItem(requestID: string, timestamp: number, overrides: Record<string, unknown> = {}) {
   return {
     timestamp,
     request_id: requestID,
@@ -45,6 +45,7 @@ function logItem(requestID: string, timestamp: number) {
     completion_tokens: 48,
     total_tokens: 168,
     billed_amount: 0.004321,
+    ...overrides,
   };
 }
 
@@ -118,5 +119,57 @@ describe('ZTAPI user log pagination', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '上一页' }));
     expect(await screen.findByText('ztapi-newest')).toBeVisible();
+  });
+
+  it('filters by model, result, and request ID while explaining safe error codes', async () => {
+    let resolveAuth!: (response: Response) => void;
+    const pendingAuth = new Promise<Response>((resolve) => { resolveAuth = resolve; });
+    const requestedUrls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith('/api/auth/refresh')) return pendingAuth;
+      if (url.includes('/api/log/self?')) {
+        requestedUrls.push(url);
+        return jsonResponse({
+          success: true,
+          data: {
+            page: 1,
+            page_size: 50,
+            total: 1,
+            items: [logItem('req-filter-1', 1_900_000_100, {
+              model: 'zt-gpt-5.6-sol',
+              status: 'error',
+              error_code: 'model_unavailable',
+              billed_amount: 0,
+            })],
+          },
+        });
+      }
+      return jsonResponse({ success: false, message: 'unexpected' }, 500);
+    }));
+    render(
+      <AppProviders>
+        <RouterProvider router={createZTAPIRouter(['/console/logs?request_id=req-filter-1'])} />
+      </AppProviders>,
+    );
+    await act(async () => { resolveAuth(authResponse()); await pendingAuth; });
+
+    expect(await screen.findByText('模型暂不可用')).toBeVisible();
+    expect(screen.getByLabelText('请求 ID 筛选')).toHaveValue('req-filter-1');
+    expect(requestedUrls[0]).toContain('request_id=req-filter-1');
+
+    fireEvent.change(screen.getByLabelText('模型筛选'), { target: { value: 'zt-gpt-5.6-sol' } });
+    fireEvent.change(screen.getByLabelText('结果筛选'), { target: { value: 'error' } });
+    fireEvent.click(screen.getByRole('button', { name: '筛选' }));
+
+    await act(async () => undefined);
+    const filtered = requestedUrls.at(-1) ?? '';
+    expect(filtered).toContain('model_name=zt-gpt-5.6-sol');
+    expect(filtered).toContain('request_id=req-filter-1');
+    expect(filtered).toContain('type=5');
+
+    fireEvent.click(screen.getByRole('button', { name: '清除筛选' }));
+    await act(async () => undefined);
+    expect(requestedUrls.at(-1)).not.toMatch(/model_name|request_id|type=5/);
   });
 });

@@ -1,7 +1,10 @@
 package controller
 
 import (
+	"encoding/json"
+	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -18,7 +21,10 @@ type ztAPIUserLog struct {
 	CompletionTokens int     `json:"completion_tokens"`
 	TotalTokens      int     `json:"total_tokens"`
 	BilledAmount     float64 `json:"billed_amount"`
+	ErrorCode        string  `json:"error_code,omitempty"`
 }
+
+var publicUserLogErrorCodePattern = regexp.MustCompile(`^[A-Za-z0-9_.:-]+$`)
 
 func GetZTAPIUserLogs(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
@@ -66,12 +72,29 @@ func GetZTAPIUserLogs(c *gin.Context) {
 			CompletionTokens: entry.CompletionTokens,
 			TotalTokens:      entry.PromptTokens + entry.CompletionTokens,
 			BilledAmount:     billedAmount,
+			ErrorCode:        publicUserLogErrorCode(entry.Other),
 		})
 	}
 
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(items)
 	common.ApiSuccess(c, pageInfo)
+}
+
+func publicUserLogErrorCode(other string) string {
+	var values map[string]any
+	if err := json.Unmarshal([]byte(other), &values); err != nil {
+		return ""
+	}
+	code, ok := values["error_code"].(string)
+	if !ok {
+		return ""
+	}
+	code = strings.TrimSpace(code)
+	if code == "" || len(code) > 64 || !publicUserLogErrorCodePattern.MatchString(code) {
+		return ""
+	}
+	return code
 }
 
 func publicUserLogStatus(logType int) string {

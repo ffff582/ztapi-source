@@ -177,6 +177,11 @@ describe('SupportedModelsPage', () => {
       '缓存读取$0.0000001 / 1M tokens',
     ]);
     expect(screen.getByText('3 个可用模型')).toBeVisible();
+    expect(within(row as HTMLElement).getByRole('link', { name: '测试 zt-gpt-5.4-mini' })).toHaveAttribute(
+      'href',
+      '/console/test?model=zt-gpt-5.4-mini',
+    );
+    expect(within(claudeRow as HTMLElement).queryByRole('link', { name: /测试/ })).not.toBeInTheDocument();
     const billingNote = screen.getByRole('note', { name: '用量与计费' });
     expect(billingNote).toHaveTextContent('计费以上游返回的实际用量为准');
     expect(billingNote).toHaveTextContent(

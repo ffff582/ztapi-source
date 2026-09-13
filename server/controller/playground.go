@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -11,6 +13,20 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+func playgroundAccessAllowed(c *gin.Context) bool {
+	return !c.GetBool("use_access_token") ||
+		common.GetContextKeyBool(c, constant.ContextKeyZTAPIJWTAuthenticated)
+}
+
+func playgroundTemporaryToken(userID int, group string) *model.Token {
+	return &model.Token{
+		UserId:         userID,
+		Name:           fmt.Sprintf("playground-%s", group),
+		Group:          group,
+		UnlimitedQuota: true,
+	}
+}
 
 func Playground(c *gin.Context) {
 	var newAPIError *types.NewAPIError
@@ -23,8 +39,7 @@ func Playground(c *gin.Context) {
 		}
 	}()
 
-	useAccessToken := c.GetBool("use_access_token")
-	if useAccessToken {
+	if !playgroundAccessAllowed(c) {
 		newAPIError = types.NewError(errors.New("暂不支持使用 access token"), types.ErrorCodeAccessDenied, types.ErrOptionWithSkipRetry())
 		return
 	}
@@ -45,11 +60,7 @@ func Playground(c *gin.Context) {
 	}
 	userCache.WriteContext(c)
 
-	tempToken := &model.Token{
-		UserId: userId,
-		Name:   fmt.Sprintf("playground-%s", relayInfo.UsingGroup),
-		Group:  relayInfo.UsingGroup,
-	}
+	tempToken := playgroundTemporaryToken(userId, relayInfo.UsingGroup)
 	_ = middleware.SetupContextForToken(c, tempToken)
 
 	Relay(c, types.RelayFormatOpenAI)

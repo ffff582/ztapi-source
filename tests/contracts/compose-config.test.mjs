@@ -46,7 +46,7 @@ test('development console proxies API and relay routes to the server', () => {
   assert.equal(compose.services.console.environment.ZTAPI_API_ORIGIN, 'http://server:3000');
   assert.match(vite, /loadEnv/);
   assert.match(vite, /ZTAPI_API_ORIGIN/);
-  for (const route of ['/api', '/v1', '/v1beta']) {
+  for (const route of ['/api', '/pg', '/v1', '/v1beta']) {
     assert.match(vite, new RegExp(`['"]${route}['"]`));
   }
 });
@@ -117,6 +117,10 @@ test('public nginx proxies customer APIs while preserving isolated acceptance ac
   assert.match(publicServer, /location = \/api\/status\s*\{[\s\S]*?proxy_pass http:\/\/server:3000;/);
   assert.doesNotMatch(publicServer, /return 503;/);
   assert.match(publicServer, /location \/api\/\s*\{[\s\S]*?proxy_pass http:\/\/server:3000;/);
+  assert.match(
+    publicServer,
+    /location \/pg\/\s*\{[\s\S]*?proxy_pass http:\/\/server:3000;[\s\S]*?proxy_set_header X-ZTAPI-Internal-Acceptance "";/,
+  );
   for (const route of ['v1', 'v1beta']) {
     assert.match(
       publicServer,
