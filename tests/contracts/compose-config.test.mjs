@@ -136,6 +136,14 @@ test('public nginx proxies customer APIs while preserving isolated acceptance ac
   assert.match(nginx, /server_name acceptance\.ztapi\.internal;/);
   assert.match(nginx, /location \/api\/\s*\{[\s\S]*?proxy_pass http:\/\/server:3000;/);
   assert.match(nginx, /location \/v1\/\s*\{[\s\S]*?proxy_pass http:\/\/server:3000;/);
+
+  const acceptanceStart = nginx.indexOf('server_name acceptance.ztapi.internal;');
+  const acceptanceEnd = nginx.indexOf('server_name admin.ztapi.vip;', acceptanceStart);
+  const acceptanceServer = nginx.slice(acceptanceStart, acceptanceEnd);
+  assert.match(
+    acceptanceServer,
+    /location \/pg\/\s*\{[\s\S]*?proxy_pass http:\/\/server:3000;[\s\S]*?proxy_set_header X-ZTAPI-Internal-Acceptance "1";/,
+  );
 });
 
 test('only the loopback acceptance listener marks internal validation traffic', () => {
