@@ -1500,6 +1500,11 @@ jobs:
           ztapi_gemini_image_model=$(echo "$gemini_image_model_list" | jq -cer \
             '.data.items | map(select(.source_model == "gemini-2.5-flash-image")) | select(length == 1) | .[0]')
           ztapi_gemini_image_model_id=$(echo "$ztapi_gemini_image_model" | jq -er '.id')
+          # An earlier deployment step may invalidate an otherwise unchanged
+          # publication. Reverify before asking the publication gate to restore it.
+          if ! echo "$ztapi_gemini_image_model" | jq -e '.published == true' >/dev/null; then
+            gemini_image_requires_acceptance=true
+          fi
           if ! echo "$ztapi_gemini_image_model" | jq -e '
               .public_name == "zt-gemini-2.5-flash-image"
               and .protocol == "openai_compatible"

@@ -595,6 +595,11 @@ test('an unchanged published Gemini image product does not block unrelated deplo
   );
   assert.match(
     rollout,
+    /if ! echo "\$ztapi_gemini_image_model" \| jq -e '\.published == true'[\s\S]*gemini_image_requires_acceptance=true[\s\S]*if \[ "\$gemini_image_requires_acceptance" = true \]; then[\s\S]*gemini_image_verification_result=/,
+    'a model unpublished by an earlier deployment step must be reverified before publication',
+  );
+  assert.match(
+    rollout,
     /if \[ "\$gemini_image_requires_acceptance" = true \]; then[\s\S]*gemini_image_verification_result=[\s\S]*models\/ztapi\/\$ztapi_gemini_image_model_id\/verify[\s\S]*fi/,
     'the paid upstream verifier must run only when first publication or configuration changes require it',
   );
