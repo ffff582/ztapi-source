@@ -74,6 +74,21 @@ const videoModel = {
   ],
 };
 
+const textModel = {
+  ...imageModel,
+  modality: 'text',
+  model_name: 'zt-claude-sonnet-5',
+  provider_family: 'anthropic',
+  provider_name: 'Claude',
+  supported_endpoint_types: ['openai'],
+  input_price_per_million: '3.00',
+  output_price_per_million: '15.00',
+  billing_dimensions: ['input_tokens', 'output_tokens'],
+  sale_usd: { input_tokens: '3.00', output_tokens: '15.00' },
+  billing_rule: 'token',
+  pricing_rules: [],
+};
+
 const adminModel = {
   id: 31,
   version: 9,
@@ -209,10 +224,10 @@ function watchBrowser(page: Page) {
   });
   page.on('pageerror', (error) => browserErrors.push(error.message));
   page.on('requestfailed', (request) => {
-    if (request.url().includes('/api/')) failedAPIs.push(request.url());
+    if (request.url().includes('/api/') || request.url().includes('/pg/')) failedAPIs.push(request.url());
   });
   page.on('response', (response) => {
-    if (response.url().includes('/api/') && response.status() >= 400) {
+    if ((response.url().includes('/api/') || response.url().includes('/pg/')) && response.status() >= 400) {
       failedAPIs.push(`${response.status()} ${response.url()}`);
     }
   });
@@ -220,6 +235,24 @@ function watchBrowser(page: Page) {
 }
 
 async function installConsoleAPI(page: Page, unexpected: string[]) {
+  await page.route('**/pg/**', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/pg/chat/completions') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        headers: { 'X-Request-ID': 'req-browser-usage-001' },
+        body: JSON.stringify({
+          id: 'chatcmpl-browser-001',
+          choices: [{ message: { content: '在线测试连接正常。' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 120, completion_tokens: 48, total_tokens: 168 },
+        }),
+      });
+      return;
+    }
+    unexpected.push(`${route.request().method()} ${url.pathname}${url.search}`);
+    await route.fulfill({ status: 418, json: { success: false } });
+  });
   await page.route('**/api/**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -231,8 +264,8 @@ async function installConsoleAPI(page: Page, unexpected: string[]) {
       await route.fulfill({
         json: {
           success: true,
-          data: [imageModel.model_name, videoModel.model_name],
-          catalog: [imageModel, videoModel],
+          data: [textModel.model_name, imageModel.model_name, videoModel.model_name],
+          catalog: [textModel, imageModel, videoModel],
         },
       });
       return;
@@ -262,6 +295,10 @@ async function installConsoleAPI(page: Page, unexpected: string[]) {
           billed_amount: 0.004321,
         }],
       });
+      return;
+    }
+    if (url.pathname === '/api/token/') {
+      await fulfill(route, { page: 1, page_size: 1, total: 1, items: [] });
       return;
     }
     if (url.pathname === '/api/status') {
@@ -381,7 +418,7 @@ test('user media catalog, guide and wallet remain usable without data exposure',
   await page.goto('/console/models');
   await expect(page.getByRole('heading', { level: 1, name: '模型支持' })).toBeVisible();
   const categoryTabs = page.getByRole('tablist', { name: '模型分类' });
-  await expect(categoryTabs.getByRole('tab')).toHaveText(['全部', 'OpenAI', '图片模型', '视频模型']);
+  await expect(categoryTabs.getByRole('tab')).toHaveText(['全部', 'OpenAI', 'Claude', '图片模型', '视频模型']);
   await categoryTabs.getByRole('tab', { name: '图片模型' }).click();
   await expect(page.getByText('zt-image-pro')).toBeVisible();
   await expect(page.getByText('zt-video-pro')).not.toBeVisible();
@@ -400,6 +437,16 @@ test('user media catalog, guide and wallet remain usable without data exposure',
     path: `test-results/visual/media-models-${testInfo.project.name}.png`,
     fullPage: true,
   });
+
+  await page.goto('/console/test?model=zt-claude-sonnet-5');
+  await expect(page.getByRole('heading', { level: 1, name: '在线 API 测试' })).toBeVisible();
+  await expect(page.getByLabel('测试模型')).toHaveValue('zt-claude-sonnet-5');
+  await page.getByRole('button', { name: '发送测试请求' }).click();
+  await expect(page.getByText('在线测试连接正常。')).toBeVisible();
+  await expect(page.getByText('$0.004321')).toBeVisible();
+  await expect(page.getByText('req-browser-usage-001')).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await expectConsoleRegionsDoNotOverlap(page);
 
   await page.goto('/console/guide');
   await expect(page.getByRole('heading', { level: 1, name: '使用说明' })).toBeVisible();
