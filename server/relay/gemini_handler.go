@@ -69,6 +69,9 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
 	}
+	if err = helper.ValidateAndNormalizeZTAPIReasoningEffort(info, request); err != nil {
+		return types.NewErrorWithStatusCode(err, types.ErrorCode(helper.ZTAPIInvalidReasoningEffortCode), http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
 
 	if model_setting.GetGeminiSettings().ThinkingAdapterEnabled {
 		if isNoThinkingRequest(request) {
@@ -136,10 +139,14 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 	}
 
 	var requestBody io.Reader
-	if model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSetting.PassThroughBodyEnabled {
+	passThrough := info.ZTAPIPublicationSnapshot == nil && (model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSetting.PassThroughBodyEnabled)
+	if passThrough {
 		storage, err := common.GetBodyStorage(c)
 		if err != nil {
 			return types.NewErrorWithStatusCode(err, types.ErrorCodeReadRequestBodyFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		}
+		if body, bodyErr := storage.Bytes(); bodyErr == nil {
+			relaycommon.CaptureReasoningEffortForwardedJSON(info, body, info.GetFinalRequestRelayFormat())
 		}
 		requestBody = common.ReaderOnly(storage)
 	} else {
@@ -161,6 +168,11 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 				return newAPIErrorFromParamOverride(err)
 			}
 		}
+		jsonData, err = helper.ValidateAndNormalizeZTAPIReasoningJSON(info, jsonData, info.GetFinalRequestRelayFormat())
+		if err != nil {
+			return types.NewErrorWithStatusCode(err, types.ErrorCode(helper.ZTAPIInvalidReasoningEffortCode), http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		}
+		relaycommon.CaptureReasoningEffortForwardedJSON(info, jsonData, info.GetFinalRequestRelayFormat())
 
 		logger.LogDebug(c, "Gemini request body: %s", jsonData)
 

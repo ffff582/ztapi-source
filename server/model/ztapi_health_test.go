@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -46,7 +47,344 @@ func healthAdmit(t *testing.T, s *ZTAPIHealthStore, c ZTAPIModelConfig, id strin
 
 func healthRecord(t *testing.T, s *ZTAPIHealthStore, ticket *types.ZTAPIHealthTicket, result string) {
 	t.Helper()
+	healthMarkDiagnostic(t, s, ticket)
 	require.NoError(t, s.RecordOutcome(context.Background(), ticket, types.ZTAPIHealthOutcome{Result: result, Reason: "synthetic", Dispatched: true, TransportComplete: result == "success", HasText: result == "success"}))
+}
+
+func healthMarkProbe(t *testing.T, s *ZTAPIHealthStore, ticket *types.ZTAPIHealthTicket) {
+	healthMarkSource(t, s, ticket, "probe")
+}
+
+func healthMarkDiagnostic(t *testing.T, s *ZTAPIHealthStore, ticket *types.ZTAPIHealthTicket) {
+	healthMarkSource(t, s, ticket, "diagnostic")
+}
+
+func healthMarkSource(t *testing.T, s *ZTAPIHealthStore, ticket *types.ZTAPIHealthTicket, source string) {
+	t.Helper()
+	require.NoError(t, s.DB.Model(&ZTAPIHealthRequest{}).Where("execution_id = ?", ticket.ExecutionID).Update("source", source).Error)
+	ticket.Source = source
+}
+
+func healthCredentialVersion(t *testing.T, name string) string {
+	t.Helper()
+	fingerprint, err := FingerprintZTAPICredential(name)
+	require.NoError(t, err)
+	return fingerprint.String()
+}
+
+func healthRouteOutcome(t *testing.T, result, reason, protocol string, channelID int) types.ZTAPIHealthOutcome {
+	t.Helper()
+	credentialVersion := healthCredentialVersion(t, fmt.Sprintf("%s-%d", protocol, channelID))
+	return types.ZTAPIHealthOutcome{
+		Result: result, Reason: reason, ChannelID: channelID, CredentialVersion: credentialVersion,
+		UpstreamProtocol: protocol, HTTPStatus: 502, Dispatched: true,
+		TransportComplete: result == "success", HasText: result == "success",
+	}
+}
+
+func healthAdmitOutcome(t *testing.T, s *ZTAPIHealthStore, ticket *types.ZTAPIHealthTicket, outcome types.ZTAPIHealthOutcome) {
+	t.Helper()
+	if len(outcome.Attempts) == 0 {
+		require.NoError(t, s.AdmitAttempt(context.Background(), ticket, outcome.ChannelID, outcome.UpstreamProtocol, outcome.CredentialVersion))
+		return
+	}
+	for _, attempt := range outcome.Attempts {
+		require.NoError(t, s.AdmitAttempt(context.Background(), ticket, attempt.ChannelID, attempt.Protocol, attempt.CredentialVersion))
+	}
+}
+
+func TestZTAPIRealTrafficCannotTripCircuit(t *testing.T) {
+	s, c, _ := healthFixture(t)
+	for i, protocol := range []string{"responses", "chat"} {
+		ticket := healthAdmit(t, s, c, fmt.Sprintf("real-suspect-%d", i))
+		outcome := healthRouteOutcome(t, "failure", "upstream_http_error", protocol, i+1)
+		healthAdmitOutcome(t, s, ticket, outcome)
+		require.NoError(t, s.RecordOutcome(context.Background(), ticket, outcome))
+	}
+
+	state, err := s.GetState(context.Background(), c.ID)
+	require.NoError(t, err)
+	require.False(t, state.Open)
+	require.Zero(t, state.ConsecutiveFailures)
+	var events []ZTAPIHealthEvent
+	require.NoError(t, s.DB.Order("id ASC").Find(&events).Error)
+	require.Len(t, events, 2)
+	for _, event := range events {
+		require.Equal(t, "suspected", event.Result)
+		require.False(t, event.Counted)
+	}
+	var cases int64
+	require.NoError(t, s.DB.Model(&ZTAPIHealthVerificationCase{}).Count(&cases).Error)
+	require.EqualValues(t, 2, cases)
+	var incidents int64
+	require.NoError(t, s.DB.Model(&ZTAPIHealthIncident{}).Count(&incidents).Error)
+	require.Zero(t, incidents)
+	var outbox int64
+	require.NoError(t, s.DB.Model(&ZTAPIHealthOutbox{}).Count(&outbox).Error)
+	require.Zero(t, outbox)
+}
+
+func TestZTAPICustomerExcludedOutcomesCreateNoVerificationOrCircuitChanges(t *testing.T) {
+	tests := []struct {
+		name, result, reason string
+		cancelled            bool
+	}{
+		{name: "invalid input", result: "excluded", reason: "invalid_input"},
+		{name: "safety refusal", result: "excluded", reason: "safety_refusal"},
+		{name: "client cancelled", result: "failure", reason: "upstream_transport_error", cancelled: true},
+		{name: "customer timeout", result: "excluded", reason: "customer_timeout"},
+		{name: "valid length terminal", result: "excluded", reason: "length_without_visible_output"},
+		{name: "ambiguous customer 4xx", result: "unknown", reason: "ambiguous_upstream_4xx"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, c, _ := healthFixture(t)
+			ticket := healthAdmit(t, s, c, strings.ReplaceAll(tt.name, " ", "-"))
+			outcome := healthRouteOutcome(t, tt.result, tt.reason, "responses", 2)
+			outcome.ClientCancelled = tt.cancelled
+			healthAdmitOutcome(t, s, ticket, outcome)
+			require.NoError(t, s.RecordOutcome(context.Background(), ticket, outcome))
+			state, err := s.GetState(context.Background(), c.ID)
+			require.NoError(t, err)
+			require.False(t, state.Open)
+			require.Zero(t, state.ConsecutiveFailures)
+			var cases int64
+			require.NoError(t, s.DB.Model(&ZTAPIHealthVerificationCase{}).Count(&cases).Error)
+			require.Zero(t, cases)
+		})
+	}
+}
+
+func TestZTAPIRealHealthyCancelsOnlyQueuedExactRoute(t *testing.T) {
+	s, c, now := healthFixture(t)
+	routes := []types.ZTAPIHealthOutcome{
+		healthRouteOutcome(t, "failure", "upstream_http_error", "responses", 2),
+		healthRouteOutcome(t, "failure", "upstream_http_error", "chat", 3),
+	}
+	for i, outcome := range routes {
+		ticket := healthAdmit(t, s, c, fmt.Sprintf("queue-%d", i))
+		healthAdmitOutcome(t, s, ticket, outcome)
+		require.NoError(t, s.RecordOutcome(context.Background(), ticket, outcome))
+	}
+	*now++
+	healthy := healthRouteOutcome(t, "success", "valid_output", "responses", 2)
+	healthyTicket := healthAdmit(t, s, c, "healthy-exact-route")
+	healthAdmitOutcome(t, s, healthyTicket, healthy)
+	require.NoError(t, s.RecordOutcome(context.Background(), healthyTicket, healthy))
+
+	var cases []ZTAPIHealthVerificationCase
+	require.NoError(t, s.DB.Order("protocol ASC").Find(&cases).Error)
+	require.Len(t, cases, 2)
+	states := map[string]string{}
+	for _, verificationCase := range cases {
+		states[verificationCase.Protocol] = verificationCase.State
+	}
+	require.Equal(t, "cancelled", states["responses"])
+	require.Equal(t, "queued", states["chat"])
+	state, err := s.GetState(context.Background(), c.ID)
+	require.NoError(t, err)
+	require.Zero(t, state.ConsecutiveFailures)
+}
+
+func TestZTAPIRetryKeepsFailedPoolRouteWhenEnterpriseSucceeds(t *testing.T) {
+	s, c, _ := healthFixture(t)
+	pool := healthRouteOutcome(t, "failure", "upstream_http_error", "responses", 2)
+	pool.UpstreamRequestID = "pool-request"
+	enterprise := healthRouteOutcome(t, "success", "valid_output", "responses", 1)
+	enterprise.UpstreamRequestID = "enterprise-request"
+	outcome := enterprise
+	outcome.Attempts = []types.ZTAPIHealthAttempt{
+		{Index: 1, ChannelID: pool.ChannelID, CredentialVersion: pool.CredentialVersion, Protocol: pool.UpstreamProtocol, HTTPStatus: pool.HTTPStatus, UpstreamRequestID: pool.UpstreamRequestID, Dispatched: true, Result: "suspected", Reason: pool.Reason},
+		{Index: 2, ChannelID: enterprise.ChannelID, CredentialVersion: enterprise.CredentialVersion, Protocol: enterprise.UpstreamProtocol, HTTPStatus: 200, UpstreamRequestID: enterprise.UpstreamRequestID, Dispatched: true, Result: "success", Reason: enterprise.Reason},
+	}
+	ticket := healthAdmit(t, s, c, "pool-fail-enterprise-success")
+	healthAdmitOutcome(t, s, ticket, outcome)
+	require.NoError(t, s.RecordOutcome(context.Background(), ticket, outcome))
+
+	var verificationCase ZTAPIHealthVerificationCase
+	require.NoError(t, s.DB.Take(&verificationCase).Error)
+	require.Equal(t, 2, verificationCase.ChannelID)
+	require.Equal(t, pool.CredentialVersion, verificationCase.CredentialVersion)
+	var event ZTAPIHealthEvent
+	require.NoError(t, s.DB.Take(&event).Error)
+	require.Equal(t, "success", event.Result)
+	require.False(t, event.Counted)
+	state, err := s.GetState(context.Background(), c.ID)
+	require.NoError(t, err)
+	require.False(t, state.Open)
+	require.Zero(t, state.ConsecutiveFailures)
+}
+
+func TestZTAPISuspicionEventAndVerificationCaseAreAtomic(t *testing.T) {
+	s, c, now := healthFixture(t)
+	outcome := healthRouteOutcome(t, "failure", "upstream_http_error", "responses", 2)
+	require.NoError(t, s.DB.Create(&ZTAPIHealthVerificationGate{
+		ModelID: c.ID, ChannelID: outcome.ChannelID, EntryProtocol: "chat", Protocol: outcome.UpstreamProtocol, Stream: false,
+		CredentialVersion: outcome.CredentialVersion, Generation: 1, CooldownUntil: time.Unix(*now+60, 0).UnixMilli(),
+	}).Error)
+	ticket := healthAdmit(t, s, c, "atomic-suspicion")
+	healthAdmitOutcome(t, s, ticket, outcome)
+	require.ErrorIs(t, s.RecordOutcome(context.Background(), ticket, outcome), ErrZTAPIVerificationInvalid)
+
+	var events int64
+	require.NoError(t, s.DB.Model(&ZTAPIHealthEvent{}).Count(&events).Error)
+	require.Zero(t, events)
+	var request ZTAPIHealthRequest
+	require.NoError(t, s.DB.First(&request, "execution_id = ?", ticket.ExecutionID).Error)
+	require.False(t, request.Completed)
+}
+
+func TestZTAPIStaleGenerationVerificationCannotBlockCurrentGeneration(t *testing.T) {
+	for _, staleState := range []string{"queued", "claimed"} {
+		t.Run(staleState, func(t *testing.T) {
+			s, c, now := healthFixture(t)
+			firstTicket := healthAdmit(t, s, c, "generation-one")
+			first := healthRouteOutcome(t, "failure", "upstream_http_error", "responses", 2)
+			require.NoError(t, s.AdmitAttempt(context.Background(), firstTicket, first.ChannelID, first.UpstreamProtocol, first.CredentialVersion))
+			require.NoError(t, s.RecordOutcome(context.Background(), firstTicket, first))
+
+			var oldCase ZTAPIHealthVerificationCase
+			require.NoError(t, s.DB.Take(&oldCase).Error)
+			if staleState == "claimed" {
+				require.NoError(t, s.DB.Model(&oldCase).Updates(map[string]any{
+					"state": "claimed", "lease_token": "old-generation-worker", "lease_until": time.Unix(*now+60, 0).UnixMilli(),
+				}).Error)
+			}
+			require.NoError(t, s.DB.Model(&ZTAPIHealthState{}).Where("model_id = ?", c.ID).Update("generation", 2).Error)
+			*now++
+
+			secondTicket := healthAdmit(t, s, c, "generation-two")
+			second := healthRouteOutcome(t, "failure", "upstream_http_error", "responses", 2)
+			require.NoError(t, s.AdmitAttempt(context.Background(), secondTicket, second.ChannelID, second.UpstreamProtocol, second.CredentialVersion))
+			require.NoError(t, s.RecordOutcome(context.Background(), secondTicket, second))
+
+			var cases []ZTAPIHealthVerificationCase
+			require.NoError(t, s.DB.Order("created_at ASC").Find(&cases).Error)
+			require.Len(t, cases, 2)
+			require.Equal(t, "cancelled", cases[0].State)
+			require.EqualValues(t, 1, cases[0].Generation)
+			require.Equal(t, "queued", cases[1].State)
+			require.EqualValues(t, 2, cases[1].Generation)
+		})
+	}
+}
+
+func TestZTAPIRealTrafficRemainsOperationalCoverage(t *testing.T) {
+	s, c, now := healthFixture(t)
+	ticket := healthAdmit(t, s, c, "real-success-coverage")
+	outcome := healthRouteOutcome(t, "success", "valid_output", "responses", 2)
+	require.NoError(t, s.AdmitAttempt(context.Background(), ticket, outcome.ChannelID, outcome.UpstreamProtocol, outcome.CredentialVersion))
+	require.NoError(t, s.RecordOutcome(context.Background(), ticket, outcome))
+
+	coverage, err := s.Coverage(context.Background(), c.ID, *now-60)
+	require.NoError(t, err)
+	require.Len(t, coverage, 1)
+	require.Equal(t, "real", coverage[0].Source)
+	require.EqualValues(t, 1, coverage[0].ValidSamples)
+	require.EqualValues(t, *now, coverage[0].LastValidAt)
+	state, err := s.GetState(context.Background(), c.ID)
+	require.NoError(t, err)
+	require.Zero(t, state.ConsecutiveFailures)
+}
+
+func TestZTAPIRealOutcomeRouteMustMatchDurableAdmission(t *testing.T) {
+	tests := []struct {
+		name     string
+		attempts bool
+	}{
+		{name: "top level route"},
+		{name: "attempt route", attempts: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, c, _ := healthFixture(t)
+			ticket := healthAdmit(t, s, c, "mismatched-"+strings.ReplaceAll(tt.name, " ", "-"))
+			require.NoError(t, s.AdmitAttempt(context.Background(), ticket, 2, "chat", healthCredentialVersion(t, "admitted-route")))
+			outcome := healthRouteOutcome(t, "failure", "upstream_http_error", "responses", 999)
+			if tt.attempts {
+				outcome.Attempts = []types.ZTAPIHealthAttempt{{
+					Index: 1, ChannelID: 999, CredentialVersion: outcome.CredentialVersion,
+					Protocol: "responses", Dispatched: true, Result: "failure", Reason: "upstream_http_error",
+				}}
+			}
+			require.ErrorIs(t, s.RecordOutcome(context.Background(), ticket, outcome), ErrZTAPIHealthInvalidTicket)
+			var events, cases int64
+			require.NoError(t, s.DB.Model(&ZTAPIHealthEvent{}).Count(&events).Error)
+			require.NoError(t, s.DB.Model(&ZTAPIHealthVerificationCase{}).Count(&cases).Error)
+			require.Zero(t, events)
+			require.Zero(t, cases)
+			var request ZTAPIHealthRequest
+			require.NoError(t, s.DB.First(&request, "execution_id = ?", ticket.ExecutionID).Error)
+			require.False(t, request.Completed)
+		})
+	}
+}
+
+func TestZTAPIRealOutcomeCredentialMustMatchDurableAdmission(t *testing.T) {
+	s, c, _ := healthFixture(t)
+	ticket := healthAdmit(t, s, c, "mismatched-credential")
+	recordedCredential := healthCredentialVersion(t, "admitted-credential")
+	require.NoError(t, s.AdmitAttempt(context.Background(), ticket, 2, "responses", recordedCredential))
+
+	outcome := healthRouteOutcome(t, "failure", "upstream_http_error", "responses", 2)
+	require.NotEqual(t, recordedCredential, outcome.CredentialVersion)
+	require.ErrorIs(t, s.RecordOutcome(context.Background(), ticket, outcome), ErrZTAPIHealthInvalidTicket)
+	var events, cases int64
+	require.NoError(t, s.DB.Model(&ZTAPIHealthEvent{}).Count(&events).Error)
+	require.NoError(t, s.DB.Model(&ZTAPIHealthVerificationCase{}).Count(&cases).Error)
+	require.Zero(t, events)
+	require.Zero(t, cases)
+}
+
+func TestZTAPIRealExcludedAndUnknownRoutesMustMatchDurableAdmission(t *testing.T) {
+	for _, result := range []string{"excluded", "unknown"} {
+		t.Run(result, func(t *testing.T) {
+			s, c, _ := healthFixture(t)
+			ticket := healthAdmit(t, s, c, "mismatched-"+result+"-route")
+			require.NoError(t, s.AdmitAttempt(context.Background(), ticket, 2, "responses", healthCredentialVersion(t, "admitted-route")))
+			outcome := types.ZTAPIHealthOutcome{
+				Result: result, Reason: map[string]string{"excluded": "invalid_input", "unknown": "ambiguous_upstream_4xx"}[result],
+				ChannelID: 999, CredentialVersion: healthCredentialVersion(t, "forged-route"), UpstreamProtocol: "chat",
+				Dispatched: true, TransportComplete: true,
+			}
+			require.ErrorIs(t, s.RecordOutcome(context.Background(), ticket, outcome), ErrZTAPIHealthInvalidTicket)
+			var events int64
+			require.NoError(t, s.DB.Model(&ZTAPIHealthEvent{}).Count(&events).Error)
+			require.Zero(t, events)
+		})
+	}
+}
+
+func TestZTAPIRealTopLevelRouteMustMatchFinalDurableAttempt(t *testing.T) {
+	s, c, _ := healthFixture(t)
+	ticket := healthAdmit(t, s, c, "mismatched-final-route")
+	credentialVersion := healthCredentialVersion(t, "final-route")
+	require.NoError(t, s.AdmitAttempt(context.Background(), ticket, 2, "responses", credentialVersion))
+	outcome := types.ZTAPIHealthOutcome{
+		Result: "success", Reason: "valid_output", ChannelID: 999, CredentialVersion: credentialVersion,
+		UpstreamProtocol: "chat", Dispatched: true, TransportComplete: true, HasText: true,
+		Attempts: []types.ZTAPIHealthAttempt{{
+			Index: 1, ChannelID: 2, CredentialVersion: credentialVersion, Protocol: "responses",
+			Dispatched: true, Result: "success", Reason: "valid_output",
+		}},
+	}
+	require.ErrorIs(t, s.RecordOutcome(context.Background(), ticket, outcome), ErrZTAPIHealthInvalidTicket)
+	var events int64
+	require.NoError(t, s.DB.Model(&ZTAPIHealthEvent{}).Count(&events).Error)
+	require.Zero(t, events)
+}
+
+func TestZTAPIRealUndispatchedOutcomeRejectsRouteMetadata(t *testing.T) {
+	s, c, _ := healthFixture(t)
+	ticket := healthAdmit(t, s, c, "undispatched-forged-route")
+	outcome := types.ZTAPIHealthOutcome{
+		Result: "unknown", Reason: "not_dispatched", ChannelID: 999,
+		CredentialVersion: healthCredentialVersion(t, "forged-undispatched-route"), UpstreamProtocol: "chat",
+	}
+	require.ErrorIs(t, s.RecordOutcome(context.Background(), ticket, outcome), ErrZTAPIHealthInvalidTicket)
+	var events int64
+	require.NoError(t, s.DB.Model(&ZTAPIHealthEvent{}).Count(&events).Error)
+	require.Zero(t, events)
 }
 
 func TestZTAPIHealthMediaObservationPersistsStructuredOperationEvidence(t *testing.T) {
@@ -63,9 +401,11 @@ func TestZTAPIHealthMediaObservationPersistsStructuredOperationEvidence(t *testi
 	require.NoError(t, err)
 	require.NotNil(t, ticket)
 	require.Equal(t, ZTAPIModalityVideo, ticket.Modality)
+	credentialVersion := healthCredentialVersion(t, "video-fetch-route")
+	require.NoError(t, s.AdmitAttempt(context.Background(), ticket, 9, "video-tasks", credentialVersion))
 	require.NoError(t, s.RecordOutcome(context.Background(), ticket, types.ZTAPIHealthOutcome{
 		Result: "success", Reason: "valid_output", Operation: types.ZTAPIHealthOperationVideoFetch,
-		ChannelID: 9, UpstreamProtocol: "video-tasks", HTTPStatus: 200,
+		ChannelID: 9, CredentialVersion: credentialVersion, UpstreamProtocol: "video-tasks", HTTPStatus: 200,
 		UpstreamRequestID: "req-safe-1", UpstreamTaskID: "task-safe-1",
 		LatencyMilliseconds: 731, ResultValid: true, HasMedia: true,
 		Dispatched: true, TransportComplete: true,
@@ -94,9 +434,11 @@ func TestZTAPIHealthMediaSuccessWithoutUsableResultCountsAsFailure(t *testing.T)
 		ticket, err := s.AdmitMediaRequest(context.Background(), c.PublicNameValue(), executionID, "client-controlled-id", 1, types.ZTAPIHealthOperationImageGenerate, false)
 		require.NoError(t, err)
 		require.NotNil(t, ticket)
+		credentialVersion := healthCredentialVersion(t, "image-route")
+		require.NoError(t, s.AdmitAttempt(context.Background(), ticket, 8, "images", credentialVersion))
 		require.NoError(t, s.RecordOutcome(context.Background(), ticket, types.ZTAPIHealthOutcome{
 			Result: "success", Reason: "valid_output", Operation: types.ZTAPIHealthOperationImageGenerate,
-			ChannelID: 8, UpstreamProtocol: "images", HTTPStatus: 200,
+			ChannelID: 8, CredentialVersion: credentialVersion, UpstreamProtocol: "images", HTTPStatus: 200,
 			LatencyMilliseconds: 500, ResultValid: false,
 			Dispatched: true, TransportComplete: true,
 		}))
@@ -104,12 +446,16 @@ func TestZTAPIHealthMediaSuccessWithoutUsableResultCountsAsFailure(t *testing.T)
 
 	state, err := s.GetState(context.Background(), c.ID)
 	require.NoError(t, err)
-	require.True(t, state.Open)
+	require.False(t, state.Open)
+	require.Zero(t, state.ConsecutiveFailures)
 	var events []ZTAPIHealthEvent
 	require.NoError(t, s.DB.Order("id ASC").Find(&events).Error)
 	require.Len(t, events, 2)
-	require.Equal(t, "failure", events[0].Result)
+	require.Equal(t, "suspected", events[0].Result)
 	require.Equal(t, "invalid_media_result", events[0].Reason)
+	var verificationCases int64
+	require.NoError(t, s.DB.Model(&ZTAPIHealthVerificationCase{}).Count(&verificationCases).Error)
+	require.EqualValues(t, 1, verificationCases)
 }
 
 func TestZTAPIHealthRejectsMediaOperationThatDoesNotMatchPublishedModality(t *testing.T) {
@@ -148,9 +494,11 @@ func TestZTAPIHealthVideoFetchObservationContinuesAfterCircuitOpenWithoutRecover
 	ticket, err := s.AdmitMediaRequest(context.Background(), c.PublicNameValue(), "allowed-fetch", "req-fetch", 1, types.ZTAPIHealthOperationVideoFetch, true)
 	require.NoError(t, err)
 	require.Equal(t, types.ZTAPIHealthOperationVideoFetch, ticket.Operation)
-	require.NoError(t, s.AdmitAttempt(context.Background(), ticket, 7, "video-tasks"))
+	credentialVersion := healthCredentialVersion(t, "video-fetch-route")
+	require.NoError(t, s.AdmitAttempt(context.Background(), ticket, 7, "video-tasks", credentialVersion))
 	require.NoError(t, s.RecordOutcome(context.Background(), ticket, types.ZTAPIHealthOutcome{
 		Result: "success", Reason: "valid_output", Operation: types.ZTAPIHealthOperationVideoFetch,
+		ChannelID: 7, CredentialVersion: credentialVersion,
 		UpstreamProtocol: "video-tasks", UpstreamTaskID: "task-after-open",
 		LatencyMilliseconds: 500, ResultValid: true, Dispatched: true, TransportComplete: true,
 	}))
@@ -244,6 +592,7 @@ func TestZTAPIHealthCompletionOrderAndConcurrency(t *testing.T) {
 	tickets := make([]*types.ZTAPIHealthTicket, 32)
 	for i := range tickets {
 		tickets[i] = healthAdmit(t, s, c, fmt.Sprint(i))
+		healthMarkProbe(t, s, tickets[i])
 	}
 	var wg sync.WaitGroup
 	errs := make(chan error, 64)
@@ -280,17 +629,59 @@ func TestZTAPIHealthAttributionAndProbeIdentity(t *testing.T) {
 	require.Equal(t, "probe", probe.Source)
 	real := healthAdmit(t, s, c, "real")
 	require.Equal(t, "real", real.Source)
-	require.NoError(t, s.RecordOutcome(context.Background(), real, types.ZTAPIHealthOutcome{Result: "failure", ClientCancelled: true, Dispatched: true}))
+	require.NoError(t, s.RecordOutcome(context.Background(), real, types.ZTAPIHealthOutcome{Result: "failure", ClientCancelled: true}))
 	undispatched := healthAdmit(t, s, c, "not-dispatched")
 	require.NoError(t, s.RecordOutcome(context.Background(), undispatched, types.ZTAPIHealthOutcome{Result: "failure"}))
-	healthRecord(t, s, probe, "failure")
+	require.NoError(t, s.RecordOutcome(context.Background(), probe, types.ZTAPIHealthOutcome{
+		Result: "failure", Reason: "upstream_http_error", Dispatched: true,
+	}))
 	healthRecord(t, s, healthAdmit(t, s, c, "real-failure"), "failure")
+	healthRecord(t, s, healthAdmit(t, s, c, "second-diagnostic-failure"), "failure")
 	w, err := s.Window(context.Background(), c.ID)
 	require.NoError(t, err)
 	require.EqualValues(t, 2, w.ValidSamples)
 	state, err := s.GetState(context.Background(), c.ID)
 	require.NoError(t, err)
 	require.True(t, state.Open)
+}
+
+func TestZTAPIAutomaticProbeCannotTripLegacyModelCircuit(t *testing.T) {
+	s, c, _ := healthFixture(t)
+	t.Setenv("ZTAPI_HEALTH_PROBE_USER_ID", "42")
+
+	for _, executionID := range []string{"automatic-probe-one", "automatic-probe-two"} {
+		ticket, err := s.AdmitRequest(context.Background(), c.PublicNameValue(), executionID, executionID, 42, false)
+		require.NoError(t, err)
+		require.Equal(t, "probe", ticket.Source)
+		require.NoError(t, s.RecordOutcome(context.Background(), ticket, types.ZTAPIHealthOutcome{
+			Result: "failure", Reason: "upstream_http_error", Dispatched: true,
+		}))
+	}
+
+	state, err := s.GetState(context.Background(), c.ID)
+	require.NoError(t, err)
+	require.False(t, state.Open)
+	require.Zero(t, state.ConsecutiveFailures)
+
+	window, err := s.Window(context.Background(), c.ID)
+	require.NoError(t, err)
+	require.Zero(t, window.ValidSamples)
+	require.Zero(t, window.Failures)
+
+	var events []ZTAPIHealthEvent
+	require.NoError(t, s.DB.Order("id ASC").Find(&events).Error)
+	require.Len(t, events, 2)
+	for _, event := range events {
+		require.Equal(t, "probe", event.Source)
+		require.False(t, event.Counted)
+	}
+
+	var incidents int64
+	require.NoError(t, s.DB.Model(&ZTAPIHealthIncident{}).Count(&incidents).Error)
+	require.Zero(t, incidents)
+	var unpublishes int64
+	require.NoError(t, s.DB.Model(&ZTAPIHealthOutbox{}).Where("kind = ?", "unpublish").Count(&unpublishes).Error)
+	require.Zero(t, unpublishes)
 }
 
 func healthTrip(t *testing.T, s *ZTAPIHealthStore, c ZTAPIModelConfig) {
@@ -302,8 +693,8 @@ func healthTrip(t *testing.T, s *ZTAPIHealthStore, c ZTAPIModelConfig) {
 func TestZTAPIHealthDisabledStillGatesAndAttemptsRecheck(t *testing.T) {
 	s, c, _ := healthFixture(t)
 	inflight := healthAdmit(t, s, c, "inflight")
-	require.NoError(t, s.AdmitAttempt(context.Background(), inflight, 11, "openai"))
-	require.NoError(t, s.AdmitAttempt(context.Background(), inflight, 12, "anthropic"))
+	require.NoError(t, s.AdmitAttempt(context.Background(), inflight, 11, "openai", healthCredentialVersion(t, "openai-route")))
+	require.NoError(t, s.AdmitAttempt(context.Background(), inflight, 12, "anthropic", healthCredentialVersion(t, "anthropic-route")))
 	r, err := s.GetRequest(context.Background(), inflight.ExecutionID)
 	require.NoError(t, err)
 	require.Contains(t, r.Admissions, `"ChannelID":12`)
@@ -315,7 +706,7 @@ func TestZTAPIHealthDisabledStillGatesAndAttemptsRecheck(t *testing.T) {
 	require.ErrorIs(t, CheckZTAPIHealthModelAvailable(c.PublicNameValue()), ErrZTAPIHealthCircuitOpen)
 	_, err = AdmitZTAPIHealthRequest(context.Background(), c.PublicNameValue(), "new", "new", 1, false)
 	require.ErrorIs(t, err, ErrZTAPIHealthCircuitOpen)
-	require.ErrorIs(t, AdmitZTAPIHealthAttempt(context.Background(), inflight, 13, "openai"), ErrZTAPIHealthCircuitOpen)
+	require.ErrorIs(t, AdmitZTAPIHealthAttempt(context.Background(), inflight, 13, "openai", healthCredentialVersion(t, "blocked-route")), ErrZTAPIHealthCircuitOpen)
 	_, err = ResolveZTAPIRequestModel(c.PublicNameValue(), "default")
 	require.ErrorIs(t, err, ErrZTAPIHealthCircuitOpen)
 	nilTicket, err := AdmitZTAPIHealthRequest(context.Background(), "not-tracked", "new", "new", 1, false)
@@ -336,7 +727,7 @@ func TestZTAPIHealthDisabledStillGatesAndAttemptsRecheck(t *testing.T) {
 	require.Empty(t, configs)
 }
 
-func TestZTAPIHealthOutboxLeaseRetryAndNarrowUnpublish(t *testing.T) {
+func TestZTAPIHealthOutboxLeaseRetryAndLegacyUnpublishIsSuperseded(t *testing.T) {
 	s, c, now := healthFixture(t)
 	healthTrip(t, s, c)
 	ctx := context.Background()
@@ -367,15 +758,18 @@ func TestZTAPIHealthOutboxLeaseRetryAndNarrowUnpublish(t *testing.T) {
 	require.NoError(t, s.ProcessUnpublish(ctx, jobs[0].ID, jobs[0].LeaseToken))
 	require.NoError(t, s.ProcessUnpublish(ctx, jobs[0].ID, jobs[0].LeaseToken))
 	require.NoError(t, s.DB.First(&c, c.ID).Error)
-	require.False(t, c.Published)
+	require.True(t, c.Published)
 	require.Equal(t, float64(99), c.InputPricePerMillion)
 	require.Equal(t, `["enterprise"]`, c.EnabledGroups)
-	require.EqualValues(t, 9, c.Version)
+	require.EqualValues(t, 8, c.Version)
 	incidents, err := s.ListIncidents(ctx, c.ID, 0, 10)
 	require.NoError(t, err)
 	require.Len(t, incidents, 1)
-	require.Equal(t, *now, incidents[0].UnpublishedAt)
-	require.EqualValues(t, 9, incidents[0].UnpublishedVersion)
+	require.Zero(t, incidents[0].UnpublishedAt)
+	require.Zero(t, incidents[0].UnpublishedVersion)
+	var persistedJob ZTAPIHealthOutbox
+	require.NoError(t, s.DB.First(&persistedJob, jobs[0].ID).Error)
+	require.Equal(t, "superseded", persistedJob.Status)
 }
 
 func TestZTAPIHealthManualRecoveryAndOldGeneration(t *testing.T) {
@@ -390,12 +784,15 @@ func TestZTAPIHealthManualRecoveryAndOldGeneration(t *testing.T) {
 	require.Error(t, s.ManualRecover(ctx, c.ID, 1, 0, "verification:123"))
 	require.Error(t, s.ManualRecover(ctx, c.ID, 1, 7, ""))
 	require.NoError(t, s.ManualRecover(ctx, c.ID, 1, 7, "verification:123"))
+	var recoveryAlerts int64
+	require.NoError(t, s.DB.Model(&ZTAPIHealthOutbox{}).Where("kind = ? AND model_id = ?", "recovery_alert", c.ID).Count(&recoveryAlerts).Error)
+	require.EqualValues(t, 1, recoveryAlerts)
 	state, err := s.GetState(ctx, c.ID)
 	require.NoError(t, err)
 	require.False(t, state.Open)
 	require.EqualValues(t, 2, state.Generation)
 	require.Zero(t, state.ConsecutiveFailures)
-	require.ErrorIs(t, s.AdmitAttempt(ctx, inflight, 1, "openai"), ErrZTAPIHealthGenerationConflict)
+	require.ErrorIs(t, s.AdmitAttempt(ctx, inflight, 1, "openai", healthCredentialVersion(t, "stale-route")), ErrZTAPIHealthGenerationConflict)
 	healthRecord(t, s, inflight, "failure")
 	w, err := s.Window(ctx, c.ID)
 	require.NoError(t, err)
@@ -448,9 +845,14 @@ func TestZTAPIHealthRestartAndOrphans(t *testing.T) {
 	require.EqualValues(t, 1, state.ConsecutiveFailures)
 	coverage, err := s.Coverage(ctx, c.ID, *now-3600)
 	require.NoError(t, err)
-	require.Len(t, coverage, 1)
-	require.EqualValues(t, 1, coverage[0].UnknownSamples)
-	require.EqualValues(t, 1, coverage[0].ValidSamples)
+	require.Len(t, coverage, 2)
+	var unknownSamples, validSamples int64
+	for _, row := range coverage {
+		unknownSamples += row.UnknownSamples
+		validSamples += row.ValidSamples
+	}
+	require.EqualValues(t, 1, unknownSamples)
+	require.EqualValues(t, 1, validSamples)
 	jobs, err := s.ClaimOutbox(ctx, "coverage", 10, 30)
 	require.NoError(t, err)
 	require.Len(t, jobs, 1)
@@ -462,6 +864,7 @@ func TestZTAPIHealthTripAndOutboxAtomicRollback(t *testing.T) {
 	s, c, _ := healthFixture(t)
 	healthRecord(t, s, healthAdmit(t, s, c, "one"), "failure")
 	two := healthAdmit(t, s, c, "two")
+	healthMarkDiagnostic(t, s, two)
 	require.NoError(t, s.DB.Exec("CREATE TRIGGER reject_health_outbox BEFORE INSERT ON ztapi_health_outbox BEGIN SELECT RAISE(ABORT, 'synthetic outbox failure'); END").Error)
 	err := s.RecordOutcome(context.Background(), two, types.ZTAPIHealthOutcome{Result: "failure", Dispatched: true})
 	require.Error(t, err)

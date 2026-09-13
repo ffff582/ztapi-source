@@ -41,6 +41,9 @@ type ZTAPIHealthWorkerConfig struct {
 	ProbeKey               string
 	ProbeUserID            int
 	SyntheticProbesEnabled bool
+	// Verification probes are event-driven and independent from legacy hourly
+	// synthetic coverage. When idle they perform no paid preparation.
+	VerificationProbesEnabled bool
 	// Parent verifies the key belongs to the configured dedicated probe user,
 	// whose authenticated ID is the engine's only source=probe authority.
 	ProbeIdentityValidated bool
@@ -69,7 +72,7 @@ type ZTAPIHealthWorkerConfig struct {
 }
 
 func DefaultZTAPIHealthWorkerConfig() ZTAPIHealthWorkerConfig {
-	return ZTAPIHealthWorkerConfig{RelayBaseURL: "http://127.0.0.1:3000", Interval: time.Minute, RequestTimeout: 120 * time.Second, AlertTimeout: 10 * time.Second, OutboxTimeout: 30 * time.Second, TickTimeout: 10 * time.Minute, LeaseDuration: 4 * time.Minute, BatchSize: 2, Now: time.Now}
+	return ZTAPIHealthWorkerConfig{RelayBaseURL: "http://127.0.0.1:3000", VerificationProbesEnabled: true, Interval: time.Minute, RequestTimeout: 120 * time.Second, AlertTimeout: 10 * time.Second, OutboxTimeout: 30 * time.Second, TickTimeout: 10 * time.Minute, LeaseDuration: 4 * time.Minute, BatchSize: 2, Now: time.Now}
 }
 
 // Loading configuration never allocates budget, credits quota, or authenticates
@@ -99,6 +102,13 @@ func ZTAPIHealthWorkerConfigFromEnv() (ZTAPIHealthWorkerConfig, error) {
 			return c, errors.New("invalid synthetic probe configuration")
 		}
 		c.SyntheticProbesEnabled = enabled
+	}
+	if value := strings.TrimSpace(os.Getenv("ZTAPI_HEALTH_VERIFICATION_PROBES_ENABLED")); value != "" {
+		enabled, err := strconv.ParseBool(value)
+		if err != nil {
+			return c, errors.New("invalid verification probe configuration")
+		}
+		c.VerificationProbesEnabled = enabled
 	}
 	value := strings.TrimSpace(os.Getenv("ZTAPI_HEALTH_PROBE_BUDGET_USD"))
 	if value == "" {
@@ -138,47 +148,59 @@ func ZTAPIHealthWorkerConfigFromEnv() (ZTAPIHealthWorkerConfig, error) {
 // Engine adapters must persist outbox leases, attempts and retry times. This is
 // a projection of engine-owned records, never a duplicate incident/outbox table.
 type ZTAPIHealthWorkItem struct {
-	Test       bool
-	ID         int64
-	ModelID    int
-	Generation uint64
-	IncidentID int64
-	Attempts   int
-	LeaseToken string
-	LeaseUntil time.Time
-	DedupKey   string
-	EventID    int64
-	Alert      ZTAPIHealthAlertMetadata
+	Test               bool
+	Kind               string
+	ID                 int64
+	ModelID            int
+	Generation         uint64
+	IncidentID         int64
+	Attempts           int
+	LeaseToken         string
+	LeaseUntil         time.Time
+	DedupKey           string
+	EventID            int64
+	VerificationCaseID string
+	Alert              ZTAPIHealthAlertMetadata
 }
 
 type ZTAPIHealthAlertMetadata struct {
-	MetadataStatus         string   `json:"metadata_status"`
-	Model                  string   `json:"model"`
-	Rule                   string   `json:"rule"`
-	WindowStart            *int64   `json:"window_start"`
-	WindowEnd              *int64   `json:"window_end"`
-	Failures               *int64   `json:"fail_count"`
-	ValidSamples           *int64   `json:"valid_count"`
-	ConsecutiveFailures    *int64   `json:"consecutive_failures"`
-	FinishReasons          []string `json:"finish_reasons"`
-	UpstreamRequestID      string   `json:"upstream_request_id"`
-	UpstreamTaskID         string   `json:"upstream_task_id"`
-	Modality               string   `json:"modality"`
-	Operation              string   `json:"operation"`
-	LatencyMilliseconds    *int64   `json:"latency_milliseconds"`
-	ResultValid            *bool    `json:"result_valid"`
-	ErrorCode              string   `json:"error_code"`
-	HTTPStatus             *int     `json:"http_status"`
-	Unpublished            *bool    `json:"unpublished"`
-	OpenedAt               *int64   `json:"opened_at"`
-	ObservedAt             int64    `json:"observed_at"`
-	AdminModelHealthPath   string   `json:"admin_model_health_path"`
-	AdminIncidentReference string   `json:"admin_incident_reference"`
+	MetadataStatus           string   `json:"metadata_status"`
+	Model                    string   `json:"model"`
+	Rule                     string   `json:"rule"`
+	WindowStart              *int64   `json:"window_start"`
+	WindowEnd                *int64   `json:"window_end"`
+	Failures                 *int64   `json:"fail_count"`
+	ValidSamples             *int64   `json:"valid_count"`
+	ConsecutiveFailures      *int64   `json:"consecutive_failures"`
+	FinishReasons            []string `json:"finish_reasons"`
+	UpstreamRequestID        string   `json:"upstream_request_id"`
+	TriggerUpstreamRequestID string   `json:"trigger_upstream_request_id"`
+	ProbeRequestID           string   `json:"probe_request_id"`
+	TriggerRequestID         string   `json:"trigger_request_id"`
+	UpstreamTaskID           string   `json:"upstream_task_id"`
+	Modality                 string   `json:"modality"`
+	Operation                string   `json:"operation"`
+	LatencyMilliseconds      *int64   `json:"latency_milliseconds"`
+	ResultValid              *bool    `json:"result_valid"`
+	ErrorCode                string   `json:"error_code"`
+	HTTPStatus               *int     `json:"http_status"`
+	Unpublished              *bool    `json:"unpublished"`
+	OpenedAt                 *int64   `json:"opened_at"`
+	ObservedAt               int64    `json:"observed_at"`
+	AdminModelHealthPath     string   `json:"admin_model_health_path"`
+	AdminIncidentReference   string   `json:"admin_incident_reference"`
+	ChannelID                int      `json:"channel_id"`
+	EntryProtocol            string   `json:"entry_protocol"`
+	UpstreamProtocol         string   `json:"upstream_protocol"`
+	Stream                   bool     `json:"stream"`
 }
 
 func ztapiHealthSafeAlertMetadata(item ZTAPIHealthWorkItem, now time.Time) ZTAPIHealthAlertMetadata {
 	d := item.Alert
 	d.UpstreamRequestID = ztapiHealthSafeRequestID(d.UpstreamRequestID)
+	d.TriggerUpstreamRequestID = ztapiHealthSafeRequestID(d.TriggerUpstreamRequestID)
+	d.ProbeRequestID = ztapiHealthSafeRequestID(d.ProbeRequestID)
+	d.TriggerRequestID = ztapiHealthSafeRequestID(d.TriggerRequestID)
 	d.UpstreamTaskID = ztapiHealthSafeRequestID(d.UpstreamTaskID)
 	switch d.Modality {
 	case model.ZTAPIModalityText, model.ZTAPIModalityEmbedding, model.ZTAPIModalityImage, model.ZTAPIModalityVideo:
@@ -208,7 +230,8 @@ func ztapiHealthSafeAlertMetadata(item ZTAPIHealthWorkItem, now time.Time) ZTAPI
 			break
 		}
 	}
-	if d.Rule != "consecutive_2" && d.Rule != "rolling_24h_gt_2pct" {
+	if d.Rule != "consecutive_2" && d.Rule != "rolling_24h_gt_2pct" && d.Rule != "verified_all_routes" &&
+		d.Rule != "verified_route_2" && d.Rule != "manual_verified_recovery" {
 		d.Rule = "unknown"
 	}
 	switch d.ErrorCode {
@@ -237,39 +260,102 @@ func ztapiHealthSafeAlertMetadata(item ZTAPIHealthWorkItem, now time.Time) ZTAPI
 	return d
 }
 
-func ztapiHealthLoadAlertMetadata(ctx context.Context, store *model.ZTAPIHealthStore, item ZTAPIHealthWorkItem) ZTAPIHealthAlertMetadata {
-	d := ZTAPIHealthAlertMetadata{MetadataStatus: "unknown"}
-	var incident model.ZTAPIHealthIncident
-	if err := store.DB.WithContext(ctx).Select("id", "model_id", "generation", "public_model", "rule", "window_start", "failures", "valid_samples", "consecutive_failures", "opened_at", "trigger_event_id").First(&incident, item.IncidentID).Error; err != nil || incident.ModelID != item.ModelID || incident.Generation != item.Generation {
-		return d
-	}
-	d.Model, d.Rule = incident.PublicModel, incident.Rule
-	d.Failures, d.ValidSamples, d.ConsecutiveFailures = &incident.Failures, &incident.ValidSamples, &incident.ConsecutiveFailures
-	d.WindowStart, d.WindowEnd, d.OpenedAt = &incident.WindowStart, &incident.OpenedAt, &incident.OpenedAt
-	var config model.ZTAPIModelConfig
-	publicationKnown := store.DB.WithContext(ctx).Select("id", "published").First(&config, item.ModelID).Error == nil
-	if publicationKnown {
-		unpublished := !config.Published
-		d.Unpublished = &unpublished
-	}
-	var event model.ZTAPIHealthEvent
-	if err := store.DB.WithContext(ctx).Select("id", "model_id", "generation", "reason", "http_status", "outcome", "upstream_request_id", "upstream_task_id", "modality", "operation", "latency_milliseconds", "result_valid").First(&event, incident.TriggerEventID).Error; err == nil && event.ModelID == item.ModelID && event.Generation == item.Generation {
-		d.ErrorCode, d.HTTPStatus = event.Reason, &event.HTTPStatus
-		d.UpstreamRequestID = event.UpstreamRequestID
-		d.UpstreamTaskID = event.UpstreamTaskID
-		d.Modality, d.Operation = event.Modality, event.Operation
-		d.LatencyMilliseconds, d.ResultValid = &event.LatencyMilliseconds, &event.ResultValid
-		if len(event.Outcome) <= 64*1024 {
+func ztapiHealthEnrichVerificationMetadata(ctx context.Context, store *model.ZTAPIHealthStore, item ZTAPIHealthWorkItem, d ZTAPIHealthAlertMetadata) ZTAPIHealthAlertMetadata {
+	var trigger model.ZTAPIHealthEvent
+	if err := store.DB.WithContext(ctx).Select("id", "model_id", "generation", "request_id", "reason", "http_status", "outcome", "upstream_request_id", "upstream_task_id", "modality", "operation", "latency_milliseconds", "result_valid").First(&trigger, item.EventID).Error; err == nil && trigger.ModelID == item.ModelID && trigger.Generation == item.Generation {
+		d.TriggerRequestID = trigger.RequestID
+		d.TriggerUpstreamRequestID = trigger.UpstreamRequestID
+		// Legacy incidents may predate route verification. Preserve their only
+		// upstream reference until a diagnostic probe supplies stronger evidence.
+		d.UpstreamRequestID = trigger.UpstreamRequestID
+		d.ErrorCode, d.HTTPStatus = trigger.Reason, &trigger.HTTPStatus
+		d.UpstreamTaskID = trigger.UpstreamTaskID
+		d.Modality, d.Operation = trigger.Modality, trigger.Operation
+		d.LatencyMilliseconds, d.ResultValid = &trigger.LatencyMilliseconds, &trigger.ResultValid
+		if len(trigger.Outcome) <= 64*1024 {
 			var outcome struct{ FinishReasons []string }
-			if common.Unmarshal([]byte(event.Outcome), &outcome) == nil {
+			if common.Unmarshal([]byte(trigger.Outcome), &outcome) == nil {
 				d.FinishReasons = outcome.FinishReasons
 			}
 		}
-		if publicationKnown {
-			d.MetadataStatus = "available"
+	}
+	var verification model.ZTAPIHealthVerificationCase
+	query := store.DB.WithContext(ctx).Where("model_id = ? AND generation = ? AND state = ? AND result = ?", item.ModelID, item.Generation, "completed", "failure")
+	if item.VerificationCaseID != "" {
+		query = query.Where("id = ?", item.VerificationCaseID)
+	} else {
+		query = query.Where("source_event_id = ?", item.EventID).Order("completed_at DESC, id DESC")
+	}
+	err := query.First(&verification).Error
+	if err != nil {
+		return d
+	}
+	d.ChannelID = verification.ChannelID
+	d.EntryProtocol = verification.EntryProtocol
+	d.UpstreamProtocol = verification.Protocol
+	d.Stream = verification.Stream
+	d.ProbeRequestID = verification.ProbeRequestID
+	if d.OpenedAt == nil && verification.CompletedAt > 0 {
+		openedAt := verification.CompletedAt / 1000
+		d.OpenedAt = &openedAt
+	}
+	var probe model.ZTAPIHealthEvent
+	err = store.DB.WithContext(ctx).
+		Select("model_id", "generation", "reason", "http_status", "outcome", "upstream_request_id", "upstream_task_id", "modality", "operation", "latency_milliseconds", "result_valid").
+		Where("request_id = ? AND model_id = ? AND generation = ? AND source = ?", verification.ProbeRequestID, item.ModelID, item.Generation, "probe").
+		Order("id DESC").First(&probe).Error
+	if err != nil {
+		return d
+	}
+	d.ErrorCode, d.HTTPStatus = probe.Reason, &probe.HTTPStatus
+	d.UpstreamRequestID, d.UpstreamTaskID = probe.UpstreamRequestID, probe.UpstreamTaskID
+	d.Modality, d.Operation = probe.Modality, probe.Operation
+	d.LatencyMilliseconds, d.ResultValid = &probe.LatencyMilliseconds, &probe.ResultValid
+	if len(probe.Outcome) <= 64*1024 {
+		var outcome struct{ FinishReasons []string }
+		if common.Unmarshal([]byte(probe.Outcome), &outcome) == nil {
+			d.FinishReasons = outcome.FinishReasons
 		}
 	}
 	return d
+}
+
+func ztapiHealthLoadAlertMetadata(ctx context.Context, store *model.ZTAPIHealthStore, item ZTAPIHealthWorkItem) ZTAPIHealthAlertMetadata {
+	d := ZTAPIHealthAlertMetadata{MetadataStatus: "unknown"}
+	var config model.ZTAPIModelConfig
+	publicationKnown := store.DB.WithContext(ctx).Select("id", "public_name", "published").First(&config, item.ModelID).Error == nil
+	if publicationKnown {
+		d.Model = config.PublicNameValue()
+		unpublished := !config.Published
+		d.Unpublished = &unpublished
+		d.MetadataStatus = "available"
+	}
+	if item.Kind == "route_alert" {
+		d.Rule = "verified_route_2"
+		failures := int64(2)
+		d.ConsecutiveFailures = &failures
+		return ztapiHealthEnrichVerificationMetadata(ctx, store, item, d)
+	}
+	var incident model.ZTAPIHealthIncident
+	if err := store.DB.WithContext(ctx).Select("id", "model_id", "generation", "public_model", "rule", "window_start", "failures", "valid_samples", "consecutive_failures", "opened_at", "trigger_event_id", "verification_case_id", "recovered_at").First(&incident, item.IncidentID).Error; err != nil || incident.ModelID != item.ModelID || incident.Generation != item.Generation {
+		return d
+	}
+	d.Model, d.Rule = incident.PublicModel, incident.Rule
+	if item.Kind == "recovery_alert" {
+		d.Rule = "manual_verified_recovery"
+		if incident.RecoveredAt > 0 {
+			d.OpenedAt = &incident.RecoveredAt
+		}
+	} else {
+		d.OpenedAt = &incident.OpenedAt
+	}
+	d.Failures, d.ValidSamples, d.ConsecutiveFailures = &incident.Failures, &incident.ValidSamples, &incident.ConsecutiveFailures
+	d.WindowStart, d.WindowEnd = &incident.WindowStart, &incident.OpenedAt
+	item.EventID = incident.TriggerEventID
+	if item.VerificationCaseID == "" {
+		item.VerificationCaseID = incident.VerificationCaseID
+	}
+	return ztapiHealthEnrichVerificationMetadata(ctx, store, item, d)
 }
 
 type ZTAPIHealthDelivery struct {
@@ -280,8 +366,25 @@ type ZTAPIHealthDelivery struct {
 	Code     string
 }
 
+// ZTAPIVerificationProbeEvidence is the bounded durable result projection used
+// by the worker. It intentionally excludes prompts, response bodies and keys.
+type ZTAPIVerificationProbeEvidence struct {
+	RequestID         string
+	UpstreamRequestID string
+	Result            string
+	Route             model.ZTAPIHealthRouteIdentity
+	InputTokens       int64
+	OutputTokens      int64
+}
+
 type ZTAPIHealthWorkerBackend struct {
 	Probes *model.ZTAPIProbeStore
+	// Verification cases are the only automatic paid-probe work source. The
+	// legacy hourly probe store remains attached for status/outbox history only.
+	Verifications             *model.ZTAPIHealthVerificationStore
+	LoadVerificationTarget    func(context.Context, model.ZTAPIHealthVerificationCase) (model.ZTAPIProbeTarget, bool, error)
+	CheckVerificationDispatch model.ZTAPIHealthVerificationDispatchCheck
+	LoadVerificationEvidence  func(context.Context, model.ZTAPIHealthVerificationCase) (*ZTAPIVerificationProbeEvidence, error)
 	// Bounded, fair/cursor-based enumeration of published model/mode targets.
 	ListTargets           func(context.Context, int) ([]model.ZTAPIProbeTarget, error)
 	CheckProbe            model.ZTAPIProbeCheck
@@ -312,6 +415,9 @@ func AttachZTAPIHealthStore(backend ZTAPIHealthWorkerBackend, store *model.ZTAPI
 	if backend.Probes == nil {
 		backend.Probes = &model.ZTAPIProbeStore{DB: store.DB}
 	}
+	if backend.Verifications == nil {
+		backend.Verifications = model.NewZTAPIHealthVerificationStore(store.DB)
+	}
 	backend.ClaimOutbox = func(ctx context.Context, kind string, _ time.Time, lease time.Duration, limit int) ([]ZTAPIHealthWorkItem, error) {
 		jobs, err := store.ClaimOutbox(ctx, kind, limit, int64((lease+time.Second-1)/time.Second))
 		if err != nil {
@@ -319,12 +425,12 @@ func AttachZTAPIHealthStore(backend ZTAPIHealthWorkerBackend, store *model.ZTAPI
 		}
 		items := make([]ZTAPIHealthWorkItem, 0, len(jobs))
 		for _, job := range jobs {
-			item := ZTAPIHealthWorkItem{ID: job.ID, ModelID: job.ModelID, Generation: job.Generation, IncidentID: job.IncidentID, EventID: job.EventID, Attempts: job.Attempts, LeaseToken: job.LeaseToken, LeaseUntil: time.Unix(job.LeaseUntil, 0), DedupKey: job.DedupKey}
+			item := ZTAPIHealthWorkItem{Kind: job.Kind, ID: job.ID, ModelID: job.ModelID, Generation: job.Generation, IncidentID: job.IncidentID, EventID: job.EventID, VerificationCaseID: job.VerificationCaseID, Attempts: job.Attempts, LeaseToken: job.LeaseToken, LeaseUntil: time.Unix(job.LeaseUntil, 0), DedupKey: job.DedupKey}
 			item.Test = kind == "alert_test"
 			if item.Test {
 				item.Alert = ZTAPIHealthAlertMetadata{Model: "TEST-NO-MODEL-CHANGE", OpenedAt: &job.CreatedAt}
 			}
-			if kind == "alert" {
+			if kind == "alert" || kind == "route_alert" || kind == "recovery_alert" {
 				item.Alert = ztapiHealthLoadAlertMetadata(ctx, store, item)
 			}
 			items = append(items, item)
@@ -467,6 +573,22 @@ func NewProductionZTAPIHealthWorkerBackend(config ZTAPIHealthWorkerConfig) (ZTAP
 	backend.ValidateProbeIdentity = func(ctx context.Context) (bool, string, error) {
 		return productionZTAPIProbeIdentity(ctx, db, config)
 	}
+	backend.LoadVerificationTarget = func(ctx context.Context, verificationCase model.ZTAPIHealthVerificationCase) (model.ZTAPIProbeTarget, bool, error) {
+		target, admission, err := productionZTAPIVerificationTarget(ctx, db, logDB, verificationCase, config.Now())
+		return target, admission.Active, err
+	}
+	backend.CheckVerificationDispatch = func(ctx context.Context, tx *gorm.DB, verificationCase model.ZTAPIHealthVerificationCase) (model.ZTAPIHealthVerificationDispatchAdmission, error) {
+		_, admission, err := productionZTAPIVerificationTarget(ctx, tx, func() *gorm.DB {
+			if logDB == db {
+				return tx
+			}
+			return logDB
+		}(), verificationCase, config.Now())
+		return admission, err
+	}
+	backend.LoadVerificationEvidence = func(ctx context.Context, verificationCase model.ZTAPIHealthVerificationCase) (*ZTAPIVerificationProbeEvidence, error) {
+		return productionZTAPIVerificationEvidence(ctx, db, logDB, config.ProbeUserID, verificationCase)
+	}
 	backend.ListTargets = func(ctx context.Context, limit int) ([]model.ZTAPIProbeTarget, error) {
 		return productionZTAPIProbeTargets(ctx, db, limit, config.Now())
 	}
@@ -494,25 +616,13 @@ func NewProductionZTAPIHealthWorkerBackend(config ZTAPIHealthWorkerConfig) (ZTAP
 		return admission, err
 	}
 	backend.CheckProbe = ZTAPIHealthStoreProbeCheck(store, inspect)
-	// Database-only status initialization; the loop waits its first interval.
+	// Database-only status initialization; do not inspect probe identity, catalog,
+	// usage samples, or budget until a durable verification case is claimed.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	valid, probeCode, err := backend.ValidateProbeIdentity(ctx)
-	if err != nil {
-		return backend, err
-	}
-	if valid {
-		budget, budgetErr := backend.Probes.Budget(ctx)
-		switch {
-		case errors.Is(budgetErr, gorm.ErrRecordNotFound):
-			probeCode = "probe_allocation_missing"
-		case budgetErr != nil:
-			return backend, budgetErr
-		case budget.AllocatedNanoUSD <= 0 || budget.AccountedNanoUSD >= budget.AllocatedNanoUSD:
-			probeCode = "probe_budget_exhausted"
-		default:
-			probeCode = "probe_waiting_first_tick"
-		}
+	probeCode := "verification_waiting_for_case"
+	if !config.VerificationProbesEnabled {
+		probeCode = "verification_probes_disabled"
 	}
 	alertCode := "alert_recipient_missing_or_invalid"
 	if validZTAPIHealthAlertRecipient(config) {
@@ -524,6 +634,152 @@ func NewProductionZTAPIHealthWorkerBackend(config ZTAPIHealthWorkerConfig) (ZTAP
 		}
 	}
 	return backend, nil
+}
+
+func sameZTAPIVerificationRoute(left, right model.ZTAPIHealthRouteIdentity) bool {
+	return left.ModelID == right.ModelID && left.ChannelID == right.ChannelID &&
+		ztapiVerificationEntryProtocol(left) == ztapiVerificationEntryProtocol(right) &&
+		strings.TrimSpace(left.Protocol) == strings.TrimSpace(right.Protocol) && left.Stream == right.Stream &&
+		left.CredentialVersion.String() == right.CredentialVersion.String() && left.Generation == right.Generation
+}
+
+func ztapiVerificationEntryProtocol(route model.ZTAPIHealthRouteIdentity) string {
+	entryProtocol := strings.TrimSpace(route.EntryProtocol)
+	if entryProtocol == "" {
+		entryProtocol = strings.TrimSpace(route.Protocol)
+	}
+	return entryProtocol
+}
+
+func productionZTAPIVerificationTarget(ctx context.Context, db, logDB *gorm.DB, verificationCase model.ZTAPIHealthVerificationCase, now time.Time) (model.ZTAPIProbeTarget, model.ZTAPIHealthVerificationDispatchAdmission, error) {
+	empty := model.ZTAPIHealthVerificationDispatchAdmission{}
+	if db == nil || logDB == nil {
+		return model.ZTAPIProbeTarget{}, empty, errors.New("verification database unavailable")
+	}
+	target, active, err := productionZTAPIProbeTargetForProtocol(ctx, db, verificationCase.ModelID, verificationCase.Protocol, verificationCase.Stream, false)
+	if err != nil || !active {
+		return target, empty, err
+	}
+	if target.ModelID != verificationCase.ModelID || target.Protocol != verificationCase.Protocol || target.Stream != verificationCase.Stream || target.Generation != verificationCase.Generation {
+		return target, empty, nil
+	}
+	target.EntryProtocol = verificationCase.EntryProtocol
+	var snapshot model.ZTAPIModelPublicationSnapshot
+	if err := db.WithContext(ctx).First(&snapshot, target.PublicationSnapshotID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return target, empty, nil
+		}
+		return target, empty, err
+	}
+	allowed := false
+	for _, channelID := range snapshot.ChannelIDs() {
+		if channelID == verificationCase.ChannelID {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		return target, empty, nil
+	}
+	var channel model.Channel
+	if err := db.WithContext(ctx).First(&channel, verificationCase.ChannelID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return target, empty, nil
+		}
+		return target, empty, err
+	}
+	if channel.Status != common.ChannelStatusEnabled || !channel.ZTAPIManaged {
+		return target, empty, nil
+	}
+	modelAllowed := false
+	for _, channelModel := range channel.GetModels() {
+		if strings.TrimSpace(channelModel) == target.SourceModel || strings.TrimSpace(channelModel) == "*" {
+			modelAllowed = true
+			break
+		}
+	}
+	if !modelAllowed {
+		return target, empty, nil
+	}
+	credentialMatches := false
+	for index, key := range channel.GetKeys() {
+		if channel.ChannelInfo.IsMultiKey && channel.ChannelInfo.MultiKeyStatusList != nil {
+			if status, exists := channel.ChannelInfo.MultiKeyStatusList[index]; exists && status != common.ChannelStatusEnabled {
+				continue
+			}
+		}
+		if model.ZTAPICredentialVersionMatchesKey(verificationCase.CredentialVersion, key) {
+			credentialMatches = true
+			break
+		}
+	}
+	if !credentialMatches {
+		return target, empty, nil
+	}
+	inputTokens := int64(0)
+	if target.FixedCostNanoUSD == 0 {
+		samples, sampleErr := productionZTAPIProbeSamples(ctx, db, logDB, target, now.UTC())
+		if sampleErr != nil {
+			return target, empty, sampleErr
+		}
+		inputTokens = model.ZTAPIProbeP95Input(target.ModelID, samples)
+	}
+	admission := model.ZTAPIHealthVerificationDispatchAdmission{
+		Active: true, Route: verificationCase.RouteIdentity(), InputTokens: inputTokens,
+		InputNanoUSDPerMillion: target.InputNanoUSDPerMillion, OutputNanoUSDPerMillion: target.OutputNanoUSDPerMillion,
+		FixedCostNanoUSD: target.FixedCostNanoUSD,
+	}
+	if !sameZTAPIVerificationRoute(admission.Route, verificationCase.RouteIdentity()) {
+		return target, empty, nil
+	}
+	return target, admission, nil
+}
+
+func productionZTAPIVerificationEvidence(ctx context.Context, db, logDB *gorm.DB, probeUserID int, verificationCase model.ZTAPIHealthVerificationCase) (*ZTAPIVerificationProbeEvidence, error) {
+	if db == nil || logDB == nil || probeUserID <= 0 || verificationCase.ProbeRequestID == "" {
+		return nil, nil
+	}
+	var requests []model.ZTAPIHealthRequest
+	if err := db.WithContext(ctx).Where(
+		"request_id = ? AND model_id = ? AND user_id = ? AND source = ? AND generation = ? AND stream = ? AND completed = ?",
+		verificationCase.ProbeRequestID, verificationCase.ModelID, probeUserID, "probe", verificationCase.Generation, verificationCase.Stream, true,
+	).Limit(2).Find(&requests).Error; err != nil || len(requests) != 1 {
+		return nil, err
+	}
+	requestEntryProtocol := strings.TrimSpace(requests[0].EntryProtocol)
+	if requestEntryProtocol != ztapiVerificationEntryProtocol(verificationCase.RouteIdentity()) {
+		return nil, nil
+	}
+	var events []model.ZTAPIHealthEvent
+	if err := db.WithContext(ctx).Where(
+		"execution_id = ? AND model_id = ? AND source = ? AND generation = ? AND stale_generation = ?",
+		requests[0].ExecutionID, verificationCase.ModelID, "probe", verificationCase.Generation, false,
+	).Limit(2).Find(&events).Error; err != nil || len(events) != 1 {
+		return nil, err
+	}
+	event := events[0]
+	if event.RequestID != verificationCase.ProbeRequestID || event.ChannelID != verificationCase.ChannelID || event.Stream != verificationCase.Stream ||
+		strings.TrimSpace(event.UpstreamProtocol) != strings.TrimSpace(verificationCase.Protocol) || event.CredentialVersion != verificationCase.CredentialVersion ||
+		(event.Result != "success" && event.Result != "failure") {
+		return nil, nil
+	}
+	if event.Result == "failure" {
+		// A failed upstream request normally has no consume log because billing is
+		// refunded. The exact durable health event is sufficient failure evidence;
+		// supplier billing reconciliation remains an independent finance concern.
+		return &ZTAPIVerificationProbeEvidence{
+			RequestID: verificationCase.ProbeRequestID, UpstreamRequestID: event.UpstreamRequestID,
+			Result: "failure", Route: verificationCase.RouteIdentity(),
+		}, nil
+	}
+	var logs []model.Log
+	if err := logDB.WithContext(ctx).Where("request_id = ? AND user_id = ? AND type = ?", verificationCase.ProbeRequestID, probeUserID, model.LogTypeConsume).Limit(2).Find(&logs).Error; err != nil || len(logs) != 1 {
+		return nil, err
+	}
+	return &ZTAPIVerificationProbeEvidence{
+		RequestID: verificationCase.ProbeRequestID, UpstreamRequestID: event.UpstreamRequestID,
+		Result: "healthy", Route: verificationCase.RouteIdentity(), InputTokens: int64(logs[0].PromptTokens), OutputTokens: int64(logs[0].CompletionTokens),
+	}, nil
 }
 
 func productionZTAPIProbeIdentity(ctx context.Context, db *gorm.DB, config ZTAPIHealthWorkerConfig) (bool, string, error) {
@@ -569,6 +825,10 @@ func productionZTAPIProbeIdentity(ctx context.Context, db *gorm.DB, config ZTAPI
 }
 
 func productionZTAPIProbeTarget(ctx context.Context, db *gorm.DB, id int, stream, lock bool) (model.ZTAPIProbeTarget, bool, error) {
+	return productionZTAPIProbeTargetForProtocol(ctx, db, id, "", stream, lock)
+}
+
+func productionZTAPIProbeTargetForProtocol(ctx context.Context, db *gorm.DB, id int, requestedProtocol string, stream, lock bool) (model.ZTAPIProbeTarget, bool, error) {
 	target := model.ZTAPIProbeTarget{ModelID: id, Stream: stream}
 	tx := db.WithContext(ctx)
 	if lock {
@@ -674,14 +934,35 @@ func productionZTAPIProbeTarget(ctx context.Context, db *gorm.DB, id int, stream
 	if err != nil {
 		return target, false, nil
 	}
-	protocol := "chat"
-	if embedding {
-		protocol = "embeddings"
-	} else if common.IsOpenAIResponseOnlyModel(strings.ToLower(c.SourceModel)) {
-		protocol = "responses"
+	protocol, validProtocol := ztapiHealthProbeProtocol(c.SourceModel, modality, requestedProtocol)
+	if !validProtocol {
+		return target, false, nil
 	}
 	target = model.ZTAPIProbeTarget{ModelID: id, Stream: stream, SourceModel: c.SourceModel, PublicModel: snapshot.PublicName, Protocol: protocol, Generation: state.Generation, ConfigVersion: c.Version, PublicationSnapshotID: snapshot.ID, PriceSourceID: price.ID, PriceSourceVersion: price.Version, InputNanoUSDPerMillion: input, OutputNanoUSDPerMillion: output}
 	return target, true, nil
+}
+
+func ztapiHealthProbeProtocol(sourceModel, modality, requested string) (string, bool) {
+	requested = strings.TrimSpace(requested)
+	defaultProtocol := "chat"
+	if modality == model.ZTAPIModalityEmbedding {
+		defaultProtocol = "embeddings"
+	} else if common.IsOpenAIResponseOnlyModel(strings.ToLower(sourceModel)) {
+		defaultProtocol = "responses"
+	}
+	if requested == "" {
+		return defaultProtocol, true
+	}
+	if modality == model.ZTAPIModalityEmbedding {
+		return requested, requested == "embeddings"
+	}
+	if modality == model.ZTAPIModalityText {
+		switch requested {
+		case "chat", "responses", "claude", "gemini":
+			return requested, true
+		}
+	}
+	return requested, false
 }
 
 func ztapiHealthPriceNanoUSD(raw string) (int64, error) {
@@ -712,26 +993,36 @@ func ztapiMediaProbeTargetFromEvidence(c model.ZTAPIModelConfig, snapshot model.
 	}
 	modality := pricing.Modality
 	var candidate ztapiMediaProbeCandidate
+	probeProtocol := ""
 	switch modality {
 	case model.ZTAPIModalityImage:
-		protocol, canonical, parseErr := types.ParseZTAPIImageProtocolContract(snapshot.ImageProtocolContractJSON)
-		if parseErr != nil || canonical != snapshot.ImageProtocolContractJSON || protocol.ProviderModel != c.SourceModel || types.ValidateZTAPIImagePriceProtocolCompatibility(pricing, protocol) != nil {
+		imageProtocol, canonical, parseErr := types.ParseZTAPIImageProtocolContract(snapshot.ImageProtocolContractJSON)
+		if parseErr != nil || canonical != snapshot.ImageProtocolContractJSON || imageProtocol.ProviderModel != c.SourceModel || types.ValidateZTAPIImagePriceProtocolCompatibility(pricing, imageProtocol) != nil {
 			return empty, false
 		}
-		candidate, err = cheapestZTAPIImageProbe(pricing, protocol)
+		candidate, err = cheapestZTAPIImageProbe(pricing, imageProtocol)
+		switch imageProtocol.WireProtocol {
+		case "", types.ZTAPIImageWireProtocolOpenAIImages:
+			probeProtocol = "images"
+		case types.ZTAPIImageWireProtocolGeminiGenerateContent:
+			probeProtocol = "gemini"
+		default:
+			return empty, false
+		}
 	case model.ZTAPIModalityVideo:
 		protocol, canonical, parseErr := types.ParseZTAPIVideoProtocolContract(snapshot.VideoProtocolContractJSON)
 		if parseErr != nil || canonical != snapshot.VideoProtocolContractJSON || protocol.ProviderModel != c.SourceModel || types.ValidateZTAPIVideoPriceProtocolCompatibility(pricing, protocol) != nil {
 			return empty, false
 		}
 		candidate, err = cheapestZTAPIVideoProbe(pricing, protocol)
+		probeProtocol = "video-tasks"
 	default:
 		return empty, false
 	}
 	if err != nil || candidate.cost <= 0 || candidate.payload == "" {
 		return empty, false
 	}
-	protocol, operation := "images", types.ZTAPIHealthOperationImageGenerate
+	protocol, operation := probeProtocol, types.ZTAPIHealthOperationImageGenerate
 	if modality == model.ZTAPIModalityVideo {
 		protocol, operation = "video-tasks", types.ZTAPIHealthOperationVideoSubmit
 	}
@@ -1025,7 +1316,7 @@ func (w *ZTAPIHealthWorker) RunOnce(ctx context.Context) (resultErr error) {
 		}
 		stop()
 	}
-	for _, kind := range []string{"unpublish", "alert", "alert_test", "coverage"} {
+	for _, kind := range []string{"unpublish", "route_alert", "alert", "recovery_alert", "alert_test", "coverage"} {
 		outboxCtx, stop := context.WithTimeout(ctx, w.config.OutboxTimeout)
 		if err := w.runOutbox(outboxCtx, kind); err != nil {
 			failures = append(failures, err)
@@ -1039,6 +1330,28 @@ func (w *ZTAPIHealthWorker) RunOnce(ctx context.Context) (resultErr error) {
 }
 
 func (w *ZTAPIHealthWorker) runProbes(ctx context.Context) error {
+	if w.backend.Verifications != nil && w.backend.Verifications.DB != nil {
+		if !w.config.VerificationProbesEnabled {
+			w.status(ctx, "verification_probes_disabled", "")
+			return nil
+		}
+		expired, err := w.backend.Verifications.ExpireDispatches(ctx, w.config.Now(), w.config.BatchSize)
+		if err != nil {
+			return err
+		}
+		for _, verificationCase := range expired {
+			w.status(ctx, "verification_unknown", verificationCase.ID)
+		}
+		verificationCase, err := w.backend.Verifications.Claim(ctx, w.config.Now(), w.config.LeaseDuration)
+		if err != nil {
+			return err
+		}
+		if verificationCase == nil {
+			w.status(ctx, "verification_idle", "")
+			return nil
+		}
+		return w.runVerificationCase(ctx, verificationCase)
+	}
 	if w.backend.Probes == nil || w.backend.Probes.DB == nil {
 		w.status(ctx, "probe_storage_missing", "")
 		return nil
@@ -1071,7 +1384,7 @@ func (w *ZTAPIHealthWorker) runProbes(ctx context.Context) error {
 		w.status(ctx, "probe_identity_missing", "")
 		return nil
 	}
-	if _, err := ztapiHealthRelayEndpoint(w.config.RelayBaseURL, "chat"); err != nil {
+	if _, err := ztapiHealthRelayEndpoint(w.config.RelayBaseURL, "chat", "", false); err != nil {
 		w.status(ctx, "relay_url_invalid", "")
 		return nil
 	}
@@ -1150,6 +1463,156 @@ func (w *ZTAPIHealthWorker) runProbes(ctx context.Context) error {
 	return nil
 }
 
+func (w *ZTAPIHealthWorker) runVerificationCase(ctx context.Context, verificationCase *model.ZTAPIHealthVerificationCase) error {
+	if verificationCase == nil {
+		return nil
+	}
+	deferClaim := func(code string) error {
+		w.status(ctx, code, verificationCase.ID)
+		return w.backend.Verifications.DeferClaim(ctx, verificationCase.ID, verificationCase.LeaseToken, w.config.Now(), time.Minute)
+	}
+	if !supportedZTAPIVerificationProtocol(verificationCase.Protocol) ||
+		!supportedZTAPIVerificationProtocol(ztapiVerificationEntryProtocol(verificationCase.RouteIdentity())) {
+		w.status(ctx, "verification_protocol_invalid", verificationCase.ID)
+		return w.backend.Verifications.CancelClaim(ctx, verificationCase.ID, verificationCase.LeaseToken, verificationCase.Generation, "protocol_invalid", w.config.Now())
+	}
+	if w.backend.ValidateProbeIdentity == nil || w.backend.LoadVerificationTarget == nil || w.backend.CheckVerificationDispatch == nil || w.backend.LoadVerificationEvidence == nil {
+		return deferClaim("verification_callbacks_missing")
+	}
+	identityValid, code, err := w.backend.ValidateProbeIdentity(ctx)
+	if err != nil {
+		if deferErr := deferClaim("probe_identity_check_error"); deferErr != nil {
+			return errors.Join(err, deferErr)
+		}
+		return err
+	}
+	if !identityValid || w.config.ProbeKey == "" || w.config.ProbeUserID <= 0 {
+		if code == "" {
+			code = "probe_identity_missing"
+		}
+		return deferClaim(code)
+	}
+	target, active, err := w.backend.LoadVerificationTarget(ctx, *verificationCase)
+	if err != nil {
+		if deferErr := deferClaim("verification_target_error"); deferErr != nil {
+			return errors.Join(err, deferErr)
+		}
+		return err
+	}
+	if !active || target.ModelID != verificationCase.ModelID || target.Protocol != verificationCase.Protocol || target.Stream != verificationCase.Stream || target.Generation != verificationCase.Generation {
+		w.status(ctx, "verification_route_changed", verificationCase.ID)
+		return w.backend.Verifications.CancelClaim(ctx, verificationCase.ID, verificationCase.LeaseToken, verificationCase.Generation, "route_changed", w.config.Now())
+	}
+	entryProtocol := strings.TrimSpace(target.EntryProtocol)
+	if entryProtocol == "" {
+		entryProtocol = target.Protocol
+	}
+	if _, err := ztapiHealthRelayEndpoint(w.config.RelayBaseURL, entryProtocol, target.PublicModel, target.Stream); err != nil {
+		return deferClaim("relay_url_invalid")
+	}
+	dispatched, send, err := w.backend.Verifications.BeginDispatch(
+		ctx, verificationCase.ID, verificationCase.LeaseToken, verificationCase.Generation,
+		w.config.Now(), w.config.LeaseDuration, w.backend.CheckVerificationDispatch,
+	)
+	if err != nil {
+		return err
+	}
+	if !send {
+		code := dispatched.Result
+		if code == "" {
+			code = "verification_not_dispatched"
+		}
+		w.status(ctx, code, dispatched.ID)
+		return nil
+	}
+
+	job := model.ZTAPIProbeJob{
+		ID:               dispatched.ID,
+		ZTAPIProbeTarget: target,
+		Source:           "probe",
+		State:            dispatched.State,
+		LeaseToken:       dispatched.LeaseToken,
+		LeaseUntil:       dispatched.LeaseUntil,
+		DispatchAt:       dispatched.DispatchAt,
+		ReservedNanoUSD:  dispatched.ReservedNanoUSD,
+		EstimateNanoUSD:  dispatched.EstimateNanoUSD,
+	}
+	result := performZTAPIVerificationProbe(ctx, w.config, job, dispatched.ProbeRequestID)
+	evidence, evidenceErr := w.waitVerificationEvidence(ctx, dispatched)
+	if ctx.Err() != nil {
+		// Dispatch may already have reached the provider. Leave the durable case
+		// in dispatching; the next sweep will close it as unknown without resend.
+		return ctx.Err()
+	}
+	if evidenceErr != nil || evidence == nil || !matchingZTAPIVerificationEvidence(dispatched, evidence) {
+		w.status(ctx, "probe_final_result_missing", dispatched.ID)
+		completion := model.ZTAPIHealthProbeCompletion{CaseID: dispatched.ID, LeaseToken: dispatched.LeaseToken, Generation: dispatched.Generation, ProbeRequestID: dispatched.ProbeRequestID}
+		return w.backend.Verifications.CompleteUnknown(ctx, completion, "probe_missing", w.config.Now())
+	}
+	observed := dispatched.EstimateNanoUSD
+	if target.FixedCostNanoUSD == 0 {
+		observed, err = model.ZTAPIProbeEstimateNanoUSD(evidence.InputTokens, evidence.OutputTokens, target.InputNanoUSDPerMillion, target.OutputNanoUSDPerMillion)
+		if err != nil {
+			w.status(ctx, "probe_usage_invalid", dispatched.ID)
+			completion := model.ZTAPIHealthProbeCompletion{CaseID: dispatched.ID, LeaseToken: dispatched.LeaseToken, Generation: dispatched.Generation, ProbeRequestID: dispatched.ProbeRequestID}
+			return w.backend.Verifications.CompleteUnknown(ctx, completion, "usage_invalid", w.config.Now())
+		}
+	}
+	_, err = w.backend.Verifications.CompleteProbe(ctx, model.ZTAPIHealthProbeCompletion{
+		CaseID: dispatched.ID, LeaseToken: dispatched.LeaseToken, Generation: dispatched.Generation,
+		ProbeRequestID: dispatched.ProbeRequestID, Result: evidence.Result, ObservedNanoUSD: observed,
+	}, w.config.Now())
+	if err == nil && (result.Code != "functional_pass" || !result.Complete) {
+		w.status(ctx, "probe_http_projection_disagreed", dispatched.ID)
+	}
+	return err
+}
+
+func supportedZTAPIVerificationProtocol(protocol string) bool {
+	switch strings.TrimSpace(protocol) {
+	case "chat", "responses", "claude", "gemini", "embeddings", "images", "video-tasks":
+		return true
+	default:
+		return false
+	}
+}
+
+func matchingZTAPIVerificationEvidence(verificationCase model.ZTAPIHealthVerificationCase, evidence *ZTAPIVerificationProbeEvidence) bool {
+	if evidence == nil || evidence.RequestID != verificationCase.ProbeRequestID || (evidence.Result != "healthy" && evidence.Result != "failure") || evidence.InputTokens < 0 || evidence.OutputTokens < 0 {
+		return false
+	}
+	route := verificationCase.RouteIdentity()
+	return evidence.Route.ModelID == route.ModelID && evidence.Route.ChannelID == route.ChannelID &&
+		ztapiVerificationEntryProtocol(evidence.Route) == ztapiVerificationEntryProtocol(route) &&
+		strings.TrimSpace(evidence.Route.Protocol) == strings.TrimSpace(route.Protocol) && evidence.Route.Stream == route.Stream &&
+		evidence.Route.CredentialVersion.String() == route.CredentialVersion.String() && evidence.Route.Generation == route.Generation
+}
+
+func (w *ZTAPIHealthWorker) waitVerificationEvidence(ctx context.Context, verificationCase model.ZTAPIHealthVerificationCase) (*ZTAPIVerificationProbeEvidence, error) {
+	timeout := ztapiHealthProbeFinalizationTimeout
+	if remaining := time.UnixMilli(verificationCase.LeaseUntil).Sub(w.config.Now()); remaining < timeout {
+		timeout = remaining
+	}
+	if timeout <= 0 {
+		return nil, context.DeadlineExceeded
+	}
+	readCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	ticker := time.NewTicker(ztapiHealthProbeFinalizationInterval)
+	defer ticker.Stop()
+	for {
+		evidence, err := w.backend.LoadVerificationEvidence(readCtx, verificationCase)
+		if err != nil || evidence != nil {
+			return evidence, err
+		}
+		select {
+		case <-readCtx.Done():
+			return nil, readCtx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
 // Relay finalization can commit after the HTTP body is consumed. Poll only its
 // read projection, within the tick/lease budget; never repeat the paid request.
 func (w *ZTAPIHealthWorker) waitProbeFinalized(ctx context.Context, job model.ZTAPIProbeJob, requestID string) (bool, error) {
@@ -1189,7 +1652,7 @@ func validZTAPIHealthWebhook(raw string) bool {
 }
 
 func (w *ZTAPIHealthWorker) runOutbox(ctx context.Context, kind string) error {
-	if (kind == "alert" || kind == "alert_test") && !validZTAPIHealthAlertRecipient(w.config) {
+	if (kind == "alert" || kind == "route_alert" || kind == "recovery_alert" || kind == "alert_test") && !validZTAPIHealthAlertRecipient(w.config) {
 		w.status(ctx, "alert_recipient_missing_or_invalid", "")
 		return nil
 	}
@@ -1244,10 +1707,10 @@ func (w *ZTAPIHealthWorker) runOutbox(ctx context.Context, kind string) error {
 		}
 		if !delivery.Accepted {
 			w.status(ctx, delivery.Code, strconv.FormatInt(item.ID, 10))
-			if kind == "alert" || kind == "alert_test" {
+			if kind == "alert" || kind == "route_alert" || kind == "recovery_alert" || kind == "alert_test" {
 				common.SysError(fmt.Sprintf("ztapi health alert delivery pending: outbox=%d code=%s", item.ID, delivery.Code))
 			}
-		} else if kind == "alert" || kind == "alert_test" {
+		} else if kind == "alert" || kind == "route_alert" || kind == "recovery_alert" || kind == "alert_test" {
 			w.status(ctx, delivery.Code, strconv.FormatInt(item.ID, 10))
 		}
 	}
@@ -1303,7 +1766,12 @@ func sendZTAPIHealthWebhook(ctx context.Context, config ZTAPIHealthWorkerConfig,
 		EventID    int64                    `json:"event_id"`
 		Details    ZTAPIHealthAlertMetadata `json:"details"`
 	}{"ztapi.health.incident", item.ID, item.IncidentID, item.ModelID, item.Generation, item.EventID, ztapiHealthSafeAlertMetadata(item, config.Now())}
-	if item.Test {
+	switch item.Kind {
+	case "route_alert":
+		payload.Event = "ztapi.health.route_degraded"
+	case "recovery_alert":
+		payload.Event = "ztapi.health.recovered"
+	case "alert_test":
 		payload.Event = "ztapi.health.test"
 	}
 	body, err := common.Marshal(payload)
@@ -1333,7 +1801,7 @@ func sendZTAPIHealthWebhook(ctx context.Context, config ZTAPIHealthWorkerConfig,
 	return false, "alert_http_status"
 }
 
-func ztapiHealthRelayEndpoint(base, protocol string) (string, error) {
+func ztapiHealthRelayEndpoint(base, protocol, publicModel string, stream bool) (string, error) {
 	u, err := url.Parse(base)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return "", errors.New("invalid loopback relay URL")
@@ -1359,6 +1827,18 @@ func ztapiHealthRelayEndpoint(base, protocol string) (string, error) {
 		u.Path = "/v1/chat/completions"
 	case "responses":
 		u.Path = "/v1/responses"
+	case "claude":
+		u.Path = "/v1/messages"
+	case "gemini":
+		if strings.TrimSpace(publicModel) == "" || strings.ContainsAny(publicModel, "/?#") {
+			return "", errors.New("probe model invalid")
+		}
+		action := ":generateContent"
+		if stream {
+			action = ":streamGenerateContent"
+			u.RawQuery = "alt=sse"
+		}
+		u.Path = "/v1/models/" + url.PathEscape(strings.TrimSpace(publicModel)) + action
 	default:
 		return "", errors.New("probe protocol invalid")
 	}
@@ -1404,6 +1884,50 @@ type ztapiHealthWireResponse struct {
 	} `json:"output"`
 }
 
+type ztapiHealthClaudeResponse struct {
+	Type       string `json:"type"`
+	StopReason string `json:"stop_reason"`
+	Error      any    `json:"error"`
+	Content    []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	} `json:"content"`
+	Usage struct {
+		InputTokens  int64 `json:"input_tokens"`
+		OutputTokens int64 `json:"output_tokens"`
+	} `json:"usage"`
+	Message *struct {
+		Usage struct {
+			InputTokens int64 `json:"input_tokens"`
+		} `json:"usage"`
+	} `json:"message"`
+	Delta struct {
+		Type       string `json:"type"`
+		Text       string `json:"text"`
+		StopReason string `json:"stop_reason"`
+	} `json:"delta"`
+}
+
+type ztapiHealthGeminiResponse struct {
+	Error      any `json:"error"`
+	Candidates []struct {
+		FinishReason string `json:"finishReason"`
+		Content      struct {
+			Parts []struct {
+				Text       string `json:"text"`
+				InlineData struct {
+					MIMEType string `json:"mimeType"`
+					Data     string `json:"data"`
+				} `json:"inlineData"`
+			} `json:"parts"`
+		} `json:"content"`
+	} `json:"candidates"`
+	UsageMetadata struct {
+		PromptTokenCount     int64 `json:"promptTokenCount"`
+		CandidatesTokenCount int64 `json:"candidatesTokenCount"`
+	} `json:"usageMetadata"`
+}
+
 func ztapiHealthOutputText(w ztapiHealthWireResponse) string {
 	var b strings.Builder
 	for _, output := range w.Output {
@@ -1440,8 +1964,20 @@ func ztapiHealthUsage(result *ztapiHealthProbeResult, usage *ztapiHealthWireUsag
 }
 
 func performZTAPIHealthProbe(ctx context.Context, config ZTAPIHealthWorkerConfig, job model.ZTAPIProbeJob) ztapiHealthProbeResult {
-	result := ztapiHealthProbeResult{Code: "unknown", RequestID: "ztapi-health-probe-" + job.ID}
-	endpoint, err := ztapiHealthRelayEndpoint(config.RelayBaseURL, job.Protocol)
+	return performZTAPIHealthProbeRequest(ctx, config, job, "ztapi-health-probe-"+job.ID, "", "", 1024)
+}
+
+func performZTAPIVerificationProbe(ctx context.Context, config ZTAPIHealthWorkerConfig, job model.ZTAPIProbeJob, requestID string) ztapiHealthProbeResult {
+	return performZTAPIHealthProbeRequest(ctx, config, job, requestID, job.ID, job.LeaseToken, model.ZTAPIVerificationMaxOutputTokens)
+}
+
+func performZTAPIHealthProbeRequest(ctx context.Context, config ZTAPIHealthWorkerConfig, job model.ZTAPIProbeJob, requestID, caseID, leaseToken string, maxOutputTokens int64) ztapiHealthProbeResult {
+	result := ztapiHealthProbeResult{Code: "unknown", RequestID: requestID}
+	entryProtocol := strings.TrimSpace(job.EntryProtocol)
+	if entryProtocol == "" {
+		entryProtocol = job.Protocol
+	}
+	endpoint, err := ztapiHealthRelayEndpoint(config.RelayBaseURL, entryProtocol, job.PublicModel, job.Stream)
 	if err != nil {
 		result.Code = "relay_url_invalid"
 		return result
@@ -1449,24 +1985,34 @@ func performZTAPIHealthProbe(ctx context.Context, config ZTAPIHealthWorkerConfig
 	payload := map[string]any{"model": job.PublicModel, "stream": job.Stream}
 	const question = "What is 35+42? Reply with only the integer answer."
 	const system = "You are a concise assistant."
-	if job.Protocol == "images" || job.Protocol == "video-tasks" {
+	if job.Modality == model.ZTAPIModalityImage || job.Protocol == "video-tasks" {
 		payload, err = ztapiHealthMediaProbePayload(job)
 		if err != nil {
 			result.Code = "probe_payload_error"
 			return result
 		}
-	} else if job.Protocol == "embeddings" {
+	} else if entryProtocol == "embeddings" {
 		if job.Stream {
 			result.Code = "probe_protocol_invalid"
 			return result
 		}
 		payload = map[string]any{"model": job.PublicModel, "input": "ZTAPI embedding verification", "encoding_format": "float"}
-	} else if job.Protocol == "responses" {
-		payload["input"], payload["max_output_tokens"] = question, 1024
+	} else if entryProtocol == "responses" {
+		payload["input"], payload["max_output_tokens"] = question, maxOutputTokens
 		payload["instructions"] = system
+	} else if entryProtocol == "claude" {
+		payload["system"] = system
+		payload["messages"] = []map[string]string{{"role": "user", "content": question}}
+		payload["max_tokens"] = maxOutputTokens
+	} else if entryProtocol == "gemini" {
+		payload = map[string]any{
+			"contents":          []map[string]any{{"role": "user", "parts": []map[string]string{{"text": question}}}},
+			"systemInstruction": map[string]any{"parts": []map[string]string{{"text": system}}},
+			"generationConfig":  map[string]any{"maxOutputTokens": maxOutputTokens},
+		}
 	} else {
 		payload["messages"] = []map[string]string{{"role": "system", "content": system}, {"role": "user", "content": question}}
-		payload["max_tokens"] = 1024
+		payload["max_tokens"] = maxOutputTokens
 		if job.Stream {
 			payload["stream_options"] = map[string]bool{"include_usage": true}
 		}
@@ -1486,6 +2032,10 @@ func performZTAPIHealthProbe(ctx context.Context, config ZTAPIHealthWorkerConfig
 	req.Header.Set("Authorization", "Bearer "+config.ProbeKey)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Request-ID", result.RequestID)
+	if caseID != "" && leaseToken != "" {
+		req.Header.Set("X-ZTAPI-Health-Case-ID", caseID)
+		req.Header.Set("X-ZTAPI-Health-Lease-Token", leaseToken)
+	}
 	resp, err := ztapiHealthHTTPClient(config.RequestTimeout, config.ProbeTransport).Do(req)
 	if err != nil {
 		result.Code = "probe_transport_error"
@@ -1498,18 +2048,25 @@ func performZTAPIHealthProbe(ctx context.Context, config ZTAPIHealthWorkerConfig
 	}
 	body, err = io.ReadAll(io.LimitReader(resp.Body, ztapiHealthProbeBodyLimit+1))
 	if len(body) > ztapiHealthProbeBodyLimit {
-		result = parseZTAPIHealthProbe(body[:ztapiHealthProbeBodyLimit], job.Protocol, job.Stream, result)
+		result = parseZTAPIHealthProbeForTarget(body[:ztapiHealthProbeBodyLimit], entryProtocol, job.Stream, job.Modality, result)
 		result.Complete = false
 		result.Code = "response_too_large"
 		return result
 	}
 	if err != nil {
-		result = parseZTAPIHealthProbe(body, job.Protocol, job.Stream, result)
+		result = parseZTAPIHealthProbeForTarget(body, entryProtocol, job.Stream, job.Modality, result)
 		result.Complete = false
 		result.Code = "incomplete_response"
 		return result
 	}
-	return parseZTAPIHealthProbe(body, job.Protocol, job.Stream, result)
+	return parseZTAPIHealthProbeForTarget(body, entryProtocol, job.Stream, job.Modality, result)
+}
+
+func parseZTAPIHealthProbeForTarget(body []byte, protocol string, stream bool, modality string, result ztapiHealthProbeResult) ztapiHealthProbeResult {
+	if protocol == "gemini" && modality == model.ZTAPIModalityImage {
+		return parseZTAPIHealthGeminiImageProbe(body, stream, result)
+	}
+	return parseZTAPIHealthProbe(body, protocol, stream, result)
 }
 
 func parseZTAPIHealthProbe(body []byte, protocol string, stream bool, result ztapiHealthProbeResult) ztapiHealthProbeResult {
@@ -1557,6 +2114,12 @@ func parseZTAPIHealthProbe(body []byte, protocol string, stream bool, result zta
 		result.InputTokens, result.OutputTokens = int64(tokens), 0
 		result.Code, result.Complete = "functional_pass", true
 		return result
+	}
+	if protocol == "claude" {
+		return parseZTAPIHealthClaudeProbe(body, stream, result)
+	}
+	if protocol == "gemini" {
+		return parseZTAPIHealthGeminiProbe(body, stream, result)
 	}
 	responses := protocol == "responses"
 	text, complete, invalid := "", false, false
@@ -1689,16 +2252,177 @@ func parseZTAPIHealthProbe(body []byte, protocol string, stream bool, result zta
 	return result
 }
 
+func finishZTAPIHealthNativeProbe(result ztapiHealthProbeResult, text string, complete, invalid bool) ztapiHealthProbeResult {
+	if invalid {
+		result.Code = "invalid_response"
+		return result
+	}
+	if !complete {
+		result.Code = "incomplete_response"
+		return result
+	}
+	result.Complete = true
+	if strings.TrimSpace(text) == "77" {
+		result.Code = "functional_pass"
+	} else {
+		result.Code = "wrong_answer"
+	}
+	return result
+}
+
+func parseZTAPIHealthClaudeProbe(body []byte, stream bool, result ztapiHealthProbeResult) ztapiHealthProbeResult {
+	var text strings.Builder
+	complete, invalid := false, false
+	if !stream {
+		var response ztapiHealthClaudeResponse
+		if common.Unmarshal(body, &response) != nil || response.Error != nil || response.Usage.InputTokens < 0 || response.Usage.OutputTokens < 0 {
+			return finishZTAPIHealthNativeProbe(result, "", false, true)
+		}
+		for _, content := range response.Content {
+			if content.Type == "text" {
+				text.WriteString(content.Text)
+			}
+		}
+		result.InputTokens, result.OutputTokens = response.Usage.InputTokens, response.Usage.OutputTokens
+		complete = response.StopReason == "end_turn" || response.StopReason == "stop_sequence"
+		return finishZTAPIHealthNativeProbe(result, text.String(), complete, false)
+	}
+
+	terminal, stopped := false, false
+	scanner := bufio.NewScanner(bytes.NewReader(body))
+	scanner.Buffer(make([]byte, 4096), ztapiHealthProbeBodyLimit+1)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload == "" {
+			continue
+		}
+		var event ztapiHealthClaudeResponse
+		if common.Unmarshal([]byte(payload), &event) != nil || event.Error != nil {
+			invalid = true
+			continue
+		}
+		switch event.Type {
+		case "message_start":
+			if event.Message != nil {
+				result.InputTokens = event.Message.Usage.InputTokens
+			}
+		case "content_block_delta":
+			if event.Delta.Type == "text_delta" {
+				text.WriteString(event.Delta.Text)
+			}
+		case "message_delta":
+			result.OutputTokens = event.Usage.OutputTokens
+			stopped = event.Delta.StopReason == "end_turn" || event.Delta.StopReason == "stop_sequence"
+		case "message_stop":
+			terminal = true
+		case "error":
+			invalid = true
+		}
+	}
+	if scanner.Err() != nil || result.InputTokens < 0 || result.OutputTokens < 0 {
+		invalid = true
+	}
+	complete = terminal && stopped
+	return finishZTAPIHealthNativeProbe(result, text.String(), complete, invalid)
+}
+
+func parseZTAPIHealthGeminiProbe(body []byte, stream bool, result ztapiHealthProbeResult) ztapiHealthProbeResult {
+	consume := func(payload []byte, text *strings.Builder) (complete bool, invalid bool) {
+		var response ztapiHealthGeminiResponse
+		if common.Unmarshal(payload, &response) != nil || response.Error != nil || response.UsageMetadata.PromptTokenCount < 0 || response.UsageMetadata.CandidatesTokenCount < 0 || len(response.Candidates) != 1 {
+			return false, true
+		}
+		for _, part := range response.Candidates[0].Content.Parts {
+			text.WriteString(part.Text)
+		}
+		if response.UsageMetadata.PromptTokenCount > result.InputTokens {
+			result.InputTokens = response.UsageMetadata.PromptTokenCount
+		}
+		if response.UsageMetadata.CandidatesTokenCount > result.OutputTokens {
+			result.OutputTokens = response.UsageMetadata.CandidatesTokenCount
+		}
+		return response.Candidates[0].FinishReason == "STOP", false
+	}
+	var text strings.Builder
+	if !stream {
+		complete, invalid := consume(body, &text)
+		return finishZTAPIHealthNativeProbe(result, text.String(), complete, invalid)
+	}
+	complete, invalid := false, false
+	scanner := bufio.NewScanner(bytes.NewReader(body))
+	scanner.Buffer(make([]byte, 4096), ztapiHealthProbeBodyLimit+1)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload == "" {
+			continue
+		}
+		chunkComplete, chunkInvalid := consume([]byte(payload), &text)
+		complete = complete || chunkComplete
+		invalid = invalid || chunkInvalid
+	}
+	if scanner.Err() != nil {
+		invalid = true
+	}
+	return finishZTAPIHealthNativeProbe(result, text.String(), complete, invalid)
+}
+
+func parseZTAPIHealthGeminiImageProbe(body []byte, stream bool, result ztapiHealthProbeResult) ztapiHealthProbeResult {
+	result.Code = "invalid_response"
+	if stream {
+		return result
+	}
+	var response ztapiHealthGeminiResponse
+	if common.Unmarshal(body, &response) != nil || response.Error != nil ||
+		response.UsageMetadata.PromptTokenCount < 0 || response.UsageMetadata.CandidatesTokenCount < 0 ||
+		len(response.Candidates) != 1 || response.Candidates[0].FinishReason != "STOP" {
+		return result
+	}
+	hasImage := false
+	for _, part := range response.Candidates[0].Content.Parts {
+		if strings.TrimSpace(part.InlineData.MIMEType) != "" && strings.TrimSpace(part.InlineData.Data) != "" {
+			hasImage = true
+			break
+		}
+	}
+	if !hasImage {
+		return result
+	}
+	result.InputTokens = response.UsageMetadata.PromptTokenCount
+	result.OutputTokens = response.UsageMetadata.CandidatesTokenCount
+	result.Code, result.Complete = "functional_pass", true
+	return result
+}
+
 func ztapiHealthMediaProbePayload(job model.ZTAPIProbeJob) (map[string]any, error) {
 	if job.Stream || strings.TrimSpace(job.ProbePayloadJSON) == "" {
 		return nil, errors.New("media probe payload is missing")
+	}
+	entryProtocol := strings.TrimSpace(job.EntryProtocol)
+	if entryProtocol == "" {
+		entryProtocol = job.Protocol
+	}
+	if job.Modality == model.ZTAPIModalityImage && entryProtocol == "gemini" {
+		return map[string]any{
+			"contents": []any{map[string]any{
+				"role": "user", "parts": []any{map[string]any{"text": "Generate a neutral blue circle."}},
+			}},
+			"generationConfig": map[string]any{"responseModalities": []string{"TEXT", "IMAGE"}},
+		}, nil
 	}
 	var frozen map[string]any
 	if common.Unmarshal([]byte(job.ProbePayloadJSON), &frozen) != nil || len(frozen) == 0 {
 		return nil, errors.New("media probe payload is invalid")
 	}
 	allowed := map[string]bool{}
-	switch job.Protocol {
+	switch entryProtocol {
 	case "images":
 		allowed = map[string]bool{"size": true, "quality": true, "response_format": true, "n": true}
 		if len(frozen) != len(allowed) || !ztapiHealthProbeStringOption(frozen["size"]) || !ztapiHealthProbeStringOption(frozen["quality"]) ||

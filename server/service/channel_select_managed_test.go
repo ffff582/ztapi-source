@@ -33,6 +33,15 @@ func TestManagedRetryBudgetSurvivesGroupCounterReset(t *testing.T) {
 	require.Equal(t, []int{17, 29}, p.AttemptedChannelIDs)
 }
 
+func TestManagedRetryCanReleaseLocallyRejectedCredentialAttempt(t *testing.T) {
+	p := &RetryParam{Managed: true, AllowedChannelIDs: []int{17, 29}}
+	require.NoError(t, p.RecordAttempt(17))
+	p.ReleaseAttempt(17)
+	require.Empty(t, p.AttemptedChannelIDs)
+	require.True(t, p.HasMoreAttempts())
+	require.NoError(t, p.RecordAttempt(17))
+}
+
 func TestManagedRetryAutoSelectionErrorIsFailClosedWithoutChangingLegacy(t *testing.T) {
 	oldDB, oldCache := model.DB, common.MemoryCacheEnabled
 	oldGroups := setting.AutoGroups2JsonString()

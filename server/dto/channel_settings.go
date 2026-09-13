@@ -7,6 +7,10 @@ type ChannelSettings struct {
 	PassThroughBodyEnabled bool   `json:"pass_through_body_enabled,omitempty"`
 	SystemPrompt           string `json:"system_prompt,omitempty"`
 	SystemPromptOverride   bool   `json:"system_prompt_override,omitempty"`
+	// ZTAPIHealthCredentialHeaders declares custom outbound authentication
+	// carriers. Ordinary header overrides and customer passthrough stay out of
+	// route identity unless explicitly listed here.
+	ZTAPIHealthCredentialHeaders []string `json:"ztapi_health_credential_headers,omitempty"`
 }
 
 type VertexKeyType string

@@ -155,6 +155,125 @@ func TestZTAPIHealthWorkerHTTPProtocolsAndTruncation(t *testing.T) {
 	}
 }
 
+func TestZTAPIHealthWorkerNativeProtocolRequests(t *testing.T) {
+	for _, tc := range []struct {
+		name, protocol, path, query, response string
+		stream                                bool
+	}{
+		{name: "claude", protocol: "claude", path: "/v1/messages", response: `{"type":"message","content":[{"type":"text","text":"77"}],"stop_reason":"end_turn","usage":{"input_tokens":8,"output_tokens":1}}`},
+		{name: "claude-stream", protocol: "claude", path: "/v1/messages", stream: true, response: "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":8}}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"77\"}}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":1}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"},
+		{name: "gemini", protocol: "gemini", path: "/v1/models/zt-native:generateContent", response: `{"candidates":[{"content":{"parts":[{"text":"77"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":8,"candidatesTokenCount":1}}`},
+		{name: "gemini-stream", protocol: "gemini", path: "/v1/models/zt-native:streamGenerateContent", query: "alt=sse", stream: true, response: "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"77\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":8,\"candidatesTokenCount\":1}}\n\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			config := DefaultZTAPIHealthWorkerConfig()
+			config.ProbeKey, config.RelayBaseURL = "offline", "http://127.0.0.1:3000"
+			calls := 0
+			config.ProbeTransport = healthWorkerTransport(func(r *http.Request) (*http.Response, error) {
+				calls++
+				require.Equal(t, tc.path, r.URL.Path)
+				require.Equal(t, tc.query, r.URL.RawQuery)
+				var payload map[string]any
+				require.NoError(t, common.DecodeJson(r.Body, &payload))
+				if tc.protocol == "claude" {
+					require.Equal(t, "You are a concise assistant.", payload["system"])
+					require.EqualValues(t, 64, payload["max_tokens"])
+					require.Equal(t, tc.stream, payload["stream"])
+				} else {
+					require.Nil(t, payload["model"])
+					require.NotNil(t, payload["contents"])
+					require.NotNil(t, payload["systemInstruction"])
+				}
+				return workerResponse(http.StatusOK, tc.response), nil
+			})
+			job := model.ZTAPIProbeJob{ID: "native-case", LeaseToken: "lease", ZTAPIProbeTarget: model.ZTAPIProbeTarget{PublicModel: "zt-native", Protocol: tc.protocol, Stream: tc.stream}}
+			result := performZTAPIVerificationProbe(context.Background(), config, job, "ztapi-health:native-case:1")
+			require.Equal(t, 1, calls)
+			require.True(t, result.Complete)
+			require.Equal(t, "functional_pass", result.Code)
+		})
+	}
+}
+
+func TestZTAPIHealthCredentialVersionMatchesEffectiveBearerHeader(t *testing.T) {
+	key := "enterprise-route-key"
+	fingerprint, err := model.FingerprintZTAPICredential("authorization\x00Bearer " + key)
+	require.NoError(t, err)
+	require.True(t, model.ZTAPICredentialVersionMatchesKey(fingerprint.String(), key))
+	require.False(t, model.ZTAPICredentialVersionMatchesKey(fingerprint.String(), "rotated-key"))
+}
+
+func TestZTAPIVerificationProbeUsesCustomerEntryProtocolAndPreservesUpstreamPin(t *testing.T) {
+	config := DefaultZTAPIHealthWorkerConfig()
+	config.ProbeKey, config.RelayBaseURL = "offline", "http://127.0.0.1:3000"
+	config.ProbeTransport = healthWorkerTransport(func(r *http.Request) (*http.Response, error) {
+		require.Equal(t, "/v1/chat/completions", r.URL.Path)
+		var payload map[string]any
+		require.NoError(t, common.DecodeJson(r.Body, &payload))
+		require.EqualValues(t, model.ZTAPIVerificationMaxOutputTokens, payload["max_tokens"])
+		require.NotContains(t, payload, "max_output_tokens")
+		return workerResponse(http.StatusOK, `{"choices":[{"message":{"content":"77"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":1}}`), nil
+	})
+	job := model.ZTAPIProbeJob{ID: "conversion-probe", ZTAPIProbeTarget: model.ZTAPIProbeTarget{
+		ModelID: 1, PublicModel: "public-model", SourceModel: "source-model",
+		EntryProtocol: "chat", Protocol: "responses", Generation: 1, ConfigVersion: 1,
+	}}
+	result := performZTAPIVerificationProbe(context.Background(), config, job, "verification-request")
+	require.True(t, result.Complete)
+	require.Equal(t, "functional_pass", result.Code)
+	require.Equal(t, "responses", job.Protocol, "the final upstream protocol remains the route pin")
+}
+
+func TestZTAPIVerificationGeminiImageUsesNativeEntryAndAcceptsInlineImage(t *testing.T) {
+	_, protocolJSON, err := ztapiGemini25ImageProtocolContract()
+	require.NoError(t, err)
+	priceJSON, err := types.CanonicalizeZTAPIMediaPriceContract(`{
+		"version":1,"modality":"image","rules":[{
+			"id":"gt_200k","conditions":{"prompt_tokens_tier":"gt_200k"},"billing_unit":"usd_per_million_tokens",
+			"cost_usd":{"input_tokens":"1","output_tokens":"2"},
+			"sale_usd":{"input_tokens":"1.6666666667","output_tokens":"3.3333333333"},
+			"source_cells":{"input_tokens":"A1","output_tokens":"B1"}
+		},{
+			"id":"lte_200k","conditions":{"prompt_tokens_tier":"lte_200k"},"billing_unit":"usd_per_million_tokens",
+			"cost_usd":{"input_tokens":"1","output_tokens":"2"},
+			"sale_usd":{"input_tokens":"1.6666666667","output_tokens":"3.3333333333"},
+			"source_cells":{"input_tokens":"A2","output_tokens":"B2"}
+		}]
+	}`)
+	require.NoError(t, err)
+	target, ok := ztapiMediaProbeTargetFromEvidence(
+		model.ZTAPIModelConfig{ID: 7, SourceModel: ztapiGemini25ImageModel, Version: 2},
+		model.ZTAPIModelPublicationSnapshot{ID: 17, PublicName: "zt-gemini-image", PriceSourceID: 18, MediaPriceContractJSON: priceJSON, ImageProtocolContractJSON: protocolJSON},
+		model.ZTAPIModelPriceSource{ID: 18, Version: 3, MediaPriceContractJSON: priceJSON},
+		model.ZTAPIHealthState{Generation: 4}, false,
+	)
+	require.True(t, ok)
+	require.Equal(t, "gemini", target.Protocol)
+	target.EntryProtocol = "gemini"
+
+	config := DefaultZTAPIHealthWorkerConfig()
+	config.ProbeKey, config.RelayBaseURL = "offline", "http://127.0.0.1:3000"
+	config.ProbeTransport = healthWorkerTransport(func(r *http.Request) (*http.Response, error) {
+		require.Equal(t, "/v1/models/zt-gemini-image:generateContent", r.URL.Path)
+		var payload map[string]any
+		require.NoError(t, common.DecodeJson(r.Body, &payload))
+		require.NotNil(t, payload["contents"])
+		require.NotNil(t, payload["generationConfig"])
+		return workerResponse(http.StatusOK, `{
+			"responseId":"gemini-health-1",
+			"candidates":[{"finishReason":"STOP","content":{"parts":[{"text":"done"},{"inlineData":{"mimeType":"image/png","data":"cG5n"}}]}}],
+			"usageMetadata":{"promptTokenCount":9,"candidatesTokenCount":12,"totalTokenCount":21}
+		}`), nil
+	})
+	result := performZTAPIVerificationProbe(context.Background(), config, model.ZTAPIProbeJob{
+		ID: "gemini-image-case", LeaseToken: "lease", ZTAPIProbeTarget: target,
+	}, "ztapi-health:gemini-image-case:1")
+	require.True(t, result.Complete)
+	require.Equal(t, "functional_pass", result.Code)
+	require.EqualValues(t, 9, result.InputTokens)
+	require.EqualValues(t, 12, result.OutputTokens)
+}
+
 func TestZTAPIHealthWorkerMediaProtocolsUseFrozenMinimumOptions(t *testing.T) {
 	for _, tc := range []struct {
 		protocol, modality, operation, payload, path, response string
@@ -570,11 +689,13 @@ func TestZTAPIHealthWorkerConfigMoneyAndShutdown(t *testing.T) {
 	t.Setenv("ZTAPI_HEALTH_PROBE_USER_ID", "")
 	t.Setenv("ZTAPI_HEALTH_PROBE_BUDGET_USD", "0.000000001")
 	t.Setenv("ZTAPI_HEALTH_SYNTHETIC_PROBES_ENABLED", "")
+	t.Setenv("ZTAPI_HEALTH_VERIFICATION_PROBES_ENABLED", "")
 	c, err := ZTAPIHealthWorkerConfigFromEnv()
 	require.NoError(t, err)
 	require.EqualValues(t, 1, c.InitialAllocationNanoUSD)
 	require.False(t, c.ProbeIdentityValidated)
 	require.False(t, c.SyntheticProbesEnabled)
+	require.True(t, c.VerificationProbesEnabled)
 	t.Setenv("ZTAPI_HEALTH_SYNTHETIC_PROBES_ENABLED", "true")
 	c, err = ZTAPIHealthWorkerConfigFromEnv()
 	require.NoError(t, err)
@@ -583,6 +704,14 @@ func TestZTAPIHealthWorkerConfigMoneyAndShutdown(t *testing.T) {
 	_, err = ZTAPIHealthWorkerConfigFromEnv()
 	require.Error(t, err)
 	t.Setenv("ZTAPI_HEALTH_SYNTHETIC_PROBES_ENABLED", "")
+	t.Setenv("ZTAPI_HEALTH_VERIFICATION_PROBES_ENABLED", "false")
+	c, err = ZTAPIHealthWorkerConfigFromEnv()
+	require.NoError(t, err)
+	require.False(t, c.VerificationProbesEnabled)
+	t.Setenv("ZTAPI_HEALTH_VERIFICATION_PROBES_ENABLED", "not-a-boolean")
+	_, err = ZTAPIHealthWorkerConfigFromEnv()
+	require.Error(t, err)
+	t.Setenv("ZTAPI_HEALTH_VERIFICATION_PROBES_ENABLED", "")
 	for _, value := range []string{"-1", "1e2", "1/2", "0.0000000001", "NaN", "9223372037"} {
 		t.Setenv("ZTAPI_HEALTH_PROBE_BUDGET_USD", value)
 		_, err := ZTAPIHealthWorkerConfigFromEnv()
@@ -599,7 +728,7 @@ func TestZTAPIHealthWorkerConfigMoneyAndShutdown(t *testing.T) {
 	}
 }
 
-func TestZTAPIHealthWorkerEngineUnpublishNoSecondACK(t *testing.T) {
+func TestZTAPIHealthWorkerEngineLegacyUnpublishIsSuperseded(t *testing.T) {
 	w, now, _ := healthWorkerFixture(t)
 	w.config.ProbeKey = ""
 	db := w.backend.Probes.DB
@@ -620,10 +749,10 @@ func TestZTAPIHealthWorkerEngineUnpublishNoSecondACK(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, w.RunOnce(context.Background()))
 	require.NoError(t, db.First(&c, c.ID).Error)
-	require.False(t, c.Published)
-	require.EqualValues(t, 8, c.Version)
+	require.True(t, c.Published)
+	require.EqualValues(t, 7, c.Version)
 	require.NoError(t, db.First(&job, job.ID).Error)
-	require.Equal(t, "done", job.Status)
+	require.Equal(t, "superseded", job.Status)
 	require.NoError(t, w.RunOnce(context.Background()))
 	require.NoError(t, db.First(&job, job.ID).Error)
 	require.Equal(t, 1, job.Attempts)
@@ -663,8 +792,18 @@ func TestZTAPIHealthWorkerProductionDisabledStatusAndNoAllocation(t *testing.T) 
 	config.SyntheticProbesEnabled = true
 	config.Now = w.config.Now
 	config.InitialAllocationNanoUSD = 30_000_000_000
+	startupReads := map[string]int{}
+	callbackName := "ztapi:test:no-paid-preparation-at-startup"
+	require.NoError(t, w.backend.Probes.DB.Callback().Query().Before("gorm:query").Register(callbackName, func(tx *gorm.DB) {
+		switch tx.Statement.Table {
+		case "tokens", "ztapi_probe_budgets", "ztapi_model_configs", "ztapi_model_publication_snapshots":
+			startupReads[tx.Statement.Table]++
+		}
+	}))
 	backend, err := NewProductionZTAPIHealthWorkerBackend(config)
 	require.NoError(t, err)
+	require.NoError(t, w.backend.Probes.DB.Callback().Query().Remove(callbackName))
+	require.Empty(t, startupReads, "backend startup must not inspect identity, catalog, or paid-probe budget without a verification case")
 	production, err := NewZTAPIHealthWorker(backend, config)
 	require.NoError(t, err)
 	require.NoError(t, production.RunOnce(context.Background()))
@@ -674,7 +813,8 @@ func TestZTAPIHealthWorkerProductionDisabledStatusAndNoAllocation(t *testing.T) 
 	for _, status := range statuses {
 		codes = append(codes, status.Code)
 	}
-	require.Contains(t, codes, "probe_identity_missing")
+	require.Contains(t, codes, "verification_idle")
+	require.NotContains(t, codes, "probe_identity_missing", "idle verification must not inspect probe credentials")
 	require.Contains(t, codes, "alert_recipient_missing_or_invalid")
 	budget, err := backend.Probes.Budget(context.Background())
 	require.NoError(t, err)
@@ -723,7 +863,8 @@ func TestZTAPIHealthWorkerProductionFlagFalseBlocksPaidProbe(t *testing.T) {
 	for _, status := range statuses {
 		codes = append(codes, status.Code)
 	}
-	require.Contains(t, codes, "instrumentation_disabled")
+	require.Contains(t, codes, "verification_idle")
+	require.NotContains(t, codes, "instrumentation_disabled", "without a pending case the worker must not inspect paid-probe prerequisites")
 	require.Contains(t, codes, "orphaned_admission_admin_only")
 	require.NoError(t, w.backend.Probes.DB.First(&job, job.ID).Error)
 	require.Equal(t, "done", job.Status)
@@ -744,7 +885,28 @@ func TestZTAPIHealthWorkerSyntheticProbesDisabledKeepsOutboxAndSkipsPaidProbe(t 
 	for _, status := range statuses {
 		codes = append(codes, status.Code)
 	}
-	require.Contains(t, codes, "synthetic_probes_disabled")
+	require.Contains(t, codes, "verification_idle")
+	require.NotContains(t, codes, "synthetic_probes_disabled")
+	require.Contains(t, codes, "orphaned_admission_admin_only")
+	require.NoError(t, w.backend.Probes.DB.First(&job, job.ID).Error)
+	require.Equal(t, "done", job.Status)
+}
+
+func TestZTAPIHealthWorkerVerificationProbesDisabledKeepsOutboxAndSkipsPaidProbe(t *testing.T) {
+	w, now, sends := productionWorkerFixture(t)
+	w.config.VerificationProbesEnabled = false
+	job := model.ZTAPIHealthOutbox{DedupKey: "coverage-verification-disabled", Kind: "coverage", EventID: 124, Status: "pending", NextAttemptAt: now.Unix()}
+	require.NoError(t, w.backend.Probes.DB.Create(&job).Error)
+
+	require.NoError(t, w.RunOnce(context.Background()))
+	require.Zero(t, *sends)
+	statuses, err := GetProductionZTAPIHealthWorkerStatus(context.Background())
+	require.NoError(t, err)
+	codes := []string{}
+	for _, status := range statuses {
+		codes = append(codes, status.Code)
+	}
+	require.Contains(t, codes, "verification_probes_disabled")
 	require.Contains(t, codes, "orphaned_admission_admin_only")
 	require.NoError(t, w.backend.Probes.DB.First(&job, job.ID).Error)
 	require.Equal(t, "done", job.Status)
@@ -886,7 +1048,7 @@ func TestZTAPIHealthWorkerEveryTickHeartbeatDoesNotClearFaults(t *testing.T) {
 	}
 	require.Equal(t, "worker_ready", byComponent["worker"].Code)
 	require.Equal(t, now.Unix(), byComponent["worker"].UpdatedAt)
-	require.Equal(t, "instrumentation_disabled", byComponent["probe"].Code)
+	require.Equal(t, "verification_idle", byComponent["probe"].Code)
 	require.Equal(t, "alert_recipient_missing_or_invalid", byComponent["alert"].Code)
 	w.backend.ClaimOutbox = func(context.Context, string, time.Time, time.Duration, int) ([]ZTAPIHealthWorkItem, error) {
 		return nil, errors.New("synthetic database failure")

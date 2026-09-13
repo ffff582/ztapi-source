@@ -413,8 +413,10 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		mediaTask, healthErr := model.GetZTAPIMediaTask(task.TaskID)
 		if healthErr != nil {
 			logger.LogError(ctx, fmt.Sprintf("ztapi_health_operational_fault stage=video_fetch_identity task_id=%s error_type=%T", logTaskID, healthErr))
+		} else if credentialVersion, credentialErr := ztapiVideoCredentialVersion(mediaTask, key); credentialErr != nil {
+			logger.LogError(ctx, fmt.Sprintf("ztapi_health_operational_fault stage=video_fetch_credential task_id=%s error_type=%T", logTaskID, credentialErr))
 		} else {
-			fetchHealth = beginZTAPIVideoFetchHealth(ctx, productionZTAPIMediaHealthBackend, mediaTask)
+			fetchHealth = beginZTAPIVideoFetchHealth(ctx, productionZTAPIMediaHealthBackend, mediaTask, credentialVersion)
 			defer fetchHealth.finish(0, nil)
 		}
 	}
@@ -598,6 +600,19 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	}
 
 	return nil
+}
+
+func ztapiVideoCredentialVersion(mediaTask *model.ZTAPIMediaTask, key string) (string, error) {
+	if mediaTask == nil {
+		return "", errors.New("ZTAPI media task is unavailable")
+	}
+	contract, _, err := types.ParseZTAPIVideoProtocolContract(mediaTask.VideoProtocolContractJSON)
+	if err != nil {
+		return "", err
+	}
+	header := http.Header{}
+	header.Set(contract.Auth.Header, strings.TrimSpace(contract.Auth.Scheme+" "+key))
+	return relaycommon.ZTAPIHealthCredentialVersion(relaycommon.ZTAPIHealthCredentialMaterial(nil, header))
 }
 
 func initZTAPIMediaPollingAdaptor(adaptor TaskPollingAdaptor, task *model.Task, baseURL, key string) (bool, error) {

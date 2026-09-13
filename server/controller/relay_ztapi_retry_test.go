@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relay"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
@@ -82,7 +85,7 @@ func TestZTAPIManagedRetryControllerLimit(t *testing.T) {
 	}
 }
 
-func TestZTAPIManagedRetryUnavailableFallbackKeepsFailure(t *testing.T) {
+func TestZTAPIManagedRetryUnavailableFallbackCreatesSuspicion(t *testing.T) {
 	for _, cache := range []bool{false, true} {
 		t.Run(fmt.Sprint(cache), func(t *testing.T) {
 			f := newZTAPIHealthE2EFixture(t)
@@ -96,8 +99,12 @@ func TestZTAPIManagedRetryUnavailableFallbackKeepsFailure(t *testing.T) {
 			require.EqualValues(t, 1, f.calls.Load())
 			events := f.events(t)
 			require.Len(t, events, 1)
-			require.Equal(t, "failure", events[0].Result)
+			require.Equal(t, "suspected", events[0].Result)
+			require.False(t, events[0].Counted)
 			require.Equal(t, "local-upstream-1", events[0].UpstreamRequestID)
+			var verificationCases int64
+			require.NoError(t, f.db.Model(&model.ZTAPIHealthVerificationCase{}).Count(&verificationCases).Error)
+			require.EqualValues(t, 1, verificationCases)
 			f.assertSettlement(t, 0, model.ZTAPISettlementPending, ids[:1])
 		})
 	}
@@ -227,6 +234,13 @@ func TestZTAPIManagedRetryRejectsUnsafeErrors(t *testing.T) {
 			w := f.request(t, "/v1/chat/completions", f.publicName, f.key, "unsafe-retry", false)
 			require.Equal(t, tc.status, w.Code, w.Body.String())
 			require.EqualValues(t, 1, f.calls.Load())
+			var verificationCases int64
+			require.NoError(t, f.db.Model(&model.ZTAPIHealthVerificationCase{}).Count(&verificationCases).Error)
+			require.Zero(t, verificationCases, "customer parameter/refusal outcomes must never spend a verification probe")
+			state, err := model.NewZTAPIHealthStore(f.db).GetState(context.Background(), f.config.ID)
+			require.NoError(t, err)
+			require.False(t, state.Open)
+			require.Zero(t, state.ConsecutiveFailures)
 			f.assertSettlement(t, 0, model.ZTAPISettlementPending, ids[:1])
 		})
 	}
@@ -365,6 +379,14 @@ func TestZTAPIManagedRetrySkipFlagPrecedesChannelError(t *testing.T) {
 	require.False(t, shouldRetry(c, err, 1))
 }
 
+func TestZTAPIVerifiedOpenRouteRetriesAnotherAuthorizedRoute(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	relaycommon.SetZTAPIPublicationSnapshot(c, &relaycommon.ZTAPIPublicationSnapshot{AllowedChannelIDs: []int{11, 22}})
+	err := types.NewError(errors.New("route open"), types.ErrorCode("ztapi_route_temporarily_unavailable"), types.ErrOptionWithStatusCode(http.StatusServiceUnavailable))
+	require.True(t, shouldRetry(c, err, 1))
+}
+
 func TestZTAPINonManagedRetryKeepsLegacyRepeat(t *testing.T) {
 	f := newZTAPIHealthE2EFixture(t)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
@@ -379,12 +401,23 @@ func TestZTAPINonManagedRetryKeepsLegacyRepeat(t *testing.T) {
 	}
 }
 
-func TestZTAPIManagedRetryDoesNotChangeTaskPolicy(t *testing.T) {
+func TestZTAPIManagedTaskRetryUsesPublicationAwarePolicy(t *testing.T) {
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	info := &relaycommon.RelayInfo{RelayFormat: types.RelayFormatTask, ZTAPIPublicationSnapshot: &relaycommon.ZTAPIPublicationSnapshot{AllowedChannelIDs: []int{17, 29}}}
 	p := newRelayRetryParam(c, info)
-	require.False(t, p.Managed, "asynchronous task retry policy is outside this text change")
+	require.True(t, p.Managed)
+	require.Equal(t, 1, p.RetryLimit())
 	require.Equal(t, []int{17, 29}, p.AllowedChannelIDs)
+}
+
+func TestZTAPIManagedTaskRetriesLocallyRejectedOpenRoute(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	p := &service.RetryParam{Managed: true, AllowedChannelIDs: []int{17, 29}, Retry: common.GetPointer(0)}
+	require.NoError(t, p.RecordAttempt(17))
+	taskErr := service.TaskErrorWrapperLocal(errors.New("route open"), "ztapi_route_temporarily_unavailable", http.StatusServiceUnavailable)
+	require.True(t, prepareZTAPITaskRouteRetry(c, p, 17, taskErr))
+	require.Empty(t, p.AttemptedChannelIDs, "a local route rejection must allow another key in the same channel")
+	require.Equal(t, 0, p.GetRetry(), "the route rejection must not spend the two-attempt dispatch budget")
 }
 
 func TestTaskRelayDoesNotRetryLocalPostAcceptanceFailure(t *testing.T) {
@@ -398,6 +431,94 @@ func TestTaskRelayDoesNotRetryAcceptedResponseParseFailure(t *testing.T) {
 	relaycommon.MarkZTAPITaskProviderAccepted(c)
 	taskErr := service.TaskErrorWrapper(errors.New("accepted response did not contain a task id"), "invalid_response", http.StatusInternalServerError)
 	require.False(t, shouldRetryTaskRelay(c, 17, taskErr, 1))
+}
+
+func TestZTAPIManagedTaskExactRouteFallbackJourney(t *testing.T) {
+	f := newZTAPIHealthE2EFixture(t)
+	ids := configureZTAPIRetryChannels(t, f, 2)
+	poolKeys := "pool-broken-key\npool-healthy-key"
+	poolInfo := model.ChannelInfo{IsMultiKey: true, MultiKeySize: 2, MultiKeyMode: constant.MultiKeyModePolling}
+	var poolChannel, enterpriseChannel model.Channel
+	require.NoError(t, f.db.First(&poolChannel, ids[0]).Error)
+	poolChannel.Key, poolChannel.ChannelInfo = poolKeys, poolInfo
+	require.NoError(t, f.db.Save(&poolChannel).Error)
+	require.NoError(t, f.db.First(&enterpriseChannel, ids[1]).Error)
+	enterpriseChannel.Key, enterpriseChannel.ChannelInfo = "enterprise-key", model.ChannelInfo{}
+	require.NoError(t, f.db.Save(&enterpriseChannel).Error)
+	model.InitChannelCache()
+
+	brokenVersion, err := model.FingerprintZTAPICredential("authorization\x00Bearer pool-broken-key")
+	require.NoError(t, err)
+
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", strings.NewReader(`{"model":"`+f.publicName+`","prompt":"test"}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+	common.SetContextKey(c, constant.ContextKeyUserGroup, "default")
+	common.SetContextKey(c, common.RequestIdKey, "task-fallback-e2e")
+	info := &relaycommon.RelayInfo{
+		UserId: f.user.Id, TokenGroup: "default", OriginModelName: f.publicName, SelectionModelName: f.sourceModel,
+		RelayFormat: types.RelayFormatTask, ChannelMeta: &relaycommon.ChannelMeta{},
+		ZTAPIPublicationSnapshot: &relaycommon.ZTAPIPublicationSnapshot{
+			PublicName: f.publicName, SourceModel: f.sourceModel, Modality: model.ZTAPIModalityVideo,
+			AllowedGroups: []string{"default"}, AllowedChannelIDs: ids,
+		},
+	}
+	_, err = relaycommon.StartZTAPIHealthRequest(c, info, relaycommon.ZTAPIHealthBackend{
+		AdmitMediaRequestWithEntryProtocol: func(context.Context, string, string, string, int, string, bool, string) (*types.ZTAPIHealthTicket, error) {
+			return &types.ZTAPIHealthTicket{ModelID: f.config.ID, Generation: 1, PublicModel: f.publicName, Modality: model.ZTAPIModalityVideo, Operation: types.ZTAPIHealthOperationVideoSubmit, EntryProtocol: "video-tasks", Source: "real"}, nil
+		},
+		AdmitAttempt: func(_ context.Context, _ *types.ZTAPIHealthTicket, channelID int, protocol, credentialVersion string) error {
+			if channelID == ids[0] && protocol == "video-tasks" && credentialVersion == brokenVersion.String() {
+				return model.ErrZTAPIHealthRouteOpen
+			}
+			return nil
+		},
+		RecordOutcome:  func(context.Context, *types.ZTAPIHealthTicket, types.ZTAPIHealthOutcome) error { return nil },
+		CheckAvailable: func(string) error { return nil }, CircuitOpen: model.ErrZTAPIHealthCircuitOpen, RouteOpen: model.ErrZTAPIHealthRouteOpen,
+	})
+	require.NoError(t, err)
+
+	var selected []string
+	result, taskErr := executeRelayTaskAttempts(c, info, nil, func(c *gin.Context, _ *relaycommon.RelayInfo) (*relay.TaskSubmitResult, *dto.TaskError) {
+		key := common.GetContextKeyString(c, constant.ContextKeyChannelKey)
+		selected = append(selected, key)
+		_, beginErr := relaycommon.BeginZTAPIHealthUpstream(c, c.GetInt("channel_id"), "/hub/v1/video/tasks", "authorization\x00Bearer "+key)
+		if beginErr != nil {
+			apiErr, ok := beginErr.(*types.NewAPIError)
+			require.True(t, ok)
+			wrapped := service.TaskErrorFromAPIError(apiErr)
+			wrapped.LocalError = true
+			return nil, wrapped
+		}
+		if key == "pool-healthy-key" {
+			return nil, service.TaskErrorWrapper(errors.New("pool route unavailable"), "upstream_error", http.StatusBadGateway)
+		}
+		relaycommon.MarkZTAPITaskProviderAccepted(c)
+		return &relay.TaskSubmitResult{UpstreamTaskID: "enterprise-task", Platform: constant.TaskPlatform("aihub")}, nil
+	})
+	require.Nil(t, taskErr)
+	require.NotNil(t, result)
+	require.Equal(t, "enterprise-task", result.UpstreamTaskID)
+	require.Equal(t, []string{"pool-broken-key", "pool-healthy-key", "enterprise-key"}, selected)
+}
+
+func TestZTAPIManagedTaskAcceptedThenParseFailureDoesNotDispatchFallback(t *testing.T) {
+	f := newZTAPIHealthE2EFixture(t)
+	ids := configureZTAPIRetryChannels(t, f, 2)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", strings.NewReader(`{"model":"`+f.publicName+`","prompt":"test"}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+	common.SetContextKey(c, constant.ContextKeyUserGroup, "default")
+	info := &relaycommon.RelayInfo{TokenGroup: "default", OriginModelName: f.publicName, SelectionModelName: f.sourceModel, RelayFormat: types.RelayFormatTask, ChannelMeta: &relaycommon.ChannelMeta{}, ZTAPIPublicationSnapshot: &relaycommon.ZTAPIPublicationSnapshot{AllowedGroups: []string{"default"}, AllowedChannelIDs: ids}}
+	var dispatches int
+	result, taskErr := executeRelayTaskAttempts(c, info, nil, func(c *gin.Context, _ *relaycommon.RelayInfo) (*relay.TaskSubmitResult, *dto.TaskError) {
+		dispatches++
+		relaycommon.MarkZTAPITaskProviderAccepted(c)
+		return nil, service.TaskErrorWrapper(errors.New("accepted response missing task id"), "invalid_response", http.StatusInternalServerError)
+	})
+	require.Nil(t, result)
+	require.NotNil(t, taskErr)
+	require.Equal(t, 1, dispatches)
 }
 
 func TestZTAPIManagedTaskDataDoesNotPersistUpstreamIdentity(t *testing.T) {

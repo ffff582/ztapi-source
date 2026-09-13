@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/require"
 )
 
 func TestZTAPIHealthNoRetryAfterResponseCommitted(t *testing.T) {
@@ -24,6 +25,12 @@ func TestZTAPIHealthNoRetryAfterResponseCommitted(t *testing.T) {
 	if shouldRetry(c, err, 3) {
 		t.Fatal("retry permitted after response headers were committed")
 	}
+}
+
+func TestZTAPIHealthManagedRequestsNeverUseLegacyAutoBan(t *testing.T) {
+	require.False(t, ztapiLegacyAutoBanAllowed(true, true))
+	require.True(t, ztapiLegacyAutoBanAllowed(false, true))
+	require.True(t, ztapiLegacyAutoBanAllowed(true, false))
 }
 
 func TestZTAPIHealthActualStreamHelperWritesDoNotForgeCompletion(t *testing.T) {

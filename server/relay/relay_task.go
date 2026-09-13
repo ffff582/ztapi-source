@@ -21,6 +21,7 @@ import (
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 )
 
@@ -30,6 +31,13 @@ type TaskSubmitResult struct {
 	Platform       constant.TaskPlatform
 	Quota          int
 	//PerCallPrice   types.PriceData
+}
+
+func processTaskSubmissionResponse(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel.TaskAdaptor, resp *http.Response) (string, []byte, *dto.TaskError) {
+	if service.IsZTAPIMediaRequest(info) {
+		relaycommon.MarkZTAPITaskProviderAccepted(c)
+	}
+	return adaptor.DoResponse(c, resp, info)
 }
 
 func validateZTAPIQuotationTask(modelName string) *dto.TaskError {
@@ -286,16 +294,12 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	// 9. 发送请求
 	resp, err := adaptor.DoRequest(c, info, requestBody)
 	if err != nil {
-		return nil, service.TaskErrorWrapper(err, "do_request_failed", http.StatusInternalServerError)
+		return nil, taskErrorFromUpstreamError(err, "do_request_failed", http.StatusInternalServerError)
 	}
 	if resp != nil && !isTaskSubmissionAcceptedStatus(resp.StatusCode) {
 		responseBody, _ := io.ReadAll(resp.Body)
 		return nil, service.TaskErrorWrapper(fmt.Errorf("%s", string(responseBody)), "fail_to_fetch_task", resp.StatusCode)
 	}
-	if ztapiMediaRequest != nil {
-		relaycommon.MarkZTAPITaskProviderAccepted(c)
-	}
-
 	// 10. 返回 OtherRatios 给下游（header 必须在 DoResponse 写 body 之前设置）
 	otherRatios := info.PriceData.OtherRatios
 	if otherRatios == nil {
@@ -313,7 +317,8 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		c.Writer = responseBuffer
 		defer func() { c.Writer = originalWriter }()
 	}
-	upstreamTaskID, taskData, taskErr := adaptor.DoResponse(c, resp, info)
+
+	upstreamTaskID, taskData, taskErr := processTaskSubmissionResponse(c, info, adaptor, resp)
 	if taskErr != nil {
 		return nil, taskErr
 	}
@@ -351,6 +356,18 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		Platform:       platform,
 		Quota:          finalQuota,
 	}, nil
+}
+
+func taskErrorFromUpstreamError(err error, fallbackCode string, fallbackStatus int) *dto.TaskError {
+	var apiErr *types.NewAPIError
+	if !errors.As(err, &apiErr) {
+		return service.TaskErrorWrapper(err, fallbackCode, fallbackStatus)
+	}
+	taskErr := service.TaskErrorFromAPIError(apiErr)
+	if taskErr.Code == "ztapi_route_temporarily_unavailable" {
+		taskErr.LocalError = true
+	}
+	return taskErr
 }
 
 const ztapiTaskResponseLimit = 1 << 20

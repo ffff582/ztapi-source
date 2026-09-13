@@ -265,7 +265,7 @@ func TestAdminRequestAndAuditLogsShareSafeFiltersAndCSVProjection(t *testing.T) 
 	admin, token := createAdminOperationsUser(t, db, "log-admin", common.RoleAdminUser, 0)
 	now := time.Now().Unix()
 	logs := []model.Log{
-		{UserId: 71, Username: "=formula-user", CreatedAt: now - 60, Type: model.LogTypeConsume, Content: "PASSWORD_CONTENT", ModelName: "=formula-model", Quota: 500000, PromptTokens: 11, CompletionTokens: 7, UseTime: 321, Ip: "198.51.100.9", RequestId: "=formula-request", UpstreamRequestId: "upstream-secret", TokenName: "access-token-secret", Other: `{"password":"PASSWORD_OTHER","upstream_response":"SECRET_BODY"}`},
+		{UserId: 71, Username: "=formula-user", CreatedAt: now - 60, Type: model.LogTypeConsume, Content: "PASSWORD_CONTENT", ModelName: "=formula-model", Quota: 500000, PromptTokens: 11, CompletionTokens: 7, UseTime: 321, Ip: "198.51.100.9", RequestId: "=formula-request", UpstreamRequestId: "upstream-request-safe", TokenName: "access-token-secret", Other: `{"password":"PASSWORD_OTHER","upstream_response":"SECRET_BODY","reasoning_effort_received":"ultra","reasoning_effort_forwarded":"max","reasoning_effort_source":"codex_alias_mapping","reasoning_tokens_reported":42,"credential_fingerprint":"SECRET_FINGERPRINT"}`},
 		{UserId: 72, Username: "error-user", CreatedAt: now - 120, Type: model.LogTypeError, Content: "SECRET_ERROR_BODY", ModelName: "gpt-error", PromptTokens: 3, CompletionTokens: 0, UseTime: 99, RequestId: "request-error", Other: `{"credential":"SECRET_CREDENTIAL"}`},
 		{UserId: 71, Username: "old-user", CreatedAt: now - 25*60*60, Type: model.LogTypeConsume, Content: "OLD_CONTENT", ModelName: "old-model", RequestId: "old-request"},
 		{UserId: admin.Id, Username: admin.Username, CreatedAt: now - 30, Type: model.LogTypeManage, Content: "RAW_AUDIT_CONTENT_PASSWORD", RequestId: "audit-request", Other: fmt.Sprintf(`{"op":{"action":"user.status_update","params":{"target_user_id":71,"from_status":1,"to_status":2,"reason":"=formula-reason","password":"PARAM_SECRET"}},"admin_info":{"admin_id":%d,"admin_username":"%s","admin_role":%d,"access_token":"ADMIN_SECRET"},"audit_info":{"upstream_response":"AUDIT_SECRET_BODY"}}`, admin.Id, admin.Username, admin.Role)},
@@ -277,16 +277,21 @@ func TestAdminRequestAndAuditLogsShareSafeFiltersAndCSVProjection(t *testing.T) 
 
 	recent := performAdminOperationsRequest(t, engine, http.MethodGet, "/api/admin/request-logs?p=1&page_size=10", admin, token, "", "request-log-list")
 	assertRequestLogPage(t, recent, 2, 2)
-	assertBodyOmits(t, recent.Body.String(), "PASSWORD_CONTENT", "PASSWORD_OTHER", "SECRET_BODY", "SECRET_ERROR_BODY", "198.51.100.9", "upstream-secret", "access-token-secret", `"content"`, `"other"`, `"ip"`, `"upstream_request_id"`, `"token_name"`, `"status_code"`, `"channel"`, `"error_summary"`)
+	assertBodyOmits(t, recent.Body.String(), "PASSWORD_CONTENT", "PASSWORD_OTHER", "SECRET_BODY", "SECRET_ERROR_BODY", "198.51.100.9", "access-token-secret", "SECRET_FINGERPRINT", `"content"`, `"other"`, `"ip"`, `"token_name"`, `"status_code"`, `"channel"`, `"error_summary"`)
 	legacy := performAdminOperationsRequest(t, engine, http.MethodGet, "/api/log/?p=1&page_size=10&type=0", admin, token, "", "legacy-request-log-list")
 	assertRequestLogPage(t, legacy, 2, 2)
-	assertBodyOmits(t, legacy.Body.String(), "PASSWORD_CONTENT", "PASSWORD_OTHER", "SECRET_BODY", "SECRET_ERROR_BODY", "198.51.100.9", "upstream-secret", "access-token-secret", `"content"`, `"other"`, `"ip"`, `"upstream_request_id"`, `"token_name"`)
+	assertBodyOmits(t, legacy.Body.String(), "PASSWORD_CONTENT", "PASSWORD_OTHER", "SECRET_BODY", "SECRET_ERROR_BODY", "198.51.100.9", "access-token-secret", "SECRET_FINGERPRINT", `"content"`, `"other"`, `"ip"`, `"token_name"`)
 
 	filtered := performAdminOperationsRequest(t, engine, http.MethodGet, fmt.Sprintf("/api/admin/request-logs?p=1&page_size=10&from=%d&to=%d&status=success&type=%d&user_id=71&model=%s&request_id=%s", now-3600, now+1, model.LogTypeConsume, "=formula-model", "=formula-request"), admin, token, "", "request-log-filter")
 	assertRequestLogPage(t, filtered, 1, 1)
 	for _, required := range []string{`"request_id":"=formula-request"`, `"latency":321`, `"prompt_tokens":11`, `"completion_tokens":7`, `"total_tokens":18`, `"quota":500000`, `"billed_amount":1`} {
 		if !strings.Contains(filtered.Body.String(), required) {
 			t.Fatalf("filtered request logs missing %q: %s", required, filtered.Body.String())
+		}
+	}
+	for _, required := range []string{`"upstream_request_id":"upstream-request-safe"`, `"reasoning_effort_received":"ultra"`, `"reasoning_effort_forwarded":"max"`, `"reasoning_effort_source":"codex_alias_mapping"`, `"reasoning_tokens_reported":42`} {
+		if !strings.Contains(filtered.Body.String(), required) {
+			t.Fatalf("filtered request logs missing safe reasoning evidence %q: %s", required, filtered.Body.String())
 		}
 	}
 

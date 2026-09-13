@@ -77,6 +77,30 @@ func TestZTAPIChannelSecretDoesNotMaterializeOmittedKey(t *testing.T) {
 	require.NotEmpty(t, loaded.ZTAPIKeyCiphertext)
 }
 
+func TestZTAPIChannelResponseTimeUpdatePreservesDecryptedCredential(t *testing.T) {
+	db := setupZTAPIChannelSecretTestDB(t)
+	previousDB := DB
+	DB = db
+	t.Cleanup(func() { DB = previousDB })
+
+	channel := Channel{
+		Name: "response-time upstream", Type: 1, Key: "response-time-secret",
+		Status: common.ChannelStatusEnabled, ZTAPIManaged: true,
+	}
+	require.NoError(t, db.Create(&channel).Error)
+
+	var loaded Channel
+	require.NoError(t, db.First(&loaded, channel.Id).Error)
+	require.Equal(t, "response-time-secret", loaded.Key)
+
+	loaded.UpdateResponseTime(125)
+
+	require.Equal(t, "response-time-secret", loaded.Key)
+	key, _, err := loaded.GetNextEnabledKey()
+	require.Nil(t, err)
+	require.Equal(t, "response-time-secret", key)
+}
+
 func TestZTAPIChannelSecretAllowsDisabledBlankPlaceholder(t *testing.T) {
 	db := setupZTAPIChannelSecretTestDB(t)
 	t.Setenv(ztapiUpstreamMasterKeyEnv, "")

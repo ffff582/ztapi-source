@@ -345,7 +345,7 @@ func ztapiE2ESuccess(path string) ztapiE2EReply {
 	return ztapiE2EReply{status: 200, body: body}
 }
 
-func TestZTAPIHealthE2EFinalFailuresTripBeforePrecharge(t *testing.T) {
+func TestZTAPIHealthE2EFinalFailuresCreateVerificationWithoutOpeningCircuit(t *testing.T) {
 	for _, tt := range []struct {
 		path   string
 		status int
@@ -360,8 +360,8 @@ func TestZTAPIHealthE2EFinalFailuresTripBeforePrecharge(t *testing.T) {
 			before := f.balances(t)
 			badKey := f.request(t, path, f.publicName, "invalid-local-key", "e2e-bad-key", false)
 			require.Equal(t, 401, badKey.Code, badKey.Body.String())
-			private := f.request(t, path, f.sourceModel, f.key, "e2e-private-name", false)
-			require.Equal(t, 403, private.Code, private.Body.String())
+			unpublished := f.request(t, path, "unpublished-local-model", f.key, "e2e-unpublished-name", false)
+			require.Equal(t, 403, unpublished.Code, unpublished.Body.String())
 			require.Equal(t, before, f.balances(t), "auth/model rejection must not precharge or dispatch")
 			failure := ztapiE2EFailure()
 			if tt.status == 429 {
@@ -373,8 +373,8 @@ func TestZTAPIHealthE2EFinalFailuresTripBeforePrecharge(t *testing.T) {
 				require.Equal(t, tt.status, w.Code, w.Body.String())
 				events := f.events(t)
 				require.Len(t, events, i+1, "one durable final event per downstream request, not per retry")
-				require.Equal(t, "failure", events[i].Result)
-				require.True(t, events[i].Counted)
+				require.Equal(t, "suspected", events[i].Result)
+				require.False(t, events[i].Counted)
 				var outcome types.ZTAPIHealthOutcome
 				require.NoError(t, common.UnmarshalJsonStr(events[i].Outcome, &outcome))
 				require.Len(t, outcome.Attempts, 2)
@@ -388,15 +388,33 @@ func TestZTAPIHealthE2EFinalFailuresTripBeforePrecharge(t *testing.T) {
 			require.NotEqual(t, events[0].ExecutionID, events[1].ExecutionID)
 			state, err := model.NewZTAPIHealthStore(f.db).GetState(context.Background(), f.config.ID)
 			require.NoError(t, err)
-			require.True(t, state.Open)
-			require.EqualValues(t, 2, state.ConsecutiveFailures)
-			before = f.balances(t)
-			w := f.request(t, path, f.publicName, f.key, "e2e-circuit-block", false)
-			require.Equal(t, 503, w.Code, w.Body.String())
-			require.Contains(t, w.Body.String(), "model_temporarily_unavailable")
-			require.Contains(t, w.Body.String(), "e2e-circuit-block")
-			require.Equal(t, before, f.balances(t), "circuit must reject before wallet AND token precharge, including refund-masked precharge")
-			require.Len(t, f.events(t), 2)
+			require.False(t, state.Open)
+			require.Zero(t, state.ConsecutiveFailures)
+			var verificationCases []model.ZTAPIHealthVerificationCase
+			require.NoError(t, f.db.Find(&verificationCases).Error)
+			require.Len(t, verificationCases, 2, "each failed route must have one deduplicated verification case")
+			require.ElementsMatch(t, []int{1, 2}, []int{verificationCases[0].ChannelID, verificationCases[1].ChannelID})
+			for _, verificationCase := range verificationCases {
+				require.Equal(t, "queued", verificationCase.State)
+			}
+		})
+	}
+}
+
+func TestZTAPIHealthE2EOfficialAliasUsesCanonicalPublicationAndBilling(t *testing.T) {
+	for _, path := range []string{"/v1/chat/completions", "/v1/responses"} {
+		t.Run(path, func(t *testing.T) {
+			f := newZTAPIHealthE2EFixture(t)
+			ids := configureZTAPIRetryChannels(t, f, 1)
+			f.queue(ztapiE2ESuccess(path))
+
+			response := f.request(t, path, f.sourceModel, f.key, "e2e-official-alias", false)
+			require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+			settlement := f.assertSettlement(t, 0, model.ZTAPISettlementSettled, ids)
+
+			var log model.Log
+			require.NoError(t, f.db.Where("request_id = ? AND type = ?", settlement.RequestID, model.LogTypeConsume).Take(&log).Error)
+			require.Equal(t, f.publicName, log.ModelName)
 		})
 	}
 }
@@ -407,7 +425,7 @@ func TestZTAPIHealthE2ESuccessResetsAndRetryRecordsOnce(t *testing.T) {
 			f := newZTAPIHealthE2EFixture(t)
 			ids := configureZTAPIRetryChannels(t, f, 2)
 			f.queue(ztapiE2EFailure(), ztapiE2EFailure(), ztapiE2EFailure(), ztapiE2ESuccess(path), ztapiE2EFailure(), ztapiE2EFailure())
-			for i, want := range []string{"failure", "success", "failure"} {
+			for i, want := range []string{"suspected", "success", "suspected"} {
 				w := f.request(t, path, f.publicName, f.key, fmt.Sprintf("e2e-reset-%d", i), false)
 				if want == "success" {
 					require.Equal(t, 200, w.Code, w.Body.String())
@@ -418,6 +436,7 @@ func TestZTAPIHealthE2ESuccessResetsAndRetryRecordsOnce(t *testing.T) {
 				events := f.events(t)
 				require.Len(t, events, i+1)
 				require.Equal(t, want, events[i].Result)
+				require.False(t, events[i].Counted)
 				var out types.ZTAPIHealthOutcome
 				require.NoError(t, common.UnmarshalJsonStr(events[i].Outcome, &out))
 				require.Len(t, out.Attempts, 2)
@@ -431,7 +450,7 @@ func TestZTAPIHealthE2ESuccessResetsAndRetryRecordsOnce(t *testing.T) {
 					require.Less(t, f.balances(t).TokenRemain, ztapiE2EInitialQuota)
 				} else {
 					f.assertSettlement(t, i, model.ZTAPISettlementPending, ids)
-					require.EqualValues(t, 1, state.ConsecutiveFailures)
+					require.Zero(t, state.ConsecutiveFailures)
 				}
 			}
 			require.EqualValues(t, 6, f.calls.Load())
@@ -502,9 +521,12 @@ func TestZTAPIHealthE2ETruncatedSSEAndCommittedError(t *testing.T) {
 			require.EqualValues(t, 1, f.calls.Load(), "committed stream cannot retry")
 			events := f.events(t)
 			require.Len(t, events, 1)
-			require.Equal(t, "failure", events[0].Result)
+			require.Equal(t, "suspected", events[0].Result)
 			require.True(t, events[0].Stream)
-			require.True(t, events[0].Counted)
+			require.False(t, events[0].Counted)
+			var verificationCases int64
+			require.NoError(t, f.db.Model(&model.ZTAPIHealthVerificationCase{}).Count(&verificationCases).Error)
+			require.EqualValues(t, 1, verificationCases)
 			var out types.ZTAPIHealthOutcome
 			require.NoError(t, common.UnmarshalJsonStr(events[0].Outcome, &out))
 			require.Len(t, out.Attempts, 1)

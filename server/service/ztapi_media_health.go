@@ -17,7 +17,7 @@ import (
 
 type ztapiMediaHealthBackend struct {
 	admitMediaRequest func(context.Context, string, string, string, int, string, bool) (*types.ZTAPIHealthTicket, error)
-	admitAttempt      func(context.Context, *types.ZTAPIHealthTicket, int, string) error
+	admitAttempt      func(context.Context, *types.ZTAPIHealthTicket, int, string, string) error
 	recordOutcome     func(context.Context, *types.ZTAPIHealthTicket, types.ZTAPIHealthOutcome) error
 }
 
@@ -28,16 +28,17 @@ var productionZTAPIMediaHealthBackend = ztapiMediaHealthBackend{
 }
 
 type ztapiVideoFetchHealth struct {
-	ctx      context.Context
-	backend  ztapiMediaHealthBackend
-	ticket   *types.ZTAPIHealthTicket
-	media    *model.ZTAPIMediaTask
-	started  time.Time
-	finished sync.Once
+	ctx               context.Context
+	backend           ztapiMediaHealthBackend
+	ticket            *types.ZTAPIHealthTicket
+	media             *model.ZTAPIMediaTask
+	credentialVersion string
+	started           time.Time
+	finished          sync.Once
 }
 
-func beginZTAPIVideoFetchHealth(ctx context.Context, backend ztapiMediaHealthBackend, media *model.ZTAPIMediaTask) *ztapiVideoFetchHealth {
-	health := &ztapiVideoFetchHealth{ctx: ctx, backend: backend, media: media, started: time.Now()}
+func beginZTAPIVideoFetchHealth(ctx context.Context, backend ztapiMediaHealthBackend, media *model.ZTAPIMediaTask, credentialVersion string) *ztapiVideoFetchHealth {
+	health := &ztapiVideoFetchHealth{ctx: ctx, backend: backend, media: media, credentialVersion: credentialVersion, started: time.Now()}
 	if media == nil || backend.admitMediaRequest == nil || backend.admitAttempt == nil || backend.recordOutcome == nil {
 		return health
 	}
@@ -49,7 +50,7 @@ func beginZTAPIVideoFetchHealth(ctx context.Context, backend ztapiMediaHealthBac
 	if ticket == nil {
 		return health
 	}
-	if err = backend.admitAttempt(ctx, ticket, media.ChannelID, "video-tasks"); err != nil {
+	if err = backend.admitAttempt(ctx, ticket, media.ChannelID, "video-tasks", credentialVersion); err != nil {
 		logger.LogError(ctx, fmt.Sprintf("ztapi_health_operational_fault stage=video_fetch_attempt task_id=%s error_type=%T", media.PublicTaskID, err))
 		return health
 	}
@@ -123,6 +124,7 @@ func (h *ztapiVideoFetchHealth) record(outcome types.ZTAPIHealthOutcome) {
 	h.finished.Do(func() {
 		outcome.Operation = types.ZTAPIHealthOperationVideoFetch
 		outcome.ChannelID = h.media.ChannelID
+		outcome.CredentialVersion = h.credentialVersion
 		outcome.UpstreamProtocol = "video-tasks"
 		outcome.UpstreamTaskID = ztapiMediaHealthMetadata(h.media.UpstreamTaskID, 255)
 		outcome.LatencyMilliseconds = time.Since(h.started).Milliseconds()

@@ -1,6 +1,7 @@
 package common
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -9,6 +10,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/QuantumNous/new-api/types"
 )
 
 func healthFixture(t *testing.T, protocol, source, wire string, stream bool, status int) ZTAPIHealthObservation {
@@ -158,7 +162,7 @@ func TestZTAPIHealthDispatched4xxAttribution(t *testing.T) {
 		{"probe ambiguous forbidden", "probe", "permission_denied", "failure", "probe_upstream_4xx", 403},
 		{"probe other 4xx", "probe", "model_not_found", "failure", "probe_upstream_4xx", 404},
 		{"probe generic 400", "probe", "unknown_error", "failure", "probe_upstream_4xx", 400},
-		{"probe generic invalid request", "probe", "invalid_request_error", "failure", "probe_upstream_4xx", 400},
+		{"probe generic invalid request", "probe", "invalid_request_error", "excluded", "invalid_input", 400},
 		{"probe generic invalid request forbidden", "probe", "invalid_request", "failure", "probe_upstream_4xx", 403},
 		{"probe invalid parameter", "probe", "invalid_argument", "excluded", "invalid_input", 400},
 		{"probe refusal", "probe", "content_policy_violation", "failure", "probe_refusal", 403},
@@ -173,6 +177,124 @@ func TestZTAPIHealthDispatched4xxAttribution(t *testing.T) {
 				t.Fatalf("lost original upstream attribution: %+v", out)
 			}
 		})
+	}
+}
+
+func TestZTAPIRealTrafficSourceAwareClassification(t *testing.T) {
+	tests := []struct {
+		name       string
+		protocol   string
+		wire       string
+		status     int
+		wantResult string
+		wantReason string
+	}{
+		{name: "empty output is suspected", protocol: "chat", wire: `{"choices":[{"message":{"content":""},"finish_reason":"stop"}]}`, status: 200, wantResult: "suspected", wantReason: "empty_output"},
+		{name: "upstream 502 is suspected", protocol: "chat", wire: `{"error":{"code":"server_error"}}`, status: 502, wantResult: "suspected", wantReason: "upstream_http_error"},
+		{name: "invalid input is excluded", protocol: "chat", wire: `{"error":{"code":"invalid_argument"}}`, status: 400, wantResult: "excluded", wantReason: "invalid_input"},
+		{name: "safety refusal is excluded", protocol: "chat", wire: `{"choices":[{"message":{},"finish_reason":"content_filter"}]}`, status: 200, wantResult: "excluded", wantReason: "safety_refusal"},
+		{name: "valid max tokens terminal is excluded", protocol: "chat", wire: `{"choices":[{"message":{"reasoning_content":"private"},"finish_reason":"length"}]}`, status: 200, wantResult: "excluded", wantReason: "length_without_visible_output"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out := types.ClassifyZTAPIHealthSignal("real", healthFixture(t, tt.protocol, "real", tt.wire, false, tt.status))
+			if out.Result != tt.wantResult || out.Reason != tt.wantReason {
+				t.Fatalf("got %s/%s, want %s/%s: %+v", out.Result, out.Reason, tt.wantResult, tt.wantReason, out)
+			}
+		})
+	}
+
+	probe := healthFixture(t, "chat", "probe", `{"choices":[{"message":{"content":""},"finish_reason":"stop"}]}`, false, 200)
+	if probe.Result != "failure" || probe.Reason != "probe_incorrect_output" {
+		t.Fatalf("probe classification changed: %+v", probe)
+	}
+}
+
+func TestZTAPIRealTrafficSafetyRefusalOverridesGenericHTTP5xx(t *testing.T) {
+	out := healthFixture(t, "chat", "real", `{"error":{"code":"content_filter"}}`, false, http.StatusServiceUnavailable)
+	out = types.ClassifyZTAPIHealthSignal("real", out)
+	if out.Result != "excluded" || out.Reason != "safety_refusal" {
+		t.Fatalf("safety refusal must not become a paid suspicion: %+v", out)
+	}
+}
+
+func TestZTAPIRealTrafficSafetyRefusalOverridesSpecialHTTPFailures(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusPaymentRequired, http.StatusTooManyRequests} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			out := healthFixture(t, "chat", "real", `{"error":{"code":"content_filter"}}`, false, status)
+			out = types.ClassifyZTAPIHealthSignal("real", out)
+			if out.Result != "excluded" || out.Reason != "safety_refusal" {
+				t.Fatalf("status %d safety refusal must not become a paid suspicion: %+v", status, out)
+			}
+		})
+	}
+}
+
+func TestZTAPIRealCustomerExclusionReasonsOverrideFailureAndRetryAttempts(t *testing.T) {
+	for _, reason := range []string{"invalid_input", "safety_refusal", "client_cancelled", "customer_timeout", "length_without_visible_output"} {
+		t.Run(reason, func(t *testing.T) {
+			out := types.ClassifyZTAPIHealthSignal("real", types.ZTAPIHealthOutcome{
+				Result: "failure", Reason: reason,
+				Attempts: []types.ZTAPIHealthAttempt{
+					{Index: 1, Result: "failure", Reason: "upstream_http_error"},
+					{Index: 2, Result: "failure", Reason: reason},
+				},
+			})
+			if out.Result != "excluded" || out.Reason != reason {
+				t.Fatalf("customer exclusion was not authoritative: %+v", out)
+			}
+			for _, attempt := range out.Attempts {
+				if attempt.Result != "excluded" || attempt.Reason != reason {
+					t.Fatalf("retry attempt could enqueue paid verification: %+v", out.Attempts)
+				}
+			}
+		})
+	}
+}
+
+func TestZTAPIRealTrafficRetryClassifiesEveryAttempt(t *testing.T) {
+	c := NewZTAPIHealthCollector("real")
+	first := c.BeginAttempt(2, "responses")
+	first.Dispatched()
+	firstResponse := &http.Response{StatusCode: 502, Header: http.Header{"X-Request-Id": {"pool-failure"}}, Body: io.NopCloser(strings.NewReader(`{"error":{"code":"server_error"}}`))}
+	first.WrapResponse(firstResponse)
+	_, _ = io.Copy(io.Discard, firstResponse.Body)
+	_ = firstResponse.Body.Close()
+
+	second := c.BeginAttempt(1, "responses")
+	second.Dispatched()
+	secondResponse := &http.Response{StatusCode: 200, Header: http.Header{"X-Request-Id": {"enterprise-success"}}, Body: io.NopCloser(strings.NewReader(`{"object":"response","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}]}`))}
+	second.WrapResponse(secondResponse)
+	_, _ = io.Copy(io.Discard, secondResponse.Body)
+	_ = secondResponse.Body.Close()
+
+	out, _ := c.Seal(false, false)
+	out = types.ClassifyZTAPIHealthSignal("real", out)
+	if out.Result != "success" || len(out.Attempts) != 2 {
+		t.Fatalf("unexpected retry outcome: %+v", out)
+	}
+	if out.Attempts[0].Result != "suspected" || out.Attempts[0].Reason != "upstream_http_error" || out.Attempts[0].UpstreamRequestID != "pool-failure" {
+		t.Fatalf("pool failure was erased: %+v", out.Attempts[0])
+	}
+	if out.Attempts[1].Result != "success" || out.Attempts[1].Reason != "valid_output" || out.Attempts[1].UpstreamRequestID != "enterprise-success" {
+		t.Fatalf("enterprise success not classified: %+v", out.Attempts[1])
+	}
+}
+
+func TestZTAPICustomerDeadlineExcludesAllAttempts(t *testing.T) {
+	c := NewZTAPIHealthCollector("real")
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	c.requestContext = ctx
+	a := c.BeginAttempt(2, "responses")
+	a.Dispatched()
+	a.TransportError(context.DeadlineExceeded)
+	out, _ := c.Seal(false, false)
+	if out.Result != "excluded" || out.Reason != "customer_timeout" || len(out.Attempts) != 1 {
+		t.Fatalf("deadline was not excluded: %+v", out)
+	}
+	if out.Attempts[0].Result != "excluded" || out.Attempts[0].Reason != "customer_timeout" {
+		t.Fatalf("deadline attempt could enqueue verification: %+v", out.Attempts[0])
 	}
 }
 

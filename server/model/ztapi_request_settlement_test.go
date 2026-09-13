@@ -2,12 +2,50 @@ package model
 
 import (
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
+
+func TestZTAPIReasoningSettlementPrivacy(t *testing.T) {
+	log := Log{Other: `{
+		"billing_source":"wallet",
+		"billing_status":"settled",
+		"reasoning_effort_received":"high",
+		"reasoning_effort_forwarded":"xhigh",
+		"reasoning_effort_source":"parameter_override",
+		"reasoning_tokens_reported":321,
+		"prompt":"SECRET_PROMPT_FIXTURE",
+		"tool_arguments":"SECRET_TOOL_FIXTURE",
+		"response_text":"SECRET_RESPONSE_FIXTURE",
+		"api_key":"SECRET_KEY_FIXTURE"
+	}`}
+
+	require.NoError(t, sanitizeZTAPISettlementLogMetadata(&log))
+	require.Contains(t, log.Other, `"reasoning_effort_received":"high"`)
+	require.Contains(t, log.Other, `"reasoning_effort_forwarded":"xhigh"`)
+	require.Contains(t, log.Other, `"reasoning_effort_source":"parameter_override"`)
+	require.Contains(t, log.Other, `"reasoning_tokens_reported":321`)
+	for _, forbidden := range []string{"SECRET_PROMPT_FIXTURE", "SECRET_TOOL_FIXTURE", "SECRET_RESPONSE_FIXTURE", "SECRET_KEY_FIXTURE"} {
+		require.NotContains(t, strings.ToLower(log.Other), strings.ToLower(forbidden))
+	}
+}
+
+func TestZTAPIReasoningSettlementRejectsInvalidMetadata(t *testing.T) {
+	for _, other := range []string{
+		`{"reasoning_effort_received":"extreme"}`,
+		`{"reasoning_effort_forwarded":"turbo"}`,
+		`{"reasoning_effort_source":"guessed"}`,
+		`{"reasoning_tokens_reported":-1}`,
+	} {
+		log := Log{Other: other}
+		require.ErrorIs(t, sanitizeZTAPISettlementLogMetadata(&log), ErrZTAPISettlementLogInvalid)
+	}
+}
 
 func setupZTAPISettlement(t *testing.T) (*gorm.DB, ZTAPIRequestSettlement) {
 	t.Helper()

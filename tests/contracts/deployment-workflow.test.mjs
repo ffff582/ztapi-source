@@ -516,6 +516,35 @@ test('guarded deployment completes and cleans an ordinary-user production journe
   assert.ok(internalUnauthorized >= 0 && internalUnauthorized < postcheck);
 });
 
+test('catalog acceptance permits only models excluded by an open health circuit', () => {
+  const source = readFileSync(workflowPath, 'utf8');
+
+  assert.match(source, /health_unavailable_models=/);
+  assert.match(source, /JOIN ztapi_health_states AS health ON health\.model_id = config\.id/);
+  assert.match(source, /health\.open = 1/);
+  assert.match(source, /comm -23 "\$expected_published_models" "\$health_unavailable_models"/);
+  assert.match(source, /cmp -s "\$expected_available_models" "\$user_catalog_models"/);
+  assert.match(source, /cmp -s "\$expected_available_models" "\$openai_catalog_models"/);
+  assert.doesNotMatch(source, /cmp -s "\$expected_published_models" "\$user_catalog_models"/);
+  assert.doesNotMatch(source, /cmp -s "\$expected_published_models" "\$openai_catalog_models"/);
+  assert.match(
+    source,
+    /test ! -s <\(comm -12 "\$health_unavailable_models" "\$user_catalog_models"\)/,
+  );
+});
+
+test('health-open catalog query keeps shell sorting outside the SQL heredoc', () => {
+  const source = readFileSync(workflowPath, 'utf8');
+
+  assert.match(source, /health_open_models_raw=/);
+  assert.match(source, /<<'SQL' > "\$health_open_models_raw"/);
+  assert.match(
+    source,
+    /LC_ALL=C sort -u "\$health_open_models_raw" > "\$health_open_models"/,
+  );
+  assert.doesNotMatch(source, /<<'SQL' \|\s*\n\s*LC_ALL=C sort/);
+});
+
 test('guarded deployment atomically applies the approved commercial pricing policy', () => {
   const source = readFileSync(workflowPath, 'utf8');
 

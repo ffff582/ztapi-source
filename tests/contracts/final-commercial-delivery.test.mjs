@@ -380,14 +380,20 @@ test('failed synthetic-order cleanup retains the trade number for retry', () => 
   );
 });
 
-test('acceptance compares both catalogs to the frozen exact publication set', () => {
+test('acceptance compares both catalogs to the frozen set minus verified health exclusions', () => {
   const source = read(workflowPath);
   assert.match(source, /ztapi_public_pricing_baseline_v1\.json/);
   assert.match(source, /ztapi_quotation_v1\.json/);
   assert.match(source, /expected_published_models/);
+  assert.match(source, /expected_available_models/);
   assert.match(source, /expected_unpublished_models/);
-  assert.match(source, /cmp -s "\$expected_published_models" "\$user_catalog_models"/);
-  assert.match(source, /cmp -s "\$expected_published_models" "\$openai_catalog_models"/);
+  assert.match(source, /health_unavailable_models/);
+  assert.match(source, /health\.open = 1/);
+  assert.match(source, /comm -23 "\$expected_published_models" "\$health_unavailable_models"/);
+  assert.match(source, /cmp -s "\$expected_available_models" "\$user_catalog_models"/);
+  assert.match(source, /cmp -s "\$expected_available_models" "\$openai_catalog_models"/);
+  assert.match(source, /comm -12 "\$health_unavailable_models" "\$user_catalog_models"/);
+  assert.match(source, /comm -12 "\$health_unavailable_models" "\$openai_catalog_models"/);
   assert.match(source, /comm -12 "\$expected_unpublished_models" "\$user_catalog_models"/);
   assert.match(source, /comm -12 "\$expected_unpublished_models" "\$openai_catalog_models"/);
   assert.match(source, /expected_pricing_model_count=/);

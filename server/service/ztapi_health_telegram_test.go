@@ -38,7 +38,7 @@ func TestZTAPIHealthTelegramEnvironmentAndPayload(t *testing.T) {
 		require.NoError(t, common.DecodeJson(r.Body, &body))
 		require.Equal(t, "123456789", body["chat_id"])
 		text := body["text"].(string)
-		for _, want := range []string{"【ZTAPI 模型故障】", "zt-test", "连续 2 次失败", "content_filter", "上游请求编号", "发生时间（北京时间）", "建议处理：请询问上游"} {
+		for _, want := range []string{"【ZTAPI 模型下架】", "zt-test", "连续 2 次失败", "content_filter", "诊断上游请求编号", "发生时间（北京时间）", "建议处理：请询问上游"} {
 			require.Contains(t, text, want)
 		}
 		require.NotContains(t, text, "offline_test_token")
@@ -179,4 +179,124 @@ func TestZTAPIHealthTelegramIncidentLoadsOriginalRequestID(t *testing.T) {
 	require.Contains(t, message, "建议处理：请询问上游为什么触发内容过滤，并把上游请求编号一并发给对方")
 	item.Alert.UpstreamRequestID = "sk-private-key"
 	require.NotContains(t, ztapiHealthTelegramText(item, *now), "sk-private-key")
+}
+
+func TestZTAPIHealthTelegramDistinguishesRouteModelAndRecovery(t *testing.T) {
+	now := time.Unix(2_000_000_000, 0).UTC()
+	openedAt := now.Unix()
+	status := 502
+	metadata := ZTAPIHealthAlertMetadata{
+		MetadataStatus: "available", Model: "zt-gpt-test", Rule: "verified_route_2",
+		Modality: model.ZTAPIModalityText, ErrorCode: "upstream_http_error", HTTPStatus: &status,
+		FinishReasons: []string{"unknown"}, UpstreamRequestID: "req_upstream_probe",
+		ProbeRequestID: "ztapi-health-verify-case", TriggerRequestID: "req_customer_trigger", OpenedAt: &openedAt,
+		ChannelID: 7, EntryProtocol: "chat", UpstreamProtocol: "responses",
+	}
+	routeMessage := ztapiHealthTelegramText(ZTAPIHealthWorkItem{Kind: "route_alert", ID: 101, ModelID: 1, Alert: metadata}, now)
+	for _, want := range []string{
+		"【ZTAPI 线路降级】", "模型仍可正常调用", "故障线路：通道 #7，客户入口 chat，最终上游 responses，非流式", "独立诊断探针连续 2 次失败", "诊断探针编号：ztapi-health-verify-case",
+		"触发用户请求编号：req_customer_trigger（仅用于定位最初线索，不是下架证据）", "建议处理：",
+	} {
+		require.Contains(t, routeMessage, want)
+	}
+	require.NotContains(t, routeMessage, "已自动下架")
+
+	metadata.Rule = "verified_all_routes"
+	modelMessage := ztapiHealthTelegramText(ZTAPIHealthWorkItem{Kind: "alert", ID: 102, ModelID: 1, IncidentID: 9, Alert: metadata}, now)
+	for _, want := range []string{"【ZTAPI 模型下架】", "所有已授权线路均经独立探针确认不可用", "已自动下架"} {
+		require.Contains(t, modelMessage, want)
+	}
+
+	metadata.Rule = "manual_verified_recovery"
+	recoveryMessage := ztapiHealthTelegramText(ZTAPIHealthWorkItem{Kind: "recovery_alert", ID: 103, ModelID: 1, IncidentID: 9, Alert: metadata}, now)
+	for _, want := range []string{"【ZTAPI 复核恢复】", "故障状态已由管理员复核关闭", "仍需管理员重新上架"} {
+		require.Contains(t, recoveryMessage, want)
+	}
+}
+
+func TestZTAPIHealthRouteAlertLoadsPersistedProbeEvidence(t *testing.T) {
+	w, now, _ := healthWorkerFixture(t)
+	db := w.backend.Probes.DB
+	require.NoError(t, model.MigrateZTAPIHealth(db))
+	require.NoError(t, db.AutoMigrate(&model.ZTAPIModelConfig{}))
+	publicName := "zt-gpt-5.6-sol"
+	require.NoError(t, db.Create(&model.ZTAPIModelConfig{ID: 1, SourceModel: "gpt-5.6-sol", PublicName: &publicName, Published: true}).Error)
+
+	trigger := model.ZTAPIHealthEvent{
+		ExecutionID: "customer-trigger-execution", RequestID: "customer-request-42",
+		ModelID: 1, Generation: 1, PublicModel: publicName, Source: "real",
+		CompletionSequence: 1,
+		Modality:           model.ZTAPIModalityText, Result: "failure", Reason: "empty_output",
+		HTTPStatus: 200, UpstreamRequestID: "customer-upstream-clue", ResultValid: false,
+	}
+	require.NoError(t, db.Create(&trigger).Error)
+	verification := model.ZTAPIHealthVerificationCase{
+		ID: "d88aac42-974f-4a2b-96dc-a2ee529133b4", ModelID: 1, ChannelID: 7,
+		EntryProtocol: "chat", Protocol: "chat", Generation: 1, SourceEventID: trigger.ID,
+		State: "completed", Attempts: 2, ProbeRequestID: "ztapi-health-verify-42",
+		Result: "failure", CreatedAt: now.UnixMilli(), CompletedAt: now.UnixMilli(),
+	}
+	require.NoError(t, db.Create(&verification).Error)
+	otherVerification := model.ZTAPIHealthVerificationCase{
+		ID: "a88aac42-974f-4a2b-96dc-a2ee529133b5", ModelID: 1, ChannelID: 8,
+		EntryProtocol: "chat", Protocol: "responses", Generation: 1, SourceEventID: trigger.ID,
+		State: "completed", Attempts: 2, ProbeRequestID: "ztapi-health-verify-wrong-route",
+		Result: "failure", CreatedAt: now.Add(time.Second).UnixMilli(), CompletedAt: now.Add(time.Second).UnixMilli(),
+	}
+	require.NoError(t, db.Create(&otherVerification).Error)
+	probe := model.ZTAPIHealthEvent{
+		ExecutionID: "probe-execution", RequestID: verification.ProbeRequestID,
+		ModelID: 1, Generation: 1, PublicModel: publicName, Source: "probe",
+		CompletionSequence: 2,
+		Modality:           model.ZTAPIModalityText, Result: "failure", Reason: "upstream_http_error",
+		HTTPStatus: 502, UpstreamRequestID: "probe-upstream-proof", LatencyMilliseconds: 918,
+		ResultValid: false, Outcome: `{"FinishReasons":["upstream_error"]}`,
+	}
+	require.NoError(t, db.Create(&probe).Error)
+	wrongProbe := model.ZTAPIHealthEvent{
+		ExecutionID: "wrong-probe-execution", RequestID: otherVerification.ProbeRequestID,
+		ModelID: 1, Generation: 1, PublicModel: publicName, Source: "probe",
+		CompletionSequence: 3, Modality: model.ZTAPIModalityText, Result: "failure", Reason: "upstream_rate_limit",
+		HTTPStatus: 429, UpstreamRequestID: "wrong-upstream-proof", ResultValid: false,
+	}
+	require.NoError(t, db.Create(&wrongProbe).Error)
+	outbox := model.ZTAPIHealthOutbox{
+		DedupKey: "verification:" + verification.ID + ":route-alert", Kind: "route_alert",
+		ModelID: 1, Generation: 1, EventID: trigger.ID, VerificationCaseID: verification.ID, Status: "pending",
+		NextAttemptAt: now.Unix(), CreatedAt: now.Unix(),
+	}
+	require.NoError(t, db.Create(&outbox).Error)
+
+	store := model.NewZTAPIHealthStore(db)
+	store.Now = w.config.Now
+	backend, err := AttachZTAPIHealthStore(w.backend, store, 999)
+	require.NoError(t, err)
+	items, err := backend.ClaimOutbox(context.Background(), "route_alert", *now, time.Minute, 1)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	item := items[0]
+	require.Equal(t, "route_alert", item.Kind)
+	require.Equal(t, verification.ProbeRequestID, item.Alert.ProbeRequestID)
+	require.Equal(t, probe.UpstreamRequestID, item.Alert.UpstreamRequestID)
+	require.Equal(t, trigger.RequestID, item.Alert.TriggerRequestID)
+	require.Equal(t, trigger.UpstreamRequestID, item.Alert.TriggerUpstreamRequestID)
+	require.Equal(t, verification.ChannelID, item.Alert.ChannelID)
+	require.Equal(t, verification.EntryProtocol, item.Alert.EntryProtocol)
+	require.Equal(t, verification.Protocol, item.Alert.UpstreamProtocol)
+	require.Equal(t, 7, item.Alert.ChannelID)
+	require.Equal(t, "chat", item.Alert.EntryProtocol)
+	require.Equal(t, "chat", item.Alert.UpstreamProtocol)
+	require.NotEqual(t, otherVerification.ProbeRequestID, item.Alert.ProbeRequestID)
+	require.NotEqual(t, wrongProbe.UpstreamRequestID, item.Alert.UpstreamRequestID)
+
+	message := ztapiHealthTelegramText(item, *now)
+	for _, want := range []string{
+		"【ZTAPI 线路降级】", "错误：upstream_http_error", "HTTP 状态：502",
+		"诊断探针编号：ztapi-health-verify-42", "诊断上游请求编号：probe-upstream-proof",
+		"故障线路：通道 #7，客户入口 chat，最终上游 chat，非流式",
+		"触发用户请求编号：customer-request-42（仅用于定位最初线索，不是下架证据）",
+	} {
+		require.Contains(t, message, want)
+	}
+	require.NotContains(t, message, "已自动下架")
 }

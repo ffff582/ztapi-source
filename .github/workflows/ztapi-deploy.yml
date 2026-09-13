@@ -1931,7 +1931,11 @@ jobs:
           pricing_baseline=/opt/ztapi/server/model/testdata/ztapi_public_pricing_baseline_v1.json
           quotation=/opt/ztapi/server/model/ztapi_quotation_v1.json
           expected_published_models=$(mktemp /tmp/ztapi-expected-published.XXXXXX)
+          expected_available_models=$(mktemp /tmp/ztapi-expected-available.XXXXXX)
           expected_unpublished_models=$(mktemp /tmp/ztapi-expected-unpublished.XXXXXX)
+          health_open_models_raw=$(mktemp /tmp/ztapi-health-open-raw.XXXXXX)
+          health_open_models=$(mktemp /tmp/ztapi-health-open.XXXXXX)
+          health_unavailable_models=$(mktemp /tmp/ztapi-health-unavailable.XXXXXX)
           user_catalog_models=$(mktemp /tmp/ztapi-user-catalog.XXXXXX)
           openai_catalog_models=$(mktemp /tmp/ztapi-openai-catalog.XXXXXX)
           {
@@ -1946,8 +1950,20 @@ jobs:
             "$quotation" | LC_ALL=C sort > "$expected_unpublished_models"
           test "$(jq -r '.entries | length' "$quotation")" = 46
           test "$(jq -r '[.entries[] | select(.modality == "image" or .modality == "video")] | length' "$quotation")" = 5
+          "${compose[@]}" exec -T mysql sh -c \
+            'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names' <<'SQL' > "$health_open_models_raw"
+          SELECT config.public_name
+          FROM ztapi_model_configs AS config
+          JOIN ztapi_health_states AS health ON health.model_id = config.id
+          WHERE health.open = 1 AND config.public_name <> ''
+          ORDER BY config.public_name;
+          SQL
+          LC_ALL=C sort -u "$health_open_models_raw" > "$health_open_models"
+          comm -12 "$expected_published_models" "$health_open_models" > "$health_unavailable_models"
+          comm -23 "$expected_published_models" "$health_unavailable_models" > "$expected_available_models"
           echo "$acceptance_catalog" | jq -r '.catalog[].model_name' | LC_ALL=C sort -u > "$user_catalog_models"
-          cmp -s "$expected_published_models" "$user_catalog_models"
+          cmp -s "$expected_available_models" "$user_catalog_models"
+          test ! -s <(comm -12 "$health_unavailable_models" "$user_catalog_models")
           test ! -s <(comm -12 "$expected_unpublished_models" "$user_catalog_models")
 
           acceptance_models=$(curl --fail --silent --show-error \
@@ -1955,10 +1971,12 @@ jobs:
             "$acceptance_origin/v1/models")
           echo "$acceptance_models" | jq -e '.success == true' >/dev/null
           echo "$acceptance_models" | jq -r '.data[].id' | LC_ALL=C sort -u > "$openai_catalog_models"
-          cmp -s "$expected_published_models" "$openai_catalog_models"
+          cmp -s "$expected_available_models" "$openai_catalog_models"
+          test ! -s <(comm -12 "$health_unavailable_models" "$openai_catalog_models")
           test ! -s <(comm -12 "$expected_unpublished_models" "$openai_catalog_models")
-          rm -f "$expected_published_models" "$expected_unpublished_models" \
-            "$user_catalog_models" "$openai_catalog_models"
+          rm -f "$expected_published_models" "$expected_available_models" \
+            "$expected_unpublished_models" "$health_open_models_raw" "$health_open_models" \
+            "$health_unavailable_models" "$user_catalog_models" "$openai_catalog_models"
 
           test "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
             "$acceptance_origin/wallet")" = 200

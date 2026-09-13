@@ -18,7 +18,7 @@ func TestZTAPIHealthManagedUnpublishedAdmission(t *testing.T) {
 	admitted, err := s.AdmitRequest(context.Background(), c.PublicNameValue(), "after-unpublish", "request", 1, false)
 	require.ErrorIs(t, err, ErrZTAPIModelNotPublic)
 	require.Nil(t, admitted)
-	require.ErrorIs(t, s.AdmitAttempt(context.Background(), ticket, 1, "openai"), ErrZTAPIModelNotPublic)
+	require.ErrorIs(t, s.AdmitAttempt(context.Background(), ticket, 1, "openai", healthCredentialVersion(t, "missing-model")), ErrZTAPIModelNotPublic)
 }
 
 func TestZTAPIHealthAdmissionCompatibility(t *testing.T) {
@@ -27,10 +27,10 @@ func TestZTAPIHealthAdmissionCompatibility(t *testing.T) {
 	untracked, err := s.AdmitRequest(ctx, "untracked-model", "untracked", "request", 1, false)
 	require.NoError(t, err)
 	require.Nil(t, untracked)
-	require.NoError(t, s.AdmitAttempt(ctx, nil, 1, "openai"))
+	require.NoError(t, s.AdmitAttempt(ctx, nil, 1, "openai", healthCredentialVersion(t, "nil-ticket")))
 	ticket := healthAdmit(t, s, c, "before-price-edit")
 	require.NoError(t, s.DB.Model(&c).Updates(map[string]any{"version": c.Version + 1, "input_price_per_million": 12}).Error)
-	require.NoError(t, s.AdmitAttempt(ctx, ticket, 1, "openai"), "price changes do not invalidate health identity")
+	require.NoError(t, s.AdmitAttempt(ctx, ticket, 1, "openai", healthCredentialVersion(t, "stable-route")), "price changes do not invalidate health identity")
 	healthRecord(t, s, ticket, "failure")
 	state, err := s.GetState(ctx, c.ID)
 	require.NoError(t, err)

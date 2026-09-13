@@ -40,6 +40,11 @@ var paramOverrideSensitivePathPrefixes = []string{
 	"contents",
 	"systemInstruction",
 	"system_instruction",
+	"reasoning_effort",
+	"reasoning",
+	"output_config",
+	"generationConfig.thinkingConfig",
+	"generation_config.thinking_config",
 }
 
 type paramOverrideAuditRecorder struct {

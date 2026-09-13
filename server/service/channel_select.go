@@ -71,6 +71,20 @@ func (p *RetryParam) RecordAttempt(id int) error {
 	return errors.New("channel is not authorized by publication")
 }
 
+// ReleaseAttempt lets a managed request try the same channel again when the
+// selected credential was rejected locally before any upstream dispatch.
+func (p *RetryParam) ReleaseAttempt(id int) {
+	if !p.Managed {
+		return
+	}
+	for index, tried := range p.AttemptedChannelIDs {
+		if tried == id {
+			p.AttemptedChannelIDs = append(p.AttemptedChannelIDs[:index], p.AttemptedChannelIDs[index+1:]...)
+			return
+		}
+	}
+}
+
 func (p *RetryParam) selectChannel(group string, retry int) (*model.Channel, error) {
 	if p.Managed {
 		return model.GetUntriedSatisfiedChannel(group, p.ModelName, p.AllowedChannelIDs, p.AttemptedChannelIDs)

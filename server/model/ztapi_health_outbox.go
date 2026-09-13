@@ -75,7 +75,7 @@ func (s *ZTAPIHealthStore) GetTestAlert(ctx context.Context, operationID string)
 // ClaimOutbox leases at most 100 durable jobs. Delivery is at-least-once;
 // receivers should deduplicate using DedupKey, not LeaseToken.
 func (s *ZTAPIHealthStore) ClaimOutbox(ctx context.Context, kind string, limit int, leaseSeconds int64) ([]ZTAPIHealthOutbox, error) {
-	if kind != "alert" && kind != "alert_test" && kind != "unpublish" && kind != "coverage" {
+	if kind != "alert" && kind != "route_alert" && kind != "recovery_alert" && kind != "alert_test" && kind != "unpublish" && kind != "coverage" {
 		return nil, errors.New("invalid ztapi health outbox kind")
 	}
 	if leaseSeconds <= 0 || leaseSeconds > 3600 {
@@ -276,10 +276,56 @@ func (s *ZTAPIHealthStore) ProcessUnpublish(ctx context.Context, id int64, token
 		}
 		status := "superseded"
 		if state.Open && state.Generation == job.Generation && state.IncidentID == job.IncidentID {
-			if _, err := s.unpublishTx(tx, state, now); err != nil {
+			var incident ZTAPIHealthIncident
+			if err := tx.First(&incident, job.IncidentID).Error; err != nil {
 				return err
 			}
-			status = "done"
+			if incident.Rule == "verified_all_routes" {
+				var route ZTAPIHealthRouteIdentity
+				if incident.VerificationCaseID != "" {
+					var verificationCase ZTAPIHealthVerificationCase
+					if err := tx.First(&verificationCase, "id = ?", incident.VerificationCaseID).Error; err != nil {
+						return err
+					}
+					if verificationCase.ModelID != incident.ModelID || verificationCase.Generation != incident.Generation || verificationCase.State != "completed" || verificationCase.Result != "failure" {
+						return ErrZTAPIVerificationInvalid
+					}
+					route = verificationCase.RouteIdentity()
+				} else {
+					// Compatibility for incidents created before verification_case_id
+					// existed. New incidents always use the exact persisted case.
+					var event ZTAPIHealthEvent
+					if err := tx.First(&event, incident.TriggerEventID).Error; err != nil {
+						return err
+					}
+					route = ZTAPIHealthRouteIdentity{
+						ModelID: event.ModelID, ChannelID: event.ChannelID, EntryProtocol: event.EntryProtocol,
+						Protocol: event.UpstreamProtocol, Stream: event.Stream,
+						CredentialVersion: ztapiCredentialFingerprintFromDigest(event.CredentialVersion), Generation: event.Generation,
+					}
+				}
+				allUnavailable, err := EvaluateZTAPIModelAvailability(ctx, tx, route)
+				if err != nil {
+					return err
+				}
+				if allUnavailable {
+					if _, err := s.unpublishTx(tx, state, now); err != nil {
+						return err
+					}
+					status = "done"
+				} else {
+					if err := tx.Model(state).Updates(map[string]any{
+						"open": false, "incident_id": 0, "updated_at": now,
+					}).Error; err != nil {
+						return err
+					}
+					if err := tx.Model(&incident).Updates(map[string]any{
+						"recovered_at": now, "recovery_evidence": "aggregate_recheck_found_available_route",
+					}).Error; err != nil {
+						return err
+					}
+				}
+			}
 		}
 		return tx.Model(&job).Updates(map[string]any{"status": status, "delivered_at": now, "lease_until": 0, "last_error": ""}).Error
 	})
@@ -320,6 +366,14 @@ func (s *ZTAPIHealthStore) ManualRecover(ctx context.Context, modelID int, expec
 		}
 		if err := tx.Create(&ZTAPIAuditEvent{Action: "model.health_manual_recovery", ModelConfigID: modelID,
 			PublicName: c.PublicNameValue(), Version: c.Version, OperatorID: operatorID, Payload: string(payload), CreatedAt: now}).Error; err != nil {
+			return err
+		}
+		recoveryAlert := ZTAPIHealthOutbox{
+			DedupKey: fmt.Sprintf("incident:%d:recovery-alert", state.IncidentID), Kind: "recovery_alert",
+			ModelID: modelID, Generation: state.Generation, IncidentID: state.IncidentID,
+			Status: "pending", NextAttemptAt: now, CreatedAt: now,
+		}
+		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&recoveryAlert).Error; err != nil {
 			return err
 		}
 		state.Generation++
@@ -425,7 +479,7 @@ type ZTAPIHealthCoverage struct {
 func (s *ZTAPIHealthStore) Coverage(ctx context.Context, modelID int, since int64) ([]ZTAPIHealthCoverage, error) {
 	var coverage []ZTAPIHealthCoverage
 	err := s.DB.WithContext(ctx).Model(&ZTAPIHealthEvent{}).
-		Select("stream, source, modality, operation, SUM(CASE WHEN counted = ? THEN 1 ELSE 0 END) AS valid_samples, SUM(CASE WHEN result = 'unknown' THEN 1 ELSE 0 END) AS unknown_samples, SUM(CASE WHEN result = 'excluded' THEN 1 ELSE 0 END) AS excluded_samples, MAX(CASE WHEN counted = ? THEN completed_at ELSE 0 END) AS last_valid_at, MAX(completed_at) AS last_completion_at", true, true).
+		Select("stream, source, modality, operation, SUM(CASE WHEN counted = ? OR (source = 'real' AND result IN ('success','suspected')) THEN 1 ELSE 0 END) AS valid_samples, SUM(CASE WHEN result = 'unknown' THEN 1 ELSE 0 END) AS unknown_samples, SUM(CASE WHEN result = 'excluded' THEN 1 ELSE 0 END) AS excluded_samples, MAX(CASE WHEN counted = ? OR (source = 'real' AND result IN ('success','suspected')) THEN completed_at ELSE 0 END) AS last_valid_at, MAX(completed_at) AS last_completion_at", true, true).
 		Where("model_id = ? AND completed_at > ? AND completed_at <= ? AND stale_generation = ?", modelID, since, s.now(), false).
 		Group("stream, source, modality, operation").Order("stream ASC, source ASC, modality ASC, operation ASC").Find(&coverage).Error
 	return coverage, err

@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	base "github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 )
@@ -76,6 +78,50 @@ func TestZTAPIHealthProtocolUsesActualOutboundURL(t *testing.T) {
 		if got := ztapiHealthProtocol(path); got != want {
 			t.Errorf("%s: %s, want %s", path, got, want)
 		}
+	}
+}
+
+func TestZTAPIOpenRouteAdmissionIsRetryableAndExcludedFromNextSelection(t *testing.T) {
+	routeOpen := errors.New("route open")
+	gc, _ := gin.CreateTestContext(httptest.NewRecorder())
+	gc.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	session := &ZTAPIHealthSession{
+		ticket:    &types.ZTAPIHealthTicket{ExecutionID: "route-open", Source: "real"},
+		collector: NewZTAPIHealthCollector("real"),
+		backend: ZTAPIHealthBackend{
+			AdmitAttempt: func(context.Context, *types.ZTAPIHealthTicket, int, string, string) error { return routeOpen },
+			RouteOpen:    routeOpen,
+		},
+	}
+	gc.Set(ztapiHealthSessionKey, session)
+
+	_, err := BeginZTAPIHealthUpstream(gc, 7, "/v1/chat/completions", "open-route-key")
+	if err == nil {
+		t.Fatal("expected route-open admission error")
+	}
+	apiErr, ok := err.(*types.NewAPIError)
+	if !ok {
+		t.Fatalf("unexpected error type %T", err)
+	}
+	if apiErr.StatusCode != http.StatusServiceUnavailable || types.IsSkipRetryError(apiErr) {
+		t.Fatalf("route-open error must be retryable 503: %+v", apiErr)
+	}
+	fingerprint, fingerprintErr := ZTAPIHealthCredentialVersion("open-route-key")
+	if fingerprintErr != nil {
+		t.Fatal(fingerprintErr)
+	}
+	excluded := base.GetContextKeyStringSlice(gc, constant.ContextKeyZTAPIHealthExcludedCredentials)
+	if len(excluded) != 1 || excluded[0] != ZTAPIHealthRouteCredentialExclusion(7, fingerprint) {
+		t.Fatalf("excluded credentials = %v, want channel-scoped fingerprint", excluded)
+	}
+	if got := ZTAPIHealthExcludedCredentialVersions(gc, 7); len(got) != 1 || got[0] != fingerprint {
+		t.Fatalf("channel 7 exclusions = %v, want %s", got, fingerprint)
+	}
+	if got := ZTAPIHealthExcludedCredentialVersions(gc, 8); len(got) != 0 {
+		t.Fatalf("same key on another channel must remain eligible: %v", got)
+	}
+	if len(session.collector.attempts) != 0 {
+		t.Fatalf("locally rejected route must not be recorded as dispatched attempt: %+v", session.collector.attempts)
 	}
 }
 
@@ -167,7 +213,7 @@ func TestZTAPIHealthSessionRecordsImageOperationLatencyAndResultValidity(t *test
 			}
 			return &types.ZTAPIHealthTicket{ExecutionID: executionID, Source: "real", Modality: "image", Operation: operation}, nil
 		},
-		AdmitAttempt: func(context.Context, *types.ZTAPIHealthTicket, int, string) error { return nil },
+		AdmitAttempt: func(context.Context, *types.ZTAPIHealthTicket, int, string, string) error { return nil },
 		RecordOutcome: func(_ context.Context, _ *types.ZTAPIHealthTicket, outcome types.ZTAPIHealthOutcome) error {
 			recorded = outcome
 			return nil
@@ -176,7 +222,7 @@ func TestZTAPIHealthSessionRecordsImageOperationLatencyAndResultValidity(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, err := BeginZTAPIHealthUpstream(gc, 7, "/v1/images/generations")
+	a, err := BeginZTAPIHealthUpstream(gc, 7, "/v1/images/generations", "image-test-key")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,9 +251,13 @@ func TestZTAPIHealthSessionRecordsAcceptedVideoSubmission(t *testing.T) {
 			}
 			return &types.ZTAPIHealthTicket{ExecutionID: executionID, Source: "real", Modality: "video", Operation: operation}, nil
 		},
-		AdmitAttempt: func(_ context.Context, _ *types.ZTAPIHealthTicket, channelID int, protocol string) error {
+		AdmitAttempt: func(_ context.Context, _ *types.ZTAPIHealthTicket, channelID int, protocol, credentialVersion string) error {
 			if channelID != 9 || protocol != "video-tasks" {
 				t.Fatalf("bad video attempt: %d %q", channelID, protocol)
+			}
+			expected, err := ZTAPIHealthCredentialVersion("video-test-key")
+			if err != nil || credentialVersion != expected {
+				t.Fatalf("bad video credential fingerprint: %q", credentialVersion)
 			}
 			return nil
 		},
@@ -219,7 +269,7 @@ func TestZTAPIHealthSessionRecordsAcceptedVideoSubmission(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, err := BeginZTAPIHealthUpstream(gc, 9, "/provider/tasks/create")
+	a, err := BeginZTAPIHealthUpstream(gc, 9, "/provider/tasks/create", "video-test-key")
 	if err != nil {
 		t.Fatal(err)
 	}

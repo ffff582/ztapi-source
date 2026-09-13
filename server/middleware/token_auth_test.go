@@ -888,6 +888,63 @@ func TestRelayAllowedRequestUsesQuotedSourceForSelection(t *testing.T) {
 	}
 }
 
+func TestRelayOfficialModelNameUsesPublicAliasForAuthorizationAndBilling(t *testing.T) {
+	fixture := setupRelaySecurityFixture(t, "gpt-5.5")
+	publishRelaySecurityAlias(t, fixture.db, fixture.channel.Id, "zt-gpt-5.5", "gpt-5.5")
+	fixture.token.ModelLimits = "zt-gpt-5.5"
+	if err := fixture.db.Model(fixture.token).Update("model_limits", fixture.token.ModelLimits).Error; err != nil {
+		t.Fatalf("authorize public alias: %v", err)
+	}
+
+	recorder, called, originalModel, selectionModel := performRelaySecurityRequest(
+		t,
+		fixture.plaintext,
+		"gpt-5.5",
+		"203.0.113.10:43123",
+	)
+	if !called || recorder.Code != http.StatusNoContent {
+		t.Fatalf("official model alias rejected: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if originalModel != "zt-gpt-5.5" {
+		t.Fatalf("billing model=%q, want canonical public alias", originalModel)
+	}
+	if selectionModel != "gpt-5.5" {
+		t.Fatalf("selection model=%q, want exact quoted source model", selectionModel)
+	}
+}
+
+func TestRelayOfficialModelNameSupportsResponsesCompaction(t *testing.T) {
+	fixture := setupRelaySecurityFixture(t, "gpt-5.5")
+	publishRelaySecurityAlias(t, fixture.db, fixture.channel.Id, "zt-gpt-5.5", "gpt-5.5")
+	fixture.token.ModelLimits = "zt-gpt-5.5"
+	if err := fixture.db.Model(fixture.token).Update("model_limits", fixture.token.ModelLimits).Error; err != nil {
+		t.Fatalf("authorize public alias: %v", err)
+	}
+
+	var called atomic.Bool
+	var originalModel, selectionModel string
+	engine := gin.New()
+	engine.POST("/v1/responses/compact", TokenAuth(), Distribute(), func(c *gin.Context) {
+		called.Store(true)
+		originalModel = c.GetString("original_model")
+		selectionModel = common.GetContextKeyString(c, constant.ContextKeySelectionModel)
+		c.Status(http.StatusNoContent)
+	})
+	body := []byte(`{"model":"gpt-5.5","input":"retain this context"}`)
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses/compact", bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", "Bearer "+fixture.plaintext)
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	if !called.Load() || recorder.Code != http.StatusNoContent {
+		t.Fatalf("official model compaction rejected: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if originalModel != "zt-gpt-5.5" || selectionModel != "gpt-5.5" {
+		t.Fatalf("compaction identity original=%q selection=%q", originalModel, selectionModel)
+	}
+}
+
 func TestRelaySourceModelPermissionDoesNotAuthorizePublicAlias(t *testing.T) {
 	fixture := setupRelaySecurityFixture(t, "gpt-5.5")
 	publishRelaySecurityAlias(t, fixture.db, fixture.channel.Id, "zt-gpt-5.5", "gpt-5.5")

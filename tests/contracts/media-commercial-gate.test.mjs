@@ -64,6 +64,8 @@ test('media commercial CI runs offline UI suites and the responsive browser acce
   assert.ok(prepareEmbed >= 0 && offlineGo > prepareEmbed, 'Go embed placeholders must exist before a clean-root package test');
   assert.match(commands, /pnpm lint:web/);
   assert.match(commands, /npm run test:runtime/);
+	assert.match(commands, /node --test tests\/production\/ztapi-reasoning-matrix\.test\.mjs/);
+	assert.match(commands, /node --test tests\/production\/ztapi-codex-protocol\.test\.mjs/);
   assert.match(commands, /pnpm exec playwright test tests\/e2e\/media-models-and-guide\.spec\.ts/);
   assert.match(commands, /playwright install --with-deps chromium/);
   assert.doesNotMatch(commands, /yunxinapi|api[_-]?key|upstream[_-]?key/i);

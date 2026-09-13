@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -66,6 +67,14 @@ func geminiRelayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewA
 	return err
 }
 
+func validateZTAPIHealthProbeRoute(ctx context.Context, check relaycommon.ZTAPIHealthProbeRouteCheck) error {
+	return model.ValidateZTAPIHealthVerificationDispatchPin(ctx, model.ZTAPIHealthVerificationRouteCheck{
+		CaseID: check.CaseID, LeaseToken: check.LeaseToken, ProbeRequestID: check.ProbeRequestID,
+		ModelID: check.ModelID, ChannelID: check.ChannelID, Protocol: check.Protocol,
+		Stream: check.Stream, CredentialVersion: check.CredentialVersion, Generation: check.Generation,
+	}, time.Now().UTC())
+}
+
 func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	requestId := c.GetString(common.RequestIdKey)
@@ -128,12 +137,16 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 
 	healthSession, err := relaycommon.StartZTAPIHealthRequest(c, relayInfo, relaycommon.ZTAPIHealthBackend{
-		AdmitRequest:      model.AdmitZTAPIHealthRequest,
-		AdmitMediaRequest: model.AdmitZTAPIMediaHealthRequest,
-		AdmitAttempt:      model.AdmitZTAPIHealthAttempt,
-		RecordOutcome:     model.RecordZTAPIHealthOutcome,
-		CheckAvailable:    model.CheckZTAPIHealthModelAvailable,
-		CircuitOpen:       model.ErrZTAPIHealthCircuitOpen,
+		AdmitRequest:                       model.AdmitZTAPIHealthRequest,
+		AdmitMediaRequest:                  model.AdmitZTAPIMediaHealthRequest,
+		AdmitRequestWithEntryProtocol:      model.AdmitZTAPIHealthRequestWithEntryProtocol,
+		AdmitMediaRequestWithEntryProtocol: model.AdmitZTAPIMediaHealthRequestWithEntryProtocol,
+		AdmitAttempt:                       model.AdmitZTAPIHealthAttempt,
+		RecordOutcome:                      model.RecordZTAPIHealthOutcome,
+		CheckAvailable:                     model.CheckZTAPIHealthModelAvailable,
+		ValidateProbeRoute:                 validateZTAPIHealthProbeRoute,
+		CircuitOpen:                        model.ErrZTAPIHealthCircuitOpen,
+		RouteOpen:                          model.ErrZTAPIHealthRouteOpen,
 	})
 	if err != nil {
 		newAPIError = types.NewError(err, types.ErrorCode("model_temporarily_unavailable"), types.ErrOptionWithStatusCode(http.StatusServiceUnavailable), types.ErrOptionWithSkipRetry())
@@ -259,7 +272,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		newAPIError = service.NormalizeViolationFeeError(newAPIError)
 		relayInfo.LastError = newAPIError
 
-		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
+		channelError := *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan())
+		processChannelErrorWithAutoBan(c, channelError, newAPIError, ztapiLegacyAutoBanAllowed(healthSession != nil, retryParam.Managed))
+		if retryParam.Managed && ztapiRouteUnavailableError(newAPIError) {
+			retryParam.ReleaseAttempt(channel.Id)
+			retryParam.ResetRetryNextTry()
+		}
 
 		if !retryParam.HasMoreAttempts() || !shouldRetry(c, newAPIError, retryParam.RetryLimit()-retryParam.GetRetry()) {
 			break
@@ -342,25 +360,35 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 		}
 		return channel, nil
 	}
-	channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(retryParam)
+	for {
+		channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(retryParam)
 
-	info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
+		info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
 
-	if err != nil {
-		return nil, types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %s", selectGroup, info.OriginModelName, err.Error()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
-	}
-	if channel == nil {
-		return nil, types.NewError(fmt.Errorf("分组 %s 下模型 %s 的可用渠道不存在（retry）", selectGroup, info.OriginModelName), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
-	}
-	if err := retryParam.RecordAttempt(channel.Id); err != nil {
-		return nil, types.NewError(err, types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
-	}
+		if err != nil {
+			return nil, types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %s", selectGroup, info.OriginModelName, err.Error()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+		}
+		if channel == nil {
+			return nil, types.NewError(fmt.Errorf("分组 %s 下模型 %s 的可用渠道不存在（retry）", selectGroup, info.OriginModelName), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+		}
 
-	newAPIError := middleware.SetupContextForSelectedChannel(c, channel, info.OriginModelName)
-	if newAPIError != nil {
-		return nil, newAPIError
+		newAPIError := middleware.SetupContextForSelectedChannel(c, channel, info.OriginModelName)
+		if newAPIError != nil {
+			if retryParam.Managed && newAPIError.GetErrorCode() == types.ErrorCodeChannelNoAvailableKey {
+				if recordErr := retryParam.RecordAttempt(channel.Id); recordErr != nil {
+					return nil, types.NewError(recordErr, types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+				}
+				if retryParam.HasMoreAttempts() {
+					continue
+				}
+			}
+			return nil, newAPIError
+		}
+		if err := retryParam.RecordAttempt(channel.Id); err != nil {
+			return nil, types.NewError(err, types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+		}
+		return channel, nil
 	}
-	return channel, nil
 }
 
 func newRelayRetryParam(c *gin.Context, info *relaycommon.RelayInfo) *service.RetryParam {
@@ -378,7 +406,7 @@ func newRelayRetryParam(c *gin.Context, info *relaycommon.RelayInfo) *service.Re
 		allowedChannelIDs = append(allowedChannelIDs, info.ZTAPIPublicationSnapshot.AllowedChannelIDs...)
 	}
 	return &service.RetryParam{
-		Managed:           info.ZTAPIPublicationSnapshot != nil && info.RelayFormat != types.RelayFormatTask,
+		Managed:           info.ZTAPIPublicationSnapshot != nil,
 		Ctx:               c,
 		TokenGroup:        info.TokenGroup,
 		ModelName:         selectionModel,
@@ -404,7 +432,7 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 			return false
 		}
 	}
-	if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
+	if !ztapiRouteUnavailableError(openaiErr) && service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
 		return false
 	}
 	if managed {
@@ -433,6 +461,10 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 		return false
 	}
 	return operation_setting.ShouldRetryByStatusCode(code)
+}
+
+func ztapiRouteUnavailableError(err *types.NewAPIError) bool {
+	return err != nil && err.GetErrorCode() == types.ErrorCode("ztapi_route_temporarily_unavailable")
 }
 
 func ztapiRetryableError(err *types.NewAPIError) bool {
@@ -474,10 +506,18 @@ func ztapiRetryableError(err *types.NewAPIError) bool {
 }
 
 func processChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError) {
+	processChannelErrorWithAutoBan(c, channelError, err, true)
+}
+
+func ztapiLegacyAutoBanAllowed(hasHealthSession, managed bool) bool {
+	return !hasHealthSession || !managed
+}
+
+func processChannelErrorWithAutoBan(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError, allowAutoBan bool) {
 	logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, common.LocalLogPreview(err.Error())))
 	// 不要使用context获取渠道信息，异步处理时可能会出现渠道信息不一致的情况
 	// do not use context to get channel info, there may be inconsistent channel info when processing asynchronously
-	if service.ShouldDisableChannel(err) && channelError.AutoBan {
+	if allowAutoBan && service.ShouldDisableChannel(err) && channelError.AutoBan {
 		gopool.Go(func() {
 			service.DisableChannel(channelError, err.ErrorWithStatusCode())
 		})
@@ -617,7 +657,6 @@ func RelayTask(c *gin.Context) {
 		respondTaskError(c, taskErr)
 		return
 	}
-	var result *relay.TaskSubmitResult
 	var taskErr *dto.TaskError
 	var healthSession *relaycommon.ZTAPIHealthSession
 	if snapshot := relayInfo.ZTAPIPublicationSnapshot; snapshot != nil && snapshot.Modality == model.ZTAPIModalityVideo {
@@ -625,12 +664,16 @@ func RelayTask(c *gin.Context) {
 			relayInfo.OriginModelName = snapshot.PublicName
 		}
 		healthSession, err = relaycommon.StartZTAPIHealthRequest(c, relayInfo, relaycommon.ZTAPIHealthBackend{
-			AdmitRequest:      model.AdmitZTAPIHealthRequest,
-			AdmitMediaRequest: model.AdmitZTAPIMediaHealthRequest,
-			AdmitAttempt:      model.AdmitZTAPIHealthAttempt,
-			RecordOutcome:     model.RecordZTAPIHealthOutcome,
-			CheckAvailable:    model.CheckZTAPIHealthModelAvailable,
-			CircuitOpen:       model.ErrZTAPIHealthCircuitOpen,
+			AdmitRequest:                       model.AdmitZTAPIHealthRequest,
+			AdmitMediaRequest:                  model.AdmitZTAPIMediaHealthRequest,
+			AdmitRequestWithEntryProtocol:      model.AdmitZTAPIHealthRequestWithEntryProtocol,
+			AdmitMediaRequestWithEntryProtocol: model.AdmitZTAPIMediaHealthRequestWithEntryProtocol,
+			AdmitAttempt:                       model.AdmitZTAPIHealthAttempt,
+			RecordOutcome:                      model.RecordZTAPIHealthOutcome,
+			CheckAvailable:                     model.CheckZTAPIHealthModelAvailable,
+			ValidateProbeRoute:                 validateZTAPIHealthProbeRoute,
+			CircuitOpen:                        model.ErrZTAPIHealthCircuitOpen,
+			RouteOpen:                          model.ErrZTAPIHealthRouteOpen,
 		})
 		if err != nil {
 			respondTaskError(c, service.TaskErrorWrapperLocal(err, "model_temporarily_unavailable", http.StatusServiceUnavailable))
@@ -647,65 +690,13 @@ func RelayTask(c *gin.Context) {
 		}
 	}()
 
-	retryParam := newRelayRetryParam(c, relayInfo)
-
-	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
-		var channel *model.Channel
-
-		if lockedCh, ok := relayInfo.LockedChannel.(*model.Channel); ok && lockedCh != nil {
-			channel = lockedCh
-			if retryParam.GetRetry() > 0 {
-				if setupErr := middleware.SetupContextForSelectedChannel(c, channel, relayInfo.OriginModelName); setupErr != nil {
-					taskErr = service.TaskErrorWrapperLocal(setupErr.Err, "setup_locked_channel_failed", http.StatusInternalServerError)
-					break
-				}
-			}
-		} else {
-			var channelErr *types.NewAPIError
-			channel, channelErr = getChannel(c, relayInfo, retryParam)
-			if channelErr != nil {
-				logger.LogError(c, channelErr.Error())
-				taskErr = service.TaskErrorWrapperLocal(channelErr.Err, "get_channel_failed", http.StatusInternalServerError)
-				break
-			}
-		}
-
-		addUsedChannel(c, channel.Id)
-		bodyStorage, bodyErr := common.GetBodyStorage(c)
-		if bodyErr != nil {
-			if common.IsRequestBodyTooLargeError(bodyErr) || errors.Is(bodyErr, common.ErrRequestBodyTooLarge) {
-				taskErr = service.TaskErrorWrapperLocal(bodyErr, "read_request_body_failed", http.StatusRequestEntityTooLarge)
-			} else {
-				taskErr = service.TaskErrorWrapperLocal(bodyErr, "read_request_body_failed", http.StatusBadRequest)
-			}
-			break
-		}
-		c.Request.Body = io.NopCloser(bodyStorage)
-
-		result, taskErr = relay.RelayTaskSubmit(c, relayInfo)
-		if taskErr == nil {
-			break
-		}
-
-		if !taskErr.LocalError {
-			processChannelError(c,
-				*types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey,
-					common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()),
-				types.NewOpenAIError(taskErr.Error, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode))
-		}
-
-		if !shouldRetryTaskRelay(c, channel.Id, taskErr, common.RetryTimes-retryParam.GetRetry()) {
-			break
-		}
+	var lockedChannel *model.Channel
+	if relayInfo.LockedChannel != nil {
+		lockedChannel, _ = relayInfo.LockedChannel.(*model.Channel)
 	}
+	result, taskErr := executeRelayTaskAttempts(c, relayInfo, lockedChannel, relay.RelayTaskSubmit)
 
-	useChannel := c.GetStringSlice("use_channel")
-	if len(useChannel) > 1 {
-		retryLogStr := fmt.Sprintf("重试：%s", strings.Trim(strings.Join(strings.Fields(fmt.Sprint(useChannel)), "->"), "[]"))
-		logger.LogInfo(c, retryLogStr)
-	}
-
-	// ── 成功：结算 + 日志 + 插入任务 ──
+	// -- success: settle, log and persist the public task --
 	if taskErr == nil {
 		managedMedia := service.IsZTAPIMediaBilling(relayInfo)
 		if !managedMedia {
@@ -747,6 +738,73 @@ func RelayTask(c *gin.Context) {
 	}
 }
 
+type relayTaskSubmitFunc func(*gin.Context, *relaycommon.RelayInfo) (*relay.TaskSubmitResult, *dto.TaskError)
+
+func executeRelayTaskAttempts(c *gin.Context, relayInfo *relaycommon.RelayInfo, lockedChannel *model.Channel, submit relayTaskSubmitFunc) (*relay.TaskSubmitResult, *dto.TaskError) {
+	retryParam := newRelayRetryParam(c, relayInfo)
+	var result *relay.TaskSubmitResult
+	var taskErr *dto.TaskError
+	for ; retryParam.GetRetry() <= retryParam.RetryLimit(); retryParam.IncreaseRetry() {
+		var channel *model.Channel
+
+		if lockedChannel != nil {
+			channel = lockedChannel
+			if retryParam.GetRetry() > 0 {
+				if setupErr := middleware.SetupContextForSelectedChannel(c, channel, relayInfo.OriginModelName); setupErr != nil {
+					taskErr = service.TaskErrorWrapperLocal(setupErr.Err, "setup_locked_channel_failed", http.StatusInternalServerError)
+					break
+				}
+			}
+		} else {
+			var channelErr *types.NewAPIError
+			channel, channelErr = getChannel(c, relayInfo, retryParam)
+			if channelErr != nil {
+				logger.LogError(c, channelErr.Error())
+				taskErr = service.TaskErrorWrapperLocal(channelErr.Err, "get_channel_failed", http.StatusInternalServerError)
+				break
+			}
+		}
+
+		addUsedChannel(c, channel.Id)
+		bodyStorage, bodyErr := common.GetBodyStorage(c)
+		if bodyErr != nil {
+			if common.IsRequestBodyTooLargeError(bodyErr) || errors.Is(bodyErr, common.ErrRequestBodyTooLarge) {
+				taskErr = service.TaskErrorWrapperLocal(bodyErr, "read_request_body_failed", http.StatusRequestEntityTooLarge)
+			} else {
+				taskErr = service.TaskErrorWrapperLocal(bodyErr, "read_request_body_failed", http.StatusBadRequest)
+			}
+			break
+		}
+		c.Request.Body = io.NopCloser(bodyStorage)
+
+		result, taskErr = submit(c, relayInfo)
+		if taskErr == nil {
+			break
+		}
+
+		if !taskErr.LocalError {
+			processChannelError(c,
+				*types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey,
+					common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()),
+				types.NewOpenAIError(taskErr.Error, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode))
+		}
+
+		if prepareZTAPITaskRouteRetry(c, retryParam, channel.Id, taskErr) {
+			continue
+		}
+		if !shouldRetryTaskRelay(c, channel.Id, taskErr, retryParam.RetryLimit()-retryParam.GetRetry()) {
+			break
+		}
+	}
+
+	useChannel := c.GetStringSlice("use_channel")
+	if len(useChannel) > 1 {
+		retryLogStr := fmt.Sprintf("重试：%s", strings.Trim(strings.Join(strings.Fields(fmt.Sprint(useChannel)), "->"), "[]"))
+		logger.LogInfo(c, retryLogStr)
+	}
+	return result, taskErr
+}
+
 func persistedTaskData(managedMedia bool, upstreamData []byte) []byte {
 	if managedMedia {
 		return []byte("{}")
@@ -769,7 +827,8 @@ func shouldRetryTaskRelay(c *gin.Context, channelId int, taskErr *dto.TaskError,
 	if relaycommon.ZTAPITaskProviderAccepted(c) {
 		return false
 	}
-	if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
+	routeUnavailable := taskErr.Code == "ztapi_route_temporarily_unavailable"
+	if !routeUnavailable && service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
 		return false
 	}
 	if retryTimes <= 0 {
@@ -779,7 +838,7 @@ func shouldRetryTaskRelay(c *gin.Context, channelId int, taskErr *dto.TaskError,
 		return false
 	}
 	if taskErr.LocalError {
-		return false
+		return routeUnavailable
 	}
 	if taskErr.StatusCode == http.StatusTooManyRequests {
 		return true
@@ -804,5 +863,17 @@ func shouldRetryTaskRelay(c *gin.Context, channelId int, taskErr *dto.TaskError,
 	if taskErr.StatusCode/100 == 2 {
 		return false
 	}
+	return true
+}
+
+func prepareZTAPITaskRouteRetry(c *gin.Context, retryParam *service.RetryParam, channelID int, taskErr *dto.TaskError) bool {
+	if retryParam == nil || !retryParam.Managed || taskErr == nil || taskErr.Code != "ztapi_route_temporarily_unavailable" {
+		return false
+	}
+	if !shouldRetryTaskRelay(c, channelID, taskErr, retryParam.RetryLimit()-retryParam.GetRetry()) {
+		return false
+	}
+	retryParam.ReleaseAttempt(channelID)
+	retryParam.ResetRetryNextTry()
 	return true
 }

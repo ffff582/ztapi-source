@@ -71,6 +71,17 @@ func ztapiHealthOperationLabel(value string) string {
 	}
 }
 
+func ztapiHealthRouteLabel(d ZTAPIHealthAlertMetadata) string {
+	if d.ChannelID <= 0 {
+		return "未提供"
+	}
+	mode := "非流式"
+	if d.Stream {
+		mode = "流式"
+	}
+	return fmt.Sprintf("通道 #%d，客户入口 %s，最终上游 %s，%s", d.ChannelID, ztapiAlertValue(d.EntryProtocol), ztapiAlertValue(d.UpstreamProtocol), mode)
+}
+
 func ztapiHealthAction(d ZTAPIHealthAlertMetadata) string {
 	finish := strings.ToLower(strings.Join(d.FinishReasons, ","))
 	reason := strings.ToLower(strings.TrimSpace(d.ErrorCode))
@@ -104,6 +115,12 @@ func ztapiHealthTelegramText(item ZTAPIHealthWorkItem, now time.Time) string {
 		rule = "连续 2 次失败"
 	case "rolling_24h_gt_2pct":
 		rule = "24 小时内至少失败 3 次，且失败率超过 2%"
+	case "verified_route_2":
+		rule = "独立诊断探针连续 2 次失败"
+	case "verified_all_routes":
+		rule = "所有已授权线路均经独立探针确认不可用"
+	case "manual_verified_recovery":
+		rule = "管理员依据复验结果手动恢复"
 	}
 	if item.Test {
 		return fmt.Sprintf("【ZTAPI 测试通知】\n结果：告警通道测试成功，本次没有修改或下架任何模型。\n时间（北京时间）：%s\n建议处理：无需处理。", trigger)
@@ -124,7 +141,18 @@ func ztapiHealthTelegramText(item ZTAPIHealthWorkItem, now time.Time) string {
 			resultValid = "否"
 		}
 	}
-	return fmt.Sprintf("【ZTAPI 模型故障】\n模型：%s\n影响：已自动下架，客户暂时无法调用该模型。\n触发条件：%s\n类型：%s\n操作：%s\n错误：%s\nHTTP 状态：%s\n结束原因：%s\n耗时：%s\n结果有效：%s\n发生时间（北京时间）：%s\n\n建议处理：%s\n恢复方式：问题解决后，请让 Codex 复测并由管理员确认恢复。\n\n上游请求编号：%s\n上游任务编号：%s\n事件编号：%d\n通知编号：%d", ztapiAlertValue(d.Model), rule, ztapiHealthModalityLabel(d.Modality), ztapiHealthOperationLabel(d.Operation), ztapiAlertValue(d.ErrorCode), status, ztapiAlertValue(strings.Join(d.FinishReasons, ",")), latency, resultValid, trigger, ztapiHealthAction(d), ztapiAlertValue(d.UpstreamRequestID), ztapiAlertValue(d.UpstreamTaskID), item.IncidentID, item.ID)
+	if item.Kind == "recovery_alert" {
+		return fmt.Sprintf("【ZTAPI 复核恢复】\n模型：%s\n结果：故障状态已由管理员复核关闭。\n当前状态：模型仍需管理员重新上架，系统不会自动恢复销售。\n复核时间（北京时间）：%s\n\n建议处理：确认模型价格和授权线路无变化后，在管理后台重新上架。\n事故编号：%d\n通知编号：%d", ztapiAlertValue(d.Model), trigger, item.IncidentID, item.ID)
+	}
+	title := "【ZTAPI 模型下架】"
+	impact := "所有已授权线路均经独立探针确认不可用，模型已自动下架，客户暂时无法调用。"
+	recovery := "问题解决后，请让 Codex 复测并由管理员确认恢复，再重新上架。"
+	if item.Kind == "route_alert" {
+		title = "【ZTAPI 线路降级】"
+		impact = "已停止使用这条故障线路，模型仍可正常调用，系统会改走其他已授权线路。"
+		recovery = "请处理故障线路；无需重新上架模型。线路恢复须经复验确认。"
+	}
+	return fmt.Sprintf("%s\n模型：%s\n影响：%s\n故障线路：%s\n触发条件：%s\n类型：%s\n操作：%s\n错误：%s\nHTTP 状态：%s\n结束原因：%s\n耗时：%s\n结果有效：%s\n发生时间（北京时间）：%s\n\n建议处理：%s\n恢复方式：%s\n\n诊断探针编号：%s\n诊断上游请求编号：%s\n上游任务编号：%s\n触发用户请求编号：%s（仅用于定位最初线索，不是下架证据）\n触发请求对应上游编号：%s（仅用于定位最初线索）\n事故编号：%d\n通知编号：%d", title, ztapiAlertValue(d.Model), impact, ztapiHealthRouteLabel(d), rule, ztapiHealthModalityLabel(d.Modality), ztapiHealthOperationLabel(d.Operation), ztapiAlertValue(d.ErrorCode), status, ztapiAlertValue(strings.Join(d.FinishReasons, ",")), latency, resultValid, trigger, ztapiHealthAction(d), recovery, ztapiAlertValue(d.ProbeRequestID), ztapiAlertValue(d.UpstreamRequestID), ztapiAlertValue(d.UpstreamTaskID), ztapiAlertValue(d.TriggerRequestID), ztapiAlertValue(d.TriggerUpstreamRequestID), item.IncidentID, item.ID)
 }
 
 // Only this fixed Telegram origin receives the bot credential. Never log the

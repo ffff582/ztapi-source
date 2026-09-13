@@ -583,7 +583,7 @@ func TestZTAPIPublicPricingIsStrictProjectionAndNeverLeaksSources(t *testing.T) 
 	}
 }
 
-func TestZTAPIPublicModelResolutionEnforcesGroupsAndRejectsPrivateSourceName(t *testing.T) {
+func TestZTAPIPublicModelResolutionEnforcesGroupsForPublicAndOfficialNames(t *testing.T) {
 	db, engine := setupZTAPIPricingController(t)
 	root, token := createChannelOperator(t, db, "public-resolution-root", common.RoleRootUser)
 	channel := seedZTAPIRoute(t, db, "claude-sonnet-5", "vip")
@@ -609,8 +609,12 @@ func TestZTAPIPublicModelResolutionEnforcesGroupsAndRejectsPrivateSourceName(t *
 	if err != nil || resolved != "claude-sonnet-5" {
 		t.Fatalf("vip resolution = %q, %v", resolved, err)
 	}
-	if _, err := model.ResolveZTAPIRequestModel("claude-sonnet-5", "vip"); !errors.Is(err, model.ErrZTAPIModelNotPublic) {
-		t.Fatalf("private source resolution error = %v, want not public", err)
+	if _, err := model.ResolveZTAPIRequestModel("claude-sonnet-5", "default"); !errors.Is(err, model.ErrZTAPIModelGroupForbidden) {
+		t.Fatalf("official source default-group error = %v, want group forbidden", err)
+	}
+	identity, err := model.ResolveZTAPIRequestIdentity("claude-sonnet-5", "vip")
+	if err != nil || identity.PublicName != publicName || identity.SourceModel != "claude-sonnet-5" {
+		t.Fatalf("official source identity = %#v, %v", identity, err)
 	}
 }
 

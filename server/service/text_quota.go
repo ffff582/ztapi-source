@@ -320,6 +320,10 @@ func usageSemanticFromUsage(relayInfo *relaycommon.RelayInfo, usage *dto.Usage) 
 }
 
 func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage, extraContent []string) {
+	if relayInfo != nil && usage != nil && usage.CompletionTokenDetails.ReasoningTokens > 0 {
+		reasoningTokens := usage.CompletionTokenDetails.ReasoningTokens
+		relayInfo.ReasoningTokensReported = &reasoningTokens
+	}
 	if postZTAPIDurableTextQuota(ctx, relayInfo, usage) {
 		return
 	}

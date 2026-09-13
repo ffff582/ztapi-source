@@ -57,34 +57,45 @@ type adminLogFilter struct {
 }
 
 type adminRequestLogRow struct {
-	ID               int    `gorm:"column:id"`
-	CreatedAt        int64  `gorm:"column:created_at"`
-	Type             int    `gorm:"column:type"`
-	UserID           int    `gorm:"column:user_id"`
-	Username         string `gorm:"column:username"`
-	ModelName        string `gorm:"column:model_name"`
-	RequestID        string `gorm:"column:request_id"`
-	UseTime          int    `gorm:"column:use_time"`
-	PromptTokens     int    `gorm:"column:prompt_tokens"`
-	CompletionTokens int    `gorm:"column:completion_tokens"`
-	Quota            int    `gorm:"column:quota"`
+	ID                int    `gorm:"column:id"`
+	CreatedAt         int64  `gorm:"column:created_at"`
+	Type              int    `gorm:"column:type"`
+	UserID            int    `gorm:"column:user_id"`
+	Username          string `gorm:"column:username"`
+	ModelName         string `gorm:"column:model_name"`
+	RequestID         string `gorm:"column:request_id"`
+	UpstreamRequestID string `gorm:"column:upstream_request_id"`
+	UseTime           int    `gorm:"column:use_time"`
+	PromptTokens      int    `gorm:"column:prompt_tokens"`
+	CompletionTokens  int    `gorm:"column:completion_tokens"`
+	Quota             int    `gorm:"column:quota"`
+	Other             string `gorm:"column:other"`
+}
+
+type adminRequestReasoningMetadata struct {
+	ReasoningEffortReceived  string `json:"reasoning_effort_received,omitempty"`
+	ReasoningEffortForwarded string `json:"reasoning_effort_forwarded,omitempty"`
+	ReasoningEffortSource    string `json:"reasoning_effort_source,omitempty"`
+	ReasoningTokensReported  *int   `json:"reasoning_tokens_reported,omitempty"`
 }
 
 type adminRequestLogResponse struct {
-	ID               int     `json:"id"`
-	CreatedAt        int64   `json:"created_at"`
-	Status           string  `json:"status"`
-	Type             int     `json:"type"`
-	UserID           int     `json:"user_id"`
-	Username         string  `json:"username"`
-	Model            string  `json:"model"`
-	RequestID        string  `json:"request_id"`
-	Latency          int     `json:"latency"`
-	PromptTokens     int     `json:"prompt_tokens"`
-	CompletionTokens int     `json:"completion_tokens"`
-	TotalTokens      int     `json:"total_tokens"`
-	Quota            int     `json:"quota"`
-	BilledAmount     float64 `json:"billed_amount"`
+	ID                int                            `json:"id"`
+	CreatedAt         int64                          `json:"created_at"`
+	Status            string                         `json:"status"`
+	Type              int                            `json:"type"`
+	UserID            int                            `json:"user_id"`
+	Username          string                         `json:"username"`
+	Model             string                         `json:"model"`
+	RequestID         string                         `json:"request_id"`
+	UpstreamRequestID string                         `json:"upstream_request_id,omitempty"`
+	Latency           int                            `json:"latency"`
+	PromptTokens      int                            `json:"prompt_tokens"`
+	CompletionTokens  int                            `json:"completion_tokens"`
+	TotalTokens       int                            `json:"total_tokens"`
+	Quota             int                            `json:"quota"`
+	BilledAmount      float64                        `json:"billed_amount"`
+	Metadata          *adminRequestReasoningMetadata `json:"metadata,omitempty"`
 }
 
 type adminAuditLogRow struct {
@@ -316,7 +327,7 @@ func loadAdminRequestLogs(filter adminLogFilter, offset, limit int) ([]adminRequ
 		return nil, 0, err
 	}
 	rows := make([]adminRequestLogRow, 0)
-	columns := "id, created_at, type, user_id, username, model_name, request_id, use_time, prompt_tokens, completion_tokens, quota"
+	columns := "id, created_at, type, user_id, username, model_name, request_id, upstream_request_id, use_time, prompt_tokens, completion_tokens, quota, other"
 	if err := query.Select(columns).Order("created_at DESC, id DESC").Offset(offset).Limit(limit).Scan(&rows).Error; err != nil {
 		return nil, 0, err
 	}
@@ -329,12 +340,58 @@ func loadAdminRequestLogs(filter adminLogFilter, offset, limit int) ([]adminRequ
 		items = append(items, adminRequestLogResponse{
 			ID: row.ID, CreatedAt: row.CreatedAt, Status: adminRequestLogStatus(row.Type),
 			Type: row.Type, UserID: row.UserID, Username: row.Username, Model: row.ModelName,
-			RequestID: row.RequestID, Latency: row.UseTime, PromptTokens: row.PromptTokens,
+			RequestID: row.RequestID, UpstreamRequestID: boundedAuditString(row.UpstreamRequestID, 255), Latency: row.UseTime, PromptTokens: row.PromptTokens,
 			CompletionTokens: row.CompletionTokens, TotalTokens: row.PromptTokens + row.CompletionTokens,
-			Quota: row.Quota, BilledAmount: billed,
+			Quota: row.Quota, BilledAmount: billed, Metadata: projectAdminRequestReasoningMetadata(row.Other),
 		})
 	}
 	return items, total, nil
+}
+
+func projectAdminRequestReasoningMetadata(raw string) *adminRequestReasoningMetadata {
+	var other map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &other); err != nil {
+		return nil
+	}
+	metadata := &adminRequestReasoningMetadata{}
+	if value := normalizedAdminReasoningEffort(other["reasoning_effort_received"]); value != "" {
+		metadata.ReasoningEffortReceived = value
+	}
+	if value := normalizedAdminReasoningEffort(other["reasoning_effort_forwarded"]); value != "" {
+		metadata.ReasoningEffortForwarded = value
+	}
+	if value, _ := other["reasoning_effort_source"].(string); isAdminReasoningSource(value) {
+		metadata.ReasoningEffortSource = value
+	}
+	if value, ok := other["reasoning_tokens_reported"]; ok {
+		if tokens := jsonNumberToInt(value); tokens >= 0 {
+			metadata.ReasoningTokensReported = &tokens
+		}
+	}
+	if metadata.ReasoningEffortReceived == "" && metadata.ReasoningEffortForwarded == "" && metadata.ReasoningEffortSource == "" && metadata.ReasoningTokensReported == nil {
+		return nil
+	}
+	return metadata
+}
+
+func normalizedAdminReasoningEffort(value interface{}) string {
+	effort, _ := value.(string)
+	effort = strings.ToLower(strings.TrimSpace(effort))
+	switch effort {
+	case "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra":
+		return effort
+	default:
+		return ""
+	}
+}
+
+func isAdminReasoningSource(value string) bool {
+	switch value {
+	case "request", "model_suffix", "parameter_override", "default", "codex_alias_mapping":
+		return true
+	default:
+		return false
+	}
 }
 
 func adminRequestLogStatus(logType int) string {

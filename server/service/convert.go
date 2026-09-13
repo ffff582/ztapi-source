@@ -31,6 +31,9 @@ func ClaudeToOpenAIRequest(claudeRequest dto.ClaudeRequest, info *relaycommon.Re
 	if claudeRequest.Stream != nil {
 		openAIRequest.Stream = lo.ToPtr(lo.FromPtr(claudeRequest.Stream))
 	}
+	if info != nil && info.ZTAPIPublicationSnapshot != nil {
+		openAIRequest.ReasoningEffort = claudeRequest.GetEfforts()
+	}
 
 	isOpenRouter := info.ChannelType == constant.ChannelTypeOpenRouter
 
@@ -659,6 +662,9 @@ func GeminiToOpenAIRequest(geminiRequest *dto.GeminiChatRequest, info *relaycomm
 	openaiRequest := &dto.GeneralOpenAIRequest{
 		Model:  info.UpstreamModelName,
 		Stream: lo.ToPtr(info.IsStream),
+	}
+	if info != nil && info.ZTAPIPublicationSnapshot != nil && geminiRequest.GenerationConfig.ThinkingConfig != nil {
+		openaiRequest.ReasoningEffort = geminiRequest.GenerationConfig.ThinkingConfig.ThinkingLevel
 	}
 
 	// 转换 messages

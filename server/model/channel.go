@@ -201,8 +201,25 @@ func (channel *Channel) GetKeys() []string {
 }
 
 func (channel *Channel) GetNextEnabledKey() (string, int, *types.NewAPIError) {
+	return channel.GetNextEnabledKeyExcluding(nil)
+}
+
+// GetNextEnabledKeyExcluding preserves the channel's configured key policy
+// while skipping credential fingerprints whose exact health routes are open.
+func (channel *Channel) GetNextEnabledKeyExcluding(excludedCredentialVersions []string) (string, int, *types.NewAPIError) {
+	excluded := func(key string) bool {
+		for _, version := range excludedCredentialVersions {
+			if ZTAPICredentialVersionMatchesKey(version, key) {
+				return true
+			}
+		}
+		return false
+	}
 	// If not in multi-key mode, return the original key string directly.
 	if !channel.ChannelInfo.IsMultiKey {
+		if excluded(channel.Key) {
+			return "", 0, types.NewError(errors.New("all channel keys are excluded by verified route health"), types.ErrorCodeChannelNoAvailableKey)
+		}
 		return channel.Key, 0, nil
 	}
 
@@ -232,7 +249,7 @@ func (channel *Channel) GetNextEnabledKey() (string, int, *types.NewAPIError) {
 	// Collect indexes of enabled keys
 	enabledIdx := make([]int, 0, len(keys))
 	for i := range keys {
-		if getStatus(i) == common.ChannelStatusEnabled {
+		if getStatus(i) == common.ChannelStatusEnabled && !excluded(keys[i]) {
 			enabledIdx = append(enabledIdx, i)
 		}
 	}
@@ -272,7 +289,7 @@ func (channel *Channel) GetNextEnabledKey() (string, int, *types.NewAPIError) {
 		}
 		for i := 0; i < len(keys); i++ {
 			idx := (start + i) % len(keys)
-			if getStatus(idx) == common.ChannelStatusEnabled {
+			if getStatus(idx) == common.ChannelStatusEnabled && !excluded(keys[idx]) {
 				// update polling index for next call (point to the next position)
 				channel.ChannelInfo.MultiKeyPollingIndex = (idx + 1) % len(keys)
 				return keys[idx], idx, nil
@@ -284,6 +301,25 @@ func (channel *Channel) GetNextEnabledKey() (string, int, *types.NewAPIError) {
 		// Unknown mode, default to first enabled key (or original key string)
 		return keys[enabledIdx[0]], enabledIdx[0], nil
 	}
+}
+
+// GetEnabledKeyByZTAPIHealthCredentialVersion selects the exact enabled key
+// that produced a durable outbound credential fingerprint. It is used only by
+// trusted internal verification requests; ordinary channel selection remains
+// unchanged.
+func (channel *Channel) GetEnabledKeyByZTAPIHealthCredentialVersion(expected string) (string, int, *types.NewAPIError) {
+	keys := channel.GetKeys()
+	for index, key := range keys {
+		if channel.ChannelInfo.IsMultiKey && channel.ChannelInfo.MultiKeyStatusList != nil {
+			if status, ok := channel.ChannelInfo.MultiKeyStatusList[index]; ok && status != common.ChannelStatusEnabled {
+				continue
+			}
+		}
+		if ZTAPICredentialVersionMatchesKey(expected, key) {
+			return key, index, nil
+		}
+	}
+	return "", 0, types.NewError(errors.New("pinned health credential is not enabled"), types.ErrorCodeChannelNoAvailableKey, types.ErrOptionWithSkipRetry())
 }
 
 func (channel *Channel) SaveChannelInfo() error {
@@ -588,9 +624,9 @@ func (channel *Channel) Update() error {
 }
 
 func (channel *Channel) UpdateResponseTime(responseTime int64) {
-	err := DB.Model(channel).Select("response_time", "test_time").Updates(Channel{
-		TestTime:     common.GetTimestamp(),
-		ResponseTime: int(responseTime),
+	err := DB.Model(&Channel{}).Where("id = ?", channel.Id).Updates(map[string]interface{}{
+		"test_time":     common.GetTimestamp(),
+		"response_time": int(responseTime),
 	}).Error
 	if err != nil {
 		common.SysLog(fmt.Sprintf("failed to update response time: channel_id=%d, error=%v", channel.Id, err))

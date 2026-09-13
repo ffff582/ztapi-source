@@ -78,7 +78,9 @@ func postZTAPIDurableTextQuota(c *gin.Context, info *relaycommon.RelayInfo, usag
 			return true
 		}
 	}
-	other, _ := common.Marshal(map[string]any{"billing_source": "wallet", "billing_status": "settled", "billing_dimensions": check.Dimensions, "publication_version": snapshot.Version, "price_source_version": snapshot.PriceSourceVersion, "usage_semantic": check.UsageSemantic})
+	otherInfo := map[string]any{"billing_source": "wallet", "billing_status": "settled", "billing_dimensions": check.Dimensions, "publication_version": snapshot.Version, "price_source_version": snapshot.PriceSourceVersion, "usage_semantic": check.UsageSemantic}
+	appendReasoningAuditInfo(info, otherInfo)
+	other, _ := common.Marshal(otherInfo)
 	elapsed := 0
 	if !info.StartTime.IsZero() {
 		elapsed = max(0, int(time.Since(info.StartTime).Seconds()))

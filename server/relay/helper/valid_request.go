@@ -11,12 +11,65 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/model"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/samber/lo"
 
 	"github.com/gin-gonic/gin"
 )
+
+const ZTAPIInvalidReasoningEffortCode = "invalid_reasoning_effort"
+
+func ValidateAndNormalizeZTAPIReasoningEffort(info *relaycommon.RelayInfo, request any) error {
+	if info == nil || info.ZTAPIPublicationSnapshot == nil {
+		return nil
+	}
+	requested := relaycommon.ReasoningEffortFromRequest(request)
+	if requested == "" {
+		return nil
+	}
+	normalized, err := model.NormalizeZTAPIReasoningEffort(info.ZTAPIPublicationSnapshot.SourceModel, requested)
+	if err != nil {
+		return err
+	}
+	if normalized == requested {
+		return nil
+	}
+	if err := relaycommon.SetReasoningEffortForRequest(request, normalized); err != nil {
+		return err
+	}
+	if requested == "ultra" && normalized == "max" {
+		relaycommon.MarkReasoningEffortSource(info, relaycommon.ReasoningEffortSourceCodexAliasMapping)
+	}
+	return nil
+}
+
+func ValidateAndNormalizeZTAPIReasoningJSON(info *relaycommon.RelayInfo, body []byte, format types.RelayFormat) ([]byte, error) {
+	if info == nil || info.ZTAPIPublicationSnapshot == nil {
+		return body, nil
+	}
+	requested := relaycommon.ReasoningEffortFromJSON(body, format)
+	if requested == "" {
+		return body, nil
+	}
+	normalized, err := model.NormalizeZTAPIReasoningEffort(info.ZTAPIPublicationSnapshot.SourceModel, requested)
+	if err != nil {
+		return nil, err
+	}
+	if normalized == requested {
+		return body, nil
+	}
+	updated, err := relaycommon.SetReasoningEffortInJSON(body, format, normalized)
+	if err != nil {
+		return nil, err
+	}
+	if requested == "ultra" && normalized == "max" {
+		relaycommon.MarkReasoningEffortSource(info, relaycommon.ReasoningEffortSourceCodexAliasMapping)
+	}
+	return updated, nil
+}
 
 func GetAndValidateRequest(c *gin.Context, format types.RelayFormat) (request dto.Request, err error) {
 	relayMode := relayconstant.Path2RelayMode(c.Request.URL.Path)

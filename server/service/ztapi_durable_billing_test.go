@@ -116,7 +116,7 @@ func TestZTAPIDurableBillingFullUsageAndSupplierRefundJourney(t *testing.T) {
 	}
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
 	ctx.Request = httptest.NewRequest("POST", "/v1/chat/completions", nil)
-	info := &relaycommon.RelayInfo{UserId: user.Id, TokenId: token.Id, RequestId: "full-durable-journey", OriginModelName: "zt-model", ChannelMeta: &relaycommon.ChannelMeta{ChannelId: channel.Id, ApiKey: "synthetic-offline-credential"}, ZTAPIPublicationSnapshot: &relaycommon.ZTAPIPublicationSnapshot{PublicationID: 1, Version: 1, PublicName: "zt-model", PriceSourceID: 1, PriceSourceVersion: 1, BillingDimensions: []string{"input_tokens", "output_tokens"}, SaleUSD: map[string]string{"input_tokens": "2", "output_tokens": "4"}}}
+	info := &relaycommon.RelayInfo{UserId: user.Id, TokenId: token.Id, RequestId: "full-durable-journey", OriginModelName: "zt-model", ReasoningEffortReceived: "high", ReasoningEffortForwarded: "xhigh", ReasoningEffortSource: relaycommon.ReasoningEffortSourceParameterOverride, Request: &dto.GeneralOpenAIRequest{Messages: []dto.Message{{Role: "user", Content: "SECRET_DURABLE_PROMPT"}}}, ChannelMeta: &relaycommon.ChannelMeta{ChannelId: channel.Id, ApiKey: "SECRET_DURABLE_KEY"}, ZTAPIPublicationSnapshot: &relaycommon.ZTAPIPublicationSnapshot{PublicationID: 1, Version: 1, PublicName: "zt-model", PriceSourceID: 1, PriceSourceVersion: 1, BillingDimensions: []string{"input_tokens", "output_tokens"}, SaleUSD: map[string]string{"input_tokens": "2", "output_tokens": "4"}}}
 	if err := PreConsumeBilling(ctx, 30, info); err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestZTAPIDurableBillingFullUsageAndSupplierRefundJourney(t *testing.T) {
 	if err := ObserveZTAPIBillingResponse(info, &http.Response{StatusCode: 200, Header: http.Header{"X-Request-Id": []string{"upstream-offline-id"}}}); err != nil {
 		t.Fatal(err)
 	}
-	usage := &dto.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15}
+	usage := &dto.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15, CompletionTokenDetails: dto.OutputTokenDetails{ReasoningTokens: 3}}
 	PostTextConsumeQuota(ctx, info, usage, nil)
 	PostTextConsumeQuota(ctx, info, usage, nil)
 	if err := FinishZTAPIBilling(ctx, info); err != nil {
@@ -149,6 +149,16 @@ func TestZTAPIDurableBillingFullUsageAndSupplierRefundJourney(t *testing.T) {
 	if logs != 1 {
 		t.Fatalf("consume logs %d", logs)
 	}
+	var consumeLog model.Log
+	require.NoError(t, db.Where("request_id = ?", info.RequestId).Take(&consumeLog).Error)
+	var other map[string]any
+	require.NoError(t, common.UnmarshalJsonStr(consumeLog.Other, &other))
+	require.Equal(t, "high", other["reasoning_effort_received"])
+	require.Equal(t, "xhigh", other["reasoning_effort_forwarded"])
+	require.Equal(t, relaycommon.ReasoningEffortSourceParameterOverride, other["reasoning_effort_source"])
+	require.EqualValues(t, 3, other["reasoning_tokens_reported"])
+	require.NotContains(t, consumeLog.Other, "SECRET_DURABLE_PROMPT")
+	require.NotContains(t, consumeLog.Other, "SECRET_DURABLE_KEY")
 	var charge model.ZTAPISupplierRefundCharge
 	if err := db.Where("request_id = ?", info.RequestId).Take(&charge).Error; err != nil {
 		t.Fatal(err)

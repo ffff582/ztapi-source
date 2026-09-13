@@ -72,30 +72,51 @@ func RepriceZTAPICommercialCatalog(c *gin.Context) {
 }
 
 type ztapiModelProjection struct {
-	ID                    int      `json:"id"`
-	SourceModel           string   `json:"source_model"`
-	PublicName            string   `json:"public_name"`
-	Modality              string   `json:"modality"`
-	Family                string   `json:"family"`
-	Protocol              string   `json:"protocol"`
-	ProviderFamily        string   `json:"provider_family"`
-	InputCostPerMillion   float64  `json:"input_cost_per_million"`
-	OutputCostPerMillion  float64  `json:"output_cost_per_million"`
-	InputPricePerMillion  float64  `json:"input_price_per_million"`
-	OutputPricePerMillion float64  `json:"output_price_per_million"`
-	CacheReadRatio        float64  `json:"cache_read_ratio"`
-	CacheCreationRatio    float64  `json:"cache_creation_ratio"`
-	CacheCreation5mRatio  float64  `json:"cache_creation_5m_ratio"`
-	CacheCreation1hRatio  float64  `json:"cache_creation_1h_ratio"`
-	ImageRatio            float64  `json:"image_ratio"`
-	AudioRatio            float64  `json:"audio_ratio"`
-	AudioCompletionRatio  float64  `json:"audio_completion_ratio"`
-	EnabledGroups         []string `json:"enabled_groups"`
-	Published             bool     `json:"published"`
-	Version               uint64   `json:"version"`
-	RouteReady            bool     `json:"route_ready"`
-	EnabledRouteCount     int64    `json:"enabled_route_count"`
-	PublicationBlockers   []string `json:"publication_blockers"`
+	ID                                        int      `json:"id"`
+	SourceModel                               string   `json:"source_model"`
+	PublicName                                string   `json:"public_name"`
+	Modality                                  string   `json:"modality"`
+	Family                                    string   `json:"family"`
+	Protocol                                  string   `json:"protocol"`
+	ProviderFamily                            string   `json:"provider_family"`
+	InputCostPerMillion                       float64  `json:"input_cost_per_million"`
+	OutputCostPerMillion                      float64  `json:"output_cost_per_million"`
+	InputPricePerMillion                      float64  `json:"input_price_per_million"`
+	OutputPricePerMillion                     float64  `json:"output_price_per_million"`
+	CacheReadRatio                            float64  `json:"cache_read_ratio"`
+	CacheCreationRatio                        float64  `json:"cache_creation_ratio"`
+	CacheCreation5mRatio                      float64  `json:"cache_creation_5m_ratio"`
+	CacheCreation1hRatio                      float64  `json:"cache_creation_1h_ratio"`
+	ImageRatio                                float64  `json:"image_ratio"`
+	AudioRatio                                float64  `json:"audio_ratio"`
+	AudioCompletionRatio                      float64  `json:"audio_completion_ratio"`
+	EnabledGroups                             []string `json:"enabled_groups"`
+	Published                                 bool     `json:"published"`
+	Version                                   uint64   `json:"version"`
+	RouteReady                                bool     `json:"route_ready"`
+	EnabledRouteCount                         int64    `json:"enabled_route_count"`
+	PublicationBlockers                       []string `json:"publication_blockers"`
+	ReasoningEfforts                          []string `json:"reasoning_efforts"`
+	ReasoningCapabilityEvidence               string   `json:"reasoning_capability_evidence"`
+	ReasoningCapabilityLiveValidationRequired bool     `json:"reasoning_capability_live_validation_required"`
+}
+
+type ztapiReasoningProjection struct {
+	ReasoningEfforts                          []string
+	ReasoningCapabilityEvidence               string
+	ReasoningCapabilityLiveValidationRequired bool
+}
+
+func ztapiReasoningProjectionFor(sourceModel string) ztapiReasoningProjection {
+	capability, ok := model.ZTAPIReasoningCapabilityFor(sourceModel)
+	if !ok {
+		return ztapiReasoningProjection{ReasoningEfforts: []string{}}
+	}
+	return ztapiReasoningProjection{
+		ReasoningEfforts:                          capability.ReasoningEfforts,
+		ReasoningCapabilityEvidence:               capability.EvidenceQuote,
+		ReasoningCapabilityLiveValidationRequired: capability.LiveValidationRequired,
+	}
 }
 
 type ztapiPublicPricingProjection struct {
@@ -126,31 +147,35 @@ func buildZTAPIModelProjection(config *model.ZTAPIModelConfig) (ztapiModelProjec
 	if blockersErr != nil {
 		blockers = []string{"publication_evidence_unavailable"}
 	}
+	reasoning := ztapiReasoningProjectionFor(config.SourceModel)
 	return ztapiModelProjection{
-		ID:                    config.ID,
-		SourceModel:           config.SourceModel,
-		PublicName:            config.PublicNameValue(),
-		Modality:              modality,
-		Family:                config.Family,
-		Protocol:              config.Protocol,
-		ProviderFamily:        config.ProviderFamily,
-		InputCostPerMillion:   config.InputCostPerMillion,
-		OutputCostPerMillion:  config.OutputCostPerMillion,
-		InputPricePerMillion:  config.InputPricePerMillion,
-		OutputPricePerMillion: config.OutputPricePerMillion,
-		CacheReadRatio:        config.CacheReadRatio,
-		CacheCreationRatio:    config.CacheCreationRatio,
-		CacheCreation5mRatio:  config.CacheCreation5mRatio,
-		CacheCreation1hRatio:  config.CacheCreation1hRatio,
-		ImageRatio:            config.ImageRatio,
-		AudioRatio:            config.AudioRatio,
-		AudioCompletionRatio:  config.AudioCompletionRatio,
-		EnabledGroups:         groups,
-		Published:             config.Published,
-		Version:               config.Version,
-		RouteReady:            routeErr == nil && count > 0,
-		EnabledRouteCount:     count,
-		PublicationBlockers:   blockers,
+		ID:                          config.ID,
+		SourceModel:                 config.SourceModel,
+		PublicName:                  config.PublicNameValue(),
+		Modality:                    modality,
+		Family:                      config.Family,
+		Protocol:                    config.Protocol,
+		ProviderFamily:              config.ProviderFamily,
+		InputCostPerMillion:         config.InputCostPerMillion,
+		OutputCostPerMillion:        config.OutputCostPerMillion,
+		InputPricePerMillion:        config.InputPricePerMillion,
+		OutputPricePerMillion:       config.OutputPricePerMillion,
+		CacheReadRatio:              config.CacheReadRatio,
+		CacheCreationRatio:          config.CacheCreationRatio,
+		CacheCreation5mRatio:        config.CacheCreation5mRatio,
+		CacheCreation1hRatio:        config.CacheCreation1hRatio,
+		ImageRatio:                  config.ImageRatio,
+		AudioRatio:                  config.AudioRatio,
+		AudioCompletionRatio:        config.AudioCompletionRatio,
+		EnabledGroups:               groups,
+		Published:                   config.Published,
+		Version:                     config.Version,
+		RouteReady:                  routeErr == nil && count > 0,
+		EnabledRouteCount:           count,
+		PublicationBlockers:         blockers,
+		ReasoningEfforts:            reasoning.ReasoningEfforts,
+		ReasoningCapabilityEvidence: reasoning.ReasoningCapabilityEvidence,
+		ReasoningCapabilityLiveValidationRequired: reasoning.ReasoningCapabilityLiveValidationRequired,
 	}, nil
 }
 

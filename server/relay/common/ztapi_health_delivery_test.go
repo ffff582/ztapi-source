@@ -58,7 +58,7 @@ func TestZTAPIHealthNonstreamDeliveryCancellationBoundary(t *testing.T) {
 				AdmitRequest: func(context.Context, string, string, string, int, bool) (*types.ZTAPIHealthTicket, error) {
 					return &types.ZTAPIHealthTicket{Source: "real"}, nil
 				},
-				AdmitAttempt: func(context.Context, *types.ZTAPIHealthTicket, int, string) error { return nil },
+				AdmitAttempt: func(context.Context, *types.ZTAPIHealthTicket, int, string, string) error { return nil },
 				RecordOutcome: func(_ context.Context, _ *types.ZTAPIHealthTicket, out types.ZTAPIHealthOutcome) error {
 					got = out
 					return nil
@@ -67,7 +67,7 @@ func TestZTAPIHealthNonstreamDeliveryCancellationBoundary(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			a, err := BeginZTAPIHealthUpstream(gc, 1, "/v1/chat/completions")
+			a, err := BeginZTAPIHealthUpstream(gc, 1, "/v1/chat/completions", "delivery-test-key")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -143,7 +143,7 @@ func TestZTAPIHealthHTTPCompleteThenCloseDuringSettlement(t *testing.T) {
 			AdmitRequest: func(context.Context, string, string, string, int, bool) (*types.ZTAPIHealthTicket, error) {
 				return &types.ZTAPIHealthTicket{Source: "real"}, nil
 			},
-			AdmitAttempt: func(context.Context, *types.ZTAPIHealthTicket, int, string) error { return nil },
+			AdmitAttempt: func(context.Context, *types.ZTAPIHealthTicket, int, string, string) error { return nil },
 			RecordOutcome: func(_ context.Context, _ *types.ZTAPIHealthTicket, out types.ZTAPIHealthOutcome) error {
 				results <- out
 				return nil
@@ -153,7 +153,7 @@ func TestZTAPIHealthHTTPCompleteThenCloseDuringSettlement(t *testing.T) {
 			errs <- err
 			return
 		}
-		a, err := BeginZTAPIHealthUpstream(gc, 1, "/v1/chat/completions")
+		a, err := BeginZTAPIHealthUpstream(gc, 1, "/v1/chat/completions", "delivery-test-key")
 		if err != nil {
 			errs <- err
 			return

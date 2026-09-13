@@ -265,6 +265,9 @@ func migrateDB() error {
 	if err := migrateTokenKeyStorage(); err != nil {
 		return err
 	}
+	if err := migrateZTAPIHealthVerificationLegacy(DB); err != nil {
+		return err
+	}
 	// Migrate price_amount column from float/double to decimal for existing tables
 	migrateSubscriptionPlanPriceAmount()
 	// Migrate model_limits column from varchar to text for existing tables
@@ -327,6 +330,10 @@ func migrateDB() error {
 		&ZTAPIHealthEvent{},
 		&ZTAPIHealthIncident{},
 		&ZTAPIHealthOutbox{},
+		&ZTAPIHealthVerificationCase{},
+		&ZTAPIHealthVerificationGate{},
+		&ZTAPIHealthRouteState{},
+		&ZTAPIHealthProbeEvidence{},
 		&ZTAPIProbeJob{},
 		&ZTAPIProbeModeClock{},
 		&ZTAPIProbeBudget{},
@@ -345,6 +352,9 @@ func migrateDB() error {
 		&PerfMetric{},
 	)
 	if err != nil {
+		return err
+	}
+	if err := cancelOrphanedZTAPIHealthVerificationCases(DB); err != nil {
 		return err
 	}
 	if err := migrateZTAPIChannelSecrets(); err != nil {
@@ -382,6 +392,9 @@ func migrateDB() error {
 
 func migrateDBFast() error {
 	if err := migrateTokenKeyStorage(); err != nil {
+		return err
+	}
+	if err := migrateZTAPIHealthVerificationLegacy(DB); err != nil {
 		return err
 	}
 	if err := migrateZTAPIMediaPricingColumns(DB); err != nil {
@@ -445,6 +458,10 @@ func migrateDBFast() error {
 		{&ZTAPIHealthEvent{}, "ZTAPIHealthEvent"},
 		{&ZTAPIHealthIncident{}, "ZTAPIHealthIncident"},
 		{&ZTAPIHealthOutbox{}, "ZTAPIHealthOutbox"},
+		{&ZTAPIHealthVerificationCase{}, "ZTAPIHealthVerificationCase"},
+		{&ZTAPIHealthVerificationGate{}, "ZTAPIHealthVerificationGate"},
+		{&ZTAPIHealthRouteState{}, "ZTAPIHealthRouteState"},
+		{&ZTAPIHealthProbeEvidence{}, "ZTAPIHealthProbeEvidence"},
 		{&ZTAPIProbeJob{}, "ZTAPIProbeJob"},
 		{&ZTAPIProbeModeClock{}, "ZTAPIProbeModeClock"},
 		{&ZTAPIProbeBudget{}, "ZTAPIProbeBudget"},
@@ -484,6 +501,9 @@ func migrateDBFast() error {
 		if err != nil {
 			return err
 		}
+	}
+	if err := cancelOrphanedZTAPIHealthVerificationCases(DB); err != nil {
+		return err
 	}
 	if err := migrateZTAPIChannelSecrets(); err != nil {
 		return err

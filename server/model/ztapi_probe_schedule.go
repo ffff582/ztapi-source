@@ -24,6 +24,7 @@ type ZTAPIProbeTarget struct {
 	Stream                  bool   `gorm:"not null;uniqueIndex:idx_zt_probe_hour,priority:2"`
 	SourceModel             string `gorm:"size:255;not null"`
 	PublicModel             string `gorm:"size:255;not null"`
+	EntryProtocol           string `gorm:"size:16;not null;default:''"`
 	Protocol                string `gorm:"size:16;not null"`
 	Modality                string `gorm:"size:16;not null;default:''"`
 	Operation               string `gorm:"size:32;not null;default:''"`
@@ -219,13 +220,17 @@ func (s *ZTAPIProbeStore) transaction(ctx context.Context, fn func(*gorm.DB) err
 }
 
 func validZTAPIProbeTarget(t ZTAPIProbeTarget) bool {
+	entryProtocol := strings.TrimSpace(t.EntryProtocol)
+	if entryProtocol == "" {
+		entryProtocol = strings.TrimSpace(t.Protocol)
+	}
 	embedding := t.Protocol == "embeddings" && ZTAPIModelModality(t.SourceModel) == ZTAPIModalityEmbedding && !t.Stream && t.InputNanoUSDPerMillion > 0 && t.OutputNanoUSDPerMillion == 0
 	image := t.Protocol == "images" && t.Modality == ZTAPIModalityImage && t.Operation == "image_generate"
 	video := t.Protocol == "video-tasks" && t.Modality == ZTAPIModalityVideo && t.Operation == "video_submit"
 	media := (image || video) && !t.Stream && t.InputNanoUSDPerMillion == 0 && t.OutputNanoUSDPerMillion == 0 &&
 		t.FixedCostNanoUSD > 0 && t.FixedCostNanoUSD <= 30_000_000_000 && len(t.ProbePayloadJSON) <= 16*1024 && json.Valid([]byte(t.ProbePayloadJSON))
 	text := (t.Protocol == "chat" || t.Protocol == "responses" || embedding) && t.Modality == "" && t.Operation == "" && t.ProbePayloadJSON == "" && t.FixedCostNanoUSD == 0
-	return t.ModelID > 0 && t.Generation > 0 && t.ConfigVersion > 0 && t.PublicModel != "" && len(t.PublicModel) <= 255 &&
+	return t.ModelID > 0 && t.Generation > 0 && t.ConfigVersion > 0 && entryProtocol != "" && len(entryProtocol) <= 16 && t.PublicModel != "" && len(t.PublicModel) <= 255 &&
 		t.SourceModel != "" && len(t.SourceModel) <= 255 && (text || media) &&
 		t.InputNanoUSDPerMillion >= 0 && t.OutputNanoUSDPerMillion >= 0
 }

@@ -114,6 +114,12 @@ jobs:
       - name: Run production runtime configuration tests
         run: npm run test:runtime
 
+      - name: Run reasoning audit harness tests
+        run: node --test tests/production/ztapi-reasoning-matrix.test.mjs
+
+      - name: Run Codex protocol acceptance harness tests
+        run: node --test tests/production/ztapi-codex-protocol.test.mjs
+
       - name: Install Chromium
         run: pnpm exec playwright install --with-deps chromium
 
@@ -269,3 +275,10 @@ jobs:
           ZTAPI_HEALTH_MYSQL_TEST_DSN: root:ztapi_health_ci_only@tcp(127.0.0.1:3306)/ztapi_health_test?charset=utf8mb4
           ZTAPI_REQUIRE_HEALTH_MYSQL_INTEGRATION: true
         run: go test ./model -run '^TestZTAPIHealthMySQLDurableConcurrentTrip$' -count=1 -v
+
+      - name: Run mandatory observation-only and route aggregation gates
+        working-directory: server
+        run: >-
+          go test ./model ./relay/common ./service ./controller
+          -run 'TestZTAPI(RealTrafficCannotTripCircuit|CustomerExcludedOutcomesCreateNoVerificationOrCircuitChanges|RealTrafficSourceAwareClassification|RealCustomerExclusionReasonsOverrideFailureAndRetryAttempts|VerificationWorkerIdleDoesNoPaidPreparation|PoolFailureKeepsModelPublishedWhenEnterpriseRouteIsAvailable|AllEligibleRoutesVerifiedOpenCreatesOneModelIncident|AggregateIncludesTrustedOfficialRoute|AggregateExcludesDisabledAbility|VerifiedOpenRouteIsRejectedBeforeRealDispatchButProbeCanEnter|HealthTelegramDistinguishesRouteModelAndRecovery|HealthAdminReadAndRecovery)'
+          -count=1 -v -timeout=5m

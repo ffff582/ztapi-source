@@ -42,6 +42,12 @@ func applyUpstreamContentLength(req *http.Request, info *common.RelayInfo) {
 	}
 }
 
+// ztapiHealthCredentialMaterial describes the effective outbound credential.
+// The caller hashes it immediately; this raw material is never persisted.
+func ztapiHealthCredentialMaterial(info *common.RelayInfo, header http.Header) string {
+	return common.ZTAPIHealthCredentialMaterial(info, header)
+}
+
 func SetupApiRequestHeader(info *common.RelayInfo, c *gin.Context, req *http.Header) {
 	if info.RelayMode == constant.RelayModeAudioTranscription || info.RelayMode == constant.RelayModeAudioTranslation {
 		// multipart/form-data
@@ -386,7 +392,7 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 		targetHeader.Set(key, value)
 	}
 	targetHeader.Set("Content-Type", c.Request.Header.Get("Content-Type"))
-	healthAttempt, healthErr := common.BeginZTAPIHealthUpstream(c, c.GetInt("channel_id"), "/realtime")
+	healthAttempt, healthErr := common.BeginZTAPIHealthUpstream(c, c.GetInt("channel_id"), "/realtime", ztapiHealthCredentialMaterial(info, targetHeader))
 	if healthErr != nil {
 		return nil, healthErr
 	}
@@ -516,7 +522,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		client = &managedClient
 	}
 
-	healthAttempt, healthErr := common.BeginZTAPIHealthUpstream(c, c.GetInt("channel_id"), req.URL.Path)
+	healthAttempt, healthErr := common.BeginZTAPIHealthUpstream(c, c.GetInt("channel_id"), req.URL.Path, ztapiHealthCredentialMaterial(info, req.Header))
 	if healthErr != nil {
 		return nil, healthErr
 	}

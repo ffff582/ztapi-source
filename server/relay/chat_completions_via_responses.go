@@ -12,6 +12,7 @@ import (
 	openaichannel "github.com/QuantumNous/new-api/relay/channel/openai"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
 
@@ -86,6 +87,10 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 			return nil, newAPIErrorFromParamOverride(err)
 		}
 	}
+	chatJSON, err = helper.ValidateAndNormalizeZTAPIReasoningJSON(info, chatJSON, types.RelayFormatOpenAI)
+	if err != nil {
+		return nil, types.NewErrorWithStatusCode(err, types.ErrorCode(helper.ZTAPIInvalidReasoningEffortCode), http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
 
 	var overriddenChatReq dto.GeneralOpenAIRequest
 	if err := common.Unmarshal(chatJSON, &overriddenChatReq); err != nil {
@@ -123,6 +128,11 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 	if err != nil {
 		return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 	}
+	jsonData, err = helper.ValidateAndNormalizeZTAPIReasoningJSON(info, jsonData, types.RelayFormatOpenAIResponses)
+	if err != nil {
+		return nil, types.NewErrorWithStatusCode(err, types.ErrorCode(helper.ZTAPIInvalidReasoningEffortCode), http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
+	relaycommon.CaptureReasoningEffortForwardedJSON(info, jsonData, types.RelayFormatOpenAIResponses)
 
 	body, size, closer, err := relaycommon.NewOutboundJSONBody(jsonData)
 	if err != nil {

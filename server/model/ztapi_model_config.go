@@ -101,6 +101,10 @@ type ZTAPIModelConfig struct {
 
 func (ZTAPIModelConfig) TableName() string { return "ztapi_model_configs" }
 
+func (config ZTAPIModelConfig) ReasoningCapability() (ZTAPIReasoningCapability, bool) {
+	return ZTAPIReasoningCapabilityFor(config.SourceModel)
+}
+
 func legacyZTAPIModelDimensions(family string) (string, string, bool) {
 	switch strings.ToLower(strings.TrimSpace(family)) {
 	case ZTAPIModelFamilyOpenAI:
@@ -949,12 +953,37 @@ func ztapiGroupAllowed(groups []string, group string) bool {
 	return false
 }
 
-func ResolveZTAPIRequestModel(requestedModel, group string) (string, error) {
+type ZTAPIRequestIdentity struct {
+	PublicName  string
+	SourceModel string
+}
+
+func ResolveZTAPICanonicalPublicName(requestedModel string) (string, bool, error) {
+	if err := ensureZTAPIAliasCache(); err != nil {
+		return "", false, err
+	}
+	ztapiAliasCache.RLock()
+	publication, aliasFound := ztapiAliasCache.aliases[requestedModel]
+	sourcePublication, sourceFound := ztapiAliasCache.sources[requestedModel]
+	ztapiAliasCache.RUnlock()
+	if aliasFound {
+		return publication.PublicName, true, nil
+	}
+	if sourceFound && sourcePublication.PublicName != "" {
+		return sourcePublication.PublicName, true, nil
+	}
+	return requestedModel, false, nil
+}
+
+func ResolveZTAPIRequestIdentity(requestedModel, group string) (ZTAPIRequestIdentity, error) {
+	// Health state intentionally takes precedence over the filtered publication
+	// cache so both the public alias and its official source alias return the
+	// same temporary-unavailable result while a circuit is open.
 	if err := CheckZTAPIHealthModelAvailable(requestedModel); err != nil {
-		return "", err
+		return ZTAPIRequestIdentity{}, err
 	}
 	if err := ensureZTAPIAliasCache(); err != nil {
-		return "", err
+		return ZTAPIRequestIdentity{}, err
 	}
 	ztapiAliasCache.RLock()
 	publication, aliasFound := ztapiAliasCache.aliases[requestedModel]
@@ -963,23 +992,31 @@ func ResolveZTAPIRequestModel(requestedModel, group string) (string, error) {
 	ztapiAliasCache.RUnlock()
 	if aliasFound {
 		if !ztapiGroupAllowed(publication.Groups, group) {
-			return "", ErrZTAPIModelGroupForbidden
+			return ZTAPIRequestIdentity{}, ErrZTAPIModelGroupForbidden
 		}
-		return publication.SourceModel, nil
+		return ZTAPIRequestIdentity{PublicName: publication.PublicName, SourceModel: publication.SourceModel}, nil
 	}
 	if sourceFound {
-		if sourcePublication.PublicName == requestedModel {
-			if !ztapiGroupAllowed(sourcePublication.Groups, group) {
-				return "", ErrZTAPIModelGroupForbidden
-			}
-			return sourcePublication.SourceModel, nil
+		if sourcePublication.PublicName == "" {
+			return ZTAPIRequestIdentity{}, ErrZTAPIModelNotPublic
 		}
-		return "", ErrZTAPIModelNotPublic
+		if !ztapiGroupAllowed(sourcePublication.Groups, group) {
+			return ZTAPIRequestIdentity{}, ErrZTAPIModelGroupForbidden
+		}
+		return ZTAPIRequestIdentity{PublicName: sourcePublication.PublicName, SourceModel: sourcePublication.SourceModel}, nil
 	}
 	if catalogEnforced {
-		return "", ErrZTAPIModelNotPublic
+		return ZTAPIRequestIdentity{}, ErrZTAPIModelNotPublic
 	}
-	return requestedModel, nil
+	return ZTAPIRequestIdentity{PublicName: requestedModel, SourceModel: requestedModel}, nil
+}
+
+func ResolveZTAPIRequestModel(requestedModel, group string) (string, error) {
+	identity, err := ResolveZTAPIRequestIdentity(requestedModel, group)
+	if err != nil {
+		return "", err
+	}
+	return identity.SourceModel, nil
 }
 
 func GetZTAPIPublishedSalePrice(publicName string) (float64, float64, bool, error) {

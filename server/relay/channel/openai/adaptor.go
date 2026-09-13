@@ -334,6 +334,7 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 		effort, originModel := reasoning.ParseOpenAIReasoningEffortFromModelSuffix(info.UpstreamModelName)
 		if effort != "" {
 			request.ReasoningEffort = effort
+			relaycommon.MarkReasoningEffortSource(info, relaycommon.ReasoningEffortSourceModelSuffix)
 			info.UpstreamModelName = originModel
 			request.Model = originModel
 		}
@@ -599,6 +600,7 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 			request.Reasoning.Effort = effort
 		}
 		request.Model = originModel
+		relaycommon.MarkReasoningEffortSource(info, relaycommon.ReasoningEffortSourceModelSuffix)
 	}
 	if info != nil && request.Reasoning != nil && request.Reasoning.Effort != "" {
 		info.ReasoningEffort = request.Reasoning.Effort

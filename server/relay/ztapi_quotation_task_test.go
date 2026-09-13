@@ -2,6 +2,7 @@ package relay
 
 import (
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -10,11 +11,14 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
@@ -22,9 +26,42 @@ import (
 	"gorm.io/gorm/logger"
 )
 
+func TestZTAPITaskUpstreamErrorPreservesRouteHealthCode(t *testing.T) {
+	upstream := types.NewErrorWithStatusCode(
+		errors.New("route is open"), types.ErrorCode("ztapi_route_temporarily_unavailable"), http.StatusServiceUnavailable,
+	)
+	taskErr := taskErrorFromUpstreamError(upstream, "do_request_failed", http.StatusInternalServerError)
+	require.Equal(t, "ztapi_route_temporarily_unavailable", taskErr.Code)
+	require.Equal(t, http.StatusServiceUnavailable, taskErr.StatusCode)
+	require.True(t, taskErr.LocalError, "local health admission rejection must not auto-disable an upstream channel")
+}
+
 type quotationTaskTransport func(*http.Request) (*http.Response, error)
 
 func (f quotationTaskTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+type acceptedParseFailureTaskAdaptor struct {
+	channel.TaskAdaptor
+	acceptedBeforeParse bool
+}
+
+func (a *acceptedParseFailureTaskAdaptor) DoResponse(c *gin.Context, _ *http.Response, _ *relaycommon.RelayInfo) (string, []byte, *dto.TaskError) {
+	a.acceptedBeforeParse = relaycommon.ZTAPITaskProviderAccepted(c)
+	return "", nil, service.TaskErrorWrapper(errors.New("accepted response missing task id"), "invalid_response", http.StatusBadGateway)
+}
+
+func TestZTAPIManagedTaskMarksProviderAcceptedBeforeParsingResponse(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	info := &relaycommon.RelayInfo{ZTAPIPublicationSnapshot: &relaycommon.ZTAPIPublicationSnapshot{Modality: model.ZTAPIModalityVideo}}
+	adaptor := &acceptedParseFailureTaskAdaptor{}
+	response := &http.Response{StatusCode: http.StatusAccepted, Body: io.NopCloser(strings.NewReader(`{"accepted":true}`))}
+
+	_, _, taskErr := processTaskSubmissionResponse(c, info, adaptor, response)
+
+	require.NotNil(t, taskErr)
+	require.True(t, adaptor.acceptedBeforeParse, "a provider-accepted task must become non-retryable before response parsing")
+	require.True(t, relaycommon.ZTAPITaskProviderAccepted(c))
+}
 
 func setupQuotationTaskDB(t *testing.T) *gorm.DB {
 	t.Helper()

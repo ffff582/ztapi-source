@@ -63,12 +63,16 @@ func NewZTAPIHealthCollector(source string) *ZTAPIHealthCollector {
 }
 
 func (c *ZTAPIHealthCollector) BeginAttempt(channelID int, protocol string) *ZTAPIHealthWireAttempt {
+	return c.beginAttempt(channelID, protocol, "")
+}
+
+func (c *ZTAPIHealthCollector) beginAttempt(channelID int, protocol, credentialVersion string) *ZTAPIHealthWireAttempt {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.sealed || len(c.attempts) >= 64 {
 		return nil
 	}
-	a := &ZTAPIHealthWireAttempt{collector: c, summary: ZTAPIHealthObservedAttempt{Index: len(c.attempts) + 1, ChannelID: channelID, Protocol: protocol}, choices: map[string]bool{}, tools: map[string]*ztapiHealthTool{}}
+	a := &ZTAPIHealthWireAttempt{collector: c, summary: ZTAPIHealthObservedAttempt{Index: len(c.attempts) + 1, ChannelID: channelID, CredentialVersion: credentialVersion, Protocol: protocol}, choices: map[string]bool{}, tools: map[string]*ztapiHealthTool{}}
 	c.attempts = append(c.attempts, a)
 	c.current = a
 	return a
@@ -125,7 +129,8 @@ func (b *ztapiHealthBody) Read(p []byte) (int, error) {
 		}
 		if err == io.EOF {
 			if !a.eof && a.collector.requestContext != nil {
-				a.eofCancelled = errors.Is(a.collector.requestContext.Err(), context.Canceled)
+				a.eofCancelled = errors.Is(a.collector.requestContext.Err(), context.Canceled) ||
+					errors.Is(a.collector.requestContext.Err(), context.DeadlineExceeded)
 			}
 			a.eof = true
 			a.endBody()
@@ -648,6 +653,36 @@ func (c *ZTAPIHealthCollector) endedWithoutTerminal() bool {
 	return a != nil && a.supported() && !a.limit && (a.closed || a.eof) && (!a.nativeTerminal() || a.malformed || a.transportError || a.failed)
 }
 
+func (a *ZTAPIHealthWireAttempt) observation(relayFailed bool) ZTAPIHealthObservation {
+	s := a.summary
+	out := ZTAPIHealthObservation{
+		ChannelID: s.ChannelID, CredentialVersion: s.CredentialVersion,
+		UpstreamProtocol: s.Protocol, HTTPStatus: s.HTTPStatus,
+		UpstreamRequestID: s.UpstreamRequestID, ProviderErrorCode: s.ProviderErrorCode,
+		Dispatched: s.Dispatched, FinishReasons: append([]string(nil), a.finishes...),
+		TerminalStatus: a.terminal, HasText: a.text, HasMedia: a.media,
+	}
+	for _, tool := range a.tools {
+		out.HasTool = out.HasTool || (tool.name && tool.valid)
+	}
+	out.TransportComplete = !a.transportError && !a.malformed && (a.eof || a.stream && a.nativeTerminal())
+	out.Result, out.Reason = a.classify(out, relayFailed)
+	return out
+}
+
+func (c *ZTAPIHealthCollector) customerEndReason(cancelled bool) string {
+	if a := c.current; a != nil && a.deliveryComplete && !a.deliveryFailed && !a.eofCancelled {
+		return ""
+	}
+	if c.requestContext != nil && errors.Is(c.requestContext.Err(), context.DeadlineExceeded) {
+		return "customer_timeout"
+	}
+	if cancelled || c.requestContext != nil && errors.Is(c.requestContext.Err(), context.Canceled) {
+		return "client_cancelled"
+	}
+	return ""
+}
+
 func (c *ZTAPIHealthCollector) Seal(cancelled, relayFailed bool) (ZTAPIHealthObservation, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -658,42 +693,32 @@ func (c *ZTAPIHealthCollector) Seal(cancelled, relayFailed bool) (ZTAPIHealthObs
 	if a := c.current; a != nil && a.deliveryFailed {
 		relayFailed = true
 	}
-	// A client can close a fully delivered response while billing is still
-	// completing. Only a complete, uncancelled delivery freezes that boundary.
-	if a := c.current; a != nil && a.deliveryComplete && !a.deliveryFailed && !a.eofCancelled {
-		cancelled = false
-	}
 	out := ZTAPIHealthObservation{Result: "unknown", Reason: "not_dispatched", ClientCancelled: cancelled}
 	if c.current != nil {
-		a := c.current
-		s := a.summary
-		out.ChannelID = s.ChannelID
-		out.UpstreamProtocol = s.Protocol
-		out.HTTPStatus = s.HTTPStatus
-		out.UpstreamRequestID = s.UpstreamRequestID
-		out.ProviderErrorCode = s.ProviderErrorCode
-		out.Dispatched = s.Dispatched
-		out.FinishReasons = append([]string(nil), a.finishes...)
-		out.TerminalStatus = a.terminal
-		out.HasText = a.text
-		out.HasMedia = a.media
-		for _, tool := range a.tools {
-			out.HasTool = out.HasTool || (tool.name && tool.valid)
-		}
-		out.TransportComplete = !a.transportError && !a.malformed && (a.eof || a.stream && a.nativeTerminal())
-		out.Result, out.Reason = a.classify(out, relayFailed)
-	}
-	if cancelled {
-		out.Result = "excluded"
-		out.Reason = "client_cancelled"
+		out = c.current.observation(relayFailed)
+		out.ClientCancelled = cancelled
 	}
 	for _, a := range c.attempts {
-		out.Attempts = append(out.Attempts, a.summary)
+		attemptOutcome := a.observation(relayFailed && a == c.current)
+		summary := a.summary
+		summary.Result = attemptOutcome.Result
+		summary.Reason = attemptOutcome.Reason
+		out.Attempts = append(out.Attempts, summary)
 		// Discard transient customer/probe content before publishing any outcome.
 		a.buffer = nil
 		a.event = nil
 		a.probeText = ""
 		a.tools = nil
+	}
+	out.ClientCancelled = false
+	if reason := c.customerEndReason(cancelled); reason != "" {
+		out.Result = "excluded"
+		out.Reason = reason
+		out.ClientCancelled = reason == "client_cancelled"
+		for index := range out.Attempts {
+			out.Attempts[index].Result = "excluded"
+			out.Attempts[index].Reason = reason
+		}
 	}
 	return out, true
 }
@@ -706,9 +731,6 @@ func (a *ZTAPIHealthWireAttempt) classify(out ZTAPIHealthObservation, relayFaile
 	if a.providerStatus != 0 {
 		status = a.providerStatus
 	}
-	if status >= 500 && status <= 599 {
-		return "failure", "upstream_http_error"
-	}
 	code := strings.ToLower(out.ProviderErrorCode)
 	refusal := a.refusal
 	inputError := false
@@ -718,7 +740,7 @@ func (a *ZTAPIHealthWireAttempt) classify(out ZTAPIHealthObservation, relayFaile
 	case "content_filter", "content_policy_violation", "safety", "prompt_blocked", "refusal":
 		refusal = true
 	case "invalid_request", "invalid_request_error":
-		inputError = a.collector.source != "probe" && (status == http.StatusBadRequest || status == http.StatusUnprocessableEntity)
+		inputError = status == http.StatusBadRequest || status == http.StatusUnprocessableEntity
 	case "invalid_argument", "invalid_parameter", "invalid_parameters", "context_length_exceeded":
 		inputError = true
 	case "invalid_api_key", "authentication_error", "unauthenticated", "invalid_key", "key_expired", "key_disabled":
@@ -731,6 +753,12 @@ func (a *ZTAPIHealthWireAttempt) classify(out ZTAPIHealthObservation, relayFaile
 		upstreamFault = "upstream_rate_limit"
 	case "server_error", "internal_error", "internal", "overloaded_error", "api_error", "upstream_error", "upstream_unavailable":
 		serverError = true
+	}
+	if refusal {
+		if a.collector.source == "probe" {
+			return "failure", "probe_refusal"
+		}
+		return "excluded", "safety_refusal"
 	}
 	// Gateway auth/quota rejection happens before dispatch. These wire statuses
 	// therefore describe the upstream route, not the customer's gateway account.
@@ -765,6 +793,9 @@ func (a *ZTAPIHealthWireAttempt) classify(out ZTAPIHealthObservation, relayFaile
 	}
 	if inputError {
 		return "excluded", "invalid_input"
+	}
+	if status >= 500 && status <= 599 {
+		return "failure", "upstream_http_error"
 	}
 	if status >= 400 && status < 500 {
 		if a.collector.source == "probe" {

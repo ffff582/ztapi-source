@@ -17,15 +17,17 @@ func TestZTAPIVideoFetchHealthRecordsRecognizedProviderState(t *testing.T) {
 		admitMediaRequest: func(context.Context, string, string, string, int, string, bool) (*types.ZTAPIHealthTicket, error) {
 			return &types.ZTAPIHealthTicket{ExecutionID: "fetch-1", Modality: model.ZTAPIModalityVideo, Operation: types.ZTAPIHealthOperationVideoFetch, Source: "real"}, nil
 		},
-		admitAttempt: func(context.Context, *types.ZTAPIHealthTicket, int, string) error { return nil },
+		admitAttempt: func(context.Context, *types.ZTAPIHealthTicket, int, string, string) error { return nil },
 		recordOutcome: func(_ context.Context, _ *types.ZTAPIHealthTicket, outcome types.ZTAPIHealthOutcome) error {
 			recorded = outcome
 			return nil
 		},
 	}
+	credentialVersion, err := relaycommon.ZTAPIHealthCredentialVersion("fetch-test-route")
+	require.NoError(t, err)
 	health := beginZTAPIVideoFetchHealth(context.Background(), backend, &model.ZTAPIMediaTask{
 		PublicTaskID: "public-task-1", PublicModel: "zt-video", UserID: 7, ChannelID: 9, UpstreamTaskID: "provider-task-1",
-	})
+	}, credentialVersion)
 	health.finish(200, &relaycommon.TaskInfo{
 		Status: string(model.TaskStatusInProgress), ProviderStatus: "processing", UpstreamRequestID: "provider-request-1",
 	})
@@ -33,6 +35,7 @@ func TestZTAPIVideoFetchHealthRecordsRecognizedProviderState(t *testing.T) {
 	require.Equal(t, "valid_output", recorded.Reason)
 	require.Equal(t, types.ZTAPIHealthOperationVideoFetch, recorded.Operation)
 	require.Equal(t, "video-tasks", recorded.UpstreamProtocol)
+	require.Equal(t, credentialVersion, recorded.CredentialVersion)
 	require.Equal(t, "provider-task-1", recorded.UpstreamTaskID)
 	require.Equal(t, "provider-request-1", recorded.UpstreamRequestID)
 	require.Equal(t, "processing", recorded.TerminalStatus)
@@ -50,15 +53,17 @@ func TestZTAPIVideoFetchHealthExcludesCustomerTaskFailureButCountsProbeFailure(t
 				admitMediaRequest: func(context.Context, string, string, string, int, string, bool) (*types.ZTAPIHealthTicket, error) {
 					return &types.ZTAPIHealthTicket{ExecutionID: "fetch-2", Modality: model.ZTAPIModalityVideo, Operation: types.ZTAPIHealthOperationVideoFetch, Source: tc.source}, nil
 				},
-				admitAttempt: func(context.Context, *types.ZTAPIHealthTicket, int, string) error { return nil },
+				admitAttempt: func(context.Context, *types.ZTAPIHealthTicket, int, string, string) error { return nil },
 				recordOutcome: func(_ context.Context, _ *types.ZTAPIHealthTicket, outcome types.ZTAPIHealthOutcome) error {
 					recorded = outcome
 					return nil
 				},
 			}
+			credentialVersion, err := relaycommon.ZTAPIHealthCredentialVersion("fetch-test-route-" + tc.source)
+			require.NoError(t, err)
 			health := beginZTAPIVideoFetchHealth(context.Background(), backend, &model.ZTAPIMediaTask{
 				PublicTaskID: "public-task-2", PublicModel: "zt-video", UserID: 7, ChannelID: 9, UpstreamTaskID: "provider-task-2",
-			})
+			}, credentialVersion)
 			health.finish(200, &relaycommon.TaskInfo{Status: string(model.TaskStatusFailure), ProviderStatus: "content_filtered"})
 			require.Equal(t, tc.want, recorded.Result)
 			require.Equal(t, "provider_task_failed", recorded.Reason)
@@ -74,7 +79,7 @@ func TestZTAPIVideoFetchHealthAdmissionFailureNeverBlocksAcceptedTask(t *testing
 	}
 	health := beginZTAPIVideoFetchHealth(context.Background(), backend, &model.ZTAPIMediaTask{
 		PublicTaskID: "public-task-3", PublicModel: "zt-video", UserID: 7, ChannelID: 9, UpstreamTaskID: "provider-task-3",
-	})
+	}, "")
 	require.NotNil(t, health)
 	require.NotPanics(t, func() { health.transportFailure() })
 }
@@ -84,6 +89,7 @@ func TestZTAPIVideoPollingPathEmitsHealthObservation(t *testing.T) {
 	f.legacy.Status = model.TaskStatusSubmitted
 	require.NoError(t, f.legacy.Insert())
 	var recorded types.ZTAPIHealthOutcome
+	var admittedCredentialVersion string
 	previous := productionZTAPIMediaHealthBackend
 	productionZTAPIMediaHealthBackend = ztapiMediaHealthBackend{
 		admitMediaRequest: func(_ context.Context, modelName, _, requestID string, userID int, operation string, allowUnavailable bool) (*types.ZTAPIHealthTicket, error) {
@@ -94,9 +100,11 @@ func TestZTAPIVideoPollingPathEmitsHealthObservation(t *testing.T) {
 			require.True(t, allowUnavailable)
 			return &types.ZTAPIHealthTicket{ExecutionID: "polling-path", Modality: model.ZTAPIModalityVideo, Operation: operation, Source: "real"}, nil
 		},
-		admitAttempt: func(_ context.Context, _ *types.ZTAPIHealthTicket, channelID int, protocol string) error {
+		admitAttempt: func(_ context.Context, _ *types.ZTAPIHealthTicket, channelID int, protocol, credentialVersion string) error {
 			require.Equal(t, f.legacy.ChannelId, channelID)
 			require.Equal(t, "video-tasks", protocol)
+			require.Len(t, credentialVersion, 64)
+			admittedCredentialVersion = credentialVersion
 			return nil
 		},
 		recordOutcome: func(_ context.Context, _ *types.ZTAPIHealthTicket, outcome types.ZTAPIHealthOutcome) error {
@@ -115,6 +123,13 @@ func TestZTAPIVideoPollingPathEmitsHealthObservation(t *testing.T) {
 		f.legacy.GetUpstreamTaskID(): &f.legacy,
 	}))
 	require.Equal(t, "success", recorded.Result)
+	require.Equal(t, admittedCredentialVersion, recorded.CredentialVersion)
+	mediaTask, err := model.GetZTAPIMediaTask(f.legacy.TaskID)
+	require.NoError(t, err)
+	expectedCredentialVersion, err := ztapiVideoCredentialVersion(mediaTask, channel.Key)
+	require.NoError(t, err)
+	require.Equal(t, expectedCredentialVersion, recorded.CredentialVersion)
+	require.NotContains(t, recorded.CredentialVersion, channel.Key)
 	require.Equal(t, "fetch-request-path", recorded.UpstreamRequestID)
 	require.Equal(t, f.legacy.GetUpstreamTaskID(), recorded.UpstreamTaskID)
 }

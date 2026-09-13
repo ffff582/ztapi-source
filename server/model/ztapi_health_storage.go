@@ -12,6 +12,7 @@ import (
 
 var (
 	ErrZTAPIHealthCircuitOpen        = errors.New("ztapi model temporarily unavailable")
+	ErrZTAPIHealthRouteOpen          = errors.New("ztapi upstream route temporarily unavailable")
 	ErrZTAPIHealthGenerationConflict = errors.New("ztapi health generation conflict")
 	ErrZTAPIHealthExecutionConflict  = errors.New("ztapi health execution already admitted")
 	ErrZTAPIHealthInvalidTicket      = errors.New("ztapi health invalid admission ticket")
@@ -42,6 +43,7 @@ type ZTAPIHealthRequest struct {
 	PublicModel   string `gorm:"size:255;not null"`
 	Modality      string `gorm:"size:32;not null;default:text"`
 	Operation     string `gorm:"size:32;not null;default:''"`
+	EntryProtocol string `gorm:"size:32;not null;default:''"`
 	UserID        int    `gorm:"not null"`
 	Stream        bool   `gorm:"not null"`
 	Source        string `gorm:"size:16;not null"`
@@ -63,6 +65,7 @@ type ZTAPIHealthEvent struct {
 	PublicModel         string `gorm:"size:255;not null"`
 	Modality            string `gorm:"size:32;not null;default:text"`
 	Operation           string `gorm:"size:32;not null;default:'';index"`
+	EntryProtocol       string `gorm:"size:32;not null;default:''"`
 	CompletionSequence  uint64 `gorm:"not null;uniqueIndex:idx_zt_health_sequence,priority:2"`
 	CompletedAt         int64  `gorm:"not null;index:idx_zt_health_window,priority:2"`
 	Stream              bool   `gorm:"not null"`
@@ -72,6 +75,7 @@ type ZTAPIHealthEvent struct {
 	Counted             bool   `gorm:"not null"`
 	StaleGeneration     bool   `gorm:"not null"`
 	ChannelID           int    `gorm:"not null"`
+	CredentialVersion   string `gorm:"size:64;not null;default:''"`
 	UpstreamProtocol    string `gorm:"size:64;not null"`
 	HTTPStatus          int    `gorm:"not null"`
 	UpstreamRequestID   string `gorm:"size:255;not null"`
@@ -91,6 +95,7 @@ type ZTAPIHealthIncident struct {
 	ConfigVersion       uint64 `gorm:"not null"`
 	PublicModel         string `gorm:"size:255;not null"`
 	TriggerEventID      int64  `gorm:"not null"`
+	VerificationCaseID  string `gorm:"size:36;not null;default:'';index"`
 	Rule                string `gorm:"size:64;not null"`
 	ConsecutiveFailures int64  `gorm:"not null"`
 	ValidSamples        int64  `gorm:"not null"`
@@ -107,37 +112,108 @@ type ZTAPIHealthIncident struct {
 func (ZTAPIHealthIncident) TableName() string { return "ztapi_health_incidents" }
 
 type ZTAPIHealthOutbox struct {
-	ID              int64  `gorm:"primaryKey"`
-	DedupKey        string `gorm:"size:191;not null;uniqueIndex"`
-	Kind            string `gorm:"size:32;not null;index:idx_zt_health_due,priority:1"`
-	ModelID         int    `gorm:"not null;index"`
-	Generation      uint64 `gorm:"not null"`
-	IncidentID      int64  `gorm:"not null;index"`
-	EventID         int64  `gorm:"not null"`
-	Status          string `gorm:"size:16;not null;index:idx_zt_health_due,priority:2"`
-	Attempts        int    `gorm:"not null"`
-	NextAttemptAt   int64  `gorm:"not null;index:idx_zt_health_due,priority:3"`
-	LeaseUntil      int64  `gorm:"not null"`
-	LeaseToken      string `gorm:"size:64;not null"`
-	LastError       string `gorm:"size:255;not null"`
-	CreatedAt       int64  `gorm:"not null"`
-	DeliveredAt     int64  `gorm:"not null"`
-	DeliveryReceipt string `gorm:"type:text"`
+	ID                 int64  `gorm:"primaryKey"`
+	DedupKey           string `gorm:"size:191;not null;uniqueIndex"`
+	Kind               string `gorm:"size:32;not null;index:idx_zt_health_due,priority:1"`
+	ModelID            int    `gorm:"not null;index"`
+	Generation         uint64 `gorm:"not null"`
+	IncidentID         int64  `gorm:"not null;index"`
+	EventID            int64  `gorm:"not null"`
+	VerificationCaseID string `gorm:"size:36;not null;default:'';index"`
+	Status             string `gorm:"size:16;not null;index:idx_zt_health_due,priority:2"`
+	Attempts           int    `gorm:"not null"`
+	NextAttemptAt      int64  `gorm:"not null;index:idx_zt_health_due,priority:3"`
+	LeaseUntil         int64  `gorm:"not null"`
+	LeaseToken         string `gorm:"size:64;not null"`
+	LastError          string `gorm:"size:255;not null"`
+	CreatedAt          int64  `gorm:"not null"`
+	DeliveredAt        int64  `gorm:"not null"`
+	DeliveryReceipt    string `gorm:"type:text"`
 }
 
 func (ZTAPIHealthOutbox) TableName() string { return "ztapi_health_outbox" }
 
-func MigrateZTAPIHealth(db *gorm.DB) error {
+func migrateZTAPIHealthVerificationLegacy(db *gorm.DB) error {
 	if db == nil {
 		return errors.New("ztapi health database is not initialized")
 	}
-	return db.AutoMigrate(&ZTAPIHealthState{}, &ZTAPIHealthRequest{}, &ZTAPIHealthEvent{}, &ZTAPIHealthIncident{}, &ZTAPIHealthOutbox{})
+	if db.Migrator().HasTable(&ZTAPIHealthVerificationCase{}) {
+		legacyWindow := db.Migrator().HasColumn(&ZTAPIHealthVerificationCase{}, "window")
+		if db.Migrator().HasIndex(&ZTAPIHealthVerificationCase{}, "idx_ztapi_verify_window") {
+			if err := db.Migrator().DropIndex(&ZTAPIHealthVerificationCase{}, "idx_ztapi_verify_window"); err != nil {
+				return err
+			}
+		}
+		if legacyWindow {
+			if err := db.Migrator().DropColumn(&ZTAPIHealthVerificationCase{}, "window"); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func cancelOrphanedZTAPIHealthVerificationCases(db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		var active []ZTAPIHealthVerificationCase
+		if err := tx.Where("state IN ?", []string{"queued", "claimed"}).Find(&active).Error; err != nil {
+			return err
+		}
+		cancelledAt := time.Now().UTC().UnixMilli()
+		for _, verificationCase := range active {
+			var gateCount int64
+			if err := tx.Model(&ZTAPIHealthVerificationGate{}).
+				Where("model_id = ? AND channel_id = ? AND entry_protocol = ? AND protocol = ? AND stream = ? AND credential_version = ? AND generation = ? AND active_case_id = ?",
+					verificationCase.ModelID, verificationCase.ChannelID, verificationCase.EntryProtocol, verificationCase.Protocol, verificationCase.Stream,
+					verificationCase.CredentialVersion, verificationCase.Generation, verificationCase.ID).
+				Count(&gateCount).Error; err != nil {
+				return err
+			}
+			if gateCount != 0 {
+				continue
+			}
+			if err := tx.Model(&ZTAPIHealthVerificationCase{}).
+				Where("id = ? AND state IN ?", verificationCase.ID, []string{"queued", "claimed"}).
+				Updates(map[string]any{
+					"state":        "cancelled",
+					"cancelled_at": cancelledAt,
+					"lease_token":  "",
+					"lease_until":  0,
+				}).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func MigrateZTAPIHealth(db *gorm.DB) error {
+	if err := migrateZTAPIHealthVerificationLegacy(db); err != nil {
+		return err
+	}
+	if err := db.AutoMigrate(
+		&ZTAPIHealthState{},
+		&ZTAPIHealthRequest{},
+		&ZTAPIHealthEvent{},
+		&ZTAPIHealthIncident{},
+		&ZTAPIHealthOutbox{},
+		&ZTAPIHealthVerificationCase{},
+		&ZTAPIHealthVerificationGate{},
+		&ZTAPIHealthRouteState{},
+		&ZTAPIHealthProbeEvidence{},
+	); err != nil {
+		return err
+	}
+	return cancelOrphanedZTAPIHealthVerificationCases(db)
 }
 
 type ZTAPIHealthStore struct {
 	DB *gorm.DB
 	// Now is replaceable for deterministic tests. Do not mutate it while in use.
-	Now func() time.Time
+	Now            func() time.Time
+	transactionFn  func(context.Context, func(*gorm.DB) error) error
+	afterStateLock func()
+	retryObserver  func(error)
 }
 
 func NewZTAPIHealthStore(db *gorm.DB) *ZTAPIHealthStore {
@@ -153,10 +229,16 @@ func (s *ZTAPIHealthStore) transaction(ctx context.Context, fn func(*gorm.DB) er
 	if s == nil || s.DB == nil {
 		return errors.New("ztapi health database is not initialized")
 	}
+	if s.transactionFn != nil {
+		return s.transactionFn(ctx, fn)
+	}
 	for attempt := 0; ; attempt++ {
 		err := s.DB.WithContext(ctx).Transaction(fn)
 		if err == nil || attempt >= 11 || !ztapiHealthRetryable(err) {
 			return err
+		}
+		if s.retryObserver != nil {
+			s.retryObserver(err)
 		}
 		timer := time.NewTimer(time.Duration(5*(attempt+1)) * time.Millisecond)
 		select {

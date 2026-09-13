@@ -44,9 +44,7 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	other["model_price"] = modelPrice
 	other["user_group_ratio"] = userGroupRatio
 	other["frt"] = float64(relayInfo.FirstResponseTime.UnixMilli() - relayInfo.StartTime.UnixMilli())
-	if relayInfo.ReasoningEffort != "" {
-		other["reasoning_effort"] = relayInfo.ReasoningEffort
-	}
+	appendReasoningAuditInfo(relayInfo, other)
 	if relayInfo.IsModelMapped {
 		other["is_model_mapped"] = true
 		other["upstream_model_name"] = relayInfo.UpstreamModelName
@@ -80,6 +78,27 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	appendParamOverrideInfo(relayInfo, other)
 	appendStreamStatus(relayInfo, other)
 	return other
+}
+
+func appendReasoningAuditInfo(relayInfo *relaycommon.RelayInfo, other map[string]interface{}) {
+	if relayInfo == nil || other == nil {
+		return
+	}
+	if relaycommon.IsReasoningEffortValue(relayInfo.ReasoningEffortReceived) {
+		other["reasoning_effort_received"] = strings.ToLower(strings.TrimSpace(relayInfo.ReasoningEffortReceived))
+	}
+	if relaycommon.IsReasoningEffortValue(relayInfo.ReasoningEffortForwarded) {
+		forwarded := strings.ToLower(strings.TrimSpace(relayInfo.ReasoningEffortForwarded))
+		other["reasoning_effort_forwarded"] = forwarded
+		// Keep the legacy field bounded and aligned with what actually went upstream.
+		other["reasoning_effort"] = forwarded
+	}
+	if relaycommon.IsReasoningEffortSource(relayInfo.ReasoningEffortSource) {
+		other["reasoning_effort_source"] = relayInfo.ReasoningEffortSource
+	}
+	if relayInfo.ReasoningTokensReported != nil && *relayInfo.ReasoningTokensReported >= 0 {
+		other["reasoning_tokens_reported"] = *relayInfo.ReasoningTokensReported
+	}
 }
 
 func appendParamOverrideInfo(relayInfo *relaycommon.RelayInfo, other map[string]interface{}) {

@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/types"
@@ -26,12 +27,20 @@ func AdmitZTAPIHealthRequest(ctx context.Context, requestedModel, executionID, r
 	return NewZTAPIHealthStore(DB).AdmitRequest(ctx, requestedModel, executionID, requestID, userID, stream)
 }
 
+func AdmitZTAPIHealthRequestWithEntryProtocol(ctx context.Context, requestedModel, executionID, requestID string, userID int, stream bool, entryProtocol string) (*types.ZTAPIHealthTicket, error) {
+	return NewZTAPIHealthStore(DB).AdmitRequestWithEntryProtocol(ctx, requestedModel, executionID, requestID, userID, stream, entryProtocol)
+}
+
 func AdmitZTAPIMediaHealthRequest(ctx context.Context, requestedModel, executionID, requestID string, userID int, operation string, allowUnavailable bool) (*types.ZTAPIHealthTicket, error) {
 	return NewZTAPIHealthStore(DB).AdmitMediaRequest(ctx, requestedModel, executionID, requestID, userID, operation, allowUnavailable)
 }
 
-func AdmitZTAPIHealthAttempt(ctx context.Context, ticket *types.ZTAPIHealthTicket, channelID int, protocol string) error {
-	return NewZTAPIHealthStore(DB).AdmitAttempt(ctx, ticket, channelID, protocol)
+func AdmitZTAPIMediaHealthRequestWithEntryProtocol(ctx context.Context, requestedModel, executionID, requestID string, userID int, operation string, allowUnavailable bool, entryProtocol string) (*types.ZTAPIHealthTicket, error) {
+	return NewZTAPIHealthStore(DB).AdmitMediaRequestWithEntryProtocol(ctx, requestedModel, executionID, requestID, userID, operation, allowUnavailable, entryProtocol)
+}
+
+func AdmitZTAPIHealthAttempt(ctx context.Context, ticket *types.ZTAPIHealthTicket, channelID int, protocol, credentialVersion string) error {
+	return NewZTAPIHealthStore(DB).AdmitAttempt(ctx, ticket, channelID, protocol, credentialVersion)
 }
 
 func RecordZTAPIHealthOutcome(ctx context.Context, ticket *types.ZTAPIHealthTicket, outcome types.ZTAPIHealthOutcome) error {
@@ -75,21 +84,37 @@ func (s *ZTAPIHealthStore) CheckAvailable(ctx context.Context, modelName string)
 func healthTicket(r *ZTAPIHealthRequest) *types.ZTAPIHealthTicket {
 	return &types.ZTAPIHealthTicket{ExecutionID: r.ExecutionID, RequestID: r.RequestID, ModelID: r.ModelID,
 		ConfigVersion: r.ConfigVersion, Generation: r.Generation, PublicModel: r.PublicModel,
-		Modality: r.Modality, Operation: r.Operation, Stream: r.Stream, Source: r.Source, StartedAt: r.StartedAt}
+		Modality: r.Modality, Operation: r.Operation, EntryProtocol: r.EntryProtocol,
+		Stream: r.Stream, Source: r.Source, StartedAt: r.StartedAt}
 }
 
 func (s *ZTAPIHealthStore) AdmitRequest(ctx context.Context, requestedModel, executionID, requestID string, userID int, stream bool) (*types.ZTAPIHealthTicket, error) {
-	return s.admitRequest(ctx, requestedModel, executionID, requestID, userID, stream, "", false)
+	return s.AdmitRequestWithEntryProtocol(ctx, requestedModel, executionID, requestID, userID, stream, "chat")
+}
+
+func (s *ZTAPIHealthStore) AdmitRequestWithEntryProtocol(ctx context.Context, requestedModel, executionID, requestID string, userID int, stream bool, entryProtocol string) (*types.ZTAPIHealthTicket, error) {
+	return s.admitRequest(ctx, requestedModel, executionID, requestID, userID, stream, "", false, entryProtocol)
 }
 
 func (s *ZTAPIHealthStore) AdmitMediaRequest(ctx context.Context, requestedModel, executionID, requestID string, userID int, operation string, allowUnavailable bool) (*types.ZTAPIHealthTicket, error) {
 	if allowUnavailable && operation != types.ZTAPIHealthOperationVideoFetch {
 		return nil, ErrZTAPIHealthInvalidTicket
 	}
-	return s.admitRequest(ctx, requestedModel, executionID, requestID, userID, false, operation, allowUnavailable)
+	entryProtocol := "images"
+	if operation == types.ZTAPIHealthOperationVideoSubmit || operation == types.ZTAPIHealthOperationVideoFetch {
+		entryProtocol = "video-tasks"
+	}
+	return s.AdmitMediaRequestWithEntryProtocol(ctx, requestedModel, executionID, requestID, userID, operation, allowUnavailable, entryProtocol)
 }
 
-func (s *ZTAPIHealthStore) admitRequest(ctx context.Context, requestedModel, executionID, requestID string, userID int, stream bool, operation string, allowUnavailable bool) (*types.ZTAPIHealthTicket, error) {
+func (s *ZTAPIHealthStore) AdmitMediaRequestWithEntryProtocol(ctx context.Context, requestedModel, executionID, requestID string, userID int, operation string, allowUnavailable bool, entryProtocol string) (*types.ZTAPIHealthTicket, error) {
+	if allowUnavailable && operation != types.ZTAPIHealthOperationVideoFetch {
+		return nil, ErrZTAPIHealthInvalidTicket
+	}
+	return s.admitRequest(ctx, requestedModel, executionID, requestID, userID, false, operation, allowUnavailable, entryProtocol)
+}
+
+func (s *ZTAPIHealthStore) admitRequest(ctx context.Context, requestedModel, executionID, requestID string, userID int, stream bool, operation string, allowUnavailable bool, entryProtocol string) (*types.ZTAPIHealthTicket, error) {
 	if !allowUnavailable {
 		if err := s.CheckAvailable(ctx, requestedModel); err != nil {
 			return nil, err
@@ -121,7 +146,8 @@ func (s *ZTAPIHealthStore) admitRequest(ctx context.Context, requestedModel, exe
 			return nil, ErrZTAPIHealthInvalidTicket
 		}
 	}
-	if executionID == "" || len(executionID) > 128 || len(requestID) > 255 {
+	entryProtocol = strings.TrimSpace(entryProtocol)
+	if executionID == "" || len(executionID) > 128 || len(requestID) > 255 || entryProtocol == "" || len(entryProtocol) > 32 {
 		return nil, ErrZTAPIHealthInvalidTicket
 	}
 	var ticket *types.ZTAPIHealthTicket
@@ -158,7 +184,7 @@ func (s *ZTAPIHealthStore) admitRequest(ctx context.Context, requestedModel, exe
 		}
 		r := ZTAPIHealthRequest{ExecutionID: executionID, RequestID: requestID, ModelID: config.ID,
 			ConfigVersion: config.Version, Generation: state.Generation, PublicModel: config.PublicNameValue(),
-			Modality: modality, Operation: operation, UserID: userID, Stream: stream,
+			Modality: modality, Operation: operation, EntryProtocol: entryProtocol, UserID: userID, Stream: stream,
 			Source: source, StartedAt: s.now(), Admissions: "[]"}
 		if err := tx.Create(&r).Error; err != nil {
 			return err
@@ -185,11 +211,12 @@ func loadZTAPIHealthRequest(tx *gorm.DB, ticket *types.ZTAPIHealthTicket) (*ZTAP
 
 // Admission is a dispatch permit, not evidence that the network send happened.
 // A permit granted before a trip is in flight. Call immediately before dispatch.
-func (s *ZTAPIHealthStore) AdmitAttempt(ctx context.Context, ticket *types.ZTAPIHealthTicket, channelID int, protocol string) error {
+func (s *ZTAPIHealthStore) AdmitAttempt(ctx context.Context, ticket *types.ZTAPIHealthTicket, channelID int, protocol, credentialVersion string) error {
 	if ticket == nil {
 		return nil
 	}
-	if channelID <= 0 || len(protocol) > 64 {
+	credentialVersion = strings.TrimSpace(credentialVersion)
+	if channelID <= 0 || len(protocol) > 64 || !validZTAPICredentialVersion(credentialVersion) {
 		return ErrZTAPIHealthInvalidTicket
 	}
 	return s.transaction(ctx, func(tx *gorm.DB) error {
@@ -219,6 +246,21 @@ func (s *ZTAPIHealthStore) AdmitAttempt(ctx context.Context, ticket *types.ZTAPI
 		if (!allowUnavailable && !config.Published) || config.PublicNameValue() == "" || config.PublicNameValue() != ticket.PublicModel {
 			return ErrZTAPIModelNotPublic
 		}
+		if r.Source == "real" {
+			route := ZTAPIHealthRouteIdentity{
+				ModelID: r.ModelID, ChannelID: channelID, EntryProtocol: r.EntryProtocol,
+				Protocol: strings.TrimSpace(protocol), Stream: r.Stream,
+				CredentialVersion: ztapiCredentialFingerprintFromDigest(credentialVersion), Generation: r.Generation,
+			}
+			var routeState ZTAPIHealthRouteState
+			err := applyZTAPIHealthRouteIdentity(tx, route).Take(&routeState).Error
+			if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+			if err == nil && routeState.Open {
+				return ErrZTAPIHealthRouteOpen
+			}
+		}
 		if r.Completed {
 			return ErrZTAPIHealthExecutionConflict
 		}
@@ -229,7 +271,9 @@ func (s *ZTAPIHealthStore) AdmitAttempt(ctx context.Context, ticket *types.ZTAPI
 		if len(attempts) >= 64 {
 			return errors.New("ztapi health attempt limit exceeded")
 		}
-		attempts = append(attempts, types.ZTAPIHealthAttempt{Index: len(attempts) + 1, ChannelID: channelID, Protocol: protocol})
+		attempts = append(attempts, types.ZTAPIHealthAttempt{
+			Index: len(attempts) + 1, ChannelID: channelID, Protocol: protocol, CredentialVersion: credentialVersion,
+		})
 		encoded, err := common.Marshal(attempts)
 		if err != nil {
 			return err
@@ -252,7 +296,7 @@ func validZTAPIHealthMetadata(value string, maximum int) bool {
 
 func validateZTAPIHealthOutcome(o types.ZTAPIHealthOutcome) error {
 	switch o.Result {
-	case "success", "failure", "excluded", "unknown":
+	case "success", "failure", "suspected", "excluded", "unknown":
 	default:
 		return errors.New("invalid ztapi health outcome result")
 	}
@@ -263,15 +307,31 @@ func validateZTAPIHealthOutcome(o types.ZTAPIHealthOutcome) error {
 		o.LatencyMilliseconds < 0 || o.LatencyMilliseconds > 86_400_000 {
 		return errors.New("ztapi health metadata limit exceeded")
 	}
+	if o.CredentialVersion != "" && !validZTAPICredentialVersion(o.CredentialVersion) {
+		return errors.New("invalid ztapi health credential version")
+	}
 	for _, reason := range o.FinishReasons {
 		if len(reason) > 128 {
 			return errors.New("ztapi health finish reason limit exceeded")
 		}
 	}
-	for _, a := range o.Attempts {
-		if len(a.Protocol) > 64 || len(a.UpstreamRequestID) > 255 || len(a.ProviderErrorCode) > 128 {
+	for index, a := range o.Attempts {
+		if len(a.Protocol) > 64 || len(a.UpstreamRequestID) > 255 || len(a.ProviderErrorCode) > 128 ||
+			a.CredentialVersion != "" && !validZTAPICredentialVersion(a.CredentialVersion) {
 			return errors.New("ztapi health attempt metadata limit exceeded")
 		}
+		if a.Index != index+1 || !validZTAPIHealthMetadata(a.Reason, 128) {
+			return errors.New("invalid ztapi health attempt classification")
+		}
+		switch a.Result {
+		case "", "success", "failure", "suspected", "excluded", "unknown":
+		default:
+			return errors.New("invalid ztapi health attempt result")
+		}
+	}
+	if len(o.Attempts) > 0 && (o.CredentialVersion != "" || o.Attempts[len(o.Attempts)-1].CredentialVersion != "") &&
+		o.CredentialVersion != o.Attempts[len(o.Attempts)-1].CredentialVersion {
+		return errors.New("ztapi health final credential version mismatch")
 	}
 	return nil
 }
@@ -312,6 +372,9 @@ func (s *ZTAPIHealthStore) RecordOutcome(ctx context.Context, ticket *types.ZTAP
 		if err != nil {
 			return err
 		}
+		if s.afterStateLock != nil {
+			s.afterStateLock()
+		}
 		r, err := loadZTAPIHealthRequest(tx, ticket)
 		if err != nil {
 			return err
@@ -323,8 +386,128 @@ func (s *ZTAPIHealthStore) RecordOutcome(ctx context.Context, ticket *types.ZTAP
 	})
 }
 
+type ztapiHealthRouteAction struct {
+	route              ZTAPIHealthRouteIdentity
+	result             string
+	sourceAttemptIndex int
+}
+
+func ztapiHealthRouteForOutcome(r *ZTAPIHealthRequest, channelID int, protocol, credentialVersion string) (ZTAPIHealthRouteIdentity, bool) {
+	route := ZTAPIHealthRouteIdentity{
+		ModelID: r.ModelID, ChannelID: channelID, EntryProtocol: r.EntryProtocol,
+		Protocol: strings.TrimSpace(protocol), Stream: r.Stream,
+		CredentialVersion: ztapiCredentialFingerprintFromDigest(strings.TrimSpace(credentialVersion)), Generation: r.Generation,
+	}
+	return route, validZTAPIHealthRouteIdentity(route)
+}
+
+func ztapiHealthRealRouteActions(r *ZTAPIHealthRequest, outcome types.ZTAPIHealthOutcome) []ztapiHealthRouteAction {
+	actions := make(map[string]ztapiHealthRouteAction)
+	order := make([]string, 0, len(outcome.Attempts)+1)
+	add := func(channelID int, protocol, credentialVersion, result string, sourceAttemptIndex int) {
+		if result != "success" && result != "suspected" {
+			return
+		}
+		route, ok := ztapiHealthRouteForOutcome(r, channelID, protocol, credentialVersion)
+		if !ok {
+			return
+		}
+		key := fmt.Sprintf("%d\x00%s\x00%s\x00%t\x00%s\x00%d", route.ChannelID, route.EntryProtocol, route.Protocol, route.Stream, route.CredentialVersion.String(), route.Generation)
+		if _, exists := actions[key]; !exists {
+			order = append(order, key)
+		}
+		actions[key] = ztapiHealthRouteAction{route: route, result: result, sourceAttemptIndex: sourceAttemptIndex}
+	}
+	if len(outcome.Attempts) == 0 {
+		add(outcome.ChannelID, outcome.UpstreamProtocol, outcome.CredentialVersion, outcome.Result, 0)
+	} else {
+		for _, attempt := range outcome.Attempts {
+			add(attempt.ChannelID, attempt.Protocol, attempt.CredentialVersion, attempt.Result, attempt.Index)
+		}
+	}
+	result := make([]ztapiHealthRouteAction, 0, len(order))
+	for _, key := range order {
+		result = append(result, actions[key])
+	}
+	return result
+}
+
+func validateZTAPIHealthOutcomeAdmissions(r *ZTAPIHealthRequest, outcome types.ZTAPIHealthOutcome) error {
+	if r.Source != "real" {
+		return nil
+	}
+	var admissions []types.ZTAPIHealthAttempt
+	if err := common.UnmarshalJsonStr(r.Admissions, &admissions); err != nil {
+		return ErrZTAPIHealthInvalidTicket
+	}
+	if len(outcome.Attempts) > 0 {
+		if len(outcome.Attempts) != len(admissions) {
+			return ErrZTAPIHealthInvalidTicket
+		}
+		for index, attempt := range outcome.Attempts {
+			admission := admissions[index]
+			if attempt.Index != index+1 || admission.Index != attempt.Index || admission.ChannelID != attempt.ChannelID ||
+				strings.TrimSpace(admission.Protocol) != strings.TrimSpace(attempt.Protocol) ||
+				!validZTAPICredentialVersion(strings.TrimSpace(admission.CredentialVersion)) ||
+				strings.TrimSpace(admission.CredentialVersion) != strings.TrimSpace(attempt.CredentialVersion) {
+				return ErrZTAPIHealthInvalidTicket
+			}
+			if (attempt.Result == "success" || attempt.Result == "suspected") &&
+				(!attempt.Dispatched || !validZTAPICredentialVersion(strings.TrimSpace(attempt.CredentialVersion))) {
+				return ErrZTAPIHealthInvalidTicket
+			}
+		}
+		finalAdmission := admissions[len(admissions)-1]
+		if finalAdmission.ChannelID != outcome.ChannelID ||
+			strings.TrimSpace(finalAdmission.Protocol) != strings.TrimSpace(outcome.UpstreamProtocol) ||
+			strings.TrimSpace(finalAdmission.CredentialVersion) != strings.TrimSpace(outcome.CredentialVersion) {
+			return ErrZTAPIHealthInvalidTicket
+		}
+		return nil
+	}
+	if !outcome.Dispatched {
+		if outcome.ChannelID != 0 || strings.TrimSpace(outcome.UpstreamProtocol) != "" || strings.TrimSpace(outcome.CredentialVersion) != "" {
+			return ErrZTAPIHealthInvalidTicket
+		}
+		return nil
+	}
+	if len(admissions) == 0 {
+		return ErrZTAPIHealthInvalidTicket
+	}
+	admission := admissions[len(admissions)-1]
+	if admission.ChannelID != outcome.ChannelID || strings.TrimSpace(admission.Protocol) != strings.TrimSpace(outcome.UpstreamProtocol) ||
+		!validZTAPICredentialVersion(strings.TrimSpace(admission.CredentialVersion)) ||
+		strings.TrimSpace(admission.CredentialVersion) != strings.TrimSpace(outcome.CredentialVersion) {
+		return ErrZTAPIHealthInvalidTicket
+	}
+	return nil
+}
+
+func applyZTAPIHealthRealRouteActionsTx(tx *gorm.DB, r *ZTAPIHealthRequest, event ZTAPIHealthEvent, outcome types.ZTAPIHealthOutcome, observedAt time.Time) error {
+	for _, action := range ztapiHealthRealRouteActions(r, outcome) {
+		switch action.result {
+		case "suspected":
+			_, _, err := enqueueZTAPIHealthSuspicionTx(tx, ZTAPIHealthSuspicion{
+				Route: action.route, SourceEventID: event.ID, SourceAttemptIndex: action.sourceAttemptIndex,
+			}, observedAt)
+			if err != nil {
+				return err
+			}
+		case "success":
+			if _, err := cancelQueuedZTAPIHealthVerificationTx(tx, action.route, observedAt); err != nil {
+				return err
+			}
+			if err := resetClosedZTAPIHealthRouteEvidenceTx(tx, action.route, observedAt); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (s *ZTAPIHealthStore) completeTx(tx *gorm.DB, state *ZTAPIHealthState, r *ZTAPIHealthRequest, outcome types.ZTAPIHealthOutcome) error {
-	now := s.now()
+	observedAt := s.Now().UTC()
+	now := observedAt.Unix()
 	result, reason := outcome.Result, outcome.Reason
 	if outcome.ClientCancelled {
 		result, reason = "excluded", "client_cancelled"
@@ -337,18 +520,33 @@ func (s *ZTAPIHealthStore) completeTx(tx *gorm.DB, state *ZTAPIHealthState, r *Z
 	}
 	normalizedOutcome := outcome
 	normalizedOutcome.Result, normalizedOutcome.Reason = result, reason
+	if len(normalizedOutcome.Attempts) > 0 {
+		last := &normalizedOutcome.Attempts[len(normalizedOutcome.Attempts)-1]
+		if last.Result == "" {
+			last.Result, last.Reason = result, reason
+		}
+	}
+	normalizedOutcome = types.ClassifyZTAPIHealthSignal(r.Source, normalizedOutcome)
+	result, reason = normalizedOutcome.Result, normalizedOutcome.Reason
+	if err := validateZTAPIHealthOutcomeAdmissions(r, normalizedOutcome); err != nil {
+		return err
+	}
 	encoded, err := common.Marshal(normalizedOutcome)
 	if err != nil {
 		return err
 	}
 	stale := r.Generation != state.Generation
+	// Automatic verification probes are evaluated by the route-scoped
+	// verification store. They must never feed the legacy model-wide circuit.
+	legacyCircuitCounted := r.Source != "real" && r.Source != "probe"
 	state.CompletionSequence++
 	event := ZTAPIHealthEvent{ExecutionID: r.ExecutionID, RequestID: r.RequestID, ModelID: r.ModelID,
 		ConfigVersion: r.ConfigVersion, Generation: r.Generation, PublicModel: r.PublicModel,
-		Modality: r.Modality, Operation: r.Operation,
+		Modality: r.Modality, Operation: r.Operation, EntryProtocol: r.EntryProtocol,
 		CompletionSequence: state.CompletionSequence, CompletedAt: now, Stream: r.Stream, Source: r.Source,
-		Result: result, Reason: reason, Counted: !stale && (result == "success" || result == "failure"), StaleGeneration: stale,
-		ChannelID: outcome.ChannelID, UpstreamProtocol: outcome.UpstreamProtocol, HTTPStatus: outcome.HTTPStatus,
+		Result: result, Reason: reason, Counted: !stale && legacyCircuitCounted && (result == "success" || result == "failure"), StaleGeneration: stale,
+		ChannelID: outcome.ChannelID, CredentialVersion: outcome.CredentialVersion,
+		UpstreamProtocol: outcome.UpstreamProtocol, HTTPStatus: outcome.HTTPStatus,
 		UpstreamRequestID: outcome.UpstreamRequestID, UpstreamTaskID: outcome.UpstreamTaskID,
 		ProviderErrorCode: outcome.ProviderErrorCode, LatencyMilliseconds: outcome.LatencyMilliseconds,
 		ResultValid: outcome.ResultValid, Outcome: string(encoded)}
@@ -358,11 +556,16 @@ func (s *ZTAPIHealthStore) completeTx(tx *gorm.DB, state *ZTAPIHealthState, r *Z
 	if err := tx.Model(r).Update("completed", true).Error; err != nil {
 		return err
 	}
+	if !stale && r.Source == "real" {
+		if err := applyZTAPIHealthRealRouteActionsTx(tx, r, event, normalizedOutcome, observedAt); err != nil {
+			return err
+		}
+	}
 	if !stale && !state.Open {
-		if result == "success" {
+		if event.Counted && result == "success" {
 			state.ConsecutiveFailures = 0
 		}
-		if result == "failure" {
+		if event.Counted && result == "failure" {
 			state.ConsecutiveFailures++
 		}
 		// Recovery preserves the audit window. A new success must not reopen

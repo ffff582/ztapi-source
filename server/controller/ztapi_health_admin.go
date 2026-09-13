@@ -14,6 +14,66 @@ import (
 	"gorm.io/gorm"
 )
 
+type ztapiHealthVerificationProjection struct {
+	ID             string `json:"id"`
+	ChannelID      int    `json:"channel_id"`
+	EntryProtocol  string `json:"entry_protocol"`
+	Protocol       string `json:"protocol"`
+	Stream         bool   `json:"stream"`
+	Generation     uint64 `json:"generation"`
+	SourceEventID  int64  `json:"source_event_id"`
+	State          string `json:"state"`
+	Attempts       int    `json:"attempts"`
+	ProbeRequestID string `json:"probe_request_id"`
+	Result         string `json:"result"`
+	CreatedAt      int64  `json:"created_at"`
+	CompletedAt    int64  `json:"completed_at"`
+	CancelledAt    int64  `json:"cancelled_at"`
+}
+
+type ztapiHealthRouteProjection struct {
+	ID                  int64  `json:"id"`
+	ChannelID           int    `json:"channel_id"`
+	EntryProtocol       string `json:"entry_protocol"`
+	Protocol            string `json:"protocol"`
+	Stream              bool   `json:"stream"`
+	Generation          uint64 `json:"generation"`
+	IndependentFailures int64  `json:"independent_failures"`
+	Open                bool   `json:"open"`
+	LastProbeRequestID  string `json:"last_probe_request_id"`
+	LastResult          string `json:"last_result"`
+	OpenedAt            int64  `json:"opened_at"`
+	UpdatedAt           int64  `json:"updated_at"`
+}
+
+type ztapiHealthEventProjection struct {
+	ID                  int64  `json:"id"`
+	RequestID           string `json:"request_id"`
+	ModelID             int    `json:"model_id"`
+	ConfigVersion       uint64 `json:"config_version"`
+	Generation          uint64 `json:"generation"`
+	PublicModel         string `json:"public_model"`
+	Modality            string `json:"modality"`
+	Operation           string `json:"operation"`
+	EntryProtocol       string `json:"entry_protocol"`
+	CompletionSequence  uint64 `json:"completion_sequence"`
+	CompletedAt         int64  `json:"completed_at"`
+	Stream              bool   `json:"stream"`
+	Source              string `json:"source"`
+	Result              string `json:"result"`
+	Reason              string `json:"reason"`
+	Counted             bool   `json:"counted"`
+	StaleGeneration     bool   `json:"stale_generation"`
+	ChannelID           int    `json:"channel_id"`
+	UpstreamProtocol    string `json:"upstream_protocol"`
+	HTTPStatus          int    `json:"http_status"`
+	UpstreamRequestID   string `json:"upstream_request_id"`
+	UpstreamTaskID      string `json:"upstream_task_id"`
+	ProviderErrorCode   string `json:"provider_error_code"`
+	LatencyMilliseconds int64  `json:"latency_milliseconds"`
+	ResultValid         bool   `json:"result_valid"`
+}
+
 func ztapiHealthAdminModel(c *gin.Context, permission common.AdminPermission) (int, bool) {
 	if c.GetInt("id") <= 0 || !common.HasAdminPermission(c.GetInt("role"), permission) {
 		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "permission denied"})
@@ -138,11 +198,14 @@ func GetZTAPIModelHealth(c *gin.Context) {
 		ztapiHealthAdminError(c, err)
 		return
 	}
-	var events []model.ZTAPIHealthEvent
+	var events []ztapiHealthEventProjection
+	eventQuery := model.DB.WithContext(ctx).Model(&model.ZTAPIHealthEvent{}).
+		Select("id", "request_id", "model_id", "config_version", "generation", "public_model", "modality", "operation", "entry_protocol", "completion_sequence", "completed_at", "stream", "source", "result", "reason", "counted", "stale_generation", "channel_id", "upstream_protocol", "http_status", "upstream_request_id", "upstream_task_id", "provider_error_code", "latency_milliseconds", "result_valid").
+		Where("model_id = ?", id)
 	if _, explicitCursor := c.GetQuery("after_sequence"); explicitCursor {
-		events, err = store.ListEvents(ctx, id, after, 100)
+		err = eventQuery.Where("completion_sequence > ?", after).Order("completion_sequence").Limit(100).Find(&events).Error
 	} else {
-		err = model.DB.WithContext(ctx).Where("model_id = ?", id).Order("completion_sequence DESC").Limit(100).Find(&events).Error
+		err = eventQuery.Order("completion_sequence DESC").Limit(100).Find(&events).Error
 	}
 	if err != nil {
 		ztapiHealthAdminError(c, err)
@@ -163,7 +226,21 @@ func GetZTAPIModelHealth(c *gin.Context) {
 	for _, j := range jobs {
 		outbox = append(outbox, gin.H{"id": j.ID, "kind": j.Kind, "incident_id": j.IncidentID, "event_id": j.EventID, "status": j.Status, "attempts": j.Attempts, "next_attempt_at": j.NextAttemptAt, "last_error": j.LastError, "created_at": j.CreatedAt, "delivered_at": j.DeliveredAt})
 	}
-	common.ApiSuccess(c, gin.H{"model_id": id, "enabled": model.ZTAPIHealthEnabled(), "observed": observed, "state": state, "window": window, "coverage": coverage, "events": events, "incidents": incidents, "outbox": outbox, "recovery_requires_publication": true})
+	var verificationCases []ztapiHealthVerificationProjection
+	if err = model.DB.WithContext(ctx).Model(&model.ZTAPIHealthVerificationCase{}).
+		Select("id", "channel_id", "entry_protocol", "protocol", "stream", "generation", "source_event_id", "state", "attempts", "probe_request_id", "result", "created_at", "completed_at", "cancelled_at").
+		Where("model_id = ?", id).Order("created_at DESC, id DESC").Limit(100).Find(&verificationCases).Error; err != nil {
+		ztapiHealthAdminError(c, err)
+		return
+	}
+	var routeStates []ztapiHealthRouteProjection
+	if err = model.DB.WithContext(ctx).Model(&model.ZTAPIHealthRouteState{}).
+		Select("id", "channel_id", "entry_protocol", "protocol", "stream", "generation", "independent_failures", "open", "last_probe_request_id", "last_result", "opened_at", "updated_at").
+		Where("model_id = ?", id).Order("open DESC, updated_at DESC, id DESC").Limit(100).Find(&routeStates).Error; err != nil {
+		ztapiHealthAdminError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"model_id": id, "enabled": model.ZTAPIHealthEnabled(), "observed": observed, "state": state, "window": window, "coverage": coverage, "events": events, "incidents": incidents, "outbox": outbox, "verification_cases": verificationCases, "route_states": routeStates, "recovery_requires_publication": true})
 }
 
 func RecoverZTAPIModelHealth(c *gin.Context) {

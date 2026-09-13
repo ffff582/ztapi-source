@@ -125,24 +125,38 @@ func Distribute() func(c *gin.Context) {
 			return
 		}
 		requestedModel := modelRequest.Model
-		// Circuit state survives publication removal and takes precedence over
-		// ordinary unpublished-model handling, before any quota reservation.
-		if requestedModel != "" {
-			if healthErr := model.CheckZTAPIHealthModelAvailable(requestedModel); healthErr != nil {
+		identityRequestedModel := requestedModel
+		if strings.HasSuffix(requestedModel, ratio_setting.CompactModelSuffix) {
+			baseModel := strings.TrimSuffix(requestedModel, ratio_setting.CompactModelSuffix)
+			if _, found, resolveErr := model.ResolveZTAPICanonicalPublicName(baseModel); resolveErr == nil && found {
+				identityRequestedModel = baseModel
+			}
+		}
+		// Durable circuit state takes precedence over the publication cache and
+		// token errors for both public and official aliases.
+		if identityRequestedModel != "" {
+			if healthErr := model.CheckZTAPIHealthModelAvailable(identityRequestedModel); healthErr != nil {
 				err := relaycommon.ZTAPIHealthAdmissionError(c.Request.Context(), healthErr, errors.Is(healthErr, model.ErrZTAPIHealthCircuitOpen))
 				abortWithOpenAiMessage(c, err.StatusCode, err.Error(), err.GetErrorCode())
 				return
 			}
 		}
 		selectionRequestedModel := requestedModel
+		canonicalRequestedModel := requestedModel
 		var publicationGroups []string
 		var publicationSnapshot *relaycommon.ZTAPIPublicationSnapshot
 		usingGroup := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
-		if requestedModel != "" && !enforceTokenModelAccess(c, requestedModel) {
-			return
-		}
-		if requestedModel != "" {
-			resolvedModel, resolveErr := model.ResolveZTAPIRequestModel(requestedModel, usingGroup)
+		if identityRequestedModel != "" {
+			canonical, _, canonicalErr := model.ResolveZTAPICanonicalPublicName(identityRequestedModel)
+			if canonicalErr != nil {
+				abortWithOpenAiMessage(c, http.StatusServiceUnavailable, "模型发布状态暂时不可用", types.ErrorCodeModelNotFound)
+				return
+			}
+			canonicalRequestedModel = canonical
+			if !enforceTokenModelAccess(c, canonicalRequestedModel) {
+				return
+			}
+			identity, resolveErr := model.ResolveZTAPIRequestIdentity(identityRequestedModel, usingGroup)
 			if errors.Is(resolveErr, model.ErrZTAPIModelGroupForbidden) {
 				abortWithOpenAiMessage(c, http.StatusForbidden, "该模型未向当前用户组开放")
 				return
@@ -152,13 +166,15 @@ func Distribute() func(c *gin.Context) {
 				return
 			}
 			if resolveErr != nil {
-				abortWithOpenAiMessage(c, http.StatusServiceUnavailable, "模型发布状态暂时不可用", types.ErrorCodeModelNotFound)
+				healthErr := relaycommon.ZTAPIHealthAdmissionError(c.Request.Context(), resolveErr, errors.Is(resolveErr, model.ErrZTAPIHealthCircuitOpen))
+				abortWithOpenAiMessage(c, healthErr.StatusCode, healthErr.Error(), healthErr.GetErrorCode())
 				return
 			}
-			selectionRequestedModel = resolvedModel
+			canonicalRequestedModel = identity.PublicName
+			selectionRequestedModel = identity.SourceModel
 			// Every admitted ZTAPI model needs a pinned publication; a failed
 			// second lookup must not turn into an ungoverned channel selection.
-			publicationSnapshot, resolveErr = loadZTAPIPublicationSnapshot(requestedModel, resolvedModel, usingGroup)
+			publicationSnapshot, resolveErr = loadZTAPIPublicationSnapshot(canonicalRequestedModel, identity.SourceModel, usingGroup)
 			if errors.Is(resolveErr, model.ErrZTAPIModelGroupForbidden) {
 				abortWithOpenAiMessage(c, http.StatusForbidden, "model is not available to the current user group")
 				return
@@ -312,7 +328,7 @@ func Distribute() func(c *gin.Context) {
 		}
 		common.SetContextKey(c, constant.ContextKeyRequestStartTime, time.Now())
 		common.SetContextKey(c, constant.ContextKeySelectionModel, selectionModel)
-		if err := SetupContextForSelectedChannel(c, channel, modelRequest.Model); err != nil && channel != nil {
+		if err := SetupContextForSelectedChannel(c, channel, canonicalRequestedModel); err != nil && channel != nil {
 			abortWithOpenAiMessage(c, err.StatusCode, err.Error(), err.GetErrorCode())
 			return
 		}
@@ -608,7 +624,7 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 	common.SetContextKey(c, constant.ContextKeyChannelModelMapping, model.MergeZTAPIAliasModelMapping(channel.GetModelMapping(), modelName))
 	common.SetContextKey(c, constant.ContextKeyChannelStatusCodeMapping, channel.GetStatusCodeMapping())
 
-	key, index, newAPIError := channel.GetNextEnabledKey()
+	key, index, newAPIError := selectChannelKeyForRequest(c, channel)
 	if newAPIError != nil {
 		return newAPIError
 	}
@@ -645,6 +661,15 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 		c.Set("bot_id", channel.Other)
 	}
 	return nil
+}
+
+func selectChannelKeyForRequest(c *gin.Context, channel *model.Channel) (string, int, *types.NewAPIError) {
+	credentialPin := strings.TrimSpace(common.GetContextKeyString(c, constant.ContextKeyZTAPIHealthCredentialPin))
+	if credentialPin != "" {
+		return channel.GetEnabledKeyByZTAPIHealthCredentialVersion(credentialPin)
+	}
+	excluded := relaycommon.ZTAPIHealthExcludedCredentialVersions(c, channel.Id)
+	return channel.GetNextEnabledKeyExcluding(excluded)
 }
 
 // extractModelNameFromGeminiPath 从 Gemini API URL 路径中提取模型名

@@ -100,32 +100,36 @@ type RelayInfo struct {
 	FirstResponseTime time.Time
 	isFirstResponse   bool
 	//SendLastReasoningResponse bool
-	IsStream               bool
-	IsGeminiBatchEmbedding bool
-	IsPlayground           bool
-	UsePrice               bool
-	RelayMode              int
-	OriginModelName        string
-	SelectionModelName     string
-	RequestURLPath         string
-	RequestHeaders         map[string]string
-	ShouldIncludeUsage     bool
-	DisablePing            bool // 是否禁止向下游发送自定义 Ping
-	ClientWs               *websocket.Conn
-	TargetWs               *websocket.Conn
-	InputAudioFormat       string
-	OutputAudioFormat      string
-	RealtimeTools          []dto.RealTimeTool
-	IsFirstRequest         bool
-	AudioUsage             bool
-	ReasoningEffort        string
-	UserSetting            dto.UserSetting
-	UserEmail              string
-	UserQuota              int
-	RelayFormat            types.RelayFormat
-	SendResponseCount      int
-	ReceivedResponseCount  int
-	FinalPreConsumedQuota  int // 最终预消耗的配额
+	IsStream                 bool
+	IsGeminiBatchEmbedding   bool
+	IsPlayground             bool
+	UsePrice                 bool
+	RelayMode                int
+	OriginModelName          string
+	SelectionModelName       string
+	RequestURLPath           string
+	RequestHeaders           map[string]string
+	ShouldIncludeUsage       bool
+	DisablePing              bool // 是否禁止向下游发送自定义 Ping
+	ClientWs                 *websocket.Conn
+	TargetWs                 *websocket.Conn
+	InputAudioFormat         string
+	OutputAudioFormat        string
+	RealtimeTools            []dto.RealTimeTool
+	IsFirstRequest           bool
+	AudioUsage               bool
+	ReasoningEffort          string
+	ReasoningEffortReceived  string
+	ReasoningEffortForwarded string
+	ReasoningEffortSource    string
+	ReasoningTokensReported  *int
+	UserSetting              dto.UserSetting
+	UserEmail                string
+	UserQuota                int
+	RelayFormat              types.RelayFormat
+	SendResponseCount        int
+	ReceivedResponseCount    int
+	FinalPreConsumedQuota    int // 最终预消耗的配额
 	// ForcePreConsume 为 true 时禁用 BillingSession 的信任额度旁路，
 	// 强制预扣全额。用于异步任务（视频/音乐生成等），因为请求返回后任务仍在运行，
 	// 必须在提交前锁定全额。
@@ -725,6 +729,7 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 			estimatePromptTokens: common.GetContextKeyInt(c, constant.ContextKeyEstimatedTokens),
 		},
 	}
+	CaptureReasoningEffortReceived(info, request)
 
 	if info.RelayMode == relayconstant.RelayModeUnknown {
 		info.RelayMode = c.GetInt("relay_mode")

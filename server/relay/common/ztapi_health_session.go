@@ -12,6 +12,7 @@ import (
 	"time"
 
 	base "github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
@@ -29,6 +30,7 @@ type ZTAPIHealthSession struct {
 	backend   ZTAPIHealthBackend
 	operation string
 	startedAt time.Time
+	probePin  *ZTAPIHealthProbePin
 
 	videoSubmissionAccepted bool
 	upstreamTaskID          string
@@ -36,12 +38,16 @@ type ZTAPIHealthSession struct {
 
 // The controller supplies engine callbacks to avoid model -> relay/common cycles.
 type ZTAPIHealthBackend struct {
-	AdmitRequest      func(context.Context, string, string, string, int, bool) (*types.ZTAPIHealthTicket, error)
-	AdmitMediaRequest func(context.Context, string, string, string, int, string, bool) (*types.ZTAPIHealthTicket, error)
-	AdmitAttempt      func(context.Context, *types.ZTAPIHealthTicket, int, string) error
-	RecordOutcome     func(context.Context, *types.ZTAPIHealthTicket, types.ZTAPIHealthOutcome) error
-	CheckAvailable    func(string) error
-	CircuitOpen       error
+	AdmitRequest                       func(context.Context, string, string, string, int, bool) (*types.ZTAPIHealthTicket, error)
+	AdmitMediaRequest                  func(context.Context, string, string, string, int, string, bool) (*types.ZTAPIHealthTicket, error)
+	AdmitRequestWithEntryProtocol      func(context.Context, string, string, string, int, bool, string) (*types.ZTAPIHealthTicket, error)
+	AdmitMediaRequestWithEntryProtocol func(context.Context, string, string, string, int, string, bool, string) (*types.ZTAPIHealthTicket, error)
+	AdmitAttempt                       func(context.Context, *types.ZTAPIHealthTicket, int, string, string) error
+	RecordOutcome                      func(context.Context, *types.ZTAPIHealthTicket, types.ZTAPIHealthOutcome) error
+	CheckAvailable                     func(string) error
+	ValidateProbeRoute                 func(context.Context, ZTAPIHealthProbeRouteCheck) error
+	CircuitOpen                        error
+	RouteOpen                          error
 }
 
 func (s *ZTAPIHealthSession) PrepareRelayAttempt() {
@@ -58,6 +64,15 @@ func (s *ZTAPIHealthSession) PrepareRelayAttempt() {
 // StartZTAPIHealthRequest must run before any customer quota reservation.
 func StartZTAPIHealthRequest(c *gin.Context, info *RelayInfo, backend ZTAPIHealthBackend) (*ZTAPIHealthSession, error) {
 	executionID := uuid.NewString()
+	probePin := GetZTAPIHealthProbePin(c)
+	entryProtocol := ztapiHealthProtocol(c.Request.URL.Path)
+	if info != nil && info.ZTAPIPublicationSnapshot != nil && info.ZTAPIPublicationSnapshot.Modality == "video" {
+		entryProtocol = "video-tasks"
+	}
+	if probePin != nil && (info == nil || info.OriginModelName != probePin.PublicModel || info.IsStream != probePin.Stream ||
+		c.GetString(base.RequestIdKey) != probePin.RequestID || entryProtocol != probePin.EntryProtocol) {
+		return nil, ZTAPIHealthAdmissionError(c.Request.Context(), errors.New("ZTAPI health probe request does not match its dispatch pin"), false)
+	}
 	operation := ""
 	if info.ZTAPIPublicationSnapshot != nil {
 		switch info.ZTAPIPublicationSnapshot.Modality {
@@ -69,12 +84,19 @@ func StartZTAPIHealthRequest(c *gin.Context, info *RelayInfo, backend ZTAPIHealt
 	}
 	var ticket *types.ZTAPIHealthTicket
 	var err error
+	if operation == types.ZTAPIHealthOperationVideoSubmit || operation == types.ZTAPIHealthOperationVideoFetch {
+		entryProtocol = "video-tasks"
+	}
 	if operation != "" {
-		if backend.AdmitMediaRequest == nil {
+		if backend.AdmitMediaRequestWithEntryProtocol != nil {
+			ticket, err = backend.AdmitMediaRequestWithEntryProtocol(c.Request.Context(), info.OriginModelName, executionID, c.GetString(base.RequestIdKey), info.UserId, operation, false, entryProtocol)
+		} else if backend.AdmitMediaRequest == nil {
 			err = errors.New("ZTAPI media health admission is unavailable")
 		} else {
 			ticket, err = backend.AdmitMediaRequest(c.Request.Context(), info.OriginModelName, executionID, c.GetString(base.RequestIdKey), info.UserId, operation, false)
 		}
+	} else if backend.AdmitRequestWithEntryProtocol != nil {
+		ticket, err = backend.AdmitRequestWithEntryProtocol(c.Request.Context(), info.OriginModelName, executionID, c.GetString(base.RequestIdKey), info.UserId, info.IsStream, entryProtocol)
 	} else if backend.AdmitRequest == nil {
 		err = errors.New("ZTAPI health admission is unavailable")
 	} else {
@@ -83,7 +105,16 @@ func StartZTAPIHealthRequest(c *gin.Context, info *RelayInfo, backend ZTAPIHealt
 	if err != nil {
 		return nil, ZTAPIHealthAdmissionError(c.Request.Context(), err, errors.Is(err, backend.CircuitOpen))
 	}
-	if info.ZTAPIPublicationSnapshot != nil {
+	if err := validateZTAPIHealthProbeTicket(probePin, ticket); err != nil {
+		return nil, ZTAPIHealthAdmissionError(c.Request.Context(), err, false)
+	}
+	if probePin != nil {
+		info.RequestId = probePin.RequestID
+		c.Set(base.RequestIdKey, probePin.RequestID)
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), base.RequestIdKey, probePin.RequestID))
+		c.Header(base.RequestIdKey, probePin.RequestID)
+		c.Header("X-Request-ID", probePin.RequestID)
+	} else if info.ZTAPIPublicationSnapshot != nil {
 		// Caller correlation IDs are not idempotency keys for separate billable calls.
 		info.RequestId = executionID
 		c.Set(base.RequestIdKey, executionID)
@@ -91,7 +122,7 @@ func StartZTAPIHealthRequest(c *gin.Context, info *RelayInfo, backend ZTAPIHealt
 		c.Header(base.RequestIdKey, executionID)
 		c.Header("X-Request-ID", executionID)
 	}
-	s := &ZTAPIHealthSession{ticket: ticket, record: backend.RecordOutcome, backend: backend, operation: operation, startedAt: time.Now()}
+	s := &ZTAPIHealthSession{ticket: ticket, record: backend.RecordOutcome, backend: backend, operation: operation, startedAt: time.Now(), probePin: probePin}
 	c.Set(ztapiHealthSessionKey, s)
 	if ticket == nil {
 		return s, nil
@@ -118,6 +149,36 @@ func ZTAPIHealthAdmissionError(ctx context.Context, err error, circuitOpen bool)
 	return types.NewErrorWithStatusCode(errors.New("This model is temporarily unavailable. Please retry later or choose another model."), types.ErrorCode("model_temporarily_unavailable"), http.StatusServiceUnavailable, types.ErrOptionWithSkipRetry())
 }
 
+func ztapiHealthRouteUnavailableError() *types.NewAPIError {
+	return types.NewErrorWithStatusCode(
+		errors.New("This upstream route is temporarily unavailable. Trying another route."),
+		types.ErrorCode("ztapi_route_temporarily_unavailable"), http.StatusServiceUnavailable,
+	)
+}
+
+func ZTAPIHealthRouteCredentialExclusion(channelID int, credentialVersion string) string {
+	credentialVersion = strings.TrimSpace(credentialVersion)
+	if channelID <= 0 || len(credentialVersion) != 64 {
+		return ""
+	}
+	return strconv.Itoa(channelID) + ":" + credentialVersion
+}
+
+// ZTAPIHealthExcludedCredentialVersions returns only the failed credentials
+// for one channel. Reusing the same supplier key in another channel must not
+// make that otherwise healthy route unavailable.
+func ZTAPIHealthExcludedCredentialVersions(c *gin.Context, channelID int) []string {
+	prefix := strconv.Itoa(channelID) + ":"
+	entries := base.GetContextKeyStringSlice(c, constant.ContextKeyZTAPIHealthExcludedCredentials)
+	result := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if strings.HasPrefix(entry, prefix) && len(entry) == len(prefix)+64 {
+			result = append(result, strings.TrimPrefix(entry, prefix))
+		}
+	}
+	return result
+}
+
 func ztapiHealthProtocol(path string) string {
 	switch {
 	case strings.HasSuffix(path, "/embeddings"):
@@ -139,7 +200,7 @@ func ztapiHealthProtocol(path string) string {
 
 // BeginZTAPIHealthUpstream observes the actual wire protocol, not the requested
 // format: Chat-via-Responses is a Responses attempt here.
-func BeginZTAPIHealthUpstream(c *gin.Context, channelID int, path string) (*ZTAPIHealthWireAttempt, error) {
+func BeginZTAPIHealthUpstream(c *gin.Context, channelID int, path, credential string) (*ZTAPIHealthWireAttempt, error) {
 	s := GetZTAPIHealthSession(c)
 	if s == nil {
 		return nil, nil
@@ -151,16 +212,50 @@ func BeginZTAPIHealthUpstream(c *gin.Context, channelID int, path string) (*ZTAP
 		}
 		return nil, nil
 	}
+	credentialVersion, err := ZTAPIHealthCredentialVersion(credential)
+	if err != nil {
+		return nil, ZTAPIHealthAdmissionError(c.Request.Context(), err, false)
+	}
 	protocol := ztapiHealthProtocol(path)
 	if s.ticket.Modality == "video" {
 		protocol = "video-tasks"
 	}
-	a := s.collector.BeginAttempt(channelID, protocol)
+	if s.probePin != nil {
+		if s.backend.ValidateProbeRoute == nil {
+			return nil, ZTAPIHealthAdmissionError(c.Request.Context(), errors.New("ZTAPI health probe route validation is unavailable"), false)
+		}
+		check := ZTAPIHealthProbeRouteCheck{
+			CaseID: s.probePin.CaseID, LeaseToken: s.probePin.LeaseToken,
+			ProbeRequestID: s.probePin.RequestID, ModelID: s.ticket.ModelID,
+			ChannelID: channelID, Protocol: protocol, Stream: s.ticket.Stream,
+			CredentialVersion: credentialVersion, Generation: s.ticket.Generation,
+		}
+		if err := s.backend.ValidateProbeRoute(c.Request.Context(), check); err != nil {
+			return nil, ZTAPIHealthAdmissionError(c.Request.Context(), err, false)
+		}
+	}
+	if err := s.backend.AdmitAttempt(c.Request.Context(), s.ticket, channelID, protocol, credentialVersion); err != nil {
+		if s.backend.RouteOpen != nil && errors.Is(err, s.backend.RouteOpen) {
+			excluded := base.GetContextKeyStringSlice(c, constant.ContextKeyZTAPIHealthExcludedCredentials)
+			routeExclusion := ZTAPIHealthRouteCredentialExclusion(channelID, credentialVersion)
+			found := false
+			for _, entry := range excluded {
+				if entry == routeExclusion {
+					found = true
+					break
+				}
+			}
+			if routeExclusion != "" && !found {
+				excluded = append(excluded, routeExclusion)
+				base.SetContextKey(c, constant.ContextKeyZTAPIHealthExcludedCredentials, excluded)
+			}
+			return nil, ztapiHealthRouteUnavailableError()
+		}
+		return nil, ZTAPIHealthAdmissionError(c.Request.Context(), err, errors.Is(err, s.backend.CircuitOpen))
+	}
+	a := s.collector.beginAttempt(channelID, protocol, credentialVersion)
 	if a == nil {
 		return nil, ZTAPIHealthAdmissionError(c.Request.Context(), errors.New("health collector sealed or attempt limit reached"), false)
-	}
-	if err := s.backend.AdmitAttempt(c.Request.Context(), s.ticket, channelID, protocol); err != nil {
-		return nil, ZTAPIHealthAdmissionError(c.Request.Context(), err, errors.Is(err, s.backend.CircuitOpen))
 	}
 	return a, nil
 }

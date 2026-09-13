@@ -42,10 +42,33 @@ func TestZTAPIHealthAdminReadAndRecovery(t *testing.T) {
 	require.Equal(t, 400, call("GET", path+"?after_sequence=-1", token, "").Code)
 	require.NoError(t, db.Create(&model.ZTAPIHealthState{ModelID: cfg.ID, Generation: 1, Open: true, IncidentID: 1}).Error)
 	require.NoError(t, db.Create(&model.ZTAPIHealthIncident{ID: 1, ModelID: cfg.ID, Generation: 1}).Error)
+	require.NoError(t, db.Create(&model.ZTAPIHealthVerificationCase{
+		ID: "admin-visible-case", ModelID: cfg.ID, ChannelID: 7, EntryProtocol: "chat", Protocol: "responses",
+		CredentialVersion: strings.Repeat("a", 64), Generation: 1, SourceEventID: 21, State: "completed",
+		LeaseToken: "PRIVATE-CASE-LEASE", ProbeRequestID: "ztapi-health-verify-admin", Result: "failure", CreatedAt: 100, CompletedAt: 101,
+	}).Error)
+	require.NoError(t, db.Create(&model.ZTAPIHealthRouteState{
+		ModelID: cfg.ID, ChannelID: 7, EntryProtocol: "chat", Protocol: "responses", CredentialVersion: strings.Repeat("a", 64),
+		Generation: 1, IndependentFailures: 2, Open: true, LastProbeRequestID: "ztapi-health-verify-admin", LastResult: "failure", OpenedAt: 101, UpdatedAt: 101,
+	}).Error)
+	require.NoError(t, db.Create(&model.ZTAPIHealthEvent{
+		ExecutionID: "admin-secret-event", RequestID: "customer-visible-request", ModelID: cfg.ID, Generation: 1,
+		CredentialVersion: strings.Repeat("b", 64), CompletionSequence: 1, Source: "real", Result: "failure",
+		Reason: "upstream_http_error", Outcome: `{"Attempts":[{"credential_version":"PRIVATE-EVENT-FINGERPRINT","authorization":"Bearer sk-private"}]}`,
+	}).Error)
 	require.NoError(t, db.Create(&model.ZTAPIHealthOutbox{DedupKey: "test-private", Kind: "alert", ModelID: cfg.ID, Status: "leased", LeaseToken: "PRIVATE-LEASE-NEVER-RETURN"}).Error)
 	r = call("GET", path, token, "")
 	require.Equal(t, 200, r.Code, r.Body.String())
 	require.NotContains(t, r.Body.String(), "PRIVATE-LEASE")
+	require.NotContains(t, r.Body.String(), strings.Repeat("a", 64))
+	require.NotContains(t, r.Body.String(), strings.Repeat("b", 64))
+	require.NotContains(t, r.Body.String(), "PRIVATE-EVENT-FINGERPRINT")
+	require.NotContains(t, r.Body.String(), "sk-private")
+	require.Contains(t, r.Body.String(), `"request_id":"customer-visible-request"`)
+	require.Contains(t, r.Body.String(), `"verification_cases"`)
+	require.Contains(t, r.Body.String(), `"route_states"`)
+	require.Contains(t, r.Body.String(), `"probe_request_id":"ztapi-health-verify-admin"`)
+	require.Contains(t, r.Body.String(), `"channel_id":7`)
 	require.Equal(t, 400, call("POST", path+"/recover", token, `{"generation":1,"evidence":""}`).Code)
 	require.Equal(t, 409, call("POST", path+"/recover", token, `{"generation":9,"evidence":"test evidence"}`).Code)
 	r = call("POST", path+"/recover", token, `{"generation":1,"evidence":"test evidence"}`)

@@ -193,6 +193,7 @@ func ThinkingAdaptor(geminiRequest *dto.GeminiChatRequest, info *relaycommon.Rel
 				ThinkingLevel:   level,
 			}
 			info.ReasoningEffort = level
+			relaycommon.MarkReasoningEffortSource(info, relaycommon.ReasoningEffortSourceModelSuffix)
 		}
 	}
 }
