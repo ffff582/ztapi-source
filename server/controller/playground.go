@@ -2,13 +2,13 @@ package controller
 
 import (
 	"errors"
-	"fmt"
+	"net/http"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
-	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -19,13 +19,24 @@ func playgroundAccessAllowed(c *gin.Context) bool {
 		common.GetContextKeyBool(c, constant.ContextKeyZTAPIJWTAuthenticated)
 }
 
-func playgroundTemporaryToken(userID int, group string) *model.Token {
-	return &model.Token{
-		UserId:         userID,
-		Name:           fmt.Sprintf("playground-%s", group),
-		Group:          group,
-		UnlimitedQuota: true,
+func selectPlaygroundBillingToken(tokens []*model.Token, now int64) *model.Token {
+	usable := func(token *model.Token) bool {
+		return token != nil && token.Id > 0 && token.UserId > 0 &&
+			token.Status == common.TokenStatusEnabled && !token.DeletedAt.Valid &&
+			(token.ExpiredTime == -1 || token.ExpiredTime >= now) &&
+			(token.UnlimitedQuota || token.RemainQuota > 0)
 	}
+	for _, token := range tokens {
+		if usable(token) && token.UnlimitedQuota {
+			return token
+		}
+	}
+	for _, token := range tokens {
+		if usable(token) {
+			return token
+		}
+	}
+	return nil
 }
 
 func Playground(c *gin.Context) {
@@ -44,12 +55,6 @@ func Playground(c *gin.Context) {
 		return
 	}
 
-	relayInfo, err := relaycommon.GenRelayInfo(c, types.RelayFormatOpenAI, nil, nil)
-	if err != nil {
-		newAPIError = types.NewError(err, types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
-		return
-	}
-
 	userId := c.GetInt("id")
 
 	// Write user context to ensure acceptUnsetRatio is available
@@ -60,8 +65,20 @@ func Playground(c *gin.Context) {
 	}
 	userCache.WriteContext(c)
 
-	tempToken := playgroundTemporaryToken(userId, relayInfo.UsingGroup)
-	_ = middleware.SetupContextForToken(c, tempToken)
+	tokens, err := model.GetAllUserTokens(userId, 0, 100)
+	if err != nil {
+		newAPIError = types.NewError(err, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
+		return
+	}
+	billingToken := selectPlaygroundBillingToken(tokens, time.Now().Unix())
+	if billingToken == nil {
+		newAPIError = types.NewErrorWithStatusCode(errors.New("请先创建一个可用的 API 密钥"), types.ErrorCodeAccessDenied, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		return
+	}
+	if err = middleware.SetupContextForToken(c, billingToken); err != nil {
+		newAPIError = types.NewError(err, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
+		return
+	}
 
 	Relay(c, types.RelayFormatOpenAI)
 }

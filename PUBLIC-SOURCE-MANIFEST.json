@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "3129d51f9daf1c810d090ff11aa52e53b513500f",
+  "release_commit": "bdb42ad5fdf833e2af683e55264eb9699e6b7aaf",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-3129d51f9daf1c810d090ff11aa52e53b513500f",
+  "source_tag": "production-bdb42ad5fdf833e2af683e55264eb9699e6b7aaf",
   "files": [
     {
       "path": ".dockerignore",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "34d57e0a021977bf356628f14717cd3204fe346e8177e66ce3351c178fbbdbf9",
+      "sha256": "0f2b084e52820ac22f72c96c9c5e9e6b35eeb4ce450e2fe1f5b7fa3152354a16",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "a38ba3757dbfb15335539f1ff9aa6890b26f403bcda68275e5e7a79d194b7943",
+      "sha256": "9bb8b48065ffa17b7bf9962e46dc56afab6cd1e39116bc3ff0a9d0743c01da16",
       "size": 942
     },
     {
@@ -1041,13 +1041,13 @@
     },
     {
       "path": "server/controller/playground.go",
-      "sha256": "4e68a941adfa8dd119de09345c352b5c957ca6a2b4dc614b8eab79b93c9f105b",
-      "size": 1804
+      "sha256": "b74cad3c042add52ccd4cd2cb84d7eccf15184afdefbc77c26d687876cf08b69",
+      "size": 2425
     },
     {
       "path": "server/controller/playground_ztapi_test.go",
-      "sha256": "afacce0af06640b1aa9914998ec8542bee173dc999eaba63a3df6bf8566ae640",
-      "size": 1208
+      "sha256": "351c015c1f226784da9646a93307faff5825bb9821d42ce22af39669e56bf9d6",
+      "size": 2475
     },
     {
       "path": "server/controller/prefill_group.go",

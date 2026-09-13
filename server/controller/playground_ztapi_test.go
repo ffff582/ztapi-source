@@ -2,9 +2,11 @@ package controller
 
 import (
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -31,11 +33,40 @@ func TestPlaygroundAccessAllowsOnlyZTAPIJWTAccessTokens(t *testing.T) {
 	}
 }
 
-func TestPlaygroundTemporaryTokenUsesWalletWithoutFiniteTokenQuota(t *testing.T) {
-	token := playgroundTemporaryToken(17, "default")
-	require.Equal(t, 17, token.UserId)
-	require.Equal(t, "playground-default", token.Name)
-	require.Equal(t, "default", token.Group)
-	require.True(t, token.UnlimitedQuota)
-	require.Zero(t, token.Id)
+func TestPlaygroundBillingTokenPrefersUsableUnlimitedToken(t *testing.T) {
+	now := time.Now().Unix()
+	tokens := []*model.Token{
+		{Id: 9, UserId: 17, Status: common.TokenStatusEnabled, ExpiredTime: -1, RemainQuota: 100},
+		{Id: 8, UserId: 17, Status: common.TokenStatusEnabled, ExpiredTime: now - 1, UnlimitedQuota: true},
+		{Id: 7, UserId: 17, Status: common.TokenStatusEnabled, ExpiredTime: -1, UnlimitedQuota: true},
+	}
+
+	token := selectPlaygroundBillingToken(tokens, now)
+	require.NotNil(t, token)
+	require.Equal(t, 7, token.Id)
+}
+
+func TestPlaygroundBillingTokenFallsBackToUsableFiniteToken(t *testing.T) {
+	now := time.Now().Unix()
+	tokens := []*model.Token{
+		{Id: 9, UserId: 17, Status: common.TokenStatusDisabled, ExpiredTime: -1, UnlimitedQuota: true},
+		{Id: 8, UserId: 17, Status: common.TokenStatusEnabled, ExpiredTime: -1, RemainQuota: 0},
+		{Id: 7, UserId: 17, Status: common.TokenStatusEnabled, ExpiredTime: -1, RemainQuota: 100},
+	}
+
+	token := selectPlaygroundBillingToken(tokens, now)
+	require.NotNil(t, token)
+	require.Equal(t, 7, token.Id)
+}
+
+func TestPlaygroundBillingTokenRejectsUnavailableTokens(t *testing.T) {
+	now := time.Now().Unix()
+	tokens := []*model.Token{
+		nil,
+		{Id: 0, UserId: 17, Status: common.TokenStatusEnabled, ExpiredTime: -1, UnlimitedQuota: true},
+		{Id: 8, UserId: 17, Status: common.TokenStatusEnabled, ExpiredTime: now - 1, UnlimitedQuota: true},
+		{Id: 7, UserId: 17, Status: common.TokenStatusEnabled, ExpiredTime: -1, RemainQuota: 0},
+	}
+
+	require.Nil(t, selectPlaygroundBillingToken(tokens, now))
 }
