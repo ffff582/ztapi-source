@@ -346,6 +346,43 @@ func TestZTAPIFinanceAlertAttemptReviewSurvivesSettledParent(t *testing.T) {
 	require.Equal(t, parent, stored, "alerts must not change canonical charges or parent status")
 }
 
+func TestZTAPIFinanceAlertQueueKeepsInternalAcceptanceForReconciliationWithoutTelegram(t *testing.T) {
+	db, _, _, _ := setupZTAPISettlementLogTest(t)
+	require.NoError(t, db.AutoMigrate(&ZTAPISupplierRefund{}, &ZTAPIAttemptBillingReview{}, &ZTAPIHealthRequest{}))
+	require.NoError(t, MigrateZTAPIFinanceAlerts(db))
+	now := time.Unix(2000000000, 0).UTC()
+
+	for index, source := range []string{"acceptance", "real"} {
+		requestID := fmt.Sprintf("00000000-0000-4000-8000-%012d", index+1)
+		parent := ZTAPIRequestSettlement{OperationID: "traffic-" + source, RequestID: requestID,
+			Status: ZTAPISettlementSettled, FinalAttempt: 2, UpdatedAt: now}
+		require.NoError(t, db.Create(&parent).Error)
+		review := ZTAPIAttemptBillingReview{SettlementID: parent.ID, RequestID: requestID, Attempt: 1,
+			Status: "pending", PendingReason: "upstream_attempt_billing_unconfirmed", UpdatedAt: now}
+		require.NoError(t, db.Create(&review).Error)
+		require.NoError(t, db.Create(&ZTAPIHealthRequest{ExecutionID: "health-" + source, RequestID: requestID,
+			ModelID: 1, ConfigVersion: 1, Generation: 1, PublicModel: "zt-test", Modality: "text",
+			EntryProtocol: "responses", UserID: 7, Source: source, StartedAt: now.Unix(), Completed: true, Admissions: "[]"}).Error)
+
+		pendingRequestID := fmt.Sprintf("00000000-0000-4000-9000-%012d", index+1)
+		pending := ZTAPIRequestSettlement{OperationID: "pending-" + source, RequestID: pendingRequestID,
+			Status: ZTAPISettlementPending, MissingDimensionsJSON: `["billing_application_pending"]`, UpdatedAt: now}
+		require.NoError(t, db.Create(&pending).Error)
+		require.NoError(t, db.Create(&ZTAPIHealthRequest{ExecutionID: "pending-health-" + source, RequestID: pendingRequestID,
+			ModelID: 1, ConfigVersion: 1, Generation: 1, PublicModel: "zt-test", Modality: "text",
+			EntryProtocol: "responses", UserID: 7, Source: source, StartedAt: now.Unix(), Completed: true, Admissions: "[]"}).Error)
+	}
+
+	queued, err := QueuePendingZTAPIFinanceAlerts(context.Background(), db, now, 100)
+	require.NoError(t, err)
+	require.Equal(t, 2, queued, "acceptance records remain pending but do not create Telegram work")
+	var reviews, alerts int64
+	require.NoError(t, db.Model(&ZTAPIAttemptBillingReview{}).Where("status = ?", "pending").Count(&reviews).Error)
+	require.EqualValues(t, 2, reviews, "both records remain available for supplier reconciliation")
+	require.NoError(t, db.Model(&ZTAPIFinanceAlertOutbox{}).Count(&alerts).Error)
+	require.EqualValues(t, 2, alerts)
+}
+
 func TestZTAPIFinanceAlertAttemptQueueRemainsBoundedAndRedactsIDs(t *testing.T) {
 	db, _, _, _ := setupZTAPISettlementLogTest(t)
 	require.NoError(t, db.AutoMigrate(&ZTAPISupplierRefund{}, &ZTAPIAttemptBillingReview{}))

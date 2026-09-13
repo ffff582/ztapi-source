@@ -61,6 +61,33 @@ func TestZTAPIHealthProbePinMiddlewareAllowsOrdinaryRequests(t *testing.T) {
 	require.Nil(t, relaycommon.GetZTAPIHealthProbePin(c))
 }
 
+func TestZTAPIHealthProbePinMiddlewareMarksOnlyTrustedInternalAcceptance(t *testing.T) {
+	for _, fixture := range []struct {
+		name   string
+		proto  string
+		marked bool
+	}{
+		{name: "loopback acceptance listener", proto: "http", marked: true},
+		{name: "public TLS request cannot opt out", proto: "https", marked: false},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			_, called, c := runZTAPIHealthProbePinMiddleware(t, "172.20.0.3:1234", 7, map[string]string{
+				"X-Request-ID":                "acceptance-request",
+				"X-Forwarded-Proto":           fixture.proto,
+				ZTAPIInternalAcceptanceHeader: "1",
+			}, func(context.Context, string, string, string, time.Time) (model.ZTAPIHealthVerificationPin, error) {
+				t.Fatal("acceptance request must not touch verification pin storage")
+				return model.ZTAPIHealthVerificationPin{}, nil
+			})
+			require.True(t, called)
+			require.Empty(t, c.Request.Header.Get(ZTAPIInternalAcceptanceHeader))
+			require.Equal(t, fixture.marked, common.GetContextKeyBool(c, constant.ContextKeyZTAPIInternalAcceptance))
+			value, _ := c.Request.Context().Value(constant.ContextKeyZTAPIInternalAcceptance).(bool)
+			require.Equal(t, fixture.marked, value)
+		})
+	}
+}
+
 func TestZTAPIHealthProbePinMiddlewareRejectsPartialForgedAndWrongUserPins(t *testing.T) {
 	complete := map[string]string{
 		ZTAPIHealthProbeCaseHeader:  "case-1",

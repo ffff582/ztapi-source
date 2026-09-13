@@ -42,6 +42,7 @@ const (
 	ContextKeyChannelKey                     ContextKey = "channel_key"
 	ContextKeyZTAPIHealthCredentialPin       ContextKey = "ztapi_health_credential_pin"
 	ContextKeyZTAPIHealthExcludedCredentials ContextKey = "ztapi_health_excluded_credentials"
+	ContextKeyZTAPIInternalAcceptance        ContextKey = "ztapi_internal_acceptance"
 
 	ContextKeyAutoGroup           ContextKey = "auto_group"
 	ContextKeyAutoGroupIndex      ContextKey = "auto_group_index"

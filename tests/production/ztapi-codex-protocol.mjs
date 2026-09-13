@@ -10,6 +10,10 @@ export function validateCodexProtocolConfig(config) {
   if (!Number.isFinite(config.budgetUsd) || config.budgetUsd <= 0) throw new Error('an explicit positive budgetUsd ceiling is required');
   if (!Number.isFinite(config.maxCostPerRequestUsd) || config.maxCostPerRequestUsd <= 0) throw new Error('an explicit positive maxCostPerRequestUsd ceiling is required');
   if (config.budgetUsd < 4 * config.maxCostPerRequestUsd) throw new Error('budgetUsd cannot cover the four required acceptance requests');
+  const hostname = new URL(config.baseUrl).hostname;
+  if (hostname !== '127.0.0.1' && hostname !== '[::1]') {
+    throw new Error('baseUrl must use the loopback acceptance listener through an SSH tunnel');
+  }
 }
 
 function outputText(body) {

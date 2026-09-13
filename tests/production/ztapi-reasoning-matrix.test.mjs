@@ -2,12 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { assertReasoningReportPassed, buildReasoningCases, MAX_OUTPUT_TOKENS, redactSecrets, runReasoningMatrix, validateReasoningConfig } from './ztapi-reasoning-matrix.mjs';
 
-const base = { baseUrl: 'https://public.invalid', adminBaseUrl: 'https://admin.invalid', apiKey: 'sk-customer-secret-123456', adminToken: 'sk-admin-secret-123456', adminUserId: '1', budgetUsd: 0.02, maxCostPerCaseUsd: 0.01, outputPath: 'evidence.json' };
+const base = { baseUrl: 'http://127.0.0.1:18081', adminBaseUrl: 'http://127.0.0.1:18081', apiKey: 'sk-customer-secret-123456', adminToken: 'sk-admin-secret-123456', adminUserId: '1', budgetUsd: 0.02, maxCostPerCaseUsd: 0.01, outputPath: 'evidence.json' };
 
 test('reasoning matrix requires explicit positive budget ceilings and fixes output at 64 tokens', () => {
   assert.equal(MAX_OUTPUT_TOKENS, 64);
   assert.throws(() => validateReasoningConfig({ ...base, budgetUsd: 0 }), /budgetUsd/);
   assert.throws(() => validateReasoningConfig({ ...base, maxCostPerCaseUsd: NaN }), /maxCostPerCaseUsd/);
+  assert.throws(() => validateReasoningConfig({ ...base, baseUrl: 'https://ztapi.vip' }), /loopback acceptance listener/);
+  assert.throws(() => validateReasoningConfig({ ...base, adminBaseUrl: 'https://admin.ztapi.vip' }), /loopback acceptance listener/);
 });
 
 test('reasoning cases cover declared levels, exact ultra mapping, and pending capability discovery', () => {

@@ -134,6 +134,29 @@ test('public nginx proxies customer APIs while preserving isolated acceptance ac
   assert.match(nginx, /location \/v1\/\s*\{[\s\S]*?proxy_pass http:\/\/server:3000;/);
 });
 
+test('only the loopback acceptance listener marks internal validation traffic', () => {
+  const nginx = readFileSync(nginxConfigPath, 'utf8');
+  const publicStart = nginx.indexOf('server_name ztapi.vip www.ztapi.vip;');
+  const acceptanceStart = nginx.indexOf('server_name acceptance.ztapi.internal;');
+  const publicEnd = acceptanceStart;
+  const acceptanceEnd = nginx.indexOf('\nserver {', acceptanceStart);
+  const publicServer = nginx.slice(publicStart, publicEnd);
+  const acceptanceServer = nginx.slice(acceptanceStart, acceptanceEnd);
+
+  assert.doesNotMatch(publicServer, /X-ZTAPI-Internal-Acceptance\s+"1"/);
+  for (const route of ['/api/', '= /v1', '/v1/', '= /v1beta', '/v1beta/']) {
+    const escaped = route.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    assert.match(
+      publicServer,
+      new RegExp(`location ${escaped}\\s*\\{[\\s\\S]*?proxy_set_header X-ZTAPI-Internal-Acceptance "";`),
+    );
+    assert.match(
+      acceptanceServer,
+      new RegExp(`location ${escaped}\\s*\\{[\\s\\S]*?proxy_set_header X-ZTAPI-Internal-Acceptance "1";`),
+    );
+  }
+});
+
 test('public image retains license and notice files', () => {
   const dockerfile = readFileSync(nginxDockerfilePath, 'utf8');
   const dockerignore = readFileSync(dockerignorePath, 'utf8');

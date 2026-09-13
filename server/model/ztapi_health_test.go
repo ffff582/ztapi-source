@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
@@ -682,6 +683,40 @@ func TestZTAPIAutomaticProbeCannotTripLegacyModelCircuit(t *testing.T) {
 	var unpublishes int64
 	require.NoError(t, s.DB.Model(&ZTAPIHealthOutbox{}).Where("kind = ?", "unpublish").Count(&unpublishes).Error)
 	require.Zero(t, unpublishes)
+}
+
+func TestZTAPIInternalAcceptanceIsAuditedWithoutTrippingHealth(t *testing.T) {
+	s, c, _ := healthFixture(t)
+	ctx := context.WithValue(context.Background(), constant.ContextKeyZTAPIInternalAcceptance, true)
+
+	for _, executionID := range []string{"acceptance-one", "acceptance-two"} {
+		ticket, err := s.AdmitRequest(ctx, c.PublicNameValue(), executionID, executionID, 7, false)
+		require.NoError(t, err)
+		require.Equal(t, "acceptance", ticket.Source)
+		require.NoError(t, s.RecordOutcome(ctx, ticket, types.ZTAPIHealthOutcome{
+			Result: "failure", Reason: "upstream_http_error", Dispatched: true,
+		}))
+	}
+
+	state, err := s.GetState(context.Background(), c.ID)
+	require.NoError(t, err)
+	require.False(t, state.Open)
+	require.Zero(t, state.ConsecutiveFailures)
+	window, err := s.Window(context.Background(), c.ID)
+	require.NoError(t, err)
+	require.Zero(t, window.ValidSamples)
+	require.Zero(t, window.Failures)
+
+	var events []ZTAPIHealthEvent
+	require.NoError(t, s.DB.Order("id ASC").Find(&events).Error)
+	require.Len(t, events, 2)
+	for _, event := range events {
+		require.Equal(t, "acceptance", event.Source)
+		require.False(t, event.Counted)
+	}
+	var outboxCount int64
+	require.NoError(t, s.DB.Model(&ZTAPIHealthOutbox{}).Count(&outboxCount).Error)
+	require.Zero(t, outboxCount)
 }
 
 func healthTrip(t *testing.T, s *ZTAPIHealthStore, c ZTAPIModelConfig) {

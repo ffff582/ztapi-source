@@ -18,8 +18,9 @@ import (
 )
 
 const (
-	ZTAPIHealthProbeCaseHeader  = "X-ZTAPI-Health-Case-ID"
-	ZTAPIHealthProbeLeaseHeader = "X-ZTAPI-Health-Lease-Token"
+	ZTAPIHealthProbeCaseHeader    = "X-ZTAPI-Health-Case-ID"
+	ZTAPIHealthProbeLeaseHeader   = "X-ZTAPI-Health-Lease-Token"
+	ZTAPIInternalAcceptanceHeader = "X-ZTAPI-Internal-Acceptance"
 )
 
 type ztapiHealthProbePinValidator func(context.Context, string, string, string, time.Time) (model.ZTAPIHealthVerificationPin, error)
@@ -57,6 +58,12 @@ func rejectZTAPIHealthProbePin(c *gin.Context) {
 
 func ztapiHealthProbePinMiddleware(probeUserID int, now func() time.Time, validate ztapiHealthProbePinValidator) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		acceptance := strings.TrimSpace(c.GetHeader(ZTAPIInternalAcceptanceHeader))
+		c.Request.Header.Del(ZTAPIInternalAcceptanceHeader)
+		if acceptance == "1" && strings.EqualFold(strings.TrimSpace(c.GetHeader("X-Forwarded-Proto")), "http") {
+			common.SetContextKey(c, constant.ContextKeyZTAPIInternalAcceptance, true)
+			c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), constant.ContextKeyZTAPIInternalAcceptance, true))
+		}
 		caseID := strings.TrimSpace(c.GetHeader(ZTAPIHealthProbeCaseHeader))
 		leaseToken := strings.TrimSpace(c.GetHeader(ZTAPIHealthProbeLeaseHeader))
 		if caseID == "" && leaseToken == "" {

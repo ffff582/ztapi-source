@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/types"
 	"gorm.io/gorm"
 )
@@ -178,8 +179,11 @@ func (s *ZTAPIHealthStore) admitRequest(ctx context.Context, requestedModel, exe
 			return err
 		}
 		source := "real"
+		acceptance, _ := ctx.Value(constant.ContextKeyZTAPIInternalAcceptance).(bool)
 		probeUser, parseErr := strconv.Atoi(strings.TrimSpace(os.Getenv("ZTAPI_HEALTH_PROBE_USER_ID")))
-		if parseErr == nil && probeUser > 0 && userID == probeUser {
+		if acceptance {
+			source = "acceptance"
+		} else if parseErr == nil && probeUser > 0 && userID == probeUser {
 			source = "probe"
 		}
 		r := ZTAPIHealthRequest{ExecutionID: executionID, RequestID: requestID, ModelID: config.ID,
@@ -538,7 +542,7 @@ func (s *ZTAPIHealthStore) completeTx(tx *gorm.DB, state *ZTAPIHealthState, r *Z
 	stale := r.Generation != state.Generation
 	// Automatic verification probes are evaluated by the route-scoped
 	// verification store. They must never feed the legacy model-wide circuit.
-	legacyCircuitCounted := r.Source != "real" && r.Source != "probe"
+	legacyCircuitCounted := r.Source != "real" && r.Source != "probe" && r.Source != "acceptance"
 	state.CompletionSequence++
 	event := ZTAPIHealthEvent{ExecutionID: r.ExecutionID, RequestID: r.RequestID, ModelID: r.ModelID,
 		ConfigVersion: r.ConfigVersion, Generation: r.Generation, PublicModel: r.PublicModel,

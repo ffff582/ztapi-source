@@ -22,6 +22,12 @@ export function validateReasoningConfig(config) {
   if (!Number.isFinite(config.maxCostPerCaseUsd) || config.maxCostPerCaseUsd <= 0) {
     throw new Error('an explicit positive maxCostPerCaseUsd ceiling is required');
   }
+  for (const name of ['baseUrl', 'adminBaseUrl']) {
+    const hostname = new URL(config[name]).hostname;
+    if (hostname !== '127.0.0.1' && hostname !== '[::1]') {
+      throw new Error(`${name} must use the loopback acceptance listener through an SSH tunnel`);
+    }
+  }
 }
 
 export function buildReasoningCases(models) {

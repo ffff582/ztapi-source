@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { runCodexProtocolAcceptance, validateCodexProtocolConfig } from './ztapi-codex-protocol.mjs';
 
 const config = {
-  baseUrl: 'https://ztapi.invalid',
+  baseUrl: 'http://127.0.0.1:18081',
   apiKey: 'sk-zt-secret-value',
   model: 'gpt-5.6-sol',
   budgetUsd: 1,
@@ -13,6 +13,7 @@ const config = {
 test('Codex protocol acceptance requires explicit credentials and budget', () => {
   assert.throws(() => validateCodexProtocolConfig({ ...config, apiKey: '' }), /apiKey/);
   assert.throws(() => validateCodexProtocolConfig({ ...config, budgetUsd: 0 }), /budgetUsd/);
+  assert.throws(() => validateCodexProtocolConfig({ ...config, baseUrl: 'https://ztapi.vip' }), /loopback acceptance listener/);
 });
 
 test('Codex protocol acceptance verifies apply_patch round trip and compacted context', async () => {
