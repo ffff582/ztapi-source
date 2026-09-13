@@ -36,7 +36,7 @@ export function buildReasoningCases(models) {
       cases.push({ publicModel: model.public_name, sourceModel: model.source_model, requestedEffort: 'ultra', expected: 'accepted', expectedForwarded: 'max', expectedSource: 'codex_alias_mapping' });
     } else if (efforts.length > 0) {
       cases.push({ publicModel: model.public_name, sourceModel: model.source_model, requestedEffort: 'ultra', expected: 'unsupported', expectedForwarded: null, expectedSource: null });
-    } else if (model.live_validation_required === true) {
+    } else if (model.reasoning_capability_live_validation_required === true) {
       for (const effort of discoveryEfforts) {
         cases.push({ publicModel: model.public_name, sourceModel: model.source_model, requestedEffort: effort, expected: 'discover', expectedForwarded: effort, expectedSource: 'request' });
       }
@@ -109,10 +109,10 @@ export async function runReasoningMatrix(config, fetchImpl = fetch) {
   for (const [index, testCase] of cases.entries()) {
     if (reservedUsd + config.maxCostPerCaseUsd > config.budgetUsd) break;
     reservedUsd += config.maxCostPerCaseUsd;
-    const requestId = `ztapi-reasoning-${Date.now()}-${index}`;
+    const clientRequestId = `ztapi-reasoning-${Date.now()}-${index}`;
     const { response, body } = await jsonRequest(fetchImpl, `${config.baseUrl}/v1/responses`, {
       method: 'POST',
-      headers: { ...headers(config.apiKey), 'X-Request-ID': requestId },
+      headers: { ...headers(config.apiKey), 'X-Request-ID': clientRequestId },
       body: JSON.stringify({
         model: testCase.publicModel,
         input: [{ role: 'system', content: '你是一个简洁、客观的助手。' }, { role: 'user', content: neutralInput }],
@@ -120,6 +120,7 @@ export async function runReasoningMatrix(config, fetchImpl = fetch) {
         max_output_tokens: MAX_OUTPUT_TOKENS,
       }),
     });
+    const requestId = String(response.headers.get('x-request-id') ?? '').trim() || clientRequestId;
     const evidence = safeResponseEvidence(response.status, body);
     const audit = response.ok ? await waitForAudit(fetchImpl, config, requestId) : null;
     let discovery = null;
@@ -143,7 +144,7 @@ export async function runReasoningMatrix(config, fetchImpl = fetch) {
         && audit?.received === testCase.requestedEffort
         && audit?.forwarded === testCase.expectedForwarded
         && audit?.source === testCase.expectedSource;
-    results.push({ ...testCase, requestId, ...evidence, audit, discovery, passed });
+    results.push({ ...testCase, clientRequestId, requestId, ...evidence, audit, discovery, passed });
   }
   return { generatedAt: new Date().toISOString(), maxOutputTokens: MAX_OUTPUT_TOKENS, budgetUsd: config.budgetUsd, reservedUsd, plannedCases: cases.length, executedCases: results.length, results };
 }

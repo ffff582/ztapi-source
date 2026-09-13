@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "05cf364ae484470c8dc62f8eebe2243a4ffb95c6",
+  "release_commit": "80b0e4a7c149458415f43df6fb1e6475146f8e9c",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-05cf364ae484470c8dc62f8eebe2243a4ffb95c6",
+  "source_tag": "production-80b0e4a7c149458415f43df6fb1e6475146f8e9c",
   "files": [
     {
       "path": ".dockerignore",
@@ -46,7 +46,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "5bfdfb3fa9d720e158884200bffb7aa2418db2269fc5c396243b4e2f1e73e3bd",
+      "sha256": "c175761647883ce28f87dc11867a6e2695c646c86425ded418665a5d49cc27e0",
       "size": 695
     },
     {
@@ -61,7 +61,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "55b41b480f4e274b357c32cff1a846524f8c9f36cdc226efd433d3e494e5f9ef",
+      "sha256": "53a17d3744914c77d363530ec6883413bfedbc4973ef25aa6aaa7bd01f406e0e",
       "size": 942
     },
     {
@@ -9166,13 +9166,13 @@
     },
     {
       "path": "tests/production/ztapi-reasoning-matrix.mjs",
-      "sha256": "d06bac37a0af4f0382f21ec4f67f909611f93da404180e27ac1097668b669bff",
-      "size": 8935
+      "sha256": "2bd7fc8793e7fa640739ada1123ac78dbc7be9ba70dde6174553dba7fd4d1a3a",
+      "size": 9085
     },
     {
       "path": "tests/production/ztapi-reasoning-matrix.test.mjs",
-      "sha256": "a773b7faf0a7b6b218ae4ffb2bb2491822ee5ad0677d726a839936645dbb444a",
-      "size": 6668
+      "sha256": "9fbee66187014b04f70c1df2cfb027da42c82ad784467e4c322925b5314dd203",
+      "size": 7089
     },
     {
       "path": "tests/repository-layout.test.mjs",
