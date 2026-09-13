@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "ab364ab6d468db2a6a1e47f398aa2849d37a7d4f",
+  "release_commit": "01e550a9f84ff63a2b88f893234434a2c94f8911",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-ab364ab6d468db2a6a1e47f398aa2849d37a7d4f",
+  "source_tag": "production-01e550a9f84ff63a2b88f893234434a2c94f8911",
   "files": [
     {
       "path": ".dockerignore",
@@ -21,8 +21,8 @@
     },
     {
       "path": ".github/workflows/ztapi-deploy.yml",
-      "sha256": "1c8dfb3c2fb9d33dfb7831a82bd6dde5245d9c240077b60a1122ba14758c7cdd",
-      "size": 135025
+      "sha256": "26622a8f4bcc29c4464a9ccd9efcd32bc534b2d761dccdea645bf3414f5b1093",
+      "size": 137363
     },
     {
       "path": ".github/workflows/ztapi-edge-diagnostic.yml",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "37495be79fc8af4583bc0550e7be06147a122db145fd0bd7363930ebe843c1b9",
+      "sha256": "864903a5682f551b7ebffb48153c5c1cc9c4392d871364ee4b6bd2052f6bb5c8",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "dd08d9ebe01ecb26c0bef714c02dec09cd6b5af263682c89dae5ee91b03b9a0b",
+      "sha256": "ad1578ea1faaa3c1df080c8e7d8217fb9c40400bfa91b3bd9d8ddd8869b74850",
       "size": 942
     },
     {
@@ -1776,8 +1776,8 @@
     },
     {
       "path": "server/middleware/auth.go",
-      "sha256": "3adbc49373fef233e1f8351ae31e3094161a2977ab657fadc358a2666b6524fa",
-      "size": 20014
+      "sha256": "eb5864ccff895d49048ab621267e5644e9232e2c3f2f0361d2739cf120a122a5",
+      "size": 20044
     },
     {
       "path": "server/middleware/auth_contract_test.go",
@@ -1941,8 +1941,8 @@
     },
     {
       "path": "server/middleware/user_auth_test.go",
-      "sha256": "f211d2f2ebf5919a9339e70e543133e881233786aab58ecd0ece10020b740267",
-      "size": 6872
+      "sha256": "966a6c08e0a189356df6d37748c23c7f5182af373267c2cb8b10dbc7faf61501",
+      "size": 8116
     },
     {
       "path": "server/middleware/utils.go",
@@ -9096,8 +9096,8 @@
     },
     {
       "path": "tests/contracts/deployment-workflow.test.mjs",
-      "sha256": "a9fa12f757eb48b143c7fc783800f4a125bce052e31f40419d8a59ddd082ac5d",
-      "size": 28796
+      "sha256": "14196f5896f11a0169f1e6be596b2ce60ff7292d29d094d99e04e4f4fed9793e",
+      "size": 29118
     },
     {
       "path": "tests/contracts/deployment.test.mjs",

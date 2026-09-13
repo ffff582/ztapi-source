@@ -123,6 +123,7 @@ func loadAuthenticatedIdentity(c *gin.Context) (*authenticatedIdentity, bool) {
 		identity.role = user.Role
 		identity.id = user.Id
 		identity.status = user.Status
+		identity.group = user.Group
 		identity.useAccessToken = true
 	} else {
 		var ok bool

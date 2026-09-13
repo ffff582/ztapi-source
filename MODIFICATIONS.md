@@ -1,7 +1,7 @@
 # ZTAPI Modifications
 
 ZTAPI is a modified version of New API. The production release represented by
-this snapshot is `ab364ab6d468db2a6a1e47f398aa2849d37a7d4f` and was prepared on `2026-09-13`.
+this snapshot is `01e550a9f84ff63a2b88f893234434a2c94f8911` and was prepared on `2026-09-13`.
 
 Major modifications include:
 

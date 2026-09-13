@@ -2010,6 +2010,31 @@ jobs:
           [[ "$chat_request_id" =~ ^[A-Za-z0-9_-]{8,64}$ ]]
           rm -f "$chat_headers" "$chat_body"
 
+          playground_headers=$(mktemp /tmp/ztapi-playground-headers.XXXXXX)
+          playground_body=$(mktemp /tmp/ztapi-playground-body.XXXXXX)
+          playground_http_status=$(jq -cn '{
+              model:"zt-gpt-4.1-nano",
+              messages:[
+                {role:"system",content:"You are a concise assistant."},
+                {role:"user",content:"What is 12 plus 30?"}
+              ],
+              max_tokens:16,
+              stream:false
+            }' |
+            curl --silent --show-error --max-time 120 \
+              --dump-header "$playground_headers" \
+              --output "$playground_body" --write-out '%{http_code}' \
+              --header 'Content-Type: application/json' \
+              --header "Authorization: Bearer $acceptance_user_access_token" \
+              --header "New-API-User: $acceptance_user_id" \
+              --data-binary @- \
+              "$acceptance_origin/pg/chat/completions")
+          test "$playground_http_status" = 200
+          jq -e '.choices[0].message.content | type == "string" and length > 0' "$playground_body" >/dev/null
+          playground_request_id=$(awk 'tolower($1) == "x-request-id:" {print $2}' "$playground_headers" | tr -d '\r' | tail -n 1)
+          [[ "$playground_request_id" =~ ^[A-Za-z0-9_-]{8,64}$ ]]
+          rm -f "$playground_headers" "$playground_body"
+
           embedding_headers=$(mktemp /tmp/ztapi-embedding-headers.XXXXXX)
           embedding_body=$(mktemp /tmp/ztapi-embedding-body.XXXXXX)
           embedding_http_status=$(jq -cn '{model:"zt-text-embedding-3-small",input:"ZTAPI commercial acceptance"}' |
@@ -2109,6 +2134,10 @@ jobs:
               --header "Authorization: Bearer $acceptance_user_access_token" \
               --header "New-API-User: $acceptance_user_id" \
               "$acceptance_origin/api/log/self?request_id=$chat_request_id&p=1&page_size=10")
+            playground_user_log=$(curl --fail --silent --show-error \
+              --header "Authorization: Bearer $acceptance_user_access_token" \
+              --header "New-API-User: $acceptance_user_id" \
+              "$acceptance_origin/api/log/self?request_id=$playground_request_id&p=1&page_size=10")
             embedding_user_log=$(curl --fail --silent --show-error \
               --header "Authorization: Bearer $acceptance_user_access_token" \
               --header "New-API-User: $acceptance_user_id" \
@@ -2146,6 +2175,8 @@ jobs:
             fi
             if echo "$chat_user_log" | jq -e \
                 '.success == true and .data.total == 1 and .data.items[0].model == "zt-gpt-4.1-nano" and .data.items[0].status == "success"' >/dev/null &&
+              echo "$playground_user_log" | jq -e \
+                '.success == true and .data.total == 1 and .data.items[0].model == "zt-gpt-4.1-nano" and .data.items[0].status == "success"' >/dev/null &&
               echo "$embedding_user_log" | jq -e \
                 '.success == true and .data.total == 1 and .data.items[0].model == "zt-text-embedding-3-small" and .data.items[0].status == "success"' >/dev/null &&
               [ "$image_log_ready" = true ] &&
@@ -2155,6 +2186,8 @@ jobs:
             sleep 1
           done
           chat_billed_amount=$(echo "$chat_user_log" | jq -er \
+            'select(.data.total == 1 and .data.items[0].status == "success") | .data.items[0].billed_amount')
+          playground_billed_amount=$(echo "$playground_user_log" | jq -er \
             'select(.data.total == 1 and .data.items[0].status == "success") | .data.items[0].billed_amount')
           embedding_billed_amount=$(echo "$embedding_user_log" | jq -er \
             'select(.data.total == 1 and .data.items[0].status == "success") | .data.items[0].billed_amount')
@@ -2323,6 +2356,8 @@ jobs:
             --arg chat_model "zt-gpt-4.1-nano" \
             --arg chat_request_id "$chat_request_id" \
             --argjson chat_billed_amount "$chat_billed_amount" \
+            --arg playground_request_id "$playground_request_id" \
+            --argjson playground_billed_amount "$playground_billed_amount" \
             --arg embedding_model "zt-text-embedding-3-small" \
             --arg embedding_request_id "$embedding_request_id" \
             --argjson embedding_billed_amount "$embedding_billed_amount" \
@@ -2350,6 +2385,7 @@ jobs:
               public_catalog_count:$catalog_count,
               published_media_count:2,
               text:{model:$chat_model,request_id:$chat_request_id,status:"success",billed_amount:$chat_billed_amount},
+              playground:{model:$chat_model,request_id:$playground_request_id,status:"success",billed_amount:$playground_billed_amount},
               embedding:{model:$embedding_model,request_id:$embedding_request_id,status:"success",billed_amount:$embedding_billed_amount},
               image:{model:$image_model,request_id:$image_request_id,status:$image_status,billed_amount:$image_billed_amount},
               gemini_image:{model:$gemini_image_model,request_id:$gemini_image_request_id,status:$gemini_image_status,billed_amount:$gemini_image_billed_amount},

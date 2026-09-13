@@ -11,6 +11,8 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/gin-contrib/sessions"
+	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -80,6 +82,38 @@ func TestUserAuthAcceptsLoginJWTWithoutLegacyHeadersAndLoadsCurrentUser(t *testi
 	}
 	if got := contextValues["use_access_token"]; got != true {
 		t.Fatalf("context use_access_token = %#v, want true", got)
+	}
+}
+
+func TestUserAuthJWTLoadsCurrentUserGroupForPlaygroundDistribution(t *testing.T) {
+	db, user := setupZTAPIUserAuthTest(t)
+	token, err := service.IssueZTAPIAccessToken(user.Id, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("issue access token: %v", err)
+	}
+	if err := db.Model(user).Update("group", "updated-group").Error; err != nil {
+		t.Fatalf("update current user group: %v", err)
+	}
+
+	var usingGroup string
+	engine := gin.New()
+	engine.Use(sessions.Sessions("session", cookie.NewStore([]byte("playground-group-test"))))
+	engine.GET("/playground", UserAuth(), func(c *gin.Context) {
+		usingGroup = c.GetString("group")
+		c.Status(http.StatusNoContent)
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/playground", nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set("New-Api-User", fmt.Sprint(user.Id))
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204; body=%s", recorder.Code, recorder.Body.String())
+	}
+	if usingGroup != "updated-group" {
+		t.Fatalf("playground distribution group = %q, want updated-group", usingGroup)
 	}
 }
 

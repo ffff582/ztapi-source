@@ -471,6 +471,7 @@ test('guarded deployment completes and cleans an ordinary-user production journe
     '/api/auth/login',
     '/api/token/',
     '/api/user/models',
+    '/pg/chat/completions',
     '/v1/chat/completions',
     '/v1/embeddings',
     '/api/log/self',
@@ -480,6 +481,12 @@ test('guarded deployment completes and cleans an ordinary-user production journe
     assert.match(source, new RegExp(route.replaceAll('/', '\\/')));
   }
   assert.match(source, /zt-gpt-4\.1-nano/);
+  assert.match(
+    source,
+    /playground_http_status=[\s\S]*"Authorization: Bearer \$acceptance_user_access_token"[\s\S]*"New-API-User: \$acceptance_user_id"[\s\S]*\/pg\/chat\/completions/,
+  );
+  assert.match(source, /playground_request_id/);
+  assert.match(source, /playground_user_log/);
   assert.match(source, /zt-text-embedding-3-small/);
   assert.match(source, /ordinary-user-production-code\.json/);
   assert.match(source, /cleanup_synthetic_acceptance/);
