@@ -53,6 +53,16 @@ test('administration host blocks public registration and protects its login', ()
   assert.doesNotMatch(adminHost, /location \/v1beta\//);
 });
 
+test('administration host allows long-running managed model verification', () => {
+  const source = readFileSync(nginxConfigPath, 'utf8');
+  const adminHost = serverBlock(source, 'admin.ztapi.vip');
+
+  assert.match(
+    adminHost,
+    /location ~ \^\/api\/models\/ztapi\/\[1-9\]\[0-9\]\*\/verify\$\s*\{[\s\S]*?proxy_read_timeout 660s;/,
+  );
+});
+
 test('administration host sends strict browser security headers', () => {
   const source = readFileSync(nginxConfigPath, 'utf8');
   const adminHost = serverBlock(source, 'admin.ztapi.vip');

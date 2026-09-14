@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "2a3035ff207bfdbd526c4ec9faa71267d5561ba2",
+  "release_commit": "f0c9aa7e185dc01be28defd8b79f475832b32e9f",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-2a3035ff207bfdbd526c4ec9faa71267d5561ba2",
+  "source_tag": "production-f0c9aa7e185dc01be28defd8b79f475832b32e9f",
   "files": [
     {
       "path": ".dockerignore",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "33f19b4ab4207c2cd5b61e4f0caecfb1c45b04409960a5231ed26f82b42ac5e6",
+      "sha256": "41bfd4aabb490ba7cc81a08b738a76d3d5657dea51f13ddedbe72d8305e54293",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "3ba898bbe0a4c761bfd5c662fe621308af82ff2267ab68c4fcce5e2c56a965d5",
+      "sha256": "89f7a14d4d8c5c1ff97401f7809f4d7029f9c046eb8bfe542888e904043e715b",
       "size": 942
     },
     {
@@ -131,8 +131,8 @@
     },
     {
       "path": "deploy/nginx/ztapi.conf",
-      "sha256": "fdd4d9c2a9e61ab05ebeefc1ab7ac69ff486868abae712bb7cbff1c8f036621a",
-      "size": 14889
+      "sha256": "7d56c2656ca1313d44d8bfd60c316a6e0718729da857422b1c644304333e12b7",
+      "size": 15356
     },
     {
       "path": "deploy/scripts/ztapi-image-acceptance-fingerprint.sh",
@@ -9236,8 +9236,8 @@
     },
     {
       "path": "tests/runtime/production-config.test.mjs",
-      "sha256": "10b0e399fc7a1be3e034541c12a52154128bbfffcba5a7b094753112aa7473f8",
-      "size": 5844
+      "sha256": "1d0be60bb227ca10ba8a7519924f6ae9964e6690a41949dc6f0b92f267791341",
+      "size": 6191
     },
     {
       "path": "tests/runtime/production-edge.test.mjs",
