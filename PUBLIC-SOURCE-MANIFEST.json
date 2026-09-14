@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "c10b3fdb64eb5c4a7fa0a9647d347efc47218563",
+  "release_commit": "736d64507cf1dfbc9343a59eaa0c89f781e8967a",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-c10b3fdb64eb5c4a7fa0a9647d347efc47218563",
+  "source_tag": "production-736d64507cf1dfbc9343a59eaa0c89f781e8967a",
   "files": [
     {
       "path": ".dockerignore",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "654e1679e1de758b9bb48f32626dc662ad2bfff57bf447b7e01b0dd171b941f1",
+      "sha256": "e4f9f85f03b8e2fa7aa1c12408a67f4c6b93b4b2f9ba71a48283a58fc53e9edc",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "35d123662f1d0919006a7c7702c20985d3e111870cb19b714bb68e5134b02e0b",
+      "sha256": "a93a7bd65dcd8acca659c08586c479daf7a506c581914e85158e56d99fc96c51",
       "size": 942
     },
     {
@@ -3451,13 +3451,13 @@
     },
     {
       "path": "server/relay/channel/task/aihub/seedance.go",
-      "sha256": "6afb420f4e67e15c251ee20cd3fb8a6db31a6395658836fabe76721cf2d12daa",
-      "size": 15584
+      "sha256": "04bb209764b887cc204fa835215e5d45ad5883fafd9f3da019e0f3f1edea0ae7",
+      "size": 16075
     },
     {
       "path": "server/relay/channel/task/aihub/seedance_test.go",
-      "sha256": "6a5ea6371b783870675ab6b110bcfafafe23e1ef675711e74ad7d7c2255366f6",
-      "size": 20939
+      "sha256": "0ccf9e625e8b09c228ba93e2bbbde979f579a7c5815de48960064a1e27c876d6",
+      "size": 21773
     },
     {
       "path": "server/relay/channel/task/ali/adaptor.go",

@@ -247,6 +247,23 @@ func TestZTAPISeedanceAdapterBuildsOnlyFrozenContractFields(t *testing.T) {
 	require.Equal(t, "application/json", request.Header.Get("Content-Type"))
 }
 
+func TestZTAPISeedanceAdapterAcceptsPublishedAliasBeforeModelMapping(t *testing.T) {
+	adaptor := newZTAPIAIHubVideoAdaptor(t)
+	info := ztapiAIHubVideoInfo(t, "https://provider.invalid")
+	contract := info.ZTAPIPublicationSnapshot.VideoProtocolContract
+	info.OriginModelName = "zt-seedance-2.0"
+	info.UpstreamModelName = info.OriginModelName
+	info.ZTAPIPublicationSnapshot.PublicName = info.OriginModelName
+	info.ZTAPIPublicationSnapshot.SourceModel = contract.ProviderModel
+
+	adaptor.Init(info)
+
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", bytes.NewBufferString(`{"model":"zt-seedance-2.0","prompt":"test","size":"720p","duration":5}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+	require.Nil(t, adaptor.ValidateRequestAndSetAction(c, info))
+}
+
 func TestZTAPISeedanceAdapterRejectsSelectorsOutsideFrozenContract(t *testing.T) {
 	for _, body := range []string{
 		`{"prompt":"x","size":"1080p","duration":5}`,

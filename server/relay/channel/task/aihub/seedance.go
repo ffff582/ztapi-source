@@ -53,7 +53,15 @@ func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
 		a.initErr = errors.New("frozen AIHub video protocol contract is invalid")
 		return
 	}
-	if info.UpstreamModelName == "" || sealed.ProviderModel != info.UpstreamModelName {
+	providerModel := strings.TrimSpace(sealed.ProviderModel)
+	snapshotSourceModel := strings.TrimSpace(info.ZTAPIPublicationSnapshot.SourceModel)
+	if snapshotSourceModel != "" && providerModel != snapshotSourceModel {
+		a.initErr = errors.New("frozen AIHub video contract does not match publication source model")
+		return
+	}
+	selectedModel := strings.TrimSpace(info.UpstreamModelName)
+	publicModel := strings.TrimSpace(info.ZTAPIPublicationSnapshot.PublicName)
+	if selectedModel == "" || (selectedModel != providerModel && (publicModel == "" || selectedModel != publicModel)) {
 		a.initErr = errors.New("selected upstream model does not match frozen AIHub video contract")
 		return
 	}
