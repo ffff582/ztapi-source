@@ -580,12 +580,22 @@ test('guarded deployment atomically applies the approved commercial pricing poli
   assert.doesNotMatch(source, /0\.4100000000|3\.4166666667/);
 });
 
-test('guarded deployment proves public registration and leaves it enabled', () => {
+test('guarded deployment respects email verification while proving ordinary-user access', () => {
   const source = readFileSync(workflowPath, 'utf8');
 
-  assert.match(source, /acceptance_register_result/);
+  assert.match(source, /current_email_verification/);
+  assert.match(
+    source,
+    /\.data\.email_verification \| select\(type == "boolean"\)/,
+  );
   assert.match(source, /\{username:\$username,password:\$password\}/);
   assert.match(source, /https:\/\/ztapi\.vip\/api\/auth\/register/);
+  assert.match(source, /acceptance_public_register_status/);
+  assert.match(source, /test "\$acceptance_public_register_status" = "400"/);
+  assert.match(source, /\.success == false/);
+  assert.match(source, /acceptance_admin_create_result/);
+  assert.match(source, /\{username:\$username,password:\$password,display_name:\$username,role:1\}/);
+  assert.match(source, /https:\/\/admin\.ztapi\.vip\/api\/user\//);
   assert.match(source, /"Authorization: Bearer \$admin_access_token"/);
   assert.match(source, /"New-API-User: \$admin_user_id"/);
   assert.match(
@@ -595,6 +605,8 @@ test('guarded deployment proves public registration and leaves it enabled', () =
   assert.match(source, /\{key:\$key,value:true\}/);
   assert.match(source, /\.data\.register_enabled == true/);
   assert.match(source, /\.data\.password_register_enabled == true/);
+  assert.match(source, /synthetic_user_creation_mode/);
+  assert.match(source, /email_verification_enabled/);
   assert.match(source, /write_receipt registration_gate/);
   assert.match(source, /require_receipt registration_gate/);
 

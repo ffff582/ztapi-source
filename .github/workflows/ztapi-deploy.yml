@@ -2090,6 +2090,8 @@ jobs:
             https://ztapi.vip/api/status)
           echo "$registration_status" | jq -e \
             '.data.register_enabled == true and .data.password_register_enabled == true' >/dev/null
+          current_email_verification=$(echo "$registration_status" | jq -er \
+            '.data.email_verification | select(type == "boolean")')
 
           acceptance_username="qa$(openssl rand -hex 5)"
           acceptance_password="Q$(openssl rand -hex 16)"
@@ -2097,14 +2099,43 @@ jobs:
             --arg username "$acceptance_username" \
             --arg password "$acceptance_password" \
             '{username:$username,password:$password}')
-          acceptance_register_result=$(printf '%s' "$acceptance_registration_payload" |
-            curl --fail --silent --show-error \
-              --resolve ztapi.vip:443:127.0.0.1 \
-              --header 'Content-Type: application/json' \
-              --data-binary @- \
-              https://ztapi.vip/api/auth/register)
-          echo "$acceptance_register_result" |
-            jq -e '.success == true and .data.user.role == 1' >/dev/null
+          if [ "$current_email_verification" = true ]; then
+            acceptance_public_register_response=$(printf '%s' "$acceptance_registration_payload" |
+              curl --silent --show-error \
+                --write-out $'\n%{http_code}' \
+                --resolve ztapi.vip:443:127.0.0.1 \
+                --header 'Content-Type: application/json' \
+                --data-binary @- \
+                https://ztapi.vip/api/auth/register)
+            acceptance_public_register_status=${acceptance_public_register_response##*$'\n'}
+            acceptance_public_register_body=${acceptance_public_register_response%$'\n'*}
+            test "$acceptance_public_register_status" = "400"
+            echo "$acceptance_public_register_body" | jq -e '.success == false' >/dev/null
+
+            acceptance_admin_create_result=$(jq -cn \
+              --arg username "$acceptance_username" \
+              --arg password "$acceptance_password" \
+              '{username:$username,password:$password,display_name:$username,role:1}' |
+              curl --fail --silent --show-error --request POST \
+                --resolve admin.ztapi.vip:443:127.0.0.1 \
+                --header 'Content-Type: application/json' \
+                --header "Authorization: Bearer $admin_access_token" \
+                --header "New-API-User: $admin_user_id" \
+                --data-binary @- \
+                https://admin.ztapi.vip/api/user/)
+            echo "$acceptance_admin_create_result" | jq -e '.success == true' >/dev/null
+            synthetic_user_creation_mode="admin_with_email_verification_enforced"
+          else
+            acceptance_register_result=$(printf '%s' "$acceptance_registration_payload" |
+              curl --fail --silent --show-error \
+                --resolve ztapi.vip:443:127.0.0.1 \
+                --header 'Content-Type: application/json' \
+                --data-binary @- \
+                https://ztapi.vip/api/auth/register)
+            echo "$acceptance_register_result" |
+              jq -e '.success == true and .data.user.role == 1' >/dev/null
+            synthetic_user_creation_mode="public_registration"
+          fi
 
           acceptance_login_payload=$(jq -cn \
             --arg username "$acceptance_username" \
@@ -2911,6 +2942,8 @@ jobs:
           ordinary_receipt_tmp="$receipt_dir/ordinary-user-production-code.json.tmp"
           jq -n \
             --arg release_commit "$ZTAPI_RELEASE_VERSION" \
+            --arg synthetic_user_creation_mode "$synthetic_user_creation_mode" \
+            --argjson email_verification_enabled "$current_email_verification" \
             --argjson user_id "$acceptance_user_id" \
             --argjson token_id "$acceptance_token_id" \
             --argjson catalog_count "$acceptance_catalog_count" \
@@ -2939,7 +2972,9 @@ jobs:
               release_commit:$release_commit,
               synthetic_user_id:$user_id,
               synthetic_token_id:$token_id,
-              production_main_domain_registration:"passed",
+              public_registration_policy:"passed",
+              synthetic_user_creation_mode:$synthetic_user_creation_mode,
+              email_verification_enabled:$email_verification_enabled,
               login:"passed",
               api_key_creation:"passed",
               wallet_navigation:"passed",
