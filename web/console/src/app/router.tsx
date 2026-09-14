@@ -6,7 +6,9 @@ import {
 import { ProtectedRoute, PublicOnlyRoute } from '../auth/session';
 import { ConsoleShell } from '../components/layout/ConsoleShell';
 import { LoginPage } from '../features/auth/LoginPage';
+import { ForgotPasswordPage } from '../features/auth/ForgotPasswordPage';
 import { RegisterPage } from '../features/auth/RegisterPage';
+import { ResetPasswordPage } from '../features/auth/ResetPasswordPage';
 import { DashboardPage } from '../features/dashboard/DashboardPage';
 import { UsageGuidePage } from '../features/guide/UsageGuidePage';
 import { KeysPage } from '../features/keys/KeysPage';
@@ -43,6 +45,30 @@ const routes: RouteObject[] = [
     element: (
       <PublicOnlyRoute>
         <RegisterPage />
+      </PublicOnlyRoute>
+    ),
+  },
+  {
+    path: '/forgot-password',
+    element: (
+      <PublicOnlyRoute>
+        <ForgotPasswordPage />
+      </PublicOnlyRoute>
+    ),
+  },
+  {
+    path: '/reset-password',
+    element: (
+      <PublicOnlyRoute>
+        <ResetPasswordPage />
+      </PublicOnlyRoute>
+    ),
+  },
+  {
+    path: '/user/reset',
+    element: (
+      <PublicOnlyRoute>
+        <ResetPasswordPage />
       </PublicOnlyRoute>
     ),
   },

@@ -22,53 +22,16 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestZTAPISeedanceUnavailableVariantsCannotCreatePublicationEvidence(t *testing.T) {
-	fixtures := []struct {
-		label        string
-		providerID   string
-		requestID    string
-		responseBody string
-	}{
-		{
-			label:        "Seedance 2.0 Fast",
-			providerID:   "doubao-seedance-2.0-fast",
-			requestID:    "req_7c971ed07668385c",
-			responseBody: `{"error":{"code":"model_route_unavailable","message":"model route unavailable","param":"model","reason_codes":["no_candidate"],"request_id":"req_7c971ed07668385c","type":"service_unavailable"}}`,
-		},
-		{
-			label:        "Seedance 2.0 Mini",
-			providerID:   "doubao-seedance-2.0-mini",
-			requestID:    "req_cfd6341c0748c227",
-			responseBody: `{"error":{"code":"model_route_unavailable","message":"model route unavailable","param":"model","reason_codes":["no_candidate"],"request_id":"req_cfd6341c0748c227","type":"service_unavailable"}}`,
-		},
+func TestZTAPISeedanceQuotationUsesOnlyPaidVerifiedProviderIDs(t *testing.T) {
+	fixtures := []struct{ label, providerID, publicName string }{
+		{"seedance-2.0", "doubao-seedance-2.0", "zt-seedance-2.0"},
+		{"Seedance 2.0 Fast", "doubao-seedance-2-0-fast", "zt-seedance-2.0-fast"},
+		{"Seedance 2.0 Mini", "doubao-seedance-2-0-mini", "zt-seedance-2.0-mini"},
 	}
 	entries, err := model.ZTAPIQuotationEntries()
 	require.NoError(t, err)
 	for _, fixture := range fixtures {
 		t.Run(fixture.providerID, func(t *testing.T) {
-			recorder := httptest.NewRecorder()
-			c, _ := gin.CreateTestContext(recorder)
-			response := &http.Response{
-				StatusCode: http.StatusServiceUnavailable,
-				Body:       io.NopCloser(strings.NewReader(fixture.responseBody)),
-			}
-			providerError := gjson.Get(fixture.responseBody, "error")
-			require.Equal(t, fixture.requestID, providerError.Get("request_id").String())
-			require.Equal(t, "model", providerError.Get("param").String())
-			require.Equal(t, "service_unavailable", providerError.Get("type").String())
-			taskID, successBody, taskErr := (&TaskAdaptor{}).DoResponse(c, response, nil)
-			require.Empty(t, taskID)
-			require.Nil(t, successBody)
-			require.NotNil(t, taskErr)
-			require.Equal(t, http.StatusServiceUnavailable, taskErr.StatusCode)
-			require.Equal(t, "model_route_unavailable", taskErr.Code)
-			require.Equal(t, "model route unavailable", taskErr.Message)
-			require.ErrorContains(t, taskErr.Error, "model route unavailable")
-			reasonEvidence, marshalErr := common.Marshal(taskErr.Data)
-			require.NoError(t, marshalErr)
-			require.JSONEq(t, `{"reason_codes":["no_candidate"]}`, string(reasonEvidence))
-			require.Empty(t, recorder.Body.String(), "an upstream error must not emit a successful task response")
-
 			var quoted *model.ZTAPIQuotationEntry
 			for index := range entries {
 				if entries[index].Label == fixture.label {
@@ -77,17 +40,15 @@ func TestZTAPISeedanceUnavailableVariantsCannotCreatePublicationEvidence(t *test
 				}
 			}
 			require.NotNil(t, quoted)
-			require.Equal(t, "mapping_pending", quoted.Status)
-			require.Empty(t, quoted.SourceModel)
-			require.Empty(t, quoted.PublicName)
-			require.Empty(t, quoted.Protocol)
-			require.Empty(t, quoted.ProviderFamily)
-			require.ErrorIs(t, model.ValidateZTAPIQuotationIdentity(
-				quoted.Label, "", "", "", model.ZTAPIQuotationSHA256,
-			), model.ErrZTAPIQuotationMappingPending)
-			require.ErrorIs(t, model.ValidateZTAPIQuotationIdentity(
-				fixture.providerID, "", "", "", model.ZTAPIQuotationSHA256,
-			), model.ErrZTAPIQuotationModelNotQuoted)
+			require.Equal(t, "mapped", quoted.Status)
+			require.Equal(t, fixture.providerID, quoted.SourceModel)
+			require.Equal(t, fixture.publicName, quoted.PublicName)
+			require.Equal(t, model.ZTAPIProtocolOpenAICompatible, quoted.Protocol)
+			require.Equal(t, model.ZTAPIProviderSeedance, quoted.ProviderFamily)
+			require.NoError(t, model.ValidateZTAPIQuotationIdentity(
+				fixture.providerID, fixture.publicName, model.ZTAPIProtocolOpenAICompatible,
+				model.ZTAPIProviderSeedance, model.ZTAPIQuotationSHA256,
+			))
 		})
 	}
 }
@@ -101,12 +62,12 @@ func TestZTAPISeedanceV2CreateUsesOnlyFrozenResponseIDSource(t *testing.T) {
 		body    string
 		want    string
 	}{
-		{"mixed case header", "header", "X-Offline-Create-ID", http.Header{"x-OFFLINE-create-id": {"create-header-1"}}, `{"data":{"task_id":"task-1","status":"queued"}}`, "create-header-1"},
-		{"explicit body", "body_field", "data.trace", nil, `{"data":{"task_id":"task-1","status":"queued","trace":"body-v2"}}`, "body-v2"},
-		{"no guessed default", "header", "X-Offline-Create-ID", http.Header{"X-Request-Id": {"wrong"}}, `{"request_id":"wrong","data":{"task_id":"task-1"}}`, ""},
-		{"empty", "header", "X-Offline-Create-ID", http.Header{"X-Offline-Create-ID": {" "}}, `{"data":{"task_id":"task-1"}}`, ""},
-		{"multiple values", "header", "X-Offline-Create-ID", http.Header{"X-Offline-Create-ID": {"one", "two"}}, `{"data":{"task_id":"task-1"}}`, ""},
-		{"case collision", "header", "X-Offline-Create-ID", http.Header{"X-Offline-Create-ID": {"one"}, "x-offline-create-id": {"two"}}, `{"data":{"task_id":"task-1"}}`, ""},
+		{"mixed case header", "header", "X-Offline-Create-ID", http.Header{"x-OFFLINE-create-id": {"create-header-1"}}, `{"id":"task-1","status":"queued"}`, "create-header-1"},
+		{"explicit body", "body_field", "trace", nil, `{"id":"task-1","status":"queued","trace":"body-v2"}`, "body-v2"},
+		{"no guessed default", "header", "X-Offline-Create-ID", http.Header{"X-Request-Id": {"wrong"}}, `{"request_id":"wrong","id":"task-1"}`, ""},
+		{"empty", "header", "X-Offline-Create-ID", http.Header{"X-Offline-Create-ID": {" "}}, `{"id":"task-1"}`, ""},
+		{"multiple values", "header", "X-Offline-Create-ID", http.Header{"X-Offline-Create-ID": {"one", "two"}}, `{"id":"task-1"}`, ""},
+		{"case collision", "header", "X-Offline-Create-ID", http.Header{"X-Offline-Create-ID": {"one"}, "x-offline-create-id": {"two"}}, `{"id":"task-1"}`, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			contract := ztapiAIHubVideoContract(t)
@@ -144,7 +105,7 @@ func TestZTAPISeedanceV2FetchBindsHeaderToExactResponse(t *testing.T) {
 	contract.Fetch.RequestIDSource, contract.Fetch.RequestIDKey = "header", "X-Offline-Fetch-ID"
 	adaptor, err := NewTaskAdaptor(contract)
 	require.NoError(t, err)
-	const body = `{"data":{"task_id":"task-1","status":"completed","result":{"url":"https://cdn.invalid/video.mp4","resolution":"720p","duration":5}}}`
+	const body = `{"id":"task-1","status":"completed","provider_result":{"volcengine":{"content":{"video_url":"https://cdn.invalid/video.mp4"},"resolution":"720p","duration":5,"usage":{"completion_tokens":1,"total_tokens":1}}}}`
 	headers := http.Header{"x-OFFLINE-fetch-id": {"fetch-header-1"}}
 	client := service.GetHttpClient()
 	if client == nil {
@@ -152,7 +113,7 @@ func TestZTAPISeedanceV2FetchBindsHeaderToExactResponse(t *testing.T) {
 	}
 	previous := client.Transport
 	client.Transport = seedanceOfflineTransport(func(r *http.Request) (*http.Response, error) {
-		require.Equal(t, "https://provider.invalid/hub/v1/video/tasks/task-1", r.URL.String())
+		require.Equal(t, "https://provider.invalid/hub/v1/videos/task-1", r.URL.String())
 		return &http.Response{StatusCode: http.StatusOK, Header: headers, Body: io.NopCloser(strings.NewReader(body))}, nil
 	})
 	t.Cleanup(func() { client.Transport = previous })
@@ -183,34 +144,28 @@ type seedanceOfflineTransport func(*http.Request) (*http.Response, error)
 
 func (f seedanceOfflineTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-func TestZTAPISeedancePreservesUnresolvedProviderUsageWithoutTokenMapping(t *testing.T) {
-	for _, rawUsage := range []string{
-		`{ "completion_tokens": 108900, "total_tokens": 108900 }`,
-		`{"completion_tokens":9007199254740993,"total_tokens":"00108900"}`,
-	} {
-		adaptor := newZTAPIAIHubVideoAdaptor(t)
-		body := `{"request_id":"fetch-raw","data":{"task_id":"task-raw","status":"completed","result":{"url":"https://cdn.invalid/video.mp4","resolution":"720p","duration":5}},"provider_result":{"volcengine":{"usage":` + rawUsage + `}}}`
-		result, err := adaptor.ParseTaskResult([]byte(body))
-		require.NoError(t, err)
-		require.Equal(t, rawUsage, result.ResultMetadata["raw_usage_json"])
-		require.Empty(t, result.UsageDimensions)
-		require.Zero(t, result.CompletionTokens)
-		require.Zero(t, result.TotalTokens)
-	}
+func TestZTAPISeedanceMapsConfirmedQuotationTokensAndPreservesRawUsage(t *testing.T) {
+	adaptor := newZTAPIAIHubVideoBodyIDAdaptor(t)
+	body := `{"request_id":"fetch-raw","id":"task-raw","status":"completed","provider_result":{"volcengine":{"content":{"video_url":"https://cdn.invalid/video.mp4"},"resolution":"720p","duration":5,"usage":{"completion_tokens":108900,"total_tokens":108900}}}}`
+	result, err := adaptor.ParseTaskResult([]byte(body))
+	require.NoError(t, err)
+	require.Equal(t, "108900", result.UsageDimensions["input_tokens"])
+	require.Equal(t, `{"completion_tokens":108900,"total_tokens":108900}`, result.ResultMetadata["raw_usage_json"])
 }
 
-func TestZTAPISeedanceRawUsageCannotBeRelabeledAsQuotationInput(t *testing.T) {
-	for _, field := range []string{"completion_tokens", "total_tokens"} {
-		t.Run(field, func(t *testing.T) {
-			contract := ztapiAIHubVideoContract(t)
-			contract.Usage.Fields["input_tokens"] = "provider_result.volcengine.usage." + field
-			adaptor, err := NewTaskAdaptor(contract)
-			require.NoError(t, err)
-			result, err := adaptor.ParseTaskResult([]byte(`{"request_id":"fetch-raw","data":{"task_id":"task-raw","status":"completed","result":{"url":"https://cdn.invalid/video.mp4","resolution":"720p","duration":5}},"provider_result":{"volcengine":{"usage":{"completion_tokens":108900,"total_tokens":108900}}}}`))
-			require.NoError(t, err)
-			require.Empty(t, result.UsageDimensions, "a field binding is not evidence of quotation semantics")
-			require.Equal(t, `{"completion_tokens":108900,"total_tokens":108900}`, result.ResultMetadata["raw_usage_json"])
-		})
+func TestZTAPISeedanceRejectsNonCanonicalOrMissingConfirmedUsage(t *testing.T) {
+	for _, usage := range []string{
+		`{"total_tokens":108900}`,
+		`{"completion_tokens":"108900","total_tokens":108900}`,
+		`{"completion_tokens":-1,"total_tokens":-1}`,
+		`{"completion_tokens":108900.5,"total_tokens":108900.5}`,
+	} {
+		adaptor := newZTAPIAIHubVideoBodyIDAdaptor(t)
+		body := `{"request_id":"fetch-raw","id":"task-raw","status":"completed","provider_result":{"volcengine":{"content":{"video_url":"https://cdn.invalid/video.mp4"},"resolution":"720p","duration":5,"usage":` + usage + `}}}`
+		result, err := adaptor.ParseTaskResult([]byte(body))
+		require.NoError(t, err)
+		require.Empty(t, result.UsageDimensions)
+		require.Equal(t, usage, result.ResultMetadata["raw_usage_json"])
 	}
 }
 
@@ -246,10 +201,10 @@ func TestZTAPISeedanceCreatePersistsConfiguredIDBeforeReturningSuccess(t *testin
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", nil)
 	require.Nil(t, service.PreConsumeBilling(c, 100, info))
-	require.NoError(t, service.BeginZTAPIBillingAttempt(info, "/hub/v1/video/tasks"))
+	require.NoError(t, service.BeginZTAPIBillingAttempt(info, "/hub/v1/videos"))
 	// Generic transport observation has no knowledge of this contract's header.
 	require.NoError(t, service.ObserveZTAPIBillingResponse(info, &http.Response{StatusCode: 202}))
-	resp := &http.Response{StatusCode: 202, Header: http.Header{"x-OFFLINE-create-id": {"configured-create-id"}}, Body: io.NopCloser(strings.NewReader(`{"data":{"task_id":"provider-task-1"}}`))}
+	resp := &http.Response{StatusCode: 202, Header: http.Header{"x-OFFLINE-create-id": {"configured-create-id"}}, Body: io.NopCloser(strings.NewReader(`{"id":"provider-task-1"}`))}
 	_, _, taskErr := adaptor.DoResponse(c, resp, info)
 	require.Nil(t, taskErr)
 	var attempt model.ZTAPIRequestAttempt
@@ -257,7 +212,7 @@ func TestZTAPISeedanceCreatePersistsConfiguredIDBeforeReturningSuccess(t *testin
 	require.Equal(t, "configured-create-id", attempt.UpstreamRequestID)
 	require.Equal(t, 202, attempt.HTTPStatus)
 	require.NotContains(t, recorder.Body.String(), "configured-create-id")
-	resp.Body = io.NopCloser(strings.NewReader(`{"data":{"task_id":"provider-task-1"}}`))
+	resp.Body = io.NopCloser(strings.NewReader(`{"id":"provider-task-1"}`))
 	resp.Header = http.Header{"X-Offline-Create-ID": {"conflicting-create-id"}}
 	recorder = httptest.NewRecorder()
 	c, _ = gin.CreateTestContext(recorder)
@@ -279,12 +234,12 @@ func TestZTAPISeedanceAdapterBuildsOnlyFrozenContractFields(t *testing.T) {
 	require.Equal(t, "generate", info.Action)
 	url, err := adaptor.BuildRequestURL(info)
 	require.NoError(t, err)
-	require.Equal(t, "https://provider.invalid/hub/v1/video/tasks", url)
+	require.Equal(t, "https://provider.invalid/hub/v1/videos", url)
 	body, err := adaptor.BuildRequestBody(c, info)
 	require.NoError(t, err)
 	payload, err := io.ReadAll(body)
 	require.NoError(t, err)
-	require.JSONEq(t, `{"model":"provider-video-exact","prompt":"draw a calm lake","resolution":"720p","duration":5}`, string(payload))
+	require.JSONEq(t, `{"model":"provider-video-exact","prompt":"draw a calm lake","provider_options":{"volcengine":{"resolution":"720p","duration":5}}}`, string(payload))
 
 	request := httptest.NewRequest(http.MethodPost, url, nil)
 	require.NoError(t, adaptor.BuildRequestHeader(c, request, info))
@@ -315,8 +270,8 @@ func TestZTAPISeedanceAdapterSanitizesCreateResponse(t *testing.T) {
 	c, _ := gin.CreateTestContext(recorder)
 	info := ztapiAIHubVideoInfo(t, "https://provider.invalid")
 	adaptor.Init(info)
-	responseBody := `{"request_id":"provider-request-secret","data":{"task_id":"provider-task-secret","status":"queued"}}`
-	resp := &http.Response{StatusCode: http.StatusAccepted, Body: io.NopCloser(bytes.NewBufferString(responseBody))}
+	responseBody := `{"id":"provider-task-secret","status":"queued"}`
+	resp := &http.Response{StatusCode: http.StatusAccepted, Header: http.Header{"X-Request-Id": {"provider-request-secret"}}, Body: io.NopCloser(bytes.NewBufferString(responseBody))}
 
 	taskID, raw, taskErr := adaptor.DoResponse(c, resp, info)
 	require.Nil(t, taskErr)
@@ -332,10 +287,11 @@ func TestZTAPISeedanceAdapterFetchesAndMapsExactProviderStates(t *testing.T) {
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fetches++
 		require.Equal(t, http.MethodGet, r.Method)
-		require.Equal(t, "/hub/v1/video/tasks/provider-task-1", r.URL.Path)
+		require.Equal(t, "/hub/v1/videos/provider-task-1", r.URL.Path)
 		require.Equal(t, "Bearer secret-redacted", r.Header.Get("Authorization"))
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"request_id":"fetch-request-1","data":{"task_id":"provider-task-1","status":"completed","result":{"url":"https://cdn.invalid/result.mp4","resolution":"720p","duration":5},"usage":{"input_tokens":321}}}`))
+		w.Header().Set("X-Request-Id", "fetch-request-1")
+		_, _ = w.Write([]byte(`{"id":"provider-task-1","status":"completed","provider_result":{"volcengine":{"content":{"video_url":"https://cdn.invalid/result.mp4"},"resolution":"720p","duration":5,"usage":{"completion_tokens":321,"total_tokens":321}}}}`))
 	}))
 	defer provider.Close()
 
@@ -361,8 +317,8 @@ func TestZTAPISeedanceAdapterFetchesAndMapsExactProviderStates(t *testing.T) {
 }
 
 func TestZTAPISeedanceAdapterMapsUnknownStateToUnknown(t *testing.T) {
-	adaptor := newZTAPIAIHubVideoAdaptor(t)
-	result, err := adaptor.ParseTaskResult([]byte(`{"request_id":"r-1","data":{"task_id":"t-1","status":"new_provider_state"}}`))
+	adaptor := newZTAPIAIHubVideoBodyIDAdaptor(t)
+	result, err := adaptor.ParseTaskResult([]byte(`{"request_id":"r-1","id":"t-1","status":"new_provider_state"}`))
 	require.NoError(t, err)
 	require.Equal(t, model.TaskStatusUnknown, result.Status)
 	require.Equal(t, "new_provider_state", result.ProviderStatus)
@@ -370,11 +326,11 @@ func TestZTAPISeedanceAdapterMapsUnknownStateToUnknown(t *testing.T) {
 }
 
 func TestZTAPISeedanceAdapterFailsClosedOnMissingIdentityOrResult(t *testing.T) {
-	adaptor := newZTAPIAIHubVideoAdaptor(t)
+	adaptor := newZTAPIAIHubVideoBodyIDAdaptor(t)
 	for _, body := range []string{
-		`{"request_id":"r-1","data":{"status":"queued"}}`,
-		`{"request_id":"r-1","data":{"task_id":"t-1","status":"completed","result":{"resolution":"720p","duration":5},"usage":{"input_tokens":1}}}`,
-		`{"request_id":"r-1","data":{"task_id":"t-1","status":"failed"}}`,
+		`{"request_id":"r-1","status":"queued"}`,
+		`{"request_id":"r-1","id":"t-1","status":"completed","provider_result":{"volcengine":{"resolution":"720p","duration":5,"usage":{"completion_tokens":1}}}}`,
+		`{"request_id":"r-1","id":"t-1","status":"failed"}`,
 	} {
 		_, err := adaptor.ParseTaskResult([]byte(body))
 		require.Error(t, err, body)
@@ -406,6 +362,16 @@ func newZTAPIAIHubVideoAdaptor(t *testing.T) *TaskAdaptor {
 	return adaptor
 }
 
+func newZTAPIAIHubVideoBodyIDAdaptor(t *testing.T) *TaskAdaptor {
+	t.Helper()
+	contract := ztapiAIHubVideoContract(t)
+	contract.Create.RequestIDSource, contract.Create.RequestIDKey = types.ZTAPIResponseIDSourceBodyField, "request_id"
+	contract.Fetch.RequestIDSource, contract.Fetch.RequestIDKey = types.ZTAPIResponseIDSourceBodyField, "request_id"
+	adaptor, err := NewTaskAdaptor(contract)
+	require.NoError(t, err)
+	return adaptor
+}
+
 func ztapiAIHubVideoInfo(t *testing.T, baseURL string) *relaycommon.RelayInfo {
 	t.Helper()
 	contract := ztapiAIHubVideoContract(t)
@@ -421,17 +387,17 @@ func ztapiAIHubVideoInfo(t *testing.T, baseURL string) *relaycommon.RelayInfo {
 func ztapiAIHubVideoContract(t *testing.T) types.ZTAPIVideoProtocolContract {
 	t.Helper()
 	contract := types.ZTAPIVideoProtocolContract{
-		Version: types.ZTAPIVideoProtocolContractVersion, Provider: "aihub", ProviderModel: "provider-video-exact",
+		Version: types.ZTAPIVideoProtocolContractVersionV2, Provider: "aihub", ProviderModel: "provider-video-exact",
 		Auth:            types.ZTAPIVideoAuthContract{Method: "header", Header: "Authorization", Scheme: "Bearer"},
-		Create:          types.ZTAPIVideoEndpointContract{Method: "POST", Path: "/hub/v1/video/tasks", TaskIDField: "data.task_id", RequestIDField: "request_id"},
-		Fetch:           types.ZTAPIVideoEndpointContract{Method: "GET", Path: "/hub/v1/video/tasks/{task_id}", TaskIDField: "data.task_id", RequestIDField: "request_id"},
+		Create:          types.ZTAPIVideoEndpointContract{Method: "POST", Path: "/hub/v1/videos", TaskIDField: "id", RequestIDSource: types.ZTAPIResponseIDSourceHeader, RequestIDKey: "X-Request-Id"},
+		Fetch:           types.ZTAPIVideoEndpointContract{Method: "GET", Path: "/hub/v1/videos/{task_id}", TaskIDField: "id", RequestIDSource: types.ZTAPIResponseIDSourceHeader, RequestIDKey: "X-Request-Id"},
 		Callback:        types.ZTAPIVideoCallbackContract{Enabled: false},
-		Request:         types.ZTAPIVideoRequestContract{ModelField: "model", PromptField: "prompt", ResolutionField: "resolution", DurationField: "duration"},
+		Request:         types.ZTAPIVideoRequestContract{ModelField: "model", PromptField: "prompt", ResolutionField: "provider_options.volcengine.resolution", DurationField: "provider_options.volcengine.duration"},
 		Capabilities:    types.ZTAPIVideoCapabilities{Resolutions: []string{"720p"}, DurationSeconds: []int{5}, SupportsVideoInput: false},
-		States:          types.ZTAPIVideoStateContract{Field: "data.status", Accepted: []string{"queued"}, Processing: []string{"processing"}, Succeeded: []string{"completed"}, Failed: []string{"failed"}},
-		Result:          types.ZTAPIVideoResultContract{URLField: "data.result.url", ResolutionField: "data.result.resolution", DurationField: "data.result.duration", FailureReasonField: "data.error.message"},
-		Usage:           types.ZTAPIVideoUsageContract{Fields: map[string]string{"input_tokens": "data.usage.input_tokens"}},
-		Reservations:    []types.ZTAPIVideoReservationAuthority{{Resolution: "720p", DurationSeconds: 5, ContainsVideoInput: false, MaximumDimensions: map[string]string{"input_tokens": "9000"}}},
+		States:          types.ZTAPIVideoStateContract{Field: "status", Accepted: []string{"queued"}, Processing: []string{"in_progress"}, Succeeded: []string{"completed"}, Failed: []string{"failed"}},
+		Result:          types.ZTAPIVideoResultContract{URLField: "provider_result.volcengine.content.video_url", ResolutionField: "provider_result.volcengine.resolution", DurationField: "provider_result.volcengine.duration", FailureReasonField: "error.message"},
+		Usage:           types.ZTAPIVideoUsageContract{Fields: map[string]string{"input_tokens": "provider_result.volcengine.usage.completion_tokens"}},
+		Reservations:    []types.ZTAPIVideoReservationAuthority{{Resolution: "720p", DurationSeconds: 5, ContainsVideoInput: false, MaximumDimensions: map[string]string{"input_tokens": "250000"}}},
 		EvidenceVersion: types.ZTAPIVideoEvidenceVersion,
 	}
 	sealed, _, err := types.SealZTAPIVideoProtocolContract(contract)

@@ -176,6 +176,21 @@ func validateZTAPIMediaQuotationEntry(entry ZTAPIQuotationEntry, identity ztapiM
 			entry.Protocol != ZTAPIProtocolOpenAICompatible || entry.ProviderFamily != ZTAPIProviderGoogle {
 			return false
 		}
+	case "seedance-2.0":
+		if entry.Status != "mapped" || entry.SourceModel != "doubao-seedance-2.0" || entry.PublicName != "zt-seedance-2.0" ||
+			entry.Protocol != ZTAPIProtocolOpenAICompatible || entry.ProviderFamily != ZTAPIProviderSeedance {
+			return false
+		}
+	case "Seedance 2.0 Fast":
+		if entry.Status != "mapped" || entry.SourceModel != "doubao-seedance-2-0-fast" || entry.PublicName != "zt-seedance-2.0-fast" ||
+			entry.Protocol != ZTAPIProtocolOpenAICompatible || entry.ProviderFamily != ZTAPIProviderSeedance {
+			return false
+		}
+	case "Seedance 2.0 Mini":
+		if entry.Status != "mapped" || entry.SourceModel != "doubao-seedance-2-0-mini" || entry.PublicName != "zt-seedance-2.0-mini" ||
+			entry.Protocol != ZTAPIProtocolOpenAICompatible || entry.ProviderFamily != ZTAPIProviderSeedance {
+			return false
+		}
 	default:
 		if entry.Status != "mapping_pending" || entry.SourceModel != "" || entry.PublicName != "" ||
 			entry.Protocol != "" || entry.ProviderFamily != "" {
@@ -355,7 +370,7 @@ func parseZTAPIQuotationManifest(raw []byte) (ztapiQuotationManifest, error) {
 		case "mapped":
 			if entry.SourceModel == "" || entry.PublicName == "" || entry.SourceModel == entry.PublicName ||
 				entry.Protocol != ZTAPIProtocolOpenAICompatible || !IsSupportedZTAPIProviderFamily(entry.ProviderFamily) ||
-				(entry.Modality != "text" && entry.Modality != "embedding" && entry.Modality != "image") ||
+				(entry.Modality != "text" && entry.Modality != "embedding" && entry.Modality != "image" && entry.Modality != "video") ||
 				sources[entry.SourceModel] || aliases[entry.PublicName] {
 				return manifest, ErrZTAPIQuotationManifestInvalid
 			}
@@ -385,7 +400,7 @@ func parseZTAPIQuotationManifest(raw []byte) (ztapiQuotationManifest, error) {
 			return manifest, ErrZTAPIQuotationManifestInvalid
 		}
 	}
-	if mapped != 43 || pending != 3 || text != 39 || embedding != 2 || media != len(ztapiMediaPriceIdentities) {
+	if mapped != 46 || pending != 0 || text != 39 || embedding != 2 || media != len(ztapiMediaPriceIdentities) {
 		return manifest, ErrZTAPIQuotationManifestInvalid
 	}
 	for sourceModel := range ztapiPoolPricePolicyIdentities {

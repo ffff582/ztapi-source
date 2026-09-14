@@ -27,11 +27,14 @@ func TestZTAPIQuotationIdentityExactMatch(t *testing.T) {
 		mapped++
 		require.NoError(t, ValidateZTAPIQuotationIdentity(entry.SourceModel, entry.PublicName, entry.Protocol, entry.ProviderFamily, ZTAPIQuotationSHA256))
 	}
-	require.Equal(t, 43, mapped)
-	require.Equal(t, 3, pending)
+	require.Equal(t, 46, mapped)
+	require.Zero(t, pending)
 	require.Equal(t, 59, rows)
 	require.NoError(t, ValidateZTAPIQuotationIdentity("gpt-image-2", "zt-gp-image-2", ZTAPIProtocolOpenAICompatible, ZTAPIProviderOpenAI, ZTAPIQuotationSHA256))
 	require.NoError(t, ValidateZTAPIQuotationIdentity("gemini-2.5-flash-image", "zt-gemini-2.5-flash-image", ZTAPIProtocolOpenAICompatible, ZTAPIProviderGoogle, ZTAPIQuotationSHA256))
+	require.NoError(t, ValidateZTAPIQuotationIdentity("doubao-seedance-2.0", "zt-seedance-2.0", ZTAPIProtocolOpenAICompatible, ZTAPIProviderSeedance, ZTAPIQuotationSHA256))
+	require.NoError(t, ValidateZTAPIQuotationIdentity("doubao-seedance-2-0-fast", "zt-seedance-2.0-fast", ZTAPIProtocolOpenAICompatible, ZTAPIProviderSeedance, ZTAPIQuotationSHA256))
+	require.NoError(t, ValidateZTAPIQuotationIdentity("doubao-seedance-2-0-mini", "zt-seedance-2.0-mini", ZTAPIProtocolOpenAICompatible, ZTAPIProviderSeedance, ZTAPIQuotationSHA256))
 	entries[0].SourceModel = "mutated"
 	entries[0].QuoteRows[0].Cell = "Z999"
 	again, err := ZTAPIQuotationEntries()
@@ -140,23 +143,14 @@ func TestZTAPIQuotationRejectsInvalidLegacyIdentity(t *testing.T) {
 	}
 }
 
-func TestZTAPIQuotationPendingEntriesCannotUseLegacySnapshots(t *testing.T) {
-	db := setupZTAPIPublicCatalogTestDB(t)
+func TestZTAPIQuotationHasNoUnresolvedMappingEntries(t *testing.T) {
 	entries, err := ZTAPIQuotationEntries()
 	require.NoError(t, err)
 	for _, entry := range entries {
-		if entry.Status != "mapping_pending" {
-			continue
-		}
-		seedZTAPIPublicCatalogRecord(t, db, entry.Label, "zt-"+entry.Label, ZTAPIProviderOther, ZTAPIProtocolOpenAICompatible,
-			[]string{ZTAPIBillingDimensionInputTokens, ZTAPIBillingDimensionOutputTokens})
+		require.Equal(t, "mapped", entry.Status, entry.Label)
+		require.NotEmpty(t, entry.SourceModel, entry.Label)
+		require.NotEmpty(t, entry.PublicName, entry.Label)
 	}
-	catalog, err := ListZTAPIPublicCatalog()
-	require.NoError(t, err)
-	require.Empty(t, catalog)
-	var historical int64
-	require.NoError(t, db.Model(&ZTAPIModelConfig{}).Count(&historical).Error)
-	require.EqualValues(t, 3, historical)
 }
 
 func TestZTAPIQuotationPublicationRejectsWrongDocumentVersion(t *testing.T) {

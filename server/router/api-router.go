@@ -77,6 +77,8 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			authRoute.POST("/register", middleware.CriticalRateLimit(), anonymousRequestBodyLimit, controller.ZTAPIRegister)
 			authRoute.POST("/login", middleware.CriticalRateLimit(), anonymousRequestBodyLimit, controller.ZTAPILogin)
+			authRoute.POST("/password-reset/request", middleware.CriticalRateLimit(), anonymousRequestBodyLimit, controller.ZTAPIRequestPasswordReset)
+			authRoute.POST("/password-reset/confirm", middleware.CriticalRateLimit(), anonymousRequestBodyLimit, controller.ZTAPIConfirmPasswordReset)
 			authRoute.POST("/refresh", middleware.ZTAPIRefreshRateLimit(), anonymousRequestBodyLimit, controller.ZTAPIRefresh)
 			authRoute.POST("/logout", controller.ZTAPILogout)
 			authRoute.GET("/session", middleware.ZTAPIUserAuth(), controller.ZTAPISession)

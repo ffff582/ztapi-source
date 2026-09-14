@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
@@ -449,9 +450,14 @@ func (user *User) Insert(inviterId int) error {
 // CreateZTAPIUserWithEncodedPassword creates a ZTAPI account without
 // invoking the legacy bcrypt password path.
 func CreateZTAPIUserWithEncodedPassword(username string, encodedPassword string) (*User, error) {
+	return CreateZTAPIUserWithEncodedPasswordAndEmail(username, encodedPassword, "")
+}
+
+func CreateZTAPIUserWithEncodedPasswordAndEmail(username string, encodedPassword string, email string) (*User, error) {
 	user := &User{
 		Username:    username,
 		Password:    encodedPassword,
+		Email:       email,
 		DisplayName: username,
 		Role:        common.RoleCommonUser,
 		Status:      common.UserStatusEnabled,
@@ -835,6 +841,34 @@ func ResetUserPasswordByEmail(email string, password string) error {
 	}
 	err = DB.Model(&User{}).Where("email = ?", email).Update("password", hashedPassword).Error
 	return err
+}
+
+func GetZTAPIUserByEmail(email string) (*User, error) {
+	var user User
+	err := DB.Where("email = ?", email).First(&user).Error
+	return &user, err
+}
+
+func ResetZTAPIUserPasswordByEmail(email string, encodedPassword string, now time.Time) error {
+	if email == "" || encodedPassword == "" {
+		return errors.New("email or password is empty")
+	}
+	return DB.Transaction(func(tx *gorm.DB) error {
+		var user User
+		if err := tx.Select("id").Where("email = ?", email).First(&user).Error; err != nil {
+			return err
+		}
+		updated := tx.Model(&User{}).Where("id = ?", user.Id).Update("password", encodedPassword)
+		if updated.Error != nil {
+			return updated.Error
+		}
+		if updated.RowsAffected != 1 {
+			return errors.New("password reset did not update exactly one user")
+		}
+		return tx.Model(&AuthSession{}).
+			Where("user_id = ? AND revoked_at IS NULL", user.Id).
+			Update("revoked_at", now).Error
+	})
 }
 
 func IsAdmin(userId int) bool {

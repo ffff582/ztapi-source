@@ -2,12 +2,18 @@ package controller
 
 import (
 	"errors"
+	"fmt"
+	"html"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -19,8 +25,10 @@ const (
 )
 
 type ztAPIAuthRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
+	Username         string `json:"username"`
+	Password         string `json:"password"`
+	Email            string `json:"email"`
+	VerificationCode string `json:"verification_code"`
 }
 
 type ZTAPIUserDTO struct {
@@ -36,7 +44,18 @@ type ztAPIAuthData struct {
 	User        ZTAPIUserDTO `json:"user"`
 }
 
+type ztAPIPasswordResetRequest struct {
+	Email string `json:"email"`
+}
+
+type ztAPIPasswordResetConfirmRequest struct {
+	Email       string `json:"email"`
+	Token       string `json:"token"`
+	NewPassword string `json:"new_password"`
+}
+
 var ztAPIVerifyPassword = service.VerifyZTAPIPassword
+var ztAPISendEmail = common.SendEmail
 
 func ZTAPIRegister(c *gin.Context) {
 	if !common.RegisterEnabled || !common.PasswordRegisterEnabled {
@@ -48,7 +67,11 @@ func ZTAPIRegister(c *gin.Context) {
 		return
 	}
 
-	exists, err := model.CheckUserExistOrDeleted(username, "")
+	email := ""
+	if common.EmailVerificationEnabled {
+		email = strings.ToLower(strings.TrimSpace(request.Email))
+	}
+	exists, err := model.CheckUserExistOrDeleted(username, email)
 	if err != nil {
 		writeZTAPIAuthError(c, http.StatusInternalServerError, "internal server error")
 		return
@@ -63,7 +86,7 @@ func ZTAPIRegister(c *gin.Context) {
 		writeZTAPIAuthError(c, http.StatusBadRequest, "invalid registration")
 		return
 	}
-	user, err := model.CreateZTAPIUserWithEncodedPassword(username, encodedPassword)
+	user, err := model.CreateZTAPIUserWithEncodedPasswordAndEmail(username, encodedPassword, email)
 	if err != nil {
 		exists, lookupErr := model.CheckUserExistOrDeleted(username, "")
 		if lookupErr == nil && exists {
@@ -72,6 +95,9 @@ func ZTAPIRegister(c *gin.Context) {
 		}
 		writeZTAPIAuthError(c, http.StatusInternalServerError, "internal server error")
 		return
+	}
+	if email != "" {
+		common.DeleteKey(email, common.EmailVerificationPurpose)
 	}
 	issueZTAPIAuthSession(c, user)
 }
@@ -158,6 +184,77 @@ func ZTAPILogout(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
+func ZTAPIRequestPasswordReset(c *gin.Context) {
+	if !ztAPIPasswordResetEnabled() {
+		writeZTAPIAuthError(c, http.StatusServiceUnavailable, "password reset unavailable")
+		return
+	}
+	var request ztAPIPasswordResetRequest
+	if err := common.DecodeJson(c.Request.Body, &request); err != nil ||
+		common.Validate.Var(strings.TrimSpace(request.Email), "required,email") != nil {
+		writeZTAPIAuthError(c, http.StatusBadRequest, "invalid password reset request")
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(request.Email))
+	if _, err := model.GetZTAPIUserByEmail(email); err == nil {
+		token := common.GenerateVerificationCode(0)
+		common.RegisterVerificationCodeWithKey(email, token, common.PasswordResetPurpose)
+		link := fmt.Sprintf(
+			"%s/reset-password?email=%s&token=%s",
+			strings.TrimRight(system_setting.ServerAddress, "/"),
+			url.QueryEscape(email),
+			url.QueryEscape(token),
+		)
+		subject := fmt.Sprintf("%s 密码重置", common.SystemName)
+		content := fmt.Sprintf(
+			"<p>您好，您正在重置 %s 账号密码。</p><p><a href='%s'>点击这里设置新密码</a></p><p>链接 %d 分钟内有效且只能使用一次。如果不是本人操作，请忽略。</p>",
+			html.EscapeString(common.SystemName),
+			html.EscapeString(link),
+			common.VerificationValidMinutes,
+		)
+		if err := ztAPISendEmail(subject, email, content); err != nil {
+			common.DeleteKey(email, common.PasswordResetPurpose)
+			logger.LogError(c.Request.Context(), fmt.Sprintf("failed to send ZTAPI password reset email to %s: %s", common.MaskEmail(email), err.Error()))
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+func ztAPIPasswordResetEnabled() bool {
+	return common.EmailVerificationEnabled &&
+		strings.TrimSpace(common.SMTPServer) != "" &&
+		strings.TrimSpace(common.SMTPFrom) != ""
+}
+
+func ZTAPIConfirmPasswordReset(c *gin.Context) {
+	var request ztAPIPasswordResetConfirmRequest
+	if err := common.DecodeJson(c.Request.Body, &request); err != nil ||
+		common.Validate.Var(strings.TrimSpace(request.Email), "required,email") != nil ||
+		strings.TrimSpace(request.Token) == "" ||
+		service.ValidateZTAPIPassword(request.NewPassword) != nil {
+		writeZTAPIAuthError(c, http.StatusBadRequest, "invalid password reset")
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(request.Email))
+	token := strings.TrimSpace(request.Token)
+	if !common.ConsumeVerificationCodeWithKey(email, token, common.PasswordResetPurpose) {
+		writeZTAPIAuthError(c, http.StatusBadRequest, "invalid password reset")
+		return
+	}
+	encodedPassword, err := service.HashZTAPIPassword(request.NewPassword)
+	if err != nil {
+		writeZTAPIAuthError(c, http.StatusBadRequest, "invalid password reset")
+		return
+	}
+	if err := model.ResetZTAPIUserPasswordByEmail(email, encodedPassword, time.Now().UTC()); err != nil {
+		common.RegisterVerificationCodeWithKey(email, token, common.PasswordResetPurpose)
+		writeZTAPIAuthError(c, http.StatusInternalServerError, "password reset failed")
+		return
+	}
+	clearZTAPIRefreshCookie(c)
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
 func ZTAPISession(c *gin.Context) {
 	userID := c.GetInt("id")
 	username := c.GetString("username")
@@ -188,6 +285,15 @@ func decodeZTAPIRegistration(c *gin.Context) (ztAPIAuthRequest, string, bool) {
 	if err != nil || service.ValidateZTAPIPassword(request.Password) != nil {
 		writeZTAPIAuthError(c, http.StatusBadRequest, "invalid registration")
 		return ztAPIAuthRequest{}, "", false
+	}
+	request.Email = strings.ToLower(strings.TrimSpace(request.Email))
+	if common.EmailVerificationEnabled {
+		if common.Validate.Var(request.Email, "required,email") != nil ||
+			request.VerificationCode == "" ||
+			!common.VerifyCodeWithKey(request.Email, request.VerificationCode, common.EmailVerificationPurpose) {
+			writeZTAPIAuthError(c, http.StatusBadRequest, "invalid email verification")
+			return ztAPIAuthRequest{}, "", false
+		}
 	}
 	return request, username, true
 }

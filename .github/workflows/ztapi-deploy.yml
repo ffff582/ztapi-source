@@ -791,8 +791,22 @@ jobs:
               ztapi_image_code_changed=true
             fi
           fi
+          current_video_acceptance_fingerprint=$(bash \
+            /tmp/ztapi-release/deploy/scripts/ztapi-video-acceptance-fingerprint.sh \
+            /tmp/ztapi-release)
+          previous_video_acceptance_fingerprint=""
+          ztapi_video_code_changed=true
+          if [ "$had_previous_release" = true ]; then
+            previous_video_acceptance_fingerprint=$(bash \
+              /tmp/ztapi-release/deploy/scripts/ztapi-video-acceptance-fingerprint.sh \
+              /opt/ztapi)
+            ztapi_video_code_changed=false
+            if [ "$previous_video_acceptance_fingerprint" != "$current_video_acceptance_fingerprint" ]; then
+              ztapi_video_code_changed=true
+            fi
+          fi
           rm -f "$build_env"
-          write_receipt build "server_image_id=$server_image_id nginx_image_id=$nginx_image_id gpt_image_acceptance_required=$ztapi_image_code_changed previous_gpt_image_fingerprint=${previous_image_acceptance_fingerprint:-none} current_gpt_image_fingerprint=$current_image_acceptance_fingerprint"
+          write_receipt build "server_image_id=$server_image_id nginx_image_id=$nginx_image_id gpt_image_acceptance_required=$ztapi_image_code_changed previous_gpt_image_fingerprint=${previous_image_acceptance_fingerprint:-none} current_gpt_image_fingerprint=$current_image_acceptance_fingerprint video_acceptance_required=$ztapi_video_code_changed previous_video_fingerprint=${previous_video_acceptance_fingerprint:-none} current_video_fingerprint=$current_video_acceptance_fingerprint"
 
           require_receipt build
           release_mutated=true
@@ -1143,11 +1157,8 @@ jobs:
           SELECT COUNT(*)
           FROM ztapi_model_configs
           WHERE published = 1
-            AND source_model IN (
-              'doubao-seedance-2.0',
-              'doubao-seedance-2.0-fast',
-              'doubao-seedance-2.0-mini'
-            );
+            AND modality IN ('image', 'video')
+            AND source_reference NOT LIKE 'quotation:%';
           SQL
           )
           test "$blocked_media_count" = "0"
@@ -1662,6 +1673,266 @@ jobs:
             echo "$gemini_image_publish_result" | jq -e \
               '.success == true and .data.published == true and .data.public_name == "zt-gemini-2.5-flash-image"' >/dev/null
           fi
+
+          # Publish the three quotation-backed Seedance products through the
+          # managed enterprise fallback. Paid verification is skipped on an
+          # unchanged, already accepted deployment.
+          ztapi_video_channel_id=$("${compose[@]}" exec -T mysql sh -c \
+            'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names' <<'SQL'
+          SELECT c.id
+          FROM channels c
+          WHERE c.status = 1
+            AND c.ztapi_managed = 1
+            AND c.ztapi_family = 'openai'
+            AND c.name = 'Yunxin enterprise'
+            AND FIND_IN_SET('default', c.`group`) > 0
+          ORDER BY COALESCE(c.priority, 0) ASC, c.id ASC
+          LIMIT 1;
+          SQL
+          )
+          if [[ ! "$ztapi_video_channel_id" =~ ^[1-9][0-9]*$ ]]; then
+            echo 'no enabled managed OpenAI enterprise fallback channel is available for Seedance discovery' >&2
+            exit 1
+          fi
+          video_discovery_result=$(curl --fail --silent --show-error \
+            --resolve admin.ztapi.vip:443:127.0.0.1 \
+            --header "Authorization: Bearer $admin_access_token" \
+            --header "New-API-User: $admin_user_id" \
+            "https://admin.ztapi.vip/api/channel/ztapi/fetch_models/$ztapi_video_channel_id?import=true")
+          echo "$video_discovery_result" | jq -e '
+            .success == true
+            and any(.data.model_ids[]; . == "doubao-seedance-2.0")
+            and any(.data.model_ids[]; . == "doubao-seedance-2-0-fast")
+            and any(.data.model_ids[]; . == "doubao-seedance-2-0-mini")' >/dev/null
+
+          video_quote=/opt/ztapi/server/model/ztapi_quotation_v1.json
+          video_quote_checksum=$(jq -er '.sha256' "$video_quote")
+          video_models_tsv=$(mktemp /tmp/ztapi-video-models.XXXXXX)
+          cat > "$video_models_tsv" <<'VIDEO_MODELS'
+          doubao-seedance-2.0	zt-seedance-2.0	6.2515277778	7.8144097223
+          doubao-seedance-2-0-fast	zt-seedance-2.0-fast	5.0284027778	6.2855034723
+          doubao-seedance-2-0-mini	zt-seedance-2.0-mini	3.1257638889	3.9072048611
+          VIDEO_MODELS
+          ztapi_any_video_requires_acceptance=false
+          ztapi_video_acceptance_models=""
+          while IFS=$'\t' read -r video_source_model video_public_name video_input_cost video_input_sale; do
+            video_model_list=$(curl --fail --silent --show-error \
+              --resolve admin.ztapi.vip:443:127.0.0.1 \
+              --header "Authorization: Bearer $admin_access_token" \
+              --header "New-API-User: $admin_user_id" \
+              "https://admin.ztapi.vip/api/models/ztapi/?keyword=$video_source_model&page_size=100")
+            ztapi_video_model=$(echo "$video_model_list" | jq -cer --arg source "$video_source_model" \
+              '.data.items | map(select(.source_model == $source)) | select(length == 1) | .[0]')
+            ztapi_video_model_id=$(echo "$ztapi_video_model" | jq -er '.id')
+            ztapi_video_requires_acceptance="$ztapi_video_code_changed"
+            if ! echo "$ztapi_video_model" | jq -e '.published == true' >/dev/null; then
+              ztapi_video_requires_acceptance=true
+            fi
+            if ! echo "$ztapi_video_model" | jq -e \
+                --arg public "$video_public_name" '
+                  .public_name == $public
+                  and .protocol == "openai_compatible"
+                  and .provider_family == "seedance"' >/dev/null; then
+              ztapi_video_requires_acceptance=true
+              video_identity_payload=$(echo "$ztapi_video_model" | jq -c \
+                --arg source "$video_source_model" \
+                --arg public "$video_public_name" \
+                --arg checksum "$video_quote_checksum" '
+                  {
+                    version:.version,
+                    source_model:$source,
+                    public_name:$public,
+                    protocol:"openai_compatible",
+                    provider_family:"seedance",
+                    source_reference:("quotation:" + $checksum + ":" + $source),
+                    reason:"verified quotation-backed Seedance identity",
+                    confirm:true
+                  }')
+              video_identity_result=$(printf '%s' "$video_identity_payload" | curl --fail --silent --show-error \
+                --request PUT \
+                --resolve admin.ztapi.vip:443:127.0.0.1 \
+                --header 'Content-Type: application/json' \
+                --header "Authorization: Bearer $admin_access_token" \
+                --header "New-API-User: $admin_user_id" \
+                --data-binary @- \
+                "https://admin.ztapi.vip/api/models/ztapi/$ztapi_video_model_id/identity")
+              echo "$video_identity_result" | jq -e --arg public "$video_public_name" \
+                '.success == true and .data.model.public_name == $public' >/dev/null
+            fi
+
+            video_media_price_contract=$(jq -cer \
+              --arg source "$video_source_model" \
+              --arg public "$video_public_name" '
+                .entries[]
+                | select(.source_model == $source and .public_name == $public)
+                | .quote_rows[]
+                | select(.media_price_contract != null)
+                | .media_price_contract' "$video_quote")
+            video_media_price_sha=$(printf '%s' "$video_media_price_contract" | sha256sum | cut -d ' ' -f 1)
+            current_video_price_sha=$("${compose[@]}" exec -T mysql sh -c \
+              'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names' <<SQL
+          SELECT COALESCE((
+            SELECT SHA2(media_price_contract_json, 256)
+            FROM ztapi_model_price_sources
+            WHERE model_config_id = $ztapi_video_model_id
+              AND source_model = '$video_source_model'
+              AND resource_type = 'original_resource'
+              AND price_policy = 'enterprise_20_margin'
+              AND source_document_checksum = '$video_quote_checksum'
+            ORDER BY version DESC, id DESC
+            LIMIT 1
+          ), '');
+          SQL
+            )
+            if [ "$current_video_price_sha" != "$video_media_price_sha" ]; then
+              ztapi_video_requires_acceptance=true
+              ztapi_video_model=$(curl --fail --silent --show-error \
+                --resolve admin.ztapi.vip:443:127.0.0.1 \
+                --header "Authorization: Bearer $admin_access_token" \
+                --header "New-API-User: $admin_user_id" \
+                "https://admin.ztapi.vip/api/models/ztapi/$ztapi_video_model_id" | jq -cer '.data')
+              video_price_payload=$(echo "$ztapi_video_model" | jq -c \
+                --arg source "$video_source_model" \
+                --arg input_cost "$video_input_cost" \
+                --arg input_sale "$video_input_sale" \
+                --arg media_contract "$video_media_price_contract" \
+                --arg checksum "$video_quote_checksum" '
+                  {
+                    version:.version,
+                    source_model:$source,
+                    resource_type:"original_resource",
+                    price_policy:"enterprise_20_margin",
+                    spend_tier:"9.1 quotation",
+                    billing_dimensions:["input_tokens"],
+                    currency:"USD",
+                    input_per_million:$input_cost,
+                    output_per_million:"0",
+                    cache_read_per_million:"0",
+                    cache_write_per_million:"0",
+                    cache_write_5m_per_million:"0",
+                    cache_write_1h_per_million:"0",
+                    image_unit_cost:"0",
+                    audio_unit_cost:"0",
+                    request_unit_cost:"0",
+                    cny_per_usd:"0",
+                    media_price_contract:$media_contract,
+                    quotation_effective_at:1788192000,
+                    source_document_checksum:$checksum,
+                    reason:"import exact Seedance original-resource quotation",
+                    confirm:true,
+                    expected_sale:$input_sale
+                  } | del(.expected_sale)')
+              video_price_result=$(printf '%s' "$video_price_payload" | curl --fail --silent --show-error \
+                --resolve admin.ztapi.vip:443:127.0.0.1 \
+                --header 'Content-Type: application/json' \
+                --header "Authorization: Bearer $admin_access_token" \
+                --header "New-API-User: $admin_user_id" \
+                --data-binary @- \
+                "https://admin.ztapi.vip/api/models/ztapi/$ztapi_video_model_id/price-sources")
+              echo "$video_price_result" | jq -e --arg expected "$video_input_sale" '
+                .success == true
+                and .data.preview.price_policy == "enterprise_20_margin"
+                and .data.preview.input_sale_usd_per_million == $expected' >/dev/null
+            fi
+
+            if [ "$ztapi_video_requires_acceptance" = true ]; then
+              ztapi_any_video_requires_acceptance=true
+              ztapi_video_acceptance_models="${ztapi_video_acceptance_models}${video_public_name}"$'\n'
+              ztapi_video_verification_result=$(jq -cn --argjson channel_id "$ztapi_video_channel_id" \
+                '{channel_id:$channel_id}' | curl --fail --silent --show-error --max-time 360 \
+                  --resolve admin.ztapi.vip:443:127.0.0.1 \
+                  --header 'Content-Type: application/json' \
+                  --header "Authorization: Bearer $admin_access_token" \
+                  --header "New-API-User: $admin_user_id" \
+                  --data-binary @- \
+                  "https://admin.ztapi.vip/api/models/ztapi/$ztapi_video_model_id/verify")
+              echo "$ztapi_video_verification_result" | jq -e '
+                .success == true
+                and .data.verification.modality == "video"
+                and .data.verification.non_streaming_passed == true
+                and .data.verification.streaming_required == false
+                and .data.verification.usage_reconciled == true
+                and .data.verification.media_result_valid == true
+                and .data.verification.video_create_passed == true
+                and .data.verification.video_fetch_passed == true
+                and .data.verification.video_terminal_passed == true
+                and .data.verification.video_restart_recovery_passed == true
+                and .data.verification.video_settlement_idempotence_passed == true
+                and (.data.verification.video_protocol_contract | length) > 0' >/dev/null
+            fi
+
+            ztapi_video_model=$(curl --fail --silent --show-error \
+              --resolve admin.ztapi.vip:443:127.0.0.1 \
+              --header "Authorization: Bearer $admin_access_token" \
+              --header "New-API-User: $admin_user_id" \
+              "https://admin.ztapi.vip/api/models/ztapi/$ztapi_video_model_id" | jq -cer '.data')
+            if ! echo "$ztapi_video_model" | jq -e '.published == true' >/dev/null; then
+              video_publish_payload=$(echo "$ztapi_video_model" | jq -c '
+                {
+                  version:.version,
+                  source_model:.source_model,
+                  public_name:.public_name,
+                  family:.family,
+                  input_cost_per_million:.input_cost_per_million,
+                  output_cost_per_million:.output_cost_per_million,
+                  input_price_per_million:.input_price_per_million,
+                  output_price_per_million:.output_price_per_million,
+                  cache_read_ratio:.cache_read_ratio,
+                  cache_creation_ratio:.cache_creation_ratio,
+                  cache_creation_5m_ratio:.cache_creation_5m_ratio,
+                  cache_creation_1h_ratio:.cache_creation_1h_ratio,
+                  image_ratio:.image_ratio,
+                  audio_ratio:.audio_ratio,
+                  audio_completion_ratio:.audio_completion_ratio,
+                  enabled_groups:["default"],
+                  published:true,
+                  confirm_below_cost:false
+                }')
+              video_publish_result=$(printf '%s' "$video_publish_payload" | curl --fail --silent --show-error \
+                --request PUT \
+                --resolve admin.ztapi.vip:443:127.0.0.1 \
+                --header 'Content-Type: application/json' \
+                --header "Authorization: Bearer $admin_access_token" \
+                --header "New-API-User: $admin_user_id" \
+                --data-binary @- \
+                "https://admin.ztapi.vip/api/models/ztapi/$ztapi_video_model_id")
+              echo "$video_publish_result" | jq -e --arg public "$video_public_name" \
+                '.success == true and .data.published == true and .data.public_name == $public' >/dev/null
+            fi
+          done < "$video_models_tsv"
+          rm -f "$video_models_tsv"
+
+          seedance_published_count=$("${compose[@]}" exec -T mysql sh -c \
+            'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names' <<'SQL'
+          SELECT COUNT(*)
+          FROM ztapi_model_configs
+          WHERE published = 1
+            AND (source_model, public_name) IN (
+              ('doubao-seedance-2.0', 'zt-seedance-2.0'),
+              ('doubao-seedance-2-0-fast', 'zt-seedance-2.0-fast'),
+              ('doubao-seedance-2-0-mini', 'zt-seedance-2.0-mini')
+            );
+          SQL
+          )
+          test "$seedance_published_count" = "3"
+          blocked_media_count=$("${compose[@]}" exec -T mysql sh -c \
+            'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names' <<'SQL'
+          SELECT COUNT(*)
+          FROM ztapi_model_configs
+          WHERE source_model IN (
+              'doubao-seedance-2.0',
+              'doubao-seedance-2-0-fast',
+              'doubao-seedance-2-0-mini'
+            )
+            AND (
+              published <> 1
+              OR protocol <> 'openai_compatible'
+              OR provider_family <> 'seedance'
+              OR public_name NOT IN ('zt-seedance-2.0', 'zt-seedance-2.0-fast', 'zt-seedance-2.0-mini')
+            );
+          SQL
+          )
+          test "$blocked_media_count" = "0"
           test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
             --resolve ztapi.vip:443:127.0.0.1 \
             https://ztapi.vip/v1/models)" = "401"
@@ -1909,7 +2180,11 @@ jobs:
                 and (.output_price_per_million | tonumber) >= 0
               end)))
             and ([.catalog[] | select(.modality == "image" and (.model_name == "zt-gp-image-2" or .model_name == "zt-gemini-2.5-flash-image"))] | length) == 2
-            and ([.catalog[] | select(.modality == "video")] | length) == 0
+            and ([.catalog[] | select(.modality == "video" and (
+              .model_name == "zt-seedance-2.0"
+              or .model_name == "zt-seedance-2.0-fast"
+              or .model_name == "zt-seedance-2.0-mini"
+            ))] | length) == 3
             and ([.. | objects | keys[] | select(. == "source_model" or . == "channel_id")] | length) == 0' >/dev/null
           acceptance_pricing=$(curl --fail --silent --show-error \
             "$acceptance_origin/api/pricing")
@@ -1931,7 +2206,11 @@ jobs:
                 and (.billing_unit | length) > 0
               else true end))
             and ([.data[] | select(.modality == "image")] | length) == 2
-            and ([.data[] | select(.modality == "video")] | length) == 0' >/dev/null
+            and ([.data[] | select(.modality == "video" and (
+              .model_name == "zt-seedance-2.0"
+              or .model_name == "zt-seedance-2.0-fast"
+              or .model_name == "zt-seedance-2.0-mini"
+            ))] | length) == 3' >/dev/null
           acceptance_catalog_count=$(echo "$acceptance_catalog" | jq -er '.catalog | length')
           pricing_baseline=/opt/ztapi/server/model/testdata/ztapi_public_pricing_baseline_v1.json
           quotation=/opt/ztapi/server/model/ztapi_quotation_v1.json
@@ -1947,9 +2226,12 @@ jobs:
             jq -r '.[].model_name' "$pricing_baseline"
             echo 'zt-gp-image-2'
             echo 'zt-gemini-2.5-flash-image'
+            echo 'zt-seedance-2.0'
+            echo 'zt-seedance-2.0-fast'
+            echo 'zt-seedance-2.0-mini'
           } | LC_ALL=C sort -u > "$expected_published_models"
           expected_pricing_model_count=$(jq -er 'length' "$pricing_baseline")
-          expected_public_model_count=$((expected_pricing_model_count + 2))
+          expected_public_model_count=$((expected_pricing_model_count + 5))
           test "$(wc -l < "$expected_published_models" | tr -d ' ')" = "$expected_public_model_count"
           jq -r '[.entries[] | select(.status == "mapping_pending" and .public_name != "") | .public_name] | unique[]' \
             "$quotation" | LC_ALL=C sort > "$expected_unpublished_models"
@@ -2127,6 +2409,200 @@ jobs:
             [[ "$gemini_image_request_id" =~ ^[A-Za-z0-9_-]{8,64}$ ]]
             rm -f "$gemini_image_headers" "$gemini_image_body"
             gemini_image_acceptance_status="success"
+          fi
+
+          seedance_acceptance_status="previously_accepted_unchanged"
+          seedance_videos='[]'
+          if [ "$ztapi_any_video_requires_acceptance" = true ]; then
+            seedance_acceptance_status="success"
+            while IFS= read -r seedance_model; do
+              [ -n "$seedance_model" ] || continue
+              seedance_headers=$(mktemp /tmp/ztapi-seedance-headers.XXXXXX)
+              seedance_body=$(mktemp /tmp/ztapi-seedance-body.XXXXXX)
+              seedance_http_status=$(jq -cn --arg model "$seedance_model" '{
+                  model:$model,
+                  prompt:"A calm blue circle moving slowly on a plain white background.",
+                  size:"720p",
+                  duration:5
+                }' |
+                curl --silent --show-error --max-time 180 \
+                  --dump-header "$seedance_headers" \
+                  --output "$seedance_body" --write-out '%{http_code}' \
+                  --header 'Content-Type: application/json' \
+                  --header "Authorization: Bearer $acceptance_api_key" \
+                  --data-binary @- \
+                  "$acceptance_origin/v1/videos")
+              test "$seedance_http_status" = 200
+              seedance_public_task_id=$(jq -er \
+                --arg model "$seedance_model" \
+                'select(.id == .task_id and .model == $model and .status == "queued") | .id' \
+                "$seedance_body")
+              [[ "$seedance_public_task_id" =~ ^[A-Za-z0-9._:-]{8,128}$ ]]
+              seedance_request_id=$(awk 'tolower($1) == "x-request-id:" {print $2}' "$seedance_headers" | tr -d '\r' | tail -n 1)
+              [[ "$seedance_request_id" =~ ^[A-Za-z0-9_-]{8,64}$ ]]
+              rm -f "$seedance_headers" "$seedance_body"
+
+              seedance_terminal_status=""
+              seedance_result_url=""
+              for seedance_poll_attempt in $(seq 1 120); do
+                seedance_fetch_headers=$(mktemp /tmp/ztapi-seedance-fetch-headers.XXXXXX)
+                seedance_fetch_body=$(mktemp /tmp/ztapi-seedance-fetch-body.XXXXXX)
+                seedance_fetch_http_status=$(curl --silent --show-error --max-time 60 \
+                  --dump-header "$seedance_fetch_headers" \
+                  --output "$seedance_fetch_body" --write-out '%{http_code}' \
+                  --header "Authorization: Bearer $acceptance_api_key" \
+                  "$acceptance_origin/v1/videos/$seedance_public_task_id")
+                test "$seedance_fetch_http_status" = 200
+                jq -e --arg id "$seedance_public_task_id" --arg model "$seedance_model" \
+                  '.id == $id and .model == $model and (.status == "queued" or .status == "in_progress" or .status == "completed" or .status == "failed")' \
+                  "$seedance_fetch_body" >/dev/null
+                seedance_terminal_status=$(jq -er '.status' "$seedance_fetch_body")
+                if [ "$seedance_terminal_status" = completed ]; then
+                  seedance_result_url=$(jq -er '.metadata.url | select(type == "string" and length > 0)' "$seedance_fetch_body")
+                  rm -f "$seedance_fetch_headers" "$seedance_fetch_body"
+                  break
+                fi
+                if [ "$seedance_terminal_status" = failed ]; then
+                  cat "$seedance_fetch_body"
+                  rm -f "$seedance_fetch_headers" "$seedance_fetch_body"
+                  return 1
+                fi
+                rm -f "$seedance_fetch_headers" "$seedance_fetch_body"
+                sleep 5
+              done
+              test "$seedance_terminal_status" = completed
+              test -n "$seedance_result_url"
+
+              seedance_finance=$("${compose[@]}" exec -T mysql sh -c \
+                'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names --raw' <<SQL
+          SELECT JSON_OBJECT(
+            'task_state', task.state,
+            'charge_disposition', task.charge_disposition,
+            'actual_quota', task.actual_quota,
+            'quota_per_unit', CAST(task.quota_per_unit AS DECIMAL(30,10)),
+            'task_user_id', task.user_id,
+            'task_token_id', task.token_id,
+            'upstream_task_id', task.upstream_task_id,
+            'result_metadata_json', task.result_metadata_json,
+            'usage_json', task.usage_json,
+            'settlement_status', settlement.status,
+            'initial_reserved_quota', settlement.initial_reserved_quota,
+            'charged_quota', settlement.charged_quota,
+            'settlement_usage_json', settlement.usage_json,
+            'dimension_count', JSON_LENGTH(settlement.charge_dimensions_json),
+            'dimension_name', JSON_UNQUOTE(JSON_EXTRACT(settlement.charge_dimensions_json, '\$[0].dimension')),
+            'dimension_units', CAST(JSON_UNQUOTE(JSON_EXTRACT(settlement.charge_dimensions_json, '\$[0].units')) AS UNSIGNED),
+            'dimension_unit_quota', CAST(JSON_UNQUOTE(JSON_EXTRACT(settlement.charge_dimensions_json, '\$[0].unit_quota')) AS DECIMAL(30,10)),
+            'dimension_charged_quota', CAST(JSON_UNQUOTE(JSON_EXTRACT(settlement.charge_dimensions_json, '\$[0].charged_quota')) AS SIGNED),
+            'raw_completion_tokens', CAST(JSON_UNQUOTE(JSON_EXTRACT(CAST(JSON_UNQUOTE(JSON_EXTRACT(task.result_metadata_json, '\$.raw_usage_json')) AS JSON), '\$.completion_tokens')) AS UNSIGNED),
+            'reservation_delta', COALESCE((SELECT SUM(ledger.delta) FROM balance_ledgers AS ledger WHERE ledger.request_id = settlement.request_id AND ledger.source_type = 'usage_reservation'), 0),
+            'settlement_delta', COALESCE((SELECT SUM(ledger.delta) FROM balance_ledgers AS ledger WHERE ledger.request_id = settlement.request_id AND ledger.source_type = 'usage_settlement'), 0),
+            'upstream_request_id', COALESCE((SELECT attempt.upstream_request_id FROM ztapi_request_attempts AS attempt WHERE attempt.settlement_id = settlement.id AND attempt.attempt = settlement.final_attempt LIMIT 1), '')
+          )
+          FROM ztapi_media_tasks AS task
+          JOIN ztapi_request_settlements AS settlement ON settlement.id = task.settlement_id
+          WHERE task.public_task_id = '$seedance_public_task_id'
+            AND task.request_id = '$seedance_request_id'
+            AND task.public_model = '$seedance_model'
+          LIMIT 1;
+          SQL
+              )
+              echo "$seedance_finance" | jq -e \
+                --argjson user_id "$acceptance_user_id" \
+                --argjson token_id "$acceptance_token_id" '
+                  .task_state == "succeeded"
+                  and .charge_disposition == "known"
+                  and .settlement_status == "settled"
+                  and .task_user_id == $user_id
+                  and .task_token_id == $token_id
+                  and (.upstream_task_id | type == "string" and length > 0)
+                  and (.upstream_request_id | type == "string" and length > 0)
+                  and .raw_completion_tokens > 0
+                  and .dimension_count == 1
+                  and .dimension_name == "input_tokens"
+                  and .dimension_units == .raw_completion_tokens
+                  and .usage_json.input_tokens == .raw_completion_tokens
+                  and .settlement_usage_json.input_tokens == .raw_completion_tokens
+                  and .actual_quota > 0
+                  and .actual_quota == .charged_quota
+                  and .actual_quota == .dimension_charged_quota
+                  and .actual_quota == ((.dimension_units * .dimension_unit_quota) | round)
+                  and .initial_reserved_quota >= .actual_quota
+                  and .reservation_delta == (-.initial_reserved_quota)
+                  and .settlement_delta == (.initial_reserved_quota - .actual_quota)' >/dev/null
+
+              seedance_user_log=""
+              for seedance_log_attempt in $(seq 1 60); do
+                seedance_user_log=$(curl --fail --silent --show-error \
+                  --header "Authorization: Bearer $acceptance_user_access_token" \
+                  --header "New-API-User: $acceptance_user_id" \
+                  "$acceptance_origin/api/log/self?request_id=$seedance_request_id&p=1&page_size=10")
+                if echo "$seedance_user_log" | jq -e --arg model "$seedance_model" '
+                    .success == true
+                    and .data.total == 1
+                    and .data.items[0].model == $model
+                    and .data.items[0].status == "success"
+                    and (.data.items[0].billed_amount | tonumber) > 0' >/dev/null; then
+                  break
+                fi
+                sleep 1
+              done
+              seedance_billed_amount=$(echo "$seedance_user_log" | jq -er \
+                'select(.data.total == 1 and .data.items[0].status == "success") | .data.items[0].billed_amount')
+              seedance_expected_billed_amount=$(echo "$seedance_finance" | jq -er '.charged_quota / .quota_per_unit')
+              jq -en --argjson logged "$seedance_billed_amount" --argjson expected "$seedance_expected_billed_amount" \
+                '($logged - $expected | if . < 0 then -. else . end) < 0.00000001' >/dev/null
+
+              seedance_replay_body=$(mktemp /tmp/ztapi-seedance-replay.XXXXXX)
+              test "$(curl --silent --show-error --max-time 60 \
+                --output "$seedance_replay_body" --write-out '%{http_code}' \
+                --header "Authorization: Bearer $acceptance_api_key" \
+                "$acceptance_origin/v1/videos/$seedance_public_task_id")" = 200
+              jq -e --arg id "$seedance_public_task_id" --arg model "$seedance_model" \
+                '.id == $id and .model == $model and .status == "completed" and (.metadata.url | length) > 0' \
+                "$seedance_replay_body" >/dev/null
+              rm -f "$seedance_replay_body"
+              seedance_finance_replay=$("${compose[@]}" exec -T mysql sh -c \
+                'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names --raw' <<SQL
+          SELECT JSON_OBJECT(
+            'actual_quota', task.actual_quota,
+            'charged_quota', settlement.charged_quota,
+            'ledger_count', (SELECT COUNT(*) FROM balance_ledgers AS ledger WHERE ledger.request_id = settlement.request_id)
+          )
+          FROM ztapi_media_tasks AS task
+          JOIN ztapi_request_settlements AS settlement ON settlement.id = task.settlement_id
+          WHERE task.public_task_id = '$seedance_public_task_id'
+          LIMIT 1;
+          SQL
+              )
+              jq -en --argjson before "$seedance_finance" --argjson after "$seedance_finance_replay" '
+                $after.actual_quota == $before.actual_quota
+                and $after.charged_quota == $before.charged_quota
+                and $after.ledger_count == 2' >/dev/null
+              seedance_user_log_replay=$(curl --fail --silent --show-error \
+                --header "Authorization: Bearer $acceptance_user_access_token" \
+                --header "New-API-User: $acceptance_user_id" \
+                "$acceptance_origin/api/log/self?request_id=$seedance_request_id&p=1&page_size=10")
+              echo "$seedance_user_log_replay" | jq -e \
+                --arg model "$seedance_model" \
+                --argjson billed_amount "$seedance_billed_amount" '
+                  .success == true
+                  and .data.total == 1
+                  and .data.items[0].model == $model
+                  and .data.items[0].status == "success"
+                  and .data.items[0].billed_amount == $billed_amount' >/dev/null
+
+              seedance_videos=$(jq -cn \
+                --argjson videos "$seedance_videos" \
+                --arg model "$seedance_model" \
+                --arg task_id "$seedance_public_task_id" \
+                --arg request_id "$seedance_request_id" \
+                --arg upstream_request_id "$(echo "$seedance_finance" | jq -er '.upstream_request_id')" \
+                --argjson billable_tokens "$(echo "$seedance_finance" | jq -er '.raw_completion_tokens')" \
+                --argjson billed_amount "$seedance_billed_amount" \
+                '$videos + [{model:$model,task_id:$task_id,request_id:$request_id,upstream_request_id:$upstream_request_id,billable_tokens:$billable_tokens,billed_amount:$billed_amount,status:"success",replay_idempotent:true}]')
+            done <<< "$ztapi_video_acceptance_models"
+            test "$(echo "$seedance_videos" | jq -er 'length')" = 3
           fi
 
           for acceptance_log_attempt in $(seq 1 20); do
@@ -2369,6 +2845,8 @@ jobs:
             --arg gemini_image_status "$gemini_image_acceptance_status" \
             --arg gemini_image_request_id "$gemini_image_request_id" \
             --argjson gemini_image_billed_amount "$gemini_image_billed_amount" \
+            --arg seedance_status "$seedance_acceptance_status" \
+            --argjson seedance_videos "$seedance_videos" \
             --argjson seed_ledger_id "$acceptance_seed_ledger_id" \
             --argjson cleanup_ledger_id "$acceptance_cleanup_ledger_id" \
             --arg usdt_trade_no "$acceptance_usdt_trade_no" \
@@ -2383,12 +2861,14 @@ jobs:
               unpaid_usdt_order:{trade_no:$usdt_trade_no,created:"pending",cancelled_by_user:true,final:"expired",balance_credited:false},
               quotation_allowlist_count:46,
               public_catalog_count:$catalog_count,
-              published_media_count:2,
+              published_media_count:5,
               text:{model:$chat_model,request_id:$chat_request_id,status:"success",billed_amount:$chat_billed_amount},
               playground:{model:$chat_model,request_id:$playground_request_id,status:"success",billed_amount:$playground_billed_amount},
               embedding:{model:$embedding_model,request_id:$embedding_request_id,status:"success",billed_amount:$embedding_billed_amount},
               image:{model:$image_model,request_id:$image_request_id,status:$image_status,billed_amount:$image_billed_amount},
               gemini_image:{model:$gemini_image_model,request_id:$gemini_image_request_id,status:$gemini_image_status,billed_amount:$gemini_image_billed_amount},
+              seedance:{status:$seedance_status,videos:$seedance_videos},
+              seedance_videos:$seedance_videos,
               seed_ledger_id:$seed_ledger_id,
               cleanup_ledger_id:$cleanup_ledger_id,
               acceptance_final_quota:0,

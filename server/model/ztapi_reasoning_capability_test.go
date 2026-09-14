@@ -49,7 +49,7 @@ func TestZTAPIQuotationBackedReasoningCapabilitiesAreCompleteAndSorted(t *testin
 			require.False(t, capability.LiveValidationRequired, entry.SourceModel)
 		}
 	}
-	require.Equal(t, 43, mapped)
+	require.Equal(t, 46, mapped)
 }
 
 func TestZTAPISolReasoningCapabilityUsesApprovedContractAndRequiresLiveValidation(t *testing.T) {

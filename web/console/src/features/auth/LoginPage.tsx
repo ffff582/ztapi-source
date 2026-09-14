@@ -1,7 +1,7 @@
-import { useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { LoaderCircle, LogIn } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
-import { authErrorMessage } from '../../api/client';
+import { apiClient, authErrorMessage } from '../../api/client';
 import { useAuth } from '../../auth/session';
 import { AuthShell } from './AuthShell';
 import { InlineNotice } from './InlineNotice';
@@ -22,6 +22,19 @@ export function LoginPage() {
   >({});
   const [serverError, setServerError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [passwordResetEnabled, setPasswordResetEnabled] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void apiClient.get<unknown>('/status').then((value) => {
+      if (!active || typeof value !== 'object' || value === null) return;
+      const enabled = (value as { password_reset_enabled?: unknown }).password_reset_enabled;
+      if (typeof enabled === 'boolean') setPasswordResetEnabled(enabled);
+    }).catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
 
   function updateUsername(value: string) {
     setUsername(value);
@@ -109,6 +122,11 @@ export function LoginPage() {
           error={fieldErrors.password === undefined ? undefined : t(fieldErrors.password)}
           onChange={(event) => updatePassword(event.target.value)}
         />
+        {passwordResetEnabled ? (
+          <div className="auth-form__meta">
+            <Link to="/forgot-password">{t('忘记密码？')}</Link>
+          </div>
+        ) : null}
         <button className="auth-submit" type="submit" disabled={pending}>
           {pending ? (
             <LoaderCircle className="auth-submit__spinner" aria-hidden="true" />

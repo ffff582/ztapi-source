@@ -55,6 +55,18 @@ func VerifyCodeWithKey(key string, code string, purpose string) bool {
 	return code == value.code
 }
 
+func ConsumeVerificationCodeWithKey(key string, code string, purpose string) bool {
+	verificationMutex.Lock()
+	defer verificationMutex.Unlock()
+	mapKey := purpose + key
+	value, ok := verificationMap[mapKey]
+	if !ok || time.Since(value.time) >= time.Duration(VerificationValidMinutes)*time.Minute || code != value.code {
+		return false
+	}
+	delete(verificationMap, mapKey)
+	return true
+}
+
 func DeleteKey(key string, purpose string) {
 	verificationMutex.Lock()
 	defer verificationMutex.Unlock()

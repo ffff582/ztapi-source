@@ -27,6 +27,9 @@ func shouldUseSMTPLoginAuth() bool {
 }
 
 func getSMTPAuth() smtp.Auth {
+	if SMTPAccount == "" {
+		return nil
+	}
 	if shouldUseSMTPLoginAuth() {
 		return LoginAuth(SMTPAccount, SMTPToken)
 	}
@@ -70,8 +73,10 @@ func SendEmail(subject string, receiver string, content string) error {
 			return err
 		}
 		defer client.Close()
-		if err = client.Auth(auth); err != nil {
-			return err
+		if auth != nil {
+			if err = client.Auth(auth); err != nil {
+				return err
+			}
 		}
 		if err = client.Mail(SMTPFrom); err != nil {
 			return err

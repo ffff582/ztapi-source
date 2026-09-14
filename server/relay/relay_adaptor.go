@@ -48,6 +48,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/xunfei"
 	"github.com/QuantumNous/new-api/relay/channel/zhipu"
 	"github.com/QuantumNous/new-api/relay/channel/zhipu_4v"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/gin-gonic/gin"
 )
 
@@ -126,6 +127,9 @@ func GetAdaptor(apiType int) channel.Adaptor {
 }
 
 func GetTaskPlatform(c *gin.Context) constant.TaskPlatform {
+	if snapshot := relaycommon.GetZTAPIPublicationSnapshot(c); snapshot != nil && snapshot.Modality == "video" {
+		return constant.TaskPlatformZTAPIAIHubVideo
+	}
 	channelType := c.GetInt("channel_type")
 	if channelType > 0 {
 		return constant.TaskPlatform(strconv.Itoa(channelType))

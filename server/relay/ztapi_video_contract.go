@@ -29,9 +29,18 @@ func NewZTAPIVideoContractRegistry(rawByPublicName map[string]string) (*ZTAPIVid
 }
 
 func DefaultZTAPIVideoContractRegistry() *ZTAPIVideoContractRegistry {
-	// No public AIHub Seedance task contract is evidenced yet. Keep production
-	// routing empty until an exact provider contract passes paid acceptance.
-	return &ZTAPIVideoContractRegistry{contracts: map[string]types.ZTAPIVideoProtocolContract{}}
+	contracts := make(map[string]types.ZTAPIVideoProtocolContract, 3)
+	for publicName, providerModel := range map[string]string{
+		"zt-seedance-2.0":      "doubao-seedance-2.0",
+		"zt-seedance-2.0-fast": "doubao-seedance-2-0-fast",
+		"zt-seedance-2.0-mini": "doubao-seedance-2-0-mini",
+	} {
+		contract, _, err := types.BuildZTAPISeedanceProtocolContract(providerModel)
+		if err == nil {
+			contracts[publicName] = contract
+		}
+	}
+	return &ZTAPIVideoContractRegistry{contracts: contracts}
 }
 
 func (registry *ZTAPIVideoContractRegistry) Resolve(publicName string) (types.ZTAPIVideoProtocolContract, error) {

@@ -97,6 +97,8 @@ it('renders the models route', async () => {
 it.each([
   ['/login', '登录 ZTAPI'],
   ['/register', '创建 ZTAPI 账号'],
+  ['/forgot-password', '找回密码'],
+  ['/reset-password?email=alice%40example.com&token=one-time-token', '设置新密码'],
 ])('renders the unauthenticated %s route', async (path, heading) => {
   renderWithProviders(path, false);
 

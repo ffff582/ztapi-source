@@ -1,7 +1,7 @@
-import { useRef, useState, type FormEvent } from 'react';
-import { LoaderCircle, UserPlus } from 'lucide-react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { LoaderCircle, Mail, UserPlus } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
-import { authErrorMessage } from '../../api/client';
+import { apiClient, authErrorMessage } from '../../api/client';
 import { useAuth } from '../../auth/session';
 import { AuthShell } from './AuthShell';
 import { InlineNotice } from './InlineNotice';
@@ -12,6 +12,7 @@ const USERNAME_ERROR =
   '账号需为 3-32 字节，仅可使用字母、数字、下划线或连字符';
 const PASSWORD_ERROR = '密码需至少 10 个字符且不超过 256 字节';
 const usernamePattern = /^[\p{L}\p{N}_-]+$/u;
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const textEncoder = new TextEncoder();
 
 interface RegistrationInput {
@@ -57,9 +58,26 @@ export function RegisterPage() {
   const passwordRef = useRef<HTMLInputElement>(null);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [email, setEmail] = useState('');
+  const [verificationCode, setVerificationCode] = useState('');
+  const [emailVerificationEnabled, setEmailVerificationEnabled] = useState(false);
+  const [sendingCode, setSendingCode] = useState(false);
+  const [codeSent, setCodeSent] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<RegistrationErrors>({});
   const [serverError, setServerError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void apiClient.get<unknown>('/status').then((value) => {
+      if (!active || typeof value !== 'object' || value === null) return;
+      const enabled = (value as { email_verification?: unknown }).email_verification;
+      if (typeof enabled === 'boolean') setEmailVerificationEnabled(enabled);
+    }).catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
 
   function updateRegistrationUsername(value: string) {
     setUsername(value);
@@ -81,6 +99,11 @@ export function RegisterPage() {
     }
 
     const errors = validateRegistrationInput({ username, password });
+    const normalizedEmail = email.trim().toLowerCase();
+    if (emailVerificationEnabled && (!emailPattern.test(normalizedEmail) || verificationCode.trim() === '')) {
+      setServerError(t('请填写有效邮箱和邮箱验证码'));
+      return;
+    }
     setFieldErrors(errors);
     setServerError(null);
 
@@ -97,12 +120,36 @@ export function RegisterPage() {
     setPending(true);
 
     try {
-      await register({ username: username.trim(), password });
+      await register({
+        username: username.trim(),
+        password,
+        ...(emailVerificationEnabled
+          ? { email: normalizedEmail, verification_code: verificationCode.trim() }
+          : {}),
+      });
       navigate('/console', { replace: true });
     } catch (error) {
       setServerError(authErrorMessage(error));
     } finally {
       setPending(false);
+    }
+  }
+
+  async function sendVerificationCode() {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!emailPattern.test(normalizedEmail) || sendingCode) {
+      setServerError(t('请输入有效的邮箱地址'));
+      return;
+    }
+    setServerError(null);
+    setSendingCode(true);
+    try {
+      await apiClient.get(`/verification?email=${encodeURIComponent(normalizedEmail)}`);
+      setCodeSent(true);
+    } catch (error) {
+      setServerError(authErrorMessage(error));
+    } finally {
+      setSendingCode(false);
     }
   }
 
@@ -152,6 +199,45 @@ export function RegisterPage() {
           error={fieldErrors.password === undefined ? undefined : t(fieldErrors.password)}
           onChange={(event) => updateRegistrationPassword(event.target.value)}
         />
+        {emailVerificationEnabled ? (
+          <>
+            <div className="auth-field">
+              <label htmlFor="register-email">{t('邮箱')}</label>
+              <input
+                id="register-email"
+                name="email"
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(event) => {
+                  setEmail(event.target.value);
+                  setServerError(null);
+                  setCodeSent(false);
+                }}
+              />
+            </div>
+            <div className="auth-field">
+              <label htmlFor="register-verification-code">{t('邮箱验证码')}</label>
+              <div className="auth-code-row">
+                <input
+                  id="register-verification-code"
+                  name="verification-code"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  value={verificationCode}
+                  onChange={(event) => {
+                    setVerificationCode(event.target.value);
+                    setServerError(null);
+                  }}
+                />
+                <button type="button" onClick={sendVerificationCode} disabled={sendingCode}>
+                  {sendingCode ? <LoaderCircle aria-hidden="true" /> : <Mail aria-hidden="true" />}
+                  {sendingCode ? t('发送中...') : codeSent ? t('重新发送') : t('发送验证码')}
+                </button>
+              </div>
+            </div>
+          </>
+        ) : null}
         <button className="auth-submit" type="submit" disabled={pending}>
           {pending ? (
             <LoaderCircle className="auth-submit__spinner" aria-hidden="true" />

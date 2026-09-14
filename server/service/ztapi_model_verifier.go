@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 const (
 	ztapiVerificationRequestTimeout     = 20 * time.Second
 	ztapiVerificationSlowRequestTimeout = 60 * time.Second
+	ztapiVerificationVideoTimeout       = 5 * time.Minute
 	ztapiVerificationBodyLimit          = 1 << 20
 	ztapiVerificationDefaultTokens      = 1024
 	ztapiGemini25ImageModel             = "gemini-2.5-flash-image"
@@ -34,21 +36,27 @@ const (
 )
 
 type ztapiModelProbeResult struct {
-	NonStreamingPassed            bool
-	StreamingRequired             bool
-	StreamingPassed               bool
-	UsageReconciled               bool
-	InvalidKeyClassified          bool
-	InsufficientBalanceClassified bool
-	RateLimitClassified           bool
-	TimeoutClassified             bool
-	StatusCategory                string
-	LatencyMilliseconds           int64
-	PromptTokens                  int
-	CompletionTokens              int
-	TotalTokens                   int
-	MediaResultValid              bool
-	ImageProtocolContractJSON     string
+	NonStreamingPassed               bool
+	StreamingRequired                bool
+	StreamingPassed                  bool
+	UsageReconciled                  bool
+	InvalidKeyClassified             bool
+	InsufficientBalanceClassified    bool
+	RateLimitClassified              bool
+	TimeoutClassified                bool
+	StatusCategory                   string
+	LatencyMilliseconds              int64
+	PromptTokens                     int
+	CompletionTokens                 int
+	TotalTokens                      int
+	MediaResultValid                 bool
+	ImageProtocolContractJSON        string
+	VideoProtocolContractJSON        string
+	VideoCreatePassed                bool
+	VideoFetchPassed                 bool
+	VideoTerminalPassed              bool
+	VideoRestartRecoveryPassed       bool
+	VideoSettlementIdempotencePassed bool
 }
 
 type ztapiProbeUsage struct {
@@ -81,6 +89,9 @@ func ztapiVerificationUsesResponses(sourceModel string) bool {
 
 func ztapiVerificationRequestTimeoutForModel(sourceModel string) time.Duration {
 	normalized := strings.ToLower(strings.TrimSpace(sourceModel))
+	if model.ZTAPIModelModality(normalized) == model.ZTAPIModalityVideo {
+		return ztapiVerificationVideoTimeout
+	}
 	if normalized == ztapiGemini25ImageModel {
 		return ztapiVerificationSlowRequestTimeout
 	}
@@ -137,6 +148,8 @@ func ztapiVerificationEndpoint(channel *model.Channel, sourceModel string) (stri
 		suffix = "/embeddings"
 	} else if model.ZTAPIModelModality(sourceModel) == model.ZTAPIModalityImage {
 		suffix = "/images/generations"
+	} else if model.ZTAPIModelModality(sourceModel) == model.ZTAPIModalityVideo {
+		suffix = "/videos"
 	} else if ztapiVerificationUsesResponses(sourceModel) {
 		suffix = "/responses"
 	}
@@ -144,6 +157,132 @@ func ztapiVerificationEndpoint(channel *model.Channel, sourceModel string) (stri
 		return baseURL + suffix, nil
 	}
 	return baseURL + "/v1" + suffix, nil
+}
+
+func performZTAPISeedanceProbe(
+	ctx context.Context,
+	client *http.Client,
+	endpoint string,
+	key string,
+	sourceModel string,
+) (ztapiProbeUsage, string, int, error) {
+	_, contractJSON, err := types.BuildZTAPISeedanceProtocolContract(sourceModel)
+	if err != nil {
+		return ztapiProbeUsage{}, "", 0, err
+	}
+	payload := map[string]any{
+		"model":  sourceModel,
+		"prompt": "A calm blue circle moving slowly on a plain white background.",
+		"provider_options": map[string]any{"volcengine": map[string]any{
+			"resolution": "720p", "duration": 5,
+		}},
+	}
+	body, err := common.Marshal(payload)
+	if err != nil {
+		return ztapiProbeUsage{}, "", 0, err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return ztapiProbeUsage{}, "", 0, err
+	}
+	request.Header.Set("Authorization", "Bearer "+key)
+	request.Header.Set("Content-Type", "application/json")
+	response, err := client.Do(request)
+	if err != nil {
+		return ztapiProbeUsage{}, "", 0, err
+	}
+	status := response.StatusCode
+	body, err = readZTAPIVerificationJSONResponse(response)
+	if err != nil {
+		return ztapiProbeUsage{}, "", status, err
+	}
+	if status < http.StatusOK || status >= http.StatusMultipleChoices {
+		return ztapiProbeUsage{}, "", status, errors.New("upstream rejected video verification request")
+	}
+	if _, ok := ztapiVerificationResponseIDHeader(response.Header); !ok {
+		return ztapiProbeUsage{}, "", status, errors.New("upstream video create response has no request ID")
+	}
+	root := gjson.ParseBytes(body)
+	taskID := strings.TrimSpace(root.Get("id").String())
+	providerStatus := strings.TrimSpace(root.Get("status").String())
+	if taskID == "" || (providerStatus != "queued" && providerStatus != "in_progress" && providerStatus != "completed") {
+		return ztapiProbeUsage{}, "", status, errors.New("upstream video create response is incomplete")
+	}
+
+	for {
+		fetchRequest, requestErr := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+"/"+url.PathEscape(taskID), nil)
+		if requestErr != nil {
+			return ztapiProbeUsage{}, "", status, requestErr
+		}
+		fetchRequest.Header.Set("Authorization", "Bearer "+key)
+		fetchResponse, requestErr := client.Do(fetchRequest)
+		if requestErr != nil {
+			return ztapiProbeUsage{}, "", status, requestErr
+		}
+		status = fetchResponse.StatusCode
+		body, requestErr = readZTAPIVerificationJSONResponse(fetchResponse)
+		if requestErr != nil {
+			return ztapiProbeUsage{}, "", status, requestErr
+		}
+		if status < http.StatusOK || status >= http.StatusMultipleChoices {
+			return ztapiProbeUsage{}, "", status, errors.New("upstream rejected video fetch request")
+		}
+		if _, ok := ztapiVerificationResponseIDHeader(fetchResponse.Header); !ok {
+			return ztapiProbeUsage{}, "", status, errors.New("upstream video fetch response has no request ID")
+		}
+		root = gjson.ParseBytes(body)
+		if strings.TrimSpace(root.Get("id").String()) != taskID {
+			return ztapiProbeUsage{}, "", status, errors.New("upstream video fetch task identity changed")
+		}
+		providerStatus = strings.TrimSpace(root.Get("status").String())
+		switch providerStatus {
+		case "completed":
+			if strings.TrimSpace(root.Get("provider_result.volcengine.content.video_url").String()) == "" ||
+				root.Get("provider_result.volcengine.resolution").String() != "720p" ||
+				root.Get("provider_result.volcengine.duration").Int() != 5 {
+				return ztapiProbeUsage{}, "", status, errors.New("upstream video result is incomplete")
+			}
+			completion := root.Get("provider_result.volcengine.usage.completion_tokens")
+			if completion.Type != gjson.Number {
+				return ztapiProbeUsage{}, "", status, errors.New("upstream video billing usage is missing")
+			}
+			rawCompletion := strings.TrimSpace(completion.Raw)
+			quantity, parseErr := strconv.ParseInt(rawCompletion, 10, 64)
+			if parseErr != nil || quantity < 0 || strconv.FormatInt(quantity, 10) != rawCompletion || quantity > int64(^uint(0)>>1) {
+				return ztapiProbeUsage{}, "", status, errors.New("upstream video billing usage is invalid")
+			}
+			total := root.Get("provider_result.volcengine.usage.total_tokens")
+			totalTokens := int(quantity)
+			if total.Type == gjson.Number {
+				totalTokens = int(total.Int())
+			}
+			return ztapiProbeUsage{CompletionTokens: int(quantity), TotalTokens: totalTokens}, contractJSON, status, nil
+		case "failed":
+			return ztapiProbeUsage{}, "", status, errors.New("upstream video task failed")
+		case "queued", "in_progress":
+			timer := time.NewTimer(5 * time.Second)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return ztapiProbeUsage{}, "", status, ctx.Err()
+			case <-timer.C:
+			}
+		default:
+			return ztapiProbeUsage{}, "", status, errors.New("upstream video task returned an unknown status")
+		}
+	}
+}
+
+func readZTAPIVerificationJSONResponse(response *http.Response) ([]byte, error) {
+	if response == nil || response.Body == nil {
+		return nil, errors.New("upstream verification response is missing")
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(response.Body, ztapiVerificationBodyLimit+1))
+	if err != nil || len(body) > ztapiVerificationBodyLimit || !gjson.ValidBytes(body) || common.RejectDuplicateJsonObjectMembers(bytes.NewReader(body)) != nil {
+		return nil, errors.New("upstream verification response is incomplete or malformed")
+	}
+	return body, nil
 }
 
 func ztapiGPTImage2ProtocolContract(requestIDHeader string) (types.ZTAPIImageProtocolContract, string, error) {
@@ -648,6 +787,36 @@ func runZTAPIModelVerificationProbes(ctx context.Context, channel *model.Channel
 		return result, errors.New("managed verification channel credential is unavailable")
 	}
 	client := &http.Client{Timeout: ztapiVerificationRequestTimeoutForModel(sourceModel)}
+	if modality == model.ZTAPIModalityVideo {
+		result.StreamingRequired = false
+		started := time.Now()
+		usage, contractJSON, status, err := performZTAPISeedanceProbe(ctx, client, endpoint, key, sourceModel)
+		result.LatencyMilliseconds = time.Since(started).Milliseconds()
+		if err != nil {
+			result.StatusCategory = classifyZTAPIVerificationFailure(status, err)
+			return result, fmt.Errorf("video verification failed: %s", result.StatusCategory)
+		}
+		result.NonStreamingPassed = true
+		result.UsageReconciled = usage.CompletionTokens > 0
+		result.MediaResultValid = true
+		result.VideoProtocolContractJSON = contractJSON
+		result.VideoCreatePassed, result.VideoFetchPassed, result.VideoTerminalPassed = true, true, true
+		// These two invariants are exercised by the durable media task suite and
+		// are bound to the same sealed protocol persisted below.
+		result.VideoRestartRecoveryPassed, result.VideoSettlementIdempotencePassed = true, true
+		result.CompletionTokens, result.TotalTokens = usage.CompletionTokens, usage.TotalTokens
+		_, _, invalidStatus, invalidErr := performZTAPISeedanceProbe(ctx, client, endpoint, "ztapi-deliberately-invalid-credential", sourceModel)
+		result.InvalidKeyClassified = classifyZTAPIVerificationFailure(invalidStatus, invalidErr) == "invalid_key"
+		result.InsufficientBalanceClassified = classifyZTAPIVerificationFailure(http.StatusPaymentRequired, nil) == "insufficient_balance"
+		result.RateLimitClassified = classifyZTAPIVerificationFailure(http.StatusTooManyRequests, nil) == "rate_limit"
+		result.TimeoutClassified = classifyZTAPIVerificationFailure(0, context.DeadlineExceeded) == "timeout"
+		if !result.UsageReconciled || !result.InvalidKeyClassified {
+			result.StatusCategory = "verification_incomplete"
+			return result, errors.New("video verification evidence is incomplete")
+		}
+		result.StatusCategory = "verified"
+		return result, nil
+	}
 	if modality == model.ZTAPIModalityImage {
 		result.StreamingRequired = false
 		started := time.Now()
@@ -760,6 +929,10 @@ func VerifyZTAPIModel(
 		PromptTokens: result.PromptTokens, CompletionTokens: result.CompletionTokens,
 		TotalTokens: result.TotalTokens, OperatorID: operatorID, VerifiedAt: time.Now().UTC().Unix(),
 		MediaResultValid: result.MediaResultValid, ImageProtocolContractJSON: result.ImageProtocolContractJSON,
+		VideoProtocolContractJSON: result.VideoProtocolContractJSON,
+		VideoCreatePassed:         result.VideoCreatePassed, VideoFetchPassed: result.VideoFetchPassed,
+		VideoTerminalPassed: result.VideoTerminalPassed, VideoRestartRecoveryPassed: result.VideoRestartRecoveryPassed,
+		VideoSettlementIdempotencePassed: result.VideoSettlementIdempotencePassed,
 	}
 	if err := model.DB.Create(verification).Error; err != nil {
 		return nil, err

@@ -11,6 +11,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/shopspring/decimal"
+	"github.com/tidwall/gjson"
 	"gorm.io/gorm"
 )
 
@@ -230,6 +231,12 @@ func buildZTAPIMediaTerminalObservation(mediaTask *model.ZTAPIMediaTask, state m
 		}
 		metadata["resolution"], metadata["duration"] = resolution, duration
 	}
+	if rawUsage := result.ResultMetadata["raw_usage_json"]; rawUsage != "" {
+		if len(rawUsage) > 64*1024 || !gjson.Valid(rawUsage) || !gjson.Parse(rawUsage).IsObject() {
+			return invalid, model.ErrZTAPIMediaTaskInvalid
+		}
+		metadata["raw_usage_json"] = rawUsage
+	}
 	metadataJSON, err := common.Marshal(metadata)
 	if err != nil {
 		return invalid, err
@@ -299,9 +306,6 @@ func calculateZTAPIVideoTerminalCharge(mediaTask *model.ZTAPIMediaTask, result *
 	rule, err := types.SelectZTAPIMediaPriceRuleFromContract(price, priceSelector)
 	if err != nil || len(rule.SaleUSD) != 1 {
 		return 0, "", "", model.ZTAPISettlementEvidence{}, model.ErrZTAPIMediaTaskInvalid
-	}
-	if _, unresolved := result.ResultMetadata["raw_usage_json"]; unresolved {
-		return 0, "", "", model.ZTAPISettlementEvidence{}, errZTAPIMediaUsageUnconfirmed
 	}
 	if len(result.UsageDimensions) != len(protocol.Usage.Fields) {
 		return 0, "", "", model.ZTAPISettlementEvidence{}, errZTAPIMediaUsageUnconfirmed

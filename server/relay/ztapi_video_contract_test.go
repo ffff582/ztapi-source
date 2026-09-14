@@ -1,13 +1,16 @@
 package relay
 
 import (
+	"net/http/httptest"
 	"testing"
 
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel/task/aihub"
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/types"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
@@ -15,11 +18,26 @@ func TestZTAPIVideoContractRegistryWiresDedicatedTaskAdaptor(t *testing.T) {
 	require.IsType(t, &aihub.TaskAdaptor{}, GetTaskAdaptor(constant.TaskPlatformZTAPIAIHubVideo))
 }
 
-func TestZTAPIVideoContractRegistryBlocksAllQuotationCandidatesWithoutEvidence(t *testing.T) {
+func TestZTAPIPublishedVideoAlwaysUsesDedicatedTaskPlatform(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Set("channel_type", constant.ChannelTypeOpenAI)
+	relaycommon.SetZTAPIPublicationSnapshot(c, &relaycommon.ZTAPIPublicationSnapshot{Modality: model.ZTAPIModalityVideo})
+	require.Equal(t, constant.TaskPlatform(constant.TaskPlatformZTAPIAIHubVideo), GetTaskPlatform(c))
+}
+
+func TestZTAPIVideoContractRegistryContainsOnlyQuotationAuthorizedContracts(t *testing.T) {
 	registry := DefaultZTAPIVideoContractRegistry()
-	for _, publicName := range []string{"seedance-2.0", "Seedance 2.0 Fast", "Seedance 2.0 Mini"} {
-		_, err := registry.Resolve(publicName)
-		require.ErrorIs(t, err, ErrZTAPIVideoContractUnavailable, publicName)
+	for publicName, providerModel := range map[string]string{
+		"zt-seedance-2.0": "doubao-seedance-2.0", "zt-seedance-2.0-fast": "doubao-seedance-2-0-fast",
+		"zt-seedance-2.0-mini": "doubao-seedance-2-0-mini",
+	} {
+		contract, err := registry.Resolve(publicName)
+		require.NoError(t, err)
+		require.Equal(t, providerModel, contract.ProviderModel)
+	}
+	for _, unapproved := range []string{"seedance-2.0", "Seedance 2.0 Fast", "doubao-seedance-2.0-fast"} {
+		_, err := registry.Resolve(unapproved)
+		require.ErrorIs(t, err, ErrZTAPIVideoContractUnavailable)
 	}
 }
 

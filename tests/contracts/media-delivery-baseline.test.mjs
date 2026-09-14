@@ -65,7 +65,7 @@ test('freezes the quotation and current publication baseline', () => {
   }
 });
 
-test('maps both evidenced image rows while video rows remain pending', () => {
+test('maps every quotation-backed media row to its exact public identity', () => {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
   const media = manifest.entries
     .filter(({ modality }) => modality === 'image' || modality === 'video')
@@ -78,9 +78,9 @@ test('maps both evidenced image rows while video rows remain pending', () => {
   assert.deepEqual(media.map(({ label, status }) => `${label}\0${status}`).sort(), [
     'gp-image-2\0mapped',
     'gm25-fl-IMAGE\0mapped',
-    'seedance-2.0\0mapping_pending',
-    'Seedance 2.0 Fast\0mapping_pending',
-    'Seedance 2.0 Mini\0mapping_pending',
+    'seedance-2.0\0mapped',
+    'Seedance 2.0 Fast\0mapped',
+    'Seedance 2.0 Mini\0mapped',
   ].sort());
   const image = manifest.entries.find(({ label }) => label === 'gp-image-2');
   assert.deepEqual(
@@ -111,5 +111,18 @@ test('maps both evidenced image rows while video rows remain pending', () => {
       protocol: 'openai_compatible',
       provider_family: 'google',
     },
+  );
+  assert.deepEqual(
+    manifest.entries.filter(({ modality }) => modality === 'video').map((entry) => ({
+      source_model: entry.source_model,
+      public_name: entry.public_name,
+      protocol: entry.protocol,
+      provider_family: entry.provider_family,
+    })),
+    [
+      { source_model: 'doubao-seedance-2.0', public_name: 'zt-seedance-2.0', protocol: 'openai_compatible', provider_family: 'seedance' },
+      { source_model: 'doubao-seedance-2-0-fast', public_name: 'zt-seedance-2.0-fast', protocol: 'openai_compatible', provider_family: 'seedance' },
+      { source_model: 'doubao-seedance-2-0-mini', public_name: 'zt-seedance-2.0-mini', protocol: 'openai_compatible', provider_family: 'seedance' },
+    ],
   );
 });

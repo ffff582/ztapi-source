@@ -14,6 +14,8 @@ export interface AuthSessionData {
 export interface AuthCredentials {
   username: string;
   password: string;
+  email?: string;
+  verification_code?: string;
 }
 
 export interface ApiSuccess<T> {

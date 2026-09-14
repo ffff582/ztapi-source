@@ -156,6 +156,85 @@ func TestAuthRegisterCreatesArgon2UserWithoutAPIKeyAndReturnsSafeSession(t *test
 	assertIssuedRefreshCookie(t, recorder, false)
 }
 
+func TestAuthRegisterRequiresAndStoresVerifiedEmailWhenEmailVerificationIsEnabled(t *testing.T) {
+	db := setupZTAPIAuthControllerTest(t)
+	engine := newZTAPIAuthControllerEngine()
+	originalEmailVerificationEnabled := common.EmailVerificationEnabled
+	common.EmailVerificationEnabled = true
+	t.Cleanup(func() {
+		common.EmailVerificationEnabled = originalEmailVerificationEnabled
+	})
+
+	missingEmail := performZTAPIAuthRequest(
+		t,
+		engine,
+		http.MethodPost,
+		"/auth/register",
+		`{"username":"alice","password":"at-least-ten"}`,
+		nil,
+	)
+	if missingEmail.Code != http.StatusBadRequest {
+		t.Fatalf("registration without verified email status = %d, want 400; body=%s", missingEmail.Code, missingEmail.Body.String())
+	}
+
+	common.RegisterVerificationCodeWithKey(
+		"alice@example.com",
+		"123456",
+		common.EmailVerificationPurpose,
+	)
+	registered := performZTAPIAuthRequest(
+		t,
+		engine,
+		http.MethodPost,
+		"/auth/register",
+		`{"username":"alice","password":"at-least-ten","email":"Alice@Example.com","verification_code":"123456"}`,
+		nil,
+	)
+	if registered.Code != http.StatusOK {
+		t.Fatalf("verified email registration status = %d, want 200; body=%s", registered.Code, registered.Body.String())
+	}
+
+	var user model.User
+	if err := db.Where("username = ?", "alice").First(&user).Error; err != nil {
+		t.Fatalf("load registered user: %v", err)
+	}
+	if user.Email != "alice@example.com" {
+		t.Fatalf("stored email = %q, want normalized email", user.Email)
+	}
+	if common.VerifyCodeWithKey("alice@example.com", "123456", common.EmailVerificationPurpose) {
+		t.Fatal("registration verification code remained reusable")
+	}
+}
+
+func TestAuthRegisterDoesNotTrustUnverifiedEmailWhenVerificationIsDisabled(t *testing.T) {
+	db := setupZTAPIAuthControllerTest(t)
+	engine := newZTAPIAuthControllerEngine()
+	originalEmailVerificationEnabled := common.EmailVerificationEnabled
+	common.EmailVerificationEnabled = false
+	t.Cleanup(func() {
+		common.EmailVerificationEnabled = originalEmailVerificationEnabled
+	})
+
+	registered := performZTAPIAuthRequest(
+		t,
+		engine,
+		http.MethodPost,
+		"/auth/register",
+		`{"username":"alice","password":"at-least-ten","email":"victim@example.com"}`,
+		nil,
+	)
+	if registered.Code != http.StatusOK {
+		t.Fatalf("registration status = %d; body=%s", registered.Code, registered.Body.String())
+	}
+	var user model.User
+	if err := db.Where("username = ?", "alice").First(&user).Error; err != nil {
+		t.Fatal(err)
+	}
+	if user.Email != "" {
+		t.Fatalf("unverified email was stored: %q", user.Email)
+	}
+}
+
 func TestAuthRegisterRejectsInvalidAndDuplicateCredentialsWithoutDatabaseDetails(t *testing.T) {
 	setupZTAPIAuthControllerTest(t)
 	engine := newZTAPIAuthControllerEngine()
@@ -849,6 +928,8 @@ func newZTAPIAuthControllerEngine() *gin.Engine {
 	auth := engine.Group("/auth")
 	auth.POST("/register", ZTAPIRegister)
 	auth.POST("/login", ZTAPILogin)
+	auth.POST("/password-reset/request", ZTAPIRequestPasswordReset)
+	auth.POST("/password-reset/confirm", ZTAPIConfirmPasswordReset)
 	auth.POST("/refresh", ZTAPIRefresh)
 	auth.POST("/logout", ZTAPILogout)
 	auth.GET("/session", ZTAPISession)

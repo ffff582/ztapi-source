@@ -274,8 +274,8 @@ func (a *TaskAdaptor) ParseTaskResult(body []byte) (*relaycommon.TaskInfo, error
 		Code: 0, ProviderStatus: providerStatus, UpstreamTaskID: taskID, UpstreamRequestID: requestID,
 		UsageDimensions: map[string]string{}, ResultMetadata: map[string]string{},
 	}
-	// This observed provider usage is audit evidence, not the quotation's
-	// input_tokens dimension. Keep its original JSON representation intact.
+	// Keep the supplier response intact for reconciliation. The frozen contract
+	// separately defines the one provider field authorized for customer billing.
 	if usage := gjson.GetBytes(body, "provider_result.volcengine.usage"); usage.Exists() {
 		result.ResultMetadata["raw_usage_json"] = usage.Raw
 	}
@@ -309,19 +309,17 @@ func (a *TaskAdaptor) ParseTaskResult(body []byte) (*relaycommon.TaskInfo, error
 		result.Progress = ""
 		result.Reason = "unknown_provider_state"
 	}
-	if _, unresolved := result.ResultMetadata["raw_usage_json"]; unresolved {
-		return result, nil
-	}
 	for dimension, field := range a.contract.Usage.Fields {
 		value := gjson.GetBytes(body, field)
-		if !value.Exists() {
+		if !value.Exists() || value.Type != gjson.Number {
 			continue
 		}
-		raw := value.Raw
-		if value.Type == gjson.String {
-			raw = value.String()
+		raw := strings.TrimSpace(value.Raw)
+		quantity, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || quantity < 0 || strconv.FormatInt(quantity, 10) != raw {
+			continue
 		}
-		result.UsageDimensions[dimension] = strings.TrimSpace(raw)
+		result.UsageDimensions[dimension] = raw
 	}
 	return result, nil
 }

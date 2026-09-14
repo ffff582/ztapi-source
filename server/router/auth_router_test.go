@@ -174,6 +174,35 @@ func TestAuthRouterLegacyPublicAuthRoutesReturnNotFound(t *testing.T) {
 	}
 }
 
+func TestAuthRouterPasswordRecoveryEndpointsExist(t *testing.T) {
+	setupZTAPIAuthRouterTestDB(t)
+	engine := newZTAPIRealRouter(t, false)
+
+	requestReset := performZTAPIRouterRequest(
+		engine,
+		http.MethodPost,
+		"/api/auth/password-reset/request",
+		`{"email":"nobody@example.com"}`,
+		"",
+		"192.0.2.23:1000",
+	)
+	if requestReset.Code == http.StatusNotFound {
+		t.Fatalf("password reset request route is missing: body=%s", requestReset.Body.String())
+	}
+
+	confirmReset := performZTAPIRouterRequest(
+		engine,
+		http.MethodPost,
+		"/api/auth/password-reset/confirm",
+		`{}`,
+		"",
+		"192.0.2.24:1000",
+	)
+	if confirmReset.Code != http.StatusBadRequest {
+		t.Fatalf("invalid password reset confirmation status = %d, want 400; body=%s", confirmReset.Code, confirmReset.Body.String())
+	}
+}
+
 func TestAuthRouterPublicEndpointsApplyAnonymousBodyLimits(t *testing.T) {
 	originalLimit := constant.AnonymousRequestBodyLimitKB
 	constant.AnonymousRequestBodyLimitKB = 1
@@ -184,6 +213,8 @@ func TestAuthRouterPublicEndpointsApplyAnonymousBodyLimits(t *testing.T) {
 	for _, path := range []string{
 		"/api/auth/register",
 		"/api/auth/login",
+		"/api/auth/password-reset/request",
+		"/api/auth/password-reset/confirm",
 		"/api/auth/refresh",
 	} {
 		t.Run(path, func(t *testing.T) {
@@ -219,6 +250,8 @@ func TestAuthRouterPublicEndpointsApplyExplicitRateLimits(t *testing.T) {
 	for index, path := range []string{
 		"/api/auth/register",
 		"/api/auth/login",
+		"/api/auth/password-reset/request",
+		"/api/auth/password-reset/confirm",
 		"/api/auth/refresh",
 	} {
 		t.Run(path, func(t *testing.T) {

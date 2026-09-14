@@ -11,6 +11,7 @@ const nginxConfigPath = 'deploy/nginx/ztapi.conf';
 const nginxDockerfilePath = 'deploy/nginx/Dockerfile';
 const dockerignorePath = '.dockerignore';
 const viteConfigPath = 'web/console/vite.config.ts';
+const directMailSetupPath = 'deploy/mail/setup-direct-smtp.sh';
 
 function readProductionCompose() {
   return YAML.parse(readFileSync(productionComposePath, 'utf8'));
@@ -37,6 +38,26 @@ test('production server has outbound access without exposing stateful services',
   assert.ok(!compose.services.nginx.networks.includes('egress'));
   assert.ok(!compose.services.mysql.networks.includes('egress'));
   assert.ok(!compose.services.redis.networks.includes('egress'));
+});
+
+test('production server can reach the host-only SMTP relay', () => {
+  const compose = readProductionCompose();
+
+  assert.ok(
+    compose.services.server.extra_hosts.includes('host.docker.internal:host-gateway'),
+  );
+});
+
+test('direct SMTP setup is host-only, signed, and restricted to the ZTAPI network', () => {
+  const setup = readFileSync(directMailSetupPath, 'utf8');
+
+  assert.match(setup, /inet_interfaces = 127\.0\.0\.1, \$\{docker_gateway\}/);
+  assert.match(setup, /docker network inspect ztapi_egress/);
+  assert.match(setup, /mynetworks = 127\.0\.0\.0\/8, \$\{ztapi_egress_subnet\}/);
+  assert.match(setup, /opendkim-genkey -b 2048/);
+  assert.match(setup, /milter_default_action = tempfail/);
+  assert.doesNotMatch(setup, /inet_interfaces = all/);
+  assert.doesNotMatch(setup, /mynetworks = .*172\.16\.0\.0\/12/);
 });
 
 test('development console proxies API and relay routes to the server', () => {

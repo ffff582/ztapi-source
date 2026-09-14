@@ -163,6 +163,113 @@ describe('protected authentication routes', () => {
     expect(screen.getByLabelText('账号')).toHaveFocus();
   });
 
+  it('links the login page to a public password recovery flow', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (...args: [RequestInfo | URL]) =>
+        requestUrl(args[0]).endsWith('/status')
+          ? jsonResponse({ success: true, data: { password_reset_enabled: true } })
+          : jsonResponse({ success: false, message: 'unauthorized' }, 401),
+      ),
+    );
+
+    renderRoute('/login');
+    await waitForLoginForm();
+
+    expect(await screen.findByRole('link', { name: '忘记密码？' })).toHaveAttribute(
+      'href',
+      '/forgot-password',
+    );
+  });
+
+  it('hides password recovery while outbound email is not ready', async () => {
+    const fetchMock = vi.fn(async (...args: [RequestInfo | URL]) =>
+      requestUrl(args[0]).endsWith('/status')
+        ? jsonResponse({ success: true, data: { password_reset_enabled: false } })
+        : jsonResponse({ success: false, message: 'unauthorized' }, 401),
+    );
+    vi.stubGlobal(
+      'fetch',
+      fetchMock,
+    );
+
+    renderRoute('/login');
+    await waitForLoginForm();
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([input]) => requestUrl(input).endsWith('/status'))).toBe(true),
+    );
+
+    expect(screen.queryByRole('link', { name: '忘记密码？' })).not.toBeInTheDocument();
+  });
+
+  it('requests password recovery without exposing whether an email exists', async () => {
+    const fetchMock = vi.fn(
+      async (...args: [RequestInfo | URL, RequestInit?]) => {
+        const [input] = args;
+        if (requestUrl(input).endsWith('/refresh')) {
+          return jsonResponse({ success: false, message: 'unauthorized' }, 401);
+        }
+        return jsonResponse({ success: true });
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderRoute('/forgot-password');
+    expect(await screen.findByRole('heading', { name: '找回密码' })).toBeVisible();
+    fireEvent.change(screen.getByLabelText('邮箱'), {
+      target: { value: ' Alice@Example.com ' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '发送重置邮件' }));
+
+    expect(
+      await screen.findByText('如果该邮箱已绑定账号，重置邮件将在几分钟内送达。'),
+    ).toBeVisible();
+    const resetCall = fetchMock.mock.calls.find(([input]) =>
+      requestUrl(input as RequestInfo | URL).endsWith('/password-reset/request'),
+    );
+    expect(resetCall?.[1]?.method).toBe('POST');
+    expect(JSON.parse(String(resetCall?.[1]?.body))).toEqual({
+      email: 'alice@example.com',
+    });
+  });
+
+  it('sets a chosen password from a reset link and returns to login', async () => {
+    const fetchMock = vi.fn(
+      async (...args: [RequestInfo | URL, RequestInit?]) => {
+        const [input] = args;
+        if (requestUrl(input).endsWith('/refresh')) {
+          return jsonResponse({ success: false, message: 'unauthorized' }, 401);
+        }
+        return jsonResponse({ success: true });
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderRoute('/reset-password?email=alice%40example.com&token=one-time-token');
+    expect(await screen.findByRole('heading', { name: '设置新密码' })).toBeVisible();
+    fireEvent.change(screen.getByLabelText('新密码'), {
+      target: { value: 'new-password-456' },
+    });
+    fireEvent.change(screen.getByLabelText('确认新密码'), {
+      target: { value: 'new-password-456' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '确认修改' }));
+
+    expect(await screen.findByText('密码已更新，请重新登录。')).toBeVisible();
+    expect(screen.getByRole('link', { name: '返回登录' })).toHaveAttribute(
+      'href',
+      '/login',
+    );
+    const resetCall = fetchMock.mock.calls.find(([input]) =>
+      requestUrl(input as RequestInfo | URL).endsWith('/password-reset/confirm'),
+    );
+    expect(JSON.parse(String(resetCall?.[1]?.body))).toEqual({
+      email: 'alice@example.com',
+      token: 'one-time-token',
+      new_password: 'new-password-456',
+    });
+  });
+
   it('focuses the username input when the registration route first renders', async () => {
     vi.stubGlobal(
       'fetch',
@@ -175,6 +282,61 @@ describe('protected authentication routes', () => {
     await waitForRegisterForm();
 
     expect(screen.getByLabelText('账号')).toHaveFocus();
+  });
+
+  it('verifies and submits an email when registration email verification is enabled', async () => {
+    const fetchMock = vi.fn(
+      async (...args: [RequestInfo | URL, RequestInit?]) => {
+        const [input] = args;
+        const url = requestUrl(input);
+        if (url.endsWith('/refresh')) {
+          return jsonResponse({ success: false, message: 'unauthorized' }, 401);
+        }
+        if (url.endsWith('/status')) {
+          return jsonResponse({ success: true, data: { email_verification: true } });
+        }
+        if (url.includes('/verification?')) {
+          return jsonResponse({ success: true });
+        }
+        if (url.endsWith('/register')) {
+          return jsonResponse(authResponse());
+        }
+        return jsonResponse({ success: false, message: 'not found' }, 404);
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderRoute('/register');
+    await waitForRegisterForm();
+    expect(await screen.findByLabelText('邮箱')).toBeVisible();
+
+    fireEvent.change(screen.getByLabelText('账号'), { target: { value: 'alice' } });
+    fireEvent.change(screen.getByLabelText('密码'), { target: { value: 'correct-horse' } });
+    fireEvent.change(screen.getByLabelText('邮箱'), { target: { value: 'Alice@Example.com' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送验证码' }));
+
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([input]) =>
+        requestUrl(input as RequestInfo | URL).includes('/verification?email=alice%40example.com'),
+      )).toBe(true);
+    });
+    fireEvent.change(screen.getByLabelText('邮箱验证码'), { target: { value: '123456' } });
+    fireEvent.click(screen.getByRole('button', { name: '创建账号' }));
+
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([input]) =>
+        requestUrl(input as RequestInfo | URL).endsWith('/register'),
+      )).toBe(true);
+    });
+    const registerCall = fetchMock.mock.calls.find(([input]) =>
+      requestUrl(input as RequestInfo | URL).endsWith('/register'),
+    );
+    expect(JSON.parse(String(registerCall?.[1]?.body))).toEqual({
+      username: 'alice',
+      password: 'correct-horse',
+      email: 'alice@example.com',
+      verification_code: '123456',
+    });
   });
 
   it('posts only the submitted username and password when logging in', async () => {

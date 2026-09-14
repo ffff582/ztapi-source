@@ -345,7 +345,7 @@ func mustCanonicalZTAPIMediaPriceContract(t *testing.T, raw string) string {
 	return canonical
 }
 
-func TestZTAPIMediaPriceContractQuotationEvidenceDoesNotPublish(t *testing.T) {
+func TestZTAPIMediaPriceContractQuotationEvidenceAndIdentityAreExact(t *testing.T) {
 	want := map[string]struct {
 		modality, cell, currency, discount, rate, buffer string
 		contract                                         string
@@ -380,11 +380,16 @@ func TestZTAPIMediaPriceContractQuotationEvidenceDoesNotPublish(t *testing.T) {
 			require.Equal(t, ZTAPIProtocolOpenAICompatible, entry.Protocol)
 			require.Equal(t, ZTAPIProviderGoogle, entry.ProviderFamily)
 		} else {
-			require.Equal(t, "mapping_pending", entry.Status)
-			require.Empty(t, entry.SourceModel)
-			require.Empty(t, entry.PublicName)
-			require.Empty(t, entry.Protocol)
-			require.Empty(t, entry.ProviderFamily)
+			wantIdentity := map[string][2]string{
+				"seedance-2.0":      {"doubao-seedance-2.0", "zt-seedance-2.0"},
+				"Seedance 2.0 Fast": {"doubao-seedance-2-0-fast", "zt-seedance-2.0-fast"},
+				"Seedance 2.0 Mini": {"doubao-seedance-2-0-mini", "zt-seedance-2.0-mini"},
+			}[entry.Label]
+			require.Equal(t, "mapped", entry.Status)
+			require.Equal(t, wantIdentity[0], entry.SourceModel)
+			require.Equal(t, wantIdentity[1], entry.PublicName)
+			require.Equal(t, ZTAPIProtocolOpenAICompatible, entry.Protocol)
+			require.Equal(t, ZTAPIProviderSeedance, entry.ProviderFamily)
 		}
 		require.Equal(t, expected.modality, entry.Modality)
 		var priced []ZTAPIQuotationRow

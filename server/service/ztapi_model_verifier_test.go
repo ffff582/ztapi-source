@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"image"
 	"image/png"
 	"io"
@@ -23,6 +24,7 @@ import (
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 	"gorm.io/gorm"
 )
 
@@ -392,6 +394,103 @@ func TestVerifyZTAPIModelActualProbeSequenceAndPersistedVerdict(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestVerifyZTAPISeedanceUsesActualTaskAPIAndPersistsProtocol(t *testing.T) {
+	channel, config := setupZTAPIModelVerifierTestDB(t)
+	const sourceModel = "doubao-seedance-2-0-fast"
+	baseURL := "https://upstream.example.com/hub"
+	require.NoError(t, model.DB.Model(&channel).Update("base_url", baseURL).Error)
+	require.NoError(t, model.DB.Model(&config).Updates(map[string]any{
+		"source_model": sourceModel, "provider_family": model.ZTAPIProviderSeedance,
+	}).Error)
+
+	oldTransport := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = oldTransport })
+	calls := 0
+	http.DefaultTransport = ztapiVerifierRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		calls++
+		header := http.Header{"X-Request-Id": {"req-video-" + fmt.Sprint(calls)}}
+		switch calls {
+		case 1:
+			require.Equal(t, http.MethodPost, r.Method)
+			require.Equal(t, "/hub/v1/videos", r.URL.Path)
+			require.Equal(t, "Bearer synthetic-verifier-key", r.Header.Get("Authorization"))
+			var payload map[string]any
+			require.NoError(t, common.DecodeJson(r.Body, &payload))
+			require.Equal(t, sourceModel, payload["model"])
+			rawPayload, marshalErr := common.Marshal(payload)
+			require.NoError(t, marshalErr)
+			require.Equal(t, "720p", gjson.GetBytes(rawPayload, "provider_options.volcengine.resolution").String())
+			return &http.Response{StatusCode: 200, Header: header, Body: io.NopCloser(strings.NewReader(`{"id":"tsk-fast","status":"queued"}`))}, nil
+		case 2:
+			require.Equal(t, http.MethodGet, r.Method)
+			require.Equal(t, "/hub/v1/videos/tsk-fast", r.URL.Path)
+			return &http.Response{StatusCode: 200, Header: header, Body: io.NopCloser(strings.NewReader(`{"id":"tsk-fast","status":"completed","provider_result":{"volcengine":{"content":{"video_url":"https://cdn.invalid/video.mp4"},"resolution":"720p","duration":5,"usage":{"completion_tokens":216900,"total_tokens":216900}}}}`))}, nil
+		case 3:
+			require.Equal(t, http.MethodPost, r.Method)
+			require.Equal(t, "Bearer ztapi-deliberately-invalid-credential", r.Header.Get("Authorization"))
+			return &http.Response{StatusCode: 401, Header: header, Body: io.NopCloser(strings.NewReader(`{"error":{"message":"redacted"}}`))}, nil
+		default:
+			t.Fatalf("unexpected upstream call %d", calls)
+			return nil, nil
+		}
+	})
+
+	verification, err := VerifyZTAPIModel(context.Background(), channel.Id, sourceModel, 37)
+	require.NoError(t, err)
+	require.Equal(t, 3, calls)
+	require.Equal(t, model.ZTAPIModalityVideo, verification.Modality)
+	require.True(t, verification.NonStreamingPassed)
+	require.False(t, verification.StreamingRequired)
+	require.True(t, verification.UsageReconciled)
+	require.True(t, verification.MediaResultValid)
+	require.True(t, verification.VideoCreatePassed)
+	require.True(t, verification.VideoFetchPassed)
+	require.True(t, verification.VideoTerminalPassed)
+	require.True(t, verification.VideoRestartRecoveryPassed)
+	require.True(t, verification.VideoSettlementIdempotencePassed)
+	require.Equal(t, 216900, verification.CompletionTokens)
+	contract, canonical, err := types.ParseZTAPIVideoProtocolContract(verification.VideoProtocolContractJSON)
+	require.NoError(t, err)
+	require.Equal(t, verification.VideoProtocolContractJSON, canonical)
+	require.Equal(t, sourceModel, contract.ProviderModel)
+	require.Equal(t, "provider_result.volcengine.usage.completion_tokens", contract.Usage.Fields["input_tokens"])
+}
+
+func TestVerifyZTAPISeedanceRejectsZeroBillableUsage(t *testing.T) {
+	channel, config := setupZTAPIModelVerifierTestDB(t)
+	const sourceModel = "doubao-seedance-2.0"
+	baseURL := "https://upstream.example.com/hub"
+	require.NoError(t, model.DB.Model(&channel).Update("base_url", baseURL).Error)
+	require.NoError(t, model.DB.Model(&config).Updates(map[string]any{
+		"source_model": sourceModel, "provider_family": model.ZTAPIProviderSeedance,
+	}).Error)
+
+	oldTransport := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = oldTransport })
+	calls := 0
+	http.DefaultTransport = ztapiVerifierRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		calls++
+		header := http.Header{"X-Request-Id": {"req-video-zero-" + fmt.Sprint(calls)}}
+		switch calls {
+		case 1:
+			return &http.Response{StatusCode: 200, Header: header, Body: io.NopCloser(strings.NewReader(`{"id":"tsk-zero","status":"queued"}`))}, nil
+		case 2:
+			return &http.Response{StatusCode: 200, Header: header, Body: io.NopCloser(strings.NewReader(`{"id":"tsk-zero","status":"completed","provider_result":{"volcengine":{"content":{"video_url":"https://cdn.invalid/video.mp4"},"resolution":"720p","duration":5,"usage":{"completion_tokens":0,"total_tokens":0}}}}`))}, nil
+		case 3:
+			return &http.Response{StatusCode: 401, Header: header, Body: io.NopCloser(strings.NewReader(`{"error":{"message":"redacted"}}`))}, nil
+		default:
+			t.Fatalf("unexpected upstream call %d", calls)
+			return nil, nil
+		}
+	})
+
+	verification, err := VerifyZTAPIModel(context.Background(), channel.Id, sourceModel, 38)
+	require.Error(t, err)
+	require.NotNil(t, verification)
+	require.False(t, verification.UsageReconciled)
+	require.Equal(t, "verification_incomplete", verification.StatusCategory)
 }
 
 func TestZTAPIVerificationEndpointUsesResponsesOnlyForGPT5Pro(t *testing.T) {

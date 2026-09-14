@@ -64,9 +64,11 @@ func validateZTAPIQuotationTask(modelName string) *dto.TaskError {
 		if entry.Modality != "video" {
 			return denied("quotation_task_modality_mismatch")
 		}
-		// The current quotation only maps text models. A future video mapping
-		// also needs explicit task protocol, channel and billing authorization.
-		return denied("quotation_task_protocol_pending")
+		if publication.VideoProtocolContract == nil || publication.ProviderFamily != model.ZTAPIProviderSeedance ||
+			publication.Protocol != model.ZTAPIProtocolOpenAICompatible {
+			return denied("quotation_task_protocol_pending")
+		}
+		return nil
 	}
 	return denied("quotation_task_not_authorized")
 }

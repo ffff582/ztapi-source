@@ -324,7 +324,10 @@ func TestZTAPIMediaTaskSuccessSettlesExactFrozenUsageAndCustomerBalance(t *testi
 		UpstreamTaskID:    "upstream-task-1",
 		Url:               "https://provider.invalid/result.mp4",
 		UsageDimensions:   map[string]string{"input_tokens": "6"},
-		ResultMetadata:    map[string]string{"resolution": "720p", "duration": "5"},
+		ResultMetadata: map[string]string{
+			"resolution": "720p", "duration": "5",
+			"raw_usage_json": `{"completion_tokens":6,"total_tokens":6}`,
+		},
 	})
 	require.NoError(t, err)
 	require.True(t, managed)
@@ -340,6 +343,7 @@ func TestZTAPIMediaTaskSuccessSettlesExactFrozenUsageAndCustomerBalance(t *testi
 	require.JSONEq(t, `{"input_tokens":6}`, media.UsageJSON)
 	require.Contains(t, media.ChargeDimensionsJSON, `"dimension":"input_tokens"`)
 	require.Contains(t, media.ResultMetadataJSON, `"upstream_request_id":"provider-fetch-request-1"`)
+	require.Equal(t, `{"completion_tokens":6,"total_tokens":6}`, gjson.Get(media.ResultMetadataJSON, "raw_usage_json").String())
 	require.NotContains(t, media.ResultMetadataJSON, "provider.invalid")
 }
 
@@ -367,7 +371,6 @@ func TestZTAPIMediaTaskSuccessWithoutUsageStaysPendingAndDoesNotRefund(t *testin
 
 func TestZTAPIMediaTaskUnresolvedUsageSurvivesRecoveryPollingAndDuplicateTerminal(t *testing.T) {
 	for _, rawUsage := range []string{
-		`{ "completion_tokens": 108900, "total_tokens": 108900 }`,
 		`{"completion_tokens":9007199254740993,"total_tokens":"00108900"}`,
 		`{"completion_tokens":0,"total_tokens":0}`,
 	} {
@@ -382,8 +385,8 @@ func TestZTAPIMediaTaskUnresolvedUsageSurvivesRecoveryPollingAndDuplicateTermina
 			result := &relaycommon.TaskInfo{
 				Status: model.TaskStatusSuccess, ProviderStatus: "completed", UpstreamTaskID: "upstream-task-1",
 				UpstreamRequestID: "fetch-unresolved", Url: "https://provider.invalid/video.mp4",
-				// Even an apparent zero in the priced dimension cannot resolve raw supplier semantics.
-				UsageDimensions: map[string]string{"input_tokens": "0"},
+				// Raw evidence without a contract-authorized dimension cannot be charged.
+				UsageDimensions: map[string]string{},
 				ResultMetadata:  map[string]string{"resolution": "720p", "duration": "5", "raw_usage_json": rawUsage},
 			}
 			baseURL := "https://provider.invalid"

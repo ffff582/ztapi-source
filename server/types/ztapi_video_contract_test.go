@@ -34,6 +34,29 @@ func TestZTAPIVideoProtocolContractSealsAndParsesExactEvidence(t *testing.T) {
 	require.Equal(t, "9000", authority.MaximumDimensions["credits"])
 }
 
+func TestBuildZTAPISeedanceProtocolContractIsExactAndClosed(t *testing.T) {
+	for _, providerModel := range []string{
+		"doubao-seedance-2.0", "doubao-seedance-2-0-fast", "doubao-seedance-2-0-mini",
+	} {
+		contract, canonical, err := BuildZTAPISeedanceProtocolContract(providerModel)
+		require.NoError(t, err)
+		require.NotEmpty(t, canonical)
+		require.Equal(t, providerModel, contract.ProviderModel)
+		require.Equal(t, "/hub/v1/videos", contract.Create.Path)
+		require.Equal(t, "/hub/v1/videos/{task_id}", contract.Fetch.Path)
+		require.Equal(t, "X-Request-Id", contract.Fetch.RequestIDKey)
+		require.Equal(t, "provider_result.volcengine.usage.completion_tokens", contract.Usage.Fields["input_tokens"])
+		_, ok := contract.FindReservationAuthority(ZTAPIVideoSelector{Resolution: "720p", DurationSeconds: 5})
+		require.True(t, ok)
+		_, ok = contract.FindReservationAuthority(ZTAPIVideoSelector{Resolution: "1080p", DurationSeconds: 5})
+		require.False(t, ok)
+	}
+	for _, unapproved := range []string{"doubao-seedance-2.0-fast", "doubao-seedance-2.0-mini", "seedance-2.0"} {
+		_, _, err := BuildZTAPISeedanceProtocolContract(unapproved)
+		require.Error(t, err)
+	}
+}
+
 func TestZTAPIVideoProtocolContractV1CanonicalJSONRemainsByteForByteCompatible(t *testing.T) {
 	contract := ztapiVideoProtocolContractFixture()
 	contract.Request.VideoInputField = ""
