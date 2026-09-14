@@ -697,6 +697,17 @@ test('pre-cutover media guard permits all quotation-authorized media products', 
   ]) {
     assert.doesNotMatch(guard, new RegExp(`'${authorizedModel.replaceAll('.', '\\.')}'`));
   }
+  assert.match(
+    guard,
+    /JOIN ztapi_model_publication_snapshots AS snapshot[\s\S]*snapshot\.media_price_contract_json <> ''/,
+    'the guard must identify media from the durable publication snapshot rather than a non-existent config modality column',
+  );
+  assert.match(
+    guard,
+    /JOIN ztapi_model_identities AS identity[\s\S]*identity\.source_reference NOT LIKE 'quotation:%'/,
+    'the guard must read quotation provenance from the identity table rather than the config table',
+  );
+  assert.doesNotMatch(guard, /\bAND modality\b|\bAND source_reference\b/);
   assert.match(guard, /test "\$blocked_media_count" = "0"/);
 });
 

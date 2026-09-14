@@ -1155,10 +1155,19 @@ jobs:
           blocked_media_count=$("${compose[@]}" exec -T mysql sh -c \
             'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names' <<'SQL'
           SELECT COUNT(*)
-          FROM ztapi_model_configs
-          WHERE published = 1
-            AND modality IN ('image', 'video')
-            AND source_reference NOT LIKE 'quotation:%';
+          FROM ztapi_model_configs AS config
+          JOIN ztapi_model_publication_snapshots AS snapshot
+            ON snapshot.id = config.publication_snapshot_id
+           AND snapshot.model_config_id = config.id
+           AND snapshot.model_version = config.version
+          LEFT JOIN ztapi_model_identities AS identity
+            ON identity.model_config_id = config.id
+          WHERE config.published = 1
+            AND snapshot.media_price_contract_json <> ''
+            AND (
+              identity.model_config_id IS NULL
+              OR identity.source_reference NOT LIKE 'quotation:%'
+            );
           SQL
           )
           test "$blocked_media_count" = "0"
