@@ -137,6 +137,7 @@ func ztapiPublishedConfigHasReadyRoutesTx(tx *gorm.DB, config *ZTAPIModelConfig)
 	}
 
 	routeConfig := &ZTAPIModelConfig{
+		SourceModel:    snapshot.SourceModel,
 		Protocol:       snapshot.Protocol,
 		ProviderFamily: snapshot.ProviderFamily,
 	}

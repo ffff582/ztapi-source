@@ -20,6 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 package model
 
 import (
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -152,6 +153,40 @@ func TestZTAPIUpstreamModelSyncAtomicallyUnpublishesRemovedRoute(t *testing.T) {
 	var oldRouteCount int64
 	require.NoError(t, db.Model(&Ability{}).Where("model = ?", "gpt-upstream-source").Count(&oldRouteCount).Error)
 	require.Zero(t, oldRouteCount)
+}
+
+func TestZTAPIChannelReconcileKeepsPublishedGeminiImageOnManagedGeminiRoute(t *testing.T) {
+	db := setupZTAPIChannelInvariantDB(t)
+	channel := newZTAPITestChannel("gemini-2.5-flash-image", "default")
+	channel.Type = constant.ChannelTypeGemini
+	channel.ZTAPIManaged = true
+	channel.ZTAPIFamily = ZTAPIModelFamilyGemini
+	require.NoError(t, channel.Insert())
+
+	config := createPublishedZTAPIConfig(
+		t, db, "gemini-2.5-flash-image", "zt-gemini-2.5-flash-image", `["default"]`,
+	)
+	snapshot := ZTAPIModelPublicationSnapshot{
+		ModelConfigID:     config.ID,
+		ModelVersion:      config.Version,
+		SourceModel:       config.SourceModel,
+		PublicName:        config.PublicNameValue(),
+		Protocol:          ZTAPIProtocolOpenAICompatible,
+		ProviderFamily:    ZTAPIProviderGoogle,
+		EnabledGroups:     `["default"]`,
+		AllowedChannelIDs: fmt.Sprintf("[%d]", channel.Id),
+	}
+	require.NoError(t, db.Session(&gorm.Session{SkipHooks: true}).Create(&snapshot).Error)
+	require.NoError(t, db.Model(&ZTAPIModelConfig{}).Where("id = ?", config.ID).
+		Update("publication_snapshot_id", snapshot.ID).Error)
+
+	channel.OtherSettings = `{"upstream_model_update_auto_sync_enabled":true}`
+	require.NoError(t, SaveChannelUpstreamModelSettings(&channel, false))
+
+	var reloaded ZTAPIModelConfig
+	require.NoError(t, db.First(&reloaded, config.ID).Error)
+	require.True(t, reloaded.Published)
+	require.Equal(t, config.Version, reloaded.Version)
 }
 
 func TestZTAPIUpstreamModelSyncRollsBackChannelWhenAbilityUpdateFails(t *testing.T) {
