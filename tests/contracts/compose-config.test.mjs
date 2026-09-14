@@ -54,6 +54,7 @@ test('direct SMTP setup is host-only, signed, and restricted to the ZTAPI networ
   assert.match(setup, /inet_interfaces = 127\.0\.0\.1, \$\{docker_gateway\}/);
   assert.match(setup, /docker network inspect ztapi_egress/);
   assert.match(setup, /mynetworks = 127\.0\.0\.0\/8, \$\{ztapi_egress_subnet\}/);
+  assert.match(setup, /smtpd_tls_security_level = none/);
   assert.match(setup, /opendkim-genkey -b 2048/);
   assert.match(setup, /milter_default_action = tempfail/);
   assert.doesNotMatch(setup, /inet_interfaces = all/);

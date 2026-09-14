@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "33aa74580dd14b3fe8624a41b1a56d431ca9d41c",
+  "release_commit": "de003c379c1e75064ec230f2cbf22ea1ae233ecd",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-33aa74580dd14b3fe8624a41b1a56d431ca9d41c",
+  "source_tag": "production-de003c379c1e75064ec230f2cbf22ea1ae233ecd",
   "files": [
     {
       "path": ".dockerignore",
@@ -21,8 +21,8 @@
     },
     {
       "path": ".github/workflows/ztapi-deploy.yml",
-      "sha256": "421b4aa89aae65e55d4d892d2d2045b15f772c72ae1aa2084a860bc8cf106883",
-      "size": 166262
+      "sha256": "79a8e76b33ee8e6d5118ebee6b20399f98e32e48959a115450348d4a069af688",
+      "size": 170070
     },
     {
       "path": ".github/workflows/ztapi-edge-diagnostic.yml",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "d21ed1c5f3fa599e324070b6e78d42395e44d154d94bebf83899b09562e8d00a",
+      "sha256": "457a1c6204a13aa9ffb8c2d17d9eadf6a1b82602e4cc1ffe87128b02ddd899f1",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "aae2d8a9b93afd481ab33dcf79c77d4d31137a65c90b5ff81d9a434c5034929f",
+      "sha256": "58a2c5b5d6fc996b0de6f73246ed1566e660a4a681afac8df9fb275257c93e37",
       "size": 942
     },
     {
@@ -121,8 +121,8 @@
     },
     {
       "path": "deploy/mail/setup-direct-smtp.sh",
-      "sha256": "7adaeb2123f64a56d8d2b379b315bb6532201b5414969cd15b12ad4aebfd9063",
-      "size": 4003
+      "sha256": "2ca1f4fa20026403fda5ea1b66dc90881b71171c9c8a6c26b509cd2608b9e831",
+      "size": 4209
     },
     {
       "path": "deploy/nginx/Dockerfile",
@@ -141,8 +141,8 @@
     },
     {
       "path": "deploy/scripts/ztapi-release-control.sh",
-      "sha256": "9748bc2eb1ebcd0d97afab6931172aeb00c5237c4079b5b1821702160951f5b7",
-      "size": 8108
+      "sha256": "7d8fb56d2ac5f189fe810733c33d47c55f816eb52484aa322acfaa2cecde4070",
+      "size": 9074
     },
     {
       "path": "deploy/scripts/ztapi-video-acceptance-fingerprint.sh",
@@ -2511,13 +2511,13 @@
     },
     {
       "path": "server/model/ztapi_model_config.go",
-      "sha256": "ebaf9937f7ce8979f2eda551788fbca030fc93a8c48ab74942a2d4a6391e3d5a",
-      "size": 43528
+      "sha256": "b0e21edea9c85df695925fea091c3ed38f87402a4669425366f256ecb46fa4a0",
+      "size": 43644
     },
     {
       "path": "server/model/ztapi_model_config_test.go",
-      "sha256": "9546780ed434daf13beafcc45815c6ddc685a93fa677d518cd98db996447d07e",
-      "size": 23401
+      "sha256": "a4deec234d26eff1135fb15f10d1b31aa6c8148a255aecd31692e6788d2a25ff",
+      "size": 24840
     },
     {
       "path": "server/model/ztapi_model_discovery.go",
@@ -9121,8 +9121,8 @@
     },
     {
       "path": "tests/contracts/compose-config.test.mjs",
-      "sha256": "0edefdba83397448c2407dde206c3465d668f51508aba6c32ca8ea2166590b2b",
-      "size": 14359
+      "sha256": "36137ff2bc4bf5f06fd1deb23fe3a7190099bf7f361055f34026536665762976",
+      "size": 14417
     },
     {
       "path": "tests/contracts/deployment-workflow.test.mjs",
@@ -9136,8 +9136,8 @@
     },
     {
       "path": "tests/contracts/final-commercial-delivery.test.mjs",
-      "sha256": "8c06cf107940802c4195beeab421b1b0779dfc9f7d29efc385638a19dc8452fe",
-      "size": 38513
+      "sha256": "533df90579d6dc08e58d02ce20ec63f6aa19d9ac2e87898c6fdae8309d1892cf",
+      "size": 41088
     },
     {
       "path": "tests/contracts/financial-ci-workflow.test.mjs",

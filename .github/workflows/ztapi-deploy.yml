@@ -300,6 +300,8 @@ jobs:
           gemini_channel_previous_status=""
           gemini_channel_id=""
           gemini_channel_backup=""
+          media_publication_state_captured=false
+          media_publication_backup=""
           watchdog_unit=""
           active_execution_file="/opt/ztapi/release-receipts/active-execution.env"
           global_control_lock="/opt/ztapi/release-receipts/release-control.lock"
@@ -496,6 +498,47 @@ jobs:
             rm -f "$gemini_channel_backup" || return 1
             gemini_rollout_state_captured=false
           }
+          capture_media_publication_state() {
+            media_publication_backup="$receipt_dir/media-publications-before.sql"
+            rm -f "$media_publication_backup"
+            "${compose[@]}" exec -T mysql sh -c \
+              'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names --raw' <<'SQL' > "$media_publication_backup"
+          SELECT CONCAT(
+            'UPDATE ztapi_model_configs SET published=', published,
+            ', publication_snapshot_id=', IFNULL(CAST(publication_snapshot_id AS CHAR), 'NULL'),
+            ', enabled_groups=', IF(
+              enabled_groups IS NULL,
+              'NULL',
+              CONCAT('CONVERT(UNHEX(''', HEX(enabled_groups), ''') USING utf8mb4)')
+            ),
+            ', version=', version,
+            ', updated_at=', updated_at,
+            ' WHERE id=', id,
+            ' AND source_model=CONVERT(UNHEX(''', HEX(source_model), ''') USING utf8mb4);'
+          )
+          FROM ztapi_model_configs
+          WHERE source_model IN (
+            'gpt-image-2',
+            'gemini-2.5-flash-image',
+            'doubao-seedance-2.0',
+            'doubao-seedance-2-0-fast',
+            'doubao-seedance-2-0-mini'
+          )
+          ORDER BY id ASC;
+          SQL
+            test "$(wc -l < "$media_publication_backup" | tr -d ' ')" = "5"
+            chmod 0600 "$media_publication_backup"
+            media_publication_state_captured=true
+          }
+          restore_media_publication_state() {
+            if [ "$media_publication_state_captured" != true ]; then
+              return 0
+            fi
+            test -s "$media_publication_backup" || return 1
+            "${compose[@]}" exec -T mysql sh -c \
+              'exec mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE"' < "$media_publication_backup" || return 1
+            media_publication_state_captured=false
+          }
           cleanup_synthetic_acceptance() {
             if [ -z "$acceptance_user_id" ] || [ "$acceptance_cleanup_done" = true ]; then
               return 0
@@ -633,6 +676,7 @@ jobs:
             if [ "$status" -ne 0 ] && [ "$deployment_completed" != true ]; then
               rollback_status=0
               restore_registration_options || rollback_status=$?
+              restore_media_publication_state || rollback_status=$?
               restore_gemini_rollout_state || rollback_status=$?
               restore_previous_release || rollback_status=$?
               if [ -s "$unrelated_before" ]; then
@@ -1205,6 +1249,7 @@ jobs:
           systemctl restart cron || systemctl restart cron.service
 
           require_receipt cutover
+          capture_media_publication_state
           acceptance_origin="http://127.0.0.1:18081"
           runtime_status=$(curl --fail --silent --show-error \
             --resolve ztapi.vip:443:127.0.0.1 \
@@ -2167,34 +2212,65 @@ jobs:
             --argjson seed_quota "$acceptance_seed_quota" \
             'select(.success == true and .data.applied == true and .data.user_id > 0 and .data.balance_after == $seed_quota) | .data.id')
 
-          acceptance_catalog=$(curl --fail --silent --show-error \
-            --header "Authorization: Bearer $acceptance_user_access_token" \
-            --header "New-API-User: $acceptance_user_id" \
-            "$acceptance_origin/api/user/models")
-          echo "$acceptance_catalog" | jq -e '
-            .success == true
-            and (all(.catalog[];
-              (.pricing_version | length) > 0
-              and (if (.modality == "image" or .modality == "video") then
-                .input_price_per_million == ""
-                and .output_price_per_million == ""
-                and (.billing_dimensions | length) == 0
-                and (.sale_usd | length) == 0
-                and .billing_rule == "multi_dimension"
-                and (.supported_options | type) == "object"
-                and (.pricing_rules | length) > 0
-                and (.billing_unit | length) > 0
-              else
-                (.input_price_per_million | tonumber) >= 0
-                and (.output_price_per_million | tonumber) >= 0
-              end)))
-            and ([.catalog[] | select(.modality == "image" and (.model_name == "zt-gp-image-2" or .model_name == "zt-gemini-2.5-flash-image"))] | length) == 2
-            and ([.catalog[] | select(.modality == "video" and (
-              .model_name == "zt-seedance-2.0"
-              or .model_name == "zt-seedance-2.0-fast"
-              or .model_name == "zt-seedance-2.0-mini"
-            ))] | length) == 3
-            and ([.. | objects | keys[] | select(. == "source_model" or . == "channel_id")] | length) == 0' >/dev/null
+          acceptance_catalog=""
+          catalog_accepted=false
+          for catalog_attempt in {1..6}; do
+            if acceptance_catalog=$(curl --fail --silent --show-error \
+              --header "Authorization: Bearer $acceptance_user_access_token" \
+              --header "New-API-User: $acceptance_user_id" \
+              "$acceptance_origin/api/user/models") &&
+              echo "$acceptance_catalog" | jq -e '
+                .success == true
+                and (all(.catalog[];
+                  (.pricing_version | length) > 0
+                  and (if (.modality == "image" or .modality == "video") then
+                    .input_price_per_million == ""
+                    and .output_price_per_million == ""
+                    and (.billing_dimensions | length) == 0
+                    and (.sale_usd | length) == 0
+                    and .billing_rule == "multi_dimension"
+                    and (.supported_options | type) == "object"
+                    and (.pricing_rules | length) > 0
+                    and (.billing_unit | length) > 0
+                  else
+                    (.input_price_per_million | tonumber) >= 0
+                    and (.output_price_per_million | tonumber) >= 0
+                  end)))
+                and ([.catalog[] | select(.modality == "image" and (.model_name == "zt-gp-image-2" or .model_name == "zt-gemini-2.5-flash-image"))] | length) == 2
+                and ([.catalog[] | select(.modality == "video" and (
+                  .model_name == "zt-seedance-2.0"
+                  or .model_name == "zt-seedance-2.0-fast"
+                  or .model_name == "zt-seedance-2.0-mini"
+                ))] | length) == 3
+                and ([.. | objects | keys[] | select(. == "source_model" or . == "channel_id")] | length) == 0' >/dev/null; then
+              catalog_accepted=true
+              break
+            fi
+            if [ "$catalog_attempt" -lt 6 ]; then
+              sleep 2
+            fi
+          done
+          if [ "$catalog_accepted" != true ]; then
+            echo 'catalog acceptance failed after 6 attempts' >&2
+            printf '%s' "$acceptance_catalog" | jq -c '{
+              success,
+              catalog_count: (if (.catalog | type) == "array" then (.catalog | length) else 0 end),
+              catalog: [(.catalog // [])[] | {
+                model_name: .model_name,
+                modality: .modality,
+                pricing_version: .pricing_version,
+                input_price_empty: (.input_price_per_million == ""),
+                output_price_empty: (.output_price_per_million == ""),
+                billing_dimensions_count: ((.billing_dimensions // []) | length),
+                sale_usd_count: ((.sale_usd // []) | length),
+                billing_rule: .billing_rule,
+                supported_options_type: (.supported_options | type),
+                pricing_rules_count: ((.pricing_rules // []) | length),
+                billing_unit: .billing_unit
+              }]
+            }' >&2 || echo 'catalog response was not valid JSON' >&2
+            exit 1
+          fi
           acceptance_pricing=$(curl --fail --silent --show-error \
             "$acceptance_origin/api/pricing")
           echo "$acceptance_pricing" | jq -e '
@@ -2912,6 +2988,8 @@ jobs:
             printf 'gemini_channel_previous_status=%q\n' "$gemini_channel_previous_status"
             printf 'gemini_channel_id=%q\n' "$gemini_channel_id"
             printf 'gemini_channel_backup=%q\n' "$gemini_channel_backup"
+            printf 'media_publication_state_captured=%q\n' "$media_publication_state_captured"
+            printf 'media_publication_backup=%q\n' "$media_publication_backup"
           } > "$rollback_state"
           chmod 0600 "$rollback_state"
           watchdog_unit="ztapi-release-watchdog-${ZTAPI_RELEASE_VERSION:0:12}-$ZTAPI_RELEASE_EXECUTION_ID"

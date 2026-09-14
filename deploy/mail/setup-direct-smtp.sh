@@ -81,6 +81,9 @@ postconf -e 'inet_protocols = ipv4'
 postconf -e "mynetworks = 127.0.0.0/8, ${ztapi_egress_subnet}"
 postconf -e 'smtpd_relay_restrictions = permit_mynetworks, reject_unauth_destination'
 postconf -e 'smtpd_recipient_restrictions = permit_mynetworks, reject_unauth_destination'
+# The relay is reachable only from the local Docker bridge. Do not advertise
+# STARTTLS with the host's unrelated snake-oil certificate to application clients.
+postconf -e 'smtpd_tls_security_level = none'
 postconf -e 'smtp_tls_security_level = may'
 postconf -e 'smtp_tls_CAfile = /etc/ssl/certs/ca-certificates.crt'
 postconf -e 'milter_default_action = tempfail'

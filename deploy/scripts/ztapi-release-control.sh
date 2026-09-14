@@ -118,6 +118,25 @@ SQL
   mv "$gemini_restore_marker.tmp" "$gemini_restore_marker"
 }
 
+restore_media_publication_state() {
+  if [ "${media_publication_state_captured:-false}" != true ]; then
+    return 0
+  fi
+  media_restore_marker="$receipt_dir/media-publications-restored"
+  if [ -s "$media_restore_marker" ]; then
+    return 0
+  fi
+  test -s "${media_publication_backup:-}"
+  docker compose --env-file /opt/ztapi/.env \
+    -f /opt/ztapi/deploy/docker/docker-compose.prod.yml \
+    exec -T mysql sh -c \
+      'exec mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE"' \
+      < "$media_publication_backup"
+  printf 'restored_at_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$media_restore_marker.tmp"
+  chmod 0600 "$media_restore_marker.tmp"
+  mv "$media_restore_marker.tmp" "$media_restore_marker"
+}
+
 verify_runtime() {
   for container in ztapi-server-1 ztapi-nginx-1 ztapi-mysql-1 ztapi-redis-1; do
     test "$(docker inspect --format '{{.State.Status}}' "$container")" = running
@@ -131,6 +150,7 @@ case "$action" in
     write_receipt completed "external_acceptance=passed"
     remove_rollback_tags
     rm -f "${gemini_channel_backup:-}"
+    rm -f "${media_publication_backup:-}"
     rm -f "$state_file"
     rm -f "$active_execution_file"
     ;;
@@ -149,6 +169,7 @@ case "$action" in
       rm -rf "$rollback_dir"
       compose=(docker compose --env-file /opt/ztapi/.env -f /opt/ztapi/deploy/docker/docker-compose.prod.yml)
       "${compose[@]}" up -d mysql redis --wait --wait-timeout 180
+      restore_media_publication_state
       restore_gemini_rollout_state
       restore_registration_options
       "${compose[@]}" up -d --force-recreate server --wait --wait-timeout 180
@@ -157,6 +178,7 @@ case "$action" in
     else
       # The first unlock still mutates the persistent options table. Restore it
       # while the new MySQL stack is available, then remove the unaccepted stack.
+      restore_media_publication_state || rollback_status=$?
       restore_gemini_rollout_state || rollback_status=$?
       restore_registration_options || rollback_status=$?
       docker compose --env-file /opt/ztapi/.env \
@@ -177,7 +199,8 @@ case "$action" in
     write_receipt rollback "external_acceptance=failed restore_status=$rollback_status"
     remove_rollback_tags
     rm -f "${gemini_channel_backup:-}"
-    rm -f "$receipt_dir/gemini-rollout-restored" "$receipt_dir/registration-options-restored"
+    rm -f "${media_publication_backup:-}"
+    rm -f "$receipt_dir/gemini-rollout-restored" "$receipt_dir/media-publications-restored" "$receipt_dir/registration-options-restored"
     rm -f "$state_file"
     rm -f "$active_execution_file"
     ;;

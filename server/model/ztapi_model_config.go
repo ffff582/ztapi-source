@@ -200,7 +200,11 @@ func applyZTAPIDefaultPricingRatios(config *ZTAPIModelConfig) (bool, error) {
 	if config == nil {
 		return false, errors.New("ztapi model config is nil")
 	}
-	if ZTAPIModelModality(config.SourceModel) == ZTAPIModalityEmbedding {
+	modality := ZTAPIModelModality(config.SourceModel)
+	if modality == ZTAPIModalityImage || modality == ZTAPIModalityVideo {
+		return false, nil
+	}
+	if modality == ZTAPIModalityEmbedding {
 		if config.Published && !config.HasCompletePricing() {
 			return false, errors.New("published embedding requires positive input price and zero output price")
 		}

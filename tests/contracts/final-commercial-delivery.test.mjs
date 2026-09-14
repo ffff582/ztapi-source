@@ -620,6 +620,48 @@ test('an unchanged published Gemini image product does not block unrelated deplo
   );
 });
 
+test('deployment rollback restores every quotation-backed media publication before restarting the old server', () => {
+  const workflow = read(workflowPath);
+  const releaseControl = read('deploy/scripts/ztapi-release-control.sh');
+
+  assert.match(workflow, /capture_media_publication_state\(\)/);
+  assert.match(workflow, /restore_media_publication_state\(\)/);
+  assert.match(workflow, /media-publications-before\.sql/);
+  for (const sourceModel of [
+    'gpt-image-2',
+    'gemini-2\\.5-flash-image',
+    'doubao-seedance-2\\.0',
+    'doubao-seedance-2-0-fast',
+    'doubao-seedance-2-0-mini',
+  ]) {
+    assert.match(workflow, new RegExp(sourceModel));
+  }
+
+  const workflowRollback = workflow.slice(
+    workflow.indexOf('cleanup_and_restore()'),
+    workflow.indexOf('trap cleanup_and_restore EXIT'),
+  );
+  assert.ok(
+    workflowRollback.indexOf('restore_media_publication_state') <
+      workflowRollback.indexOf('restore_previous_release'),
+    'internal rollback must restore media publication rows before starting the old release',
+  );
+  assert.match(workflow, /printf 'media_publication_state_captured=%q/);
+  assert.match(workflow, /printf 'media_publication_backup=%q/);
+
+  assert.match(releaseControl, /restore_media_publication_state\(\)/);
+  const externalRollback = releaseControl.slice(
+    releaseControl.indexOf('  rollback)'),
+    releaseControl.indexOf('\n  *)', releaseControl.indexOf('  rollback)')),
+  );
+  assert.ok(
+    externalRollback.indexOf('restore_media_publication_state') <
+      externalRollback.indexOf('--force-recreate server'),
+    'external rollback must restore media publication rows before starting the old server',
+  );
+  assert.match(releaseControl, /rm -f "\$\{media_publication_backup:-\}"/);
+});
+
 test('deployment publishes and bills the exact three quotation-backed Seedance products', () => {
   const source = read(workflowPath);
   assert.match(source, /ztapi-video-acceptance-fingerprint\.sh/);
@@ -769,6 +811,25 @@ test('deployment validates media and token catalog shapes separately', () => {
   assert.match(pricingCheck, /\.output_price_per_million == ""/);
   assert.match(pricingCheck, /\(\.billing_dimensions \| length\) == 0/);
   assert.match(pricingCheck, /\(\.sale_usd \| length\) == 0/);
+});
+
+test('catalog acceptance retries boundedly and prints only sanitized diagnostics', () => {
+  const source = read(workflowPath);
+  const catalogCheck = source.slice(
+    source.indexOf('acceptance_catalog=""'),
+    source.indexOf('acceptance_pricing=$(curl'),
+  );
+
+  assert.match(catalogCheck, /for catalog_attempt in \{1\.\.6\}/);
+  assert.match(catalogCheck, /sleep 2/);
+  assert.match(catalogCheck, /catalog acceptance failed after 6 attempts/);
+  assert.match(catalogCheck, /model_name:/);
+  assert.match(catalogCheck, /modality:/);
+  assert.match(catalogCheck, /pricing_version:/);
+  assert.match(catalogCheck, /supported_options_type:/);
+  assert.match(catalogCheck, /pricing_rules_count:/);
+  assert.match(catalogCheck, /billing_unit:/);
+  assert.doesNotMatch(catalogCheck, /echo "\$acceptance_catalog"\s*>?&?2/);
 });
 
 test('anonymous history evidence records parents, tag target, and private SHA absence', () => {

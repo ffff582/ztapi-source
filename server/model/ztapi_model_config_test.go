@@ -20,6 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 package model
 
 import (
+	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -349,6 +350,50 @@ func TestBackfillZTAPIPricingRatiosRejectsPublishedModelWithoutBasePrices(t *tes
 	err = backfillZTAPIPricingRatios()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "positive input and output prices")
+}
+
+func TestBackfillZTAPIPricingRatiosSkipsPublishedMediaModels(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "ztapi-pricing-backfill-media.db")), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&ZTAPIModelConfig{}, &ZTAPIAuditEvent{}, &ZTAPICatalogLock{}))
+	previousDB := DB
+	DB = db
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		DB = previousDB
+		_ = sqlDB.Close()
+	})
+
+	for index, sourceModel := range []string{"gpt-image-2", "doubao-seedance-2-0-fast"} {
+		alias := "zt-media-backfill-" + fmt.Sprint(index)
+		require.NoError(t, db.Create(&ZTAPIModelConfig{
+			SourceModel:   sourceModel,
+			PublicName:    &alias,
+			EnabledGroups: `["default"]`,
+			Published:     true,
+			Version:       7,
+			CreatedAt:     common.GetTimestamp(),
+			UpdatedAt:     common.GetTimestamp(),
+		}).Error)
+	}
+
+	require.NoError(t, backfillZTAPIPricingRatios())
+
+	var configs []ZTAPIModelConfig
+	require.NoError(t, db.Order("id ASC").Find(&configs).Error)
+	require.Len(t, configs, 2)
+	for _, config := range configs {
+		require.Equal(t, uint64(7), config.Version)
+		require.Zero(t, config.InputPricePerMillion)
+		require.Zero(t, config.OutputPricePerMillion)
+		require.Zero(t, config.CacheReadRatio)
+		require.Zero(t, config.ImageRatio)
+	}
+
+	var eventCount int64
+	require.NoError(t, db.Model(&ZTAPIAuditEvent{}).Count(&eventCount).Error)
+	require.Zero(t, eventCount)
 }
 
 func TestZTAPIExistingEmptyCatalogRejectsDirectSource(t *testing.T) {
