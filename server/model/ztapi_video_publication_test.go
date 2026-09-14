@@ -181,6 +181,38 @@ func TestZTAPIMediaPublicationFreezesCompleteVideoEvidence(t *testing.T) {
 	require.Equal(t, mustCanonicalZTAPIMediaPriceContract(t, seedanceContractForTest(t)), snapshot.MediaPriceContractJSON)
 }
 
+func TestZTAPIMediaPublicationUsesMediaContractWithoutLegacyTokenPrices(t *testing.T) {
+	fixture, _ := setupZTAPIVideoPublicationGateFixture(t)
+	legacyColumns := map[string]any{
+		"input_cost_per_million":   0,
+		"output_cost_per_million":  0,
+		"input_price_per_million":  0,
+		"output_price_per_million": 0,
+		"cache_read_ratio":         0,
+		"cache_creation_ratio":     0,
+		"cache_creation_5m_ratio":  0,
+		"cache_creation_1h_ratio":  0,
+		"image_ratio":              0,
+		"audio_ratio":              0,
+		"audio_completion_ratio":   0,
+	}
+	require.NoError(t, fixture.db.Model(&fixture.config).Updates(legacyColumns).Error)
+	require.NoError(t, fixture.db.First(&fixture.config, fixture.config.ID).Error)
+
+	next := fixture.config
+	next.Published = true
+	committed, err := UpdateZTAPIModelConfigAndBilling(&next, fixture.config.Version, nil)
+	require.NoError(t, err)
+	require.NotZero(t, committed.PublicationSnapshotID)
+
+	publications, err := loadZTAPIActivePublications(fixture.db)
+	require.NoError(t, err)
+	require.Len(t, publications, 1)
+	require.Equal(t, fixture.config.PublicNameValue(), publications[0].PublicName)
+	require.Equal(t, ZTAPIModalityVideo, publications[0].Modality)
+	require.NotEmpty(t, publications[0].MediaPriceContractJSON)
+}
+
 func TestZTAPIMediaPublicationRequiresSameVideoContractAcrossEligibleChannels(t *testing.T) {
 	fixture, _ := setupZTAPIVideoPublicationGateFixture(t)
 	weight := uint(100)

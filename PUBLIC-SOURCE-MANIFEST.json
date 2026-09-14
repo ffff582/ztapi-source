@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "f0c9aa7e185dc01be28defd8b79f475832b32e9f",
+  "release_commit": "33aa74580dd14b3fe8624a41b1a56d431ca9d41c",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-f0c9aa7e185dc01be28defd8b79f475832b32e9f",
+  "source_tag": "production-33aa74580dd14b3fe8624a41b1a56d431ca9d41c",
   "files": [
     {
       "path": ".dockerignore",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "41bfd4aabb490ba7cc81a08b738a76d3d5657dea51f13ddedbe72d8305e54293",
+      "sha256": "d21ed1c5f3fa599e324070b6e78d42395e44d154d94bebf83899b09562e8d00a",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "89f7a14d4d8c5c1ff97401f7809f4d7029f9c046eb8bfe542888e904043e715b",
+      "sha256": "aae2d8a9b93afd481ab33dcf79c77d4d31137a65c90b5ff81d9a434c5034929f",
       "size": 942
     },
     {
@@ -2576,8 +2576,8 @@
     },
     {
       "path": "server/model/ztapi_public_catalog.go",
-      "sha256": "18cc741e765776f2692f6d59b47dc5618dbed59c7c81d7714cfdb8406920e781",
-      "size": 19419
+      "sha256": "1bf1872bcd4b9d1756257103473ef3a2a7938addac1f055c92c6294985732347",
+      "size": 20096
     },
     {
       "path": "server/model/ztapi_public_catalog_test.go",
@@ -2586,8 +2586,8 @@
     },
     {
       "path": "server/model/ztapi_publication_gate.go",
-      "sha256": "a75f8a81b6141d8ae3ea886e4aa7d71e5c47d0987215aaf748fbfc61fd7a2d58",
-      "size": 21899
+      "sha256": "dc28b54ed051aa228728ba3e6d97791e612fabc4899b51eb49d2f9854e3fd613",
+      "size": 22135
     },
     {
       "path": "server/model/ztapi_publication_gate_test.go",
@@ -2711,8 +2711,8 @@
     },
     {
       "path": "server/model/ztapi_video_publication_test.go",
-      "sha256": "22e6efa2186ca06e18d9ec6ba889ea44f271d78ae1505cf6690b39bfbf9abe2c",
-      "size": 13345
+      "sha256": "605d1131f9db293bc19b27bc209fed0262491e56384c0ee328c5c3d4f643c384",
+      "size": 14596
     },
     {
       "path": "server/new-api.service",

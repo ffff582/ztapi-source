@@ -228,7 +228,13 @@ func validZTAPISnapshotPricing(snapshot *ZTAPIModelPublicationSnapshot) bool {
 	if snapshot == nil {
 		return false
 	}
-	if ZTAPIModelModality(snapshot.SourceModel) == ZTAPIModalityEmbedding {
+	modality := ZTAPIModelModality(snapshot.SourceModel)
+	if modality == ZTAPIModalityImage || modality == ZTAPIModalityVideo {
+		contract, err := types.ParseZTAPIMediaPriceContract(snapshot.MediaPriceContractJSON)
+		canonical, canonicalErr := types.CanonicalizeZTAPIMediaPriceContract(snapshot.MediaPriceContractJSON)
+		return err == nil && canonicalErr == nil && canonical == snapshot.MediaPriceContractJSON && contract.Modality == modality
+	}
+	if modality == ZTAPIModalityEmbedding {
 		return finitePositiveZTAPIRatio(snapshot.InputPricePerMillion) && snapshot.OutputPricePerMillion == 0
 	}
 	return finitePositiveZTAPIRatio(snapshot.InputPricePerMillion) &&
@@ -284,7 +290,12 @@ func loadZTAPIActivePublications(db *gorm.DB) ([]ZTAPIRuntimePublication, error)
 		if err != nil {
 			continue
 		}
-		if !ztapiStoredPriceMatchesPreview(snapshot.InputPricePerMillion, preview.InputSaleUSDPerMillion) ||
+		modality := ZTAPIModelModality(snapshot.SourceModel)
+		if modality == ZTAPIModalityImage || modality == ZTAPIModalityVideo {
+			if snapshot.MediaPriceContractJSON == "" || snapshot.MediaPriceContractJSON != source.MediaPriceContractJSON {
+				continue
+			}
+		} else if !ztapiStoredPriceMatchesPreview(snapshot.InputPricePerMillion, preview.InputSaleUSDPerMillion) ||
 			!ztapiStoredPriceMatchesPreview(snapshot.OutputPricePerMillion, preview.OutputSaleUSDPerMillion) {
 			continue
 		}

@@ -434,7 +434,13 @@ func ztapiPublicationBlockersTx(tx *gorm.DB, config *ZTAPIModelConfig) ([]string
 		blockers = appendZTAPIBlocker(blockers, ZTAPIPublicationBlockerPriceIncomplete)
 	} else {
 		preview, previewErr := BuildZTAPIModelPricePreview(&priceSource)
-		if previewErr != nil || preview.InputCostUSDPerMillion == "" || preview.OutputCostUSDPerMillion == "" ||
+		if mediaEvidenceRequired {
+			if previewErr != nil || len(preview.SaleUSD) == 0 {
+				blockers = appendZTAPIBlocker(blockers, ZTAPIPublicationBlockerPriceIncomplete)
+			} else {
+				evidence.PriceSourceID = priceSource.ID
+			}
+		} else if previewErr != nil || preview.InputCostUSDPerMillion == "" || preview.OutputCostUSDPerMillion == "" ||
 			!config.HasCompletePricing() ||
 			!ztapiStoredPriceMatchesPreview(config.InputCostPerMillion, preview.InputCostUSDPerMillion) ||
 			!ztapiStoredPriceMatchesPreview(config.OutputCostPerMillion, preview.OutputCostUSDPerMillion) ||
