@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "c351d899e66bf02041e699837ee9c9dbbf73a2de",
+  "release_commit": "c1ff22be264e2c2007776ac326d6bf528996fdbf",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-c351d899e66bf02041e699837ee9c9dbbf73a2de",
+  "source_tag": "production-c1ff22be264e2c2007776ac326d6bf528996fdbf",
   "files": [
     {
       "path": ".dockerignore",
@@ -21,8 +21,8 @@
     },
     {
       "path": ".github/workflows/ztapi-deploy.yml",
-      "sha256": "f5df3bf1830555dc4bc625ca50927da075f4905509abddfb996bc9ab4f3b7f1a",
-      "size": 172233
+      "sha256": "7e2677e0fafcafd2060121534de4065f44cc194931f95874941c6075fe73d1fa",
+      "size": 177778
     },
     {
       "path": ".github/workflows/ztapi-edge-diagnostic.yml",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "b8821891982900ce80d690e91b3e99bce587644f610e65ae611fcc9692fa16d1",
+      "sha256": "86f25d0dcf9a0442207877a9ec46a26f90ce60d577345b5f9b92b65c5813b4d0",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "a0b0ea0f28968ed8111a0e9416d3674d9cb49cbe30edaf3d01e9cfd0d8b97108",
+      "sha256": "d69ffbf0d01a1c7de7325c3d7ecfb6d93e73c463aaa45cf652a2fb4ce1f2ed9f",
       "size": 942
     },
     {
@@ -141,8 +141,8 @@
     },
     {
       "path": "deploy/scripts/ztapi-release-control.sh",
-      "sha256": "7d8fb56d2ac5f189fe810733c33d47c55f816eb52484aa322acfaa2cecde4070",
-      "size": 9074
+      "sha256": "e3aacb4f03e83a0466c9634b5932122a8eb6a9a3edc30d268124b5260a8b83b4",
+      "size": 9213
     },
     {
       "path": "deploy/scripts/ztapi-video-acceptance-fingerprint.sh",
@@ -9206,8 +9206,8 @@
     },
     {
       "path": "tests/contracts/deployment-workflow.test.mjs",
-      "sha256": "37ed9726b036dfa5730dbbd570dfabb5c8e7e639769e0863f5b4c246934fc24a",
-      "size": 29753
+      "sha256": "13434dd3a5600902c4372ad27e9139e68d918324a24cd4310e72658bd3e06e91",
+      "size": 31382
     },
     {
       "path": "tests/contracts/deployment.test.mjs",

@@ -12,6 +12,11 @@ on:
         required: true
         default: false
         type: boolean
+      no_paid_acceptance:
+        description: Update existing accepted publications without paid upstream model probes
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -188,6 +193,7 @@ jobs:
           ZTAPI_ADMIN_USERNAME: ${{ secrets.ZTAPI_ADMIN_USERNAME }}
           ZTAPI_ADMIN_PASSWORD: ${{ secrets.ZTAPI_ADMIN_PASSWORD }}
           ZTAPI_DROP_LEGACY_TOKEN_KEY: ${{ inputs.drop_legacy_token_key }}
+          ZTAPI_NO_PAID_ACCEPTANCE: ${{ inputs.no_paid_acceptance }}
           ZTAPI_RELEASE_EXECUTION_ID: ${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -euo pipefail
@@ -224,6 +230,10 @@ jobs:
             echo "::error::ZTAPI_DROP_LEGACY_TOKEN_KEY must be true or false."
             exit 1
           fi
+          if [[ "$ZTAPI_NO_PAID_ACCEPTANCE" != true && "$ZTAPI_NO_PAID_ACCEPTANCE" != false ]]; then
+            echo "::error::ZTAPI_NO_PAID_ACCEPTANCE must be true or false."
+            exit 1
+          fi
           [[ "$ZTAPI_RELEASE_EXECUTION_ID" =~ ^[0-9]+-[0-9]+$ ]]
 
           deploy_env=/tmp/ztapi-deploy.env
@@ -239,6 +249,7 @@ jobs:
             printf 'ZTAPI_ADMIN_USERNAME=%q\n' "$ZTAPI_ADMIN_USERNAME"
             printf 'ZTAPI_ADMIN_PASSWORD=%q\n' "$ZTAPI_ADMIN_PASSWORD"
             printf 'ZTAPI_DROP_LEGACY_TOKEN_KEY=%q\n' "$ZTAPI_DROP_LEGACY_TOKEN_KEY"
+            printf 'ZTAPI_NO_PAID_ACCEPTANCE=%q\n' "$ZTAPI_NO_PAID_ACCEPTANCE"
             printf 'ZTAPI_RELEASE_VERSION=%q\n' "$ZTAPI_RELEASE_VERSION"
             printf 'ZTAPI_SOURCE_COMMIT=%q\n' "$ZTAPI_SOURCE_COMMIT"
             printf 'ZTAPI_RELEASE_EXECUTION_ID=%q\n' "$ZTAPI_RELEASE_EXECUTION_ID"
@@ -727,6 +738,10 @@ jobs:
                 exit 1
               fi
             done
+          fi
+          if [ "$ZTAPI_NO_PAID_ACCEPTANCE" = true ] && [ "$had_previous_release" != true ]; then
+            echo 'no-paid acceptance is only permitted for an existing healthy release' >&2
+            exit 1
           fi
           for required_container in deploy-api-1 deploy-database-1 kuaiyi-database-1; do
             test "$(docker inspect --format '{{.State.Status}}' "$required_container")" = running
@@ -1293,6 +1308,81 @@ jobs:
             --header "New-API-User: $admin_user_id" \
             "https://admin.ztapi.vip/api/admin/overview?from=$admin_from&to=$admin_to" |
             jq -e '.success == true' >/dev/null
+
+          if [ "$ZTAPI_NO_PAID_ACCEPTANCE" = true ]; then
+            [ "$had_previous_release" = true ]
+            accepted_catalog_count=$("${compose[@]}" exec -T mysql sh -c \
+              'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names' <<'SQL'
+          SELECT COUNT(*) FROM ztapi_model_configs WHERE published = 1;
+          SQL
+            )
+            accepted_snapshot_count=$("${compose[@]}" exec -T mysql sh -c \
+              'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names' <<'SQL'
+          SELECT COUNT(*)
+          FROM ztapi_model_configs AS config
+          JOIN ztapi_model_publication_snapshots AS snapshot
+            ON snapshot.id = config.publication_snapshot_id
+           AND snapshot.model_config_id = config.id
+           AND snapshot.model_version = config.version
+          WHERE config.published = 1
+            AND snapshot.price_source_id > 0
+            AND JSON_LENGTH(snapshot.allowed_channel_ids) > 0;
+          SQL
+            )
+            [[ "$accepted_catalog_count" =~ ^[1-9][0-9]*$ ]]
+            test "$accepted_snapshot_count" = "$accepted_catalog_count"
+            verify_ztapi_runtime
+            test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
+              --resolve ztapi.vip:443:127.0.0.1 \
+              https://ztapi.vip/v1/models)" = 401
+            snapshot_unrelated_containers > "$unrelated_after"
+            chmod 0600 "$unrelated_after"
+            cmp -s "$unrelated_before" "$unrelated_after"
+            previous_registration_status=$(curl --fail --silent --show-error \
+              --resolve ztapi.vip:443:127.0.0.1 \
+              https://ztapi.vip/api/status)
+            previous_register_enabled=$(echo "$previous_registration_status" | jq -er '.data.register_enabled | select(type == "boolean")')
+            previous_password_register_enabled=$(echo "$previous_registration_status" | jq -er '.data.password_register_enabled | select(type == "boolean")')
+            test "$previous_register_enabled" = true
+            test "$previous_password_register_enabled" = true
+            write_receipt postcheck "no_paid_acceptance=true frozen_catalog=$accepted_catalog_count upstream_model_probes=0"
+            control_script="$receipt_dir/release-control.sh"
+            install -m 0700 /opt/ztapi/deploy/scripts/ztapi-release-control.sh "$control_script"
+            rollback_state="$receipt_dir/rollback-state.env"
+            {
+              printf 'ZTAPI_RELEASE_VERSION=%q\n' "$ZTAPI_RELEASE_VERSION"
+              printf 'ZTAPI_RELEASE_EXECUTION_ID=%q\n' "$ZTAPI_RELEASE_EXECUTION_ID"
+              printf 'ZTAPI_NO_PAID_ACCEPTANCE=%q\n' "$ZTAPI_NO_PAID_ACCEPTANCE"
+              printf 'had_previous_release=%q\n' "$had_previous_release"
+              printf 'release_backup=%q\n' "$release_backup"
+              printf 'env_backup=%q\n' "$env_backup"
+              printf 'rollback_server_image=%q\n' "$rollback_server_image"
+              printf 'rollback_nginx_image=%q\n' "$rollback_nginx_image"
+              printf 'previous_register_enabled=%q\n' "$previous_register_enabled"
+              printf 'previous_password_register_enabled=%q\n' "$previous_password_register_enabled"
+              printf 'host_nginx_was_active=%q\n' "$host_nginx_was_active"
+              printf 'unrelated_before=%q\n' "$unrelated_before"
+              printf 'gemini_rollout_state_captured=%q\n' "$gemini_rollout_state_captured"
+              printf 'gemini_was_published=%q\n' "$gemini_was_published"
+              printf 'gemini_channel_preexisting=%q\n' "$gemini_channel_preexisting"
+              printf 'gemini_channel_previous_status=%q\n' "$gemini_channel_previous_status"
+              printf 'gemini_channel_id=%q\n' "$gemini_channel_id"
+              printf 'gemini_channel_backup=%q\n' "$gemini_channel_backup"
+              printf 'media_publication_state_captured=%q\n' "$media_publication_state_captured"
+              printf 'media_publication_backup=%q\n' "$media_publication_backup"
+            } > "$rollback_state"
+            chmod 0600 "$rollback_state"
+            watchdog_unit="ztapi-release-watchdog-${ZTAPI_RELEASE_VERSION:0:12}-$ZTAPI_RELEASE_EXECUTION_ID"
+            write_receipt external_acceptance_pending "no_paid_acceptance=true watchdog=$watchdog_unit.timer"
+            systemd-run --quiet \
+              --unit="$watchdog_unit" \
+              --on-active=10m \
+              --timer-property=AccuracySec=1s \
+              --property=Type=oneshot \
+              "$control_script" rollback "$ZTAPI_RELEASE_VERSION" "$ZTAPI_RELEASE_EXECUTION_ID"
+            systemctl is-active --quiet "$watchdog_unit.timer"
+            return 0
+          fi
 
           # Reprice legacy frozen publications in one database transaction.
           # Publications already bound to the approved September 15 A/B quote

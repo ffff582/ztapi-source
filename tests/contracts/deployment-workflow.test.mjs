@@ -108,6 +108,31 @@ test('ZTAPI deployment is isolated and secret-backed', () => {
   assert.doesNotMatch(source, /set -x/);
 });
 
+test('ZTAPI no-paid update mode stops before paid model verification', () => {
+  const source = readText(workflowPath);
+  const workflow = YAML.parse(source);
+  assert.equal(workflow.on.workflow_dispatch.inputs.no_paid_acceptance.type, 'boolean');
+  assert.equal(workflow.on.workflow_dispatch.inputs.no_paid_acceptance.default, false);
+  assert.match(source, /ZTAPI_NO_PAID_ACCEPTANCE: \$\{\{ inputs\.no_paid_acceptance \}\}/);
+  assert.match(source, /printf 'ZTAPI_NO_PAID_ACCEPTANCE=%q\\n' "\$ZTAPI_NO_PAID_ACCEPTANCE"/);
+  const cutover = source.indexOf('require_receipt cutover');
+  const noPaid = source.indexOf('if [ "$ZTAPI_NO_PAID_ACCEPTANCE" = true ]; then', cutover);
+  const oldPricing = source.indexOf('write_receipt commercial_pricing_v2', cutover);
+  const firstPaidVerify = source.indexOf('/verify")', cutover);
+  assert.ok(cutover >= 0 && noPaid > cutover && noPaid < oldPricing && oldPricing < firstPaidVerify);
+  const branch = source.slice(noPaid, oldPricing);
+  assert.match(branch, /\[ "\$had_previous_release" = true \]/);
+  assert.match(branch, /verify_ztapi_runtime/);
+  assert.match(branch, /write_receipt postcheck/);
+  assert.match(branch, /no_paid_acceptance/);
+  assert.match(branch, /rollback-state\.env/);
+  assert.match(branch, /printf 'ZTAPI_NO_PAID_ACCEPTANCE=%q\\n'/);
+  assert.match(branch, /systemd-run/);
+  assert.match(branch, /return 0/);
+  assert.doesNotMatch(branch, /\/verify|\/v1\/chat\/completions|\/v1\/embeddings|\/v1\/images\/generations|\/v1\/videos/);
+  assert.match(readText('deploy/scripts/ztapi-release-control.sh'), /external_acceptance=no_paid/);
+});
+
 test('ZTAPI release runbook orders every guarded phase and receipt', {
   skip: isPublicSnapshot
     ? 'the public snapshot intentionally excludes private operations runbooks'
@@ -516,10 +541,10 @@ test('guarded deployment completes and cleans an ordinary-user production journe
     /https:\/\/ztapi\.vip\/api\/token\/\$acceptance_token_id/,
     'synthetic API-key cleanup must not call the public user API after it is gated',
   );
-  const postcheck = source.indexOf('write_receipt postcheck');
   const internalUnauthorized = source.indexOf(
     '"$acceptance_origin/v1/models")" = "401"',
   );
+  const postcheck = source.indexOf('write_receipt postcheck', internalUnauthorized);
   assert.ok(internalUnauthorized >= 0 && internalUnauthorized < postcheck);
 });
 

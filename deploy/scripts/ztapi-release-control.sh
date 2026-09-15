@@ -147,7 +147,11 @@ verify_runtime() {
 case "$action" in
   finalize)
     stop_watchdog
-    write_receipt completed "external_acceptance=passed"
+    if [ "${ZTAPI_NO_PAID_ACCEPTANCE:-false}" = true ]; then
+      write_receipt completed "external_acceptance=no_paid"
+    else
+      write_receipt completed "external_acceptance=passed"
+    fi
     remove_rollback_tags
     rm -f "${gemini_channel_backup:-}"
     rm -f "${media_publication_backup:-}"
