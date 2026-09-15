@@ -83,6 +83,42 @@ afterEach(() => {
 });
 
 describe('public homepage model proof', () => {
+  it('shows published token tiers instead of a blank or reservation price for a featured model', async () => {
+    const first = managedPublicPricing.data.find((item) => item.model_name === 'zt-gpt-5.6-sol');
+    expect(first).toBeDefined();
+    const tiered = {
+      ...first!, input_price_per_million: '', output_price_per_million: '', sale_usd: {},
+      token_price_rules: [
+        { conditions: ['输入 ≤272K'], sale_usd: { input_tokens: '3.9', output_tokens: '19.5' } },
+        { conditions: ['输入 >272K'], sale_usd: { input_tokens: '7.8', output_tokens: '29.25' } },
+      ],
+      billing_dimensions: ['input_tokens', 'output_tokens'], billing_rule: 'token',
+    };
+    renderProof(vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/api/status')
+      ? statusResponse() : jsonResponse({ ...managedPublicPricing, data: [tiered] })));
+    expect(await screen.findByText('1 个实时公开模型')).toBeVisible();
+    const card = screen.getByText('zt-gpt-5.6-sol').closest('article') as HTMLElement;
+    expect(within(card).getByText('输入 ≤272K')).toBeVisible();
+    expect(within(card).getByText('$3.9 / 1M tokens')).toBeVisible();
+    expect(within(card).getByText('输入 >272K')).toBeVisible();
+    expect(within(card).getByText('$29.25 / 1M tokens')).toBeVisible();
+    expect(within(card).queryByText('$13 / 1M tokens')).not.toBeInTheDocument();
+  });
+
+  it('labels a single unconditional public rule as the default price', async () => {
+    const first = managedPublicPricing.data.find((item) => item.model_name === 'zt-gpt-5.6-sol');
+    expect(first).toBeDefined();
+    const item = { ...first!, input_price_per_million: '', output_price_per_million: '',
+      billing_dimensions: ['input_tokens', 'output_tokens'], billing_rule: 'token', sale_usd: {},
+      token_price_rules: [{ conditions: [], sale_usd: { input_tokens: '3.9', output_tokens: '19.5' } }],
+    };
+    renderProof(vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/api/status')
+      ? statusResponse() : jsonResponse({ ...managedPublicPricing, data: [item] })));
+    expect(await screen.findByText('1 个实时公开模型')).toBeVisible();
+    const card = screen.getByText('zt-gpt-5.6-sol').closest('article') as HTMLElement;
+    expect(within(card).getByText('默认价格')).toBeVisible();
+  });
+
   it('counts all 35 managed models across seven providers and shows authoritative featured prices', async () => {
     renderProof(vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/api/status')
       ? statusResponse() : jsonResponse(managedPublicPricing)));

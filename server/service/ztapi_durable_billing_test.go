@@ -186,6 +186,42 @@ func TestZTAPIDurableBillingFullUsageAndSupplierRefundJourney(t *testing.T) {
 	assertServiceTokenQuota(t, db, token.Id, 100, 11)
 }
 
+func TestZTAPIDurableTextSettlementChargesActualFrozenTier(t *testing.T) {
+	db, user, token := setupServiceTokenQuotaTest(t)
+	require.NoError(t, db.Model(token).Update("unlimited_quota", false).Error)
+	oldLogDB := model.LOG_DB
+	model.LOG_DB = db
+	t.Cleanup(func() { model.LOG_DB = oldLogDB })
+	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Log{}, &model.ZTAPIRequestSettlement{}, &model.ZTAPISettlementFinalizationIntent{}, &model.ZTAPIRequestAttempt{}, &model.ZTAPISettlementLogOutbox{}, &model.ZTAPISettlementLogReceipt{}))
+	require.NoError(t, model.MigrateZTAPISupplierRefund(db))
+	channel := model.Channel{Name: "offline-tier", Status: common.ChannelStatusEnabled, Type: 1}
+	require.NoError(t, db.Create(&channel).Error)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest("POST", "/v1/chat/completions", nil)
+	info := &relaycommon.RelayInfo{
+		UserId: user.Id, TokenId: token.Id, RequestId: "frozen-tier-journey", OriginModelName: "zt-model",
+		ChannelMeta: &relaycommon.ChannelMeta{ChannelId: channel.Id},
+		ZTAPIPublicationSnapshot: &relaycommon.ZTAPIPublicationSnapshot{
+			PublicationID: 1, Version: 2, PublicName: "zt-model", PriceSourceID: 7, PriceSourceVersion: 2,
+			BillingDimensions:   []string{"input_tokens", "output_tokens"},
+			SaleUSD:             map[string]string{"input_tokens": "0.01", "output_tokens": "0.02"},
+			TokenPriceRulesJSON: `[{"conditions":["输入长度≤2K"],"sale":{"input_tokens":"0.01","output_tokens":"0.02"}},{"conditions":["输入长度>2K"],"sale":{"input_tokens":"0.02","output_tokens":"0.04"}}]`,
+		},
+	}
+	require.Nil(t, PreConsumeBilling(ctx, 30, info))
+	require.NoError(t, BeginZTAPIBillingAttempt(info, "/v1/chat/completions"))
+	require.NoError(t, ObserveZTAPIBillingResponse(info, &http.Response{StatusCode: 200, Header: http.Header{"X-Request-Id": []string{"upstream-tier-id"}}}))
+	usage := &dto.Usage{PromptTokens: 2001, CompletionTokens: 5, TotalTokens: 2006}
+	PostTextConsumeQuota(ctx, info, usage, nil)
+	require.NoError(t, FinishZTAPIBilling(ctx, info))
+	var row model.ZTAPIRequestSettlement
+	require.NoError(t, db.Where("request_id = ?", info.RequestId).Take(&row).Error)
+	require.Equal(t, model.ZTAPISettlementSettled, row.Status)
+	require.GreaterOrEqual(t, row.ChargedQuota, int64(20))
+	require.Contains(t, row.ChargeDimensionsJSON, `"unit_quota":"0.01"`)
+	require.Contains(t, row.PriceSnapshotJSON, `"TokenPriceRulesJSON"`)
+}
+
 func TestZTAPIDurablePostUsageDoesNotPriceUnquotedCache(t *testing.T) {
 	db, user, token := setupServiceTokenQuotaTest(t)
 	oldLogDB := model.LOG_DB

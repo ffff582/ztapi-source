@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -9,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/types"
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
 
@@ -27,6 +29,7 @@ type ZTAPIPublicCatalogItem struct {
 	OutputPricePerMillion  string                       `json:"output_price_per_million"`
 	BillingDimensions      []string                     `json:"billing_dimensions"`
 	SaleUSD                map[string]string            `json:"sale_usd"`
+	TokenPriceRules        []ZTAPIPublicTokenPriceRule  `json:"token_price_rules,omitempty"`
 	BillingRule            string                       `json:"billing_rule"`
 	PricingVersion         string                       `json:"pricing_version"`
 	SupportedOptions       *ZTAPIPublicSupportedOptions `json:"supported_options,omitempty"`
@@ -50,6 +53,34 @@ type ZTAPIPublicPricingRule struct {
 	Conditions  map[string]string `json:"conditions"`
 	BillingUnit string            `json:"billing_unit"`
 	SaleUSD     map[string]string `json:"sale_usd"`
+}
+
+type ZTAPIPublicTokenPriceRule struct {
+	Conditions []string          `json:"conditions"`
+	SaleUSD    map[string]string `json:"sale_usd"`
+}
+
+func ztapiPublicTokenPriceRules(raw string, dimensions []string) ([]ZTAPIPublicTokenPriceRule, error) {
+	var frozen []struct {
+		Conditions []string          `json:"conditions"`
+		Sale       map[string]string `json:"sale"`
+	}
+	if err := json.Unmarshal([]byte(raw), &frozen); err != nil || len(frozen) == 0 {
+		return nil, errors.New("frozen token pricing rules are invalid")
+	}
+	rules := make([]ZTAPIPublicTokenPriceRule, 0, len(frozen))
+	for _, rule := range frozen {
+		for _, dimension := range dimensions {
+			price, err := decimal.NewFromString(rule.Sale[dimension])
+			if err != nil || !price.IsPositive() {
+				return nil, fmt.Errorf("frozen token pricing rule lacks %s", dimension)
+			}
+		}
+		rules = append(rules, ZTAPIPublicTokenPriceRule{
+			Conditions: append([]string{}, rule.Conditions...), SaleUSD: copyZTAPIStringMap(rule.Sale),
+		})
+	}
+	return rules, nil
 }
 
 type ZTAPIRuntimePublication struct {
@@ -76,6 +107,7 @@ type ZTAPIRuntimePublication struct {
 	AudioCompletionRatio   float64
 	BillingDimensions      []string
 	SaleUSD                map[string]string
+	TokenPriceRulesJSON    string
 	MediaPriceContractJSON string
 	InputPriceDisplay      string
 	OutputPriceDisplay     string
@@ -286,6 +318,9 @@ func loadZTAPIActivePublications(db *gorm.DB) ([]ZTAPIRuntimePublication, error)
 		if source.ModelConfigID != snapshot.ModelConfigID || source.SourceModel != snapshot.SourceModel {
 			continue
 		}
+		if snapshot.TokenPriceRulesJSON != source.TokenPriceRulesJSON {
+			continue
+		}
 		preview, err := BuildZTAPIModelPricePreview(&source)
 		if err != nil {
 			continue
@@ -338,6 +373,7 @@ func loadZTAPIActivePublications(db *gorm.DB) ([]ZTAPIRuntimePublication, error)
 			AudioCompletionRatio:   snapshot.AudioCompletionRatio,
 			BillingDimensions:      append([]string(nil), preview.BillingDimensions...),
 			SaleUSD:                copyZTAPIStringMap(preview.SaleUSD),
+			TokenPriceRulesJSON:    snapshot.TokenPriceRulesJSON,
 			MediaPriceContractJSON: snapshot.MediaPriceContractJSON,
 			InputPriceDisplay:      preview.InputSaleUSDPerMillion, OutputPriceDisplay: preview.OutputSaleUSDPerMillion,
 			ImageProtocolContract: imageProtocol,
@@ -378,6 +414,7 @@ func runtimePublicationFromCache(publication ztapiPublishedModel) ZTAPIRuntimePu
 		AudioCompletionRatio:   publication.AudioCompletionRatio,
 		BillingDimensions:      append([]string(nil), publication.BillingDimensions...),
 		SaleUSD:                copyZTAPIStringMap(publication.SaleUSD),
+		TokenPriceRulesJSON:    publication.TokenPriceRulesJSON,
 		MediaPriceContractJSON: publication.MediaPriceContractJSON,
 		InputPriceDisplay:      publication.InputPriceDisplay, OutputPriceDisplay: publication.OutputPriceDisplay,
 		ImageProtocolContract: cloneZTAPIImageProtocolContract(publication.ImageProtocolContract),
@@ -444,6 +481,16 @@ func buildZTAPIPublicCatalog(publications []ZTAPIRuntimePublication) []ZTAPIPubl
 			SaleUSD:                copyZTAPIStringMap(publication.SaleUSD),
 			BillingRule:            ztapiBillingRule(publication.BillingDimensions),
 			PricingVersion:         fmt.Sprintf("ztapi-snapshot-%d", publication.SnapshotID),
+		}
+		if publication.TokenPriceRulesJSON != "" {
+			rules, err := ztapiPublicTokenPriceRules(publication.TokenPriceRulesJSON, publication.BillingDimensions)
+			if err != nil {
+				continue
+			}
+			item.TokenPriceRules = rules
+			item.InputPricePerMillion = ""
+			item.OutputPricePerMillion = ""
+			item.SaleUSD = map[string]string{}
 		}
 		if publication.Modality == ZTAPIModalityImage || publication.Modality == ZTAPIModalityVideo {
 			item.SupportedOptions, item.PricingRules, item.BillingUnit = ztapiPublicMediaMetadata(publication)

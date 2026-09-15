@@ -212,6 +212,24 @@ func TestModelPriceHelperChannelTestAllowsUnpricedUpstreamModel(t *testing.T) {
 	require.False(t, priceData.UsePrice)
 }
 
+func TestModelPriceHelperRejectsPromptOutsideFrozenQuotedTierBeforeDispatch(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "zt-quoted-envelope", UserGroup: "default", UsingGroup: "default",
+		ZTAPIPublicationSnapshot: &relaycommon.ZTAPIPublicationSnapshot{
+			PublicName: "zt-quoted-envelope", Modality: model.ZTAPIModalityText,
+			TokenPriceRulesJSON:  `[{"conditions":["输入长度≤262K"],"sale":{"input_tokens":"2","output_tokens":"4"}}]`,
+			InputPricePerMillion: 2, OutputPricePerMillion: 4,
+			CacheReadRatio: 0.1, CacheCreationRatio: 1.25, CacheCreation5mRatio: 1.25,
+			CacheCreation1hRatio: 2, ImageRatio: 1, AudioRatio: 1, AudioCompletionRatio: 1,
+		},
+	}
+	_, err := ModelPriceHelper(ctx, info, 262001, &types.TokenCountMeta{})
+	require.ErrorContains(t, err, "quoted")
+}
+
 func TestModelPriceHelperUserRequestStillRejectsUnpricedModel(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()

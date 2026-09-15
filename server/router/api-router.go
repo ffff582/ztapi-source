@@ -447,6 +447,8 @@ func SetApiRouter(router *gin.Engine) {
 			modelsRoute.PUT("/ztapi/:id/identity", middleware.AdminPermissionAuth(common.PermissionModelWrite), controller.UpdateZTAPIModelIdentity)
 			modelsRoute.POST("/ztapi/:id/price-preview", middleware.AdminPermissionAuth(common.PermissionModelRead), controller.PreviewZTAPIModelPriceSource)
 			modelsRoute.POST("/ztapi/reprice-commercial-v2", middleware.AdminPermissionAuth(common.PermissionModelWrite), controller.RepriceZTAPICommercialCatalog)
+			modelsRoute.GET("/ztapi/reprice-ab-20260915/preview", middleware.AdminPermissionAuth(common.PermissionModelRead), controller.GetZTAPIABPricingPreview)
+			modelsRoute.POST("/ztapi/reprice-ab-20260915", middleware.AdminPermissionAuth(common.PermissionModelWrite), controller.RepriceZTAPIABCatalog)
 			modelsRoute.POST("/ztapi/:id/price-sources", middleware.AdminPermissionAuth(common.PermissionModelWrite), controller.ImportZTAPIModelPriceSource)
 			modelsRoute.POST("/ztapi/:id/verify", middleware.AdminPermissionAuth(common.PermissionModelWrite), controller.VerifyZTAPIModel)
 			modelsRoute.GET("/sync_upstream/preview", middleware.AdminPermissionAuth(common.PermissionModelRead), controller.SyncUpstreamPreview)

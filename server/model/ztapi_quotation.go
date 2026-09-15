@@ -438,6 +438,25 @@ func ZTAPIQuotationEntries() ([]ZTAPIQuotationEntry, error) {
 // ValidateZTAPIQuotationIdentity uses exact audited identities, not provider
 // naming conventions, upstream discovery, mutable aliases or fuzzy matching.
 func ValidateZTAPIQuotationIdentity(sourceModel, publicName, protocol, providerFamily, checksum string) error {
+	if quote, err := ZTAPIQuotationABEntries(); err == nil && checksum == quote.WorkbookSHA256 {
+		identities, identityErr := ZTAPIQuotationEntries()
+		if identityErr != nil {
+			return identityErr
+		}
+		bridge, bridgeErr := BuildZTAPIABQuotationIdentityBridge(quote, identities)
+		if bridgeErr != nil {
+			return bridgeErr
+		}
+		for _, claim := range bridge.Mapped {
+			if claim.SourceModel == sourceModel {
+				if claim.PublicName != publicName || claim.Protocol != protocol || claim.ProviderFamily != providerFamily {
+					return ErrZTAPIQuotationIdentityMismatch
+				}
+				return nil
+			}
+		}
+		return ErrZTAPIQuotationModelNotQuoted
+	}
 	if ztapiQuotationLoadError != nil {
 		return ztapiQuotationLoadError
 	}
@@ -492,16 +511,17 @@ func ztapiQuotationChecksums(db *gorm.DB, ids []int64) (map[int64]string, error)
 		return nil, errors.New("ZTAPI database is not initialized")
 	}
 	var evidence []struct {
-		ZTAPIModelPriceSource `gorm:"embedded"`
-		SnapshotID            int64
-		SnapshotPricePolicy   string `gorm:"column:snapshot_price_policy"`
-		CacheReadRatio        float64
-		CacheCreationRatio    float64
-		CacheCreation5mRatio  float64 `gorm:"column:cache_creation_5m_ratio"`
-		CacheCreation1hRatio  float64 `gorm:"column:cache_creation_1h_ratio"`
+		ZTAPIModelPriceSource       `gorm:"embedded"`
+		SnapshotID                  int64
+		SnapshotPricePolicy         string `gorm:"column:snapshot_price_policy"`
+		SnapshotTokenPriceRulesJSON string `gorm:"column:snapshot_token_price_rules_json"`
+		CacheReadRatio              float64
+		CacheCreationRatio          float64
+		CacheCreation5mRatio        float64 `gorm:"column:cache_creation_5m_ratio"`
+		CacheCreation1hRatio        float64 `gorm:"column:cache_creation_1h_ratio"`
 	}
 	err := db.Table("ztapi_model_publication_snapshots AS p").
-		Select("s.*, p.id AS snapshot_id, p.price_policy AS snapshot_price_policy, p.cache_read_ratio, p.cache_creation_ratio, p.cache_creation5m_ratio AS cache_creation_5m_ratio, p.cache_creation1h_ratio AS cache_creation_1h_ratio").
+		Select("s.*, p.id AS snapshot_id, p.price_policy AS snapshot_price_policy, p.token_price_rules_json AS snapshot_token_price_rules_json, p.cache_read_ratio, p.cache_creation_ratio, p.cache_creation5m_ratio AS cache_creation_5m_ratio, p.cache_creation1h_ratio AS cache_creation_1h_ratio").
 		Joins("JOIN ztapi_model_price_sources AS s ON s.id = p.price_source_id AND s.model_config_id = p.model_config_id AND s.source_model = p.source_model").
 		Where("p.id IN ?", ids).Scan(&evidence).Error
 	if err != nil {
@@ -510,8 +530,11 @@ func ztapiQuotationChecksums(db *gorm.DB, ids []int64) (map[int64]string, error)
 	checksums := make(map[int64]string, len(evidence))
 	for _, row := range evidence {
 		preview, err := BuildZTAPIModelPricePreview(&row.ZTAPIModelPriceSource)
-		if err == nil && row.SnapshotPricePolicy == row.PricePolicy &&
-			ztapiEnterprisePriceBasis(row.SourceModel, row.ResourceType) &&
+		basisPermitted := ztapiEnterprisePriceBasis(row.SourceModel, row.ResourceType)
+		if quote, quoteErr := ZTAPIQuotationABEntries(); quoteErr == nil && row.SourceDocumentChecksum == quote.WorkbookSHA256 {
+			basisPermitted = validateZTAPIABPriceSource(&row.ZTAPIModelPriceSource) == nil
+		}
+		if err == nil && row.SnapshotPricePolicy == row.PricePolicy && row.SnapshotTokenPriceRulesJSON == row.TokenPriceRulesJSON && basisPermitted &&
 			ztapiCacheRatiosMatchPreview(&ZTAPIModelConfig{
 				CacheReadRatio: row.CacheReadRatio, CacheCreationRatio: row.CacheCreationRatio,
 				CacheCreation5mRatio: row.CacheCreation5mRatio, CacheCreation1hRatio: row.CacheCreation1hRatio,

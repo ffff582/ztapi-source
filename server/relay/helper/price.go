@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -91,6 +92,17 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 	if useZTAPIPricing {
 		if publicationSnapshot.PublicName != info.OriginModelName {
 			return types.PriceData{}, fmt.Errorf("ZTAPI pricing snapshot model mismatch: got %s, want %s", publicationSnapshot.PublicName, info.OriginModelName)
+		}
+		if publicationSnapshot.TokenPriceRulesJSON != "" {
+			maxOutput := 0
+			if meta != nil {
+				maxOutput = max(0, meta.MaxTokens)
+			}
+			if _, _, err := relaycommon.SelectZTAPIFrozenTokenTier(publicationSnapshot, &dto.Usage{
+				PromptTokens: max(0, promptTokens), CompletionTokens: maxOutput,
+			}); err != nil {
+				return types.PriceData{}, fmt.Errorf("request is outside the frozen quoted token envelope: %w", err)
+			}
 		}
 		ztapiInputPrice = publicationSnapshot.InputPricePerMillion
 		ztapiOutputPrice = publicationSnapshot.OutputPricePerMillion

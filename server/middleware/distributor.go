@@ -64,6 +64,7 @@ func ztapiPublicationSnapshotFromRuntime(publication model.ZTAPIRuntimePublicati
 		PriceSourceVersion:     publication.PriceSourceVersion,
 		BillingDimensions:      publication.BillingDimensions,
 		SaleUSD:                publication.SaleUSD,
+		TokenPriceRulesJSON:    publication.TokenPriceRulesJSON,
 		MediaPriceContractJSON: publication.MediaPriceContractJSON,
 		AllowedGroups:          publication.Groups,
 		AllowedChannelIDs:      append([]int(nil), publication.AllowedChannelIDs...),

@@ -435,6 +435,25 @@ export function SupportedModelsPage() {
                                   ))}
                                 </ul>
                               </div>
+                            ) : item.token_price_rules ? (
+                              <ul aria-label={t('{{name}} 分档售价', { name: item.model_name })} className="model-price-list model-token-tier-list">
+                                {item.token_price_rules.map((rule, index) => (
+                                  <li key={`${item.model_name}-tier-${index}`}>
+                                    <span className="model-token-tier-condition">
+                                      {rule.conditions.length === 0 ? t('默认价格') : rule.conditions.map((condition) => t(condition)).join(' · ')}
+                                    </span>
+                                    {orderedBillingDimensions(item.billing_dimensions).map((dimension) => {
+                                      const price = billingDimensionDetail(dimension);
+                                      return (
+                                        <div className="model-token-tier-price" key={dimension}>
+                                          <span>{t(price.label)}</span>
+                                          <strong>{formatPrice(rule.sale_usd[dimension], t(price.unit))}</strong>
+                                        </div>
+                                      );
+                                    })}
+                                  </li>
+                                ))}
+                              </ul>
                             ) : (
                               <ul aria-label={t('{{name}} 售价', { name: item.model_name })} className="model-price-list">
                                 {orderedBillingDimensions(item.billing_dimensions).map((dimension) => {

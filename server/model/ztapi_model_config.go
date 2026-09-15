@@ -794,6 +794,7 @@ type ztapiPublishedModel struct {
 	AudioCompletionRatio   float64
 	BillingDimensions      []string
 	SaleUSD                map[string]string
+	TokenPriceRulesJSON    string
 	MediaPriceContractJSON string
 	InputPriceDisplay      string
 	OutputPriceDisplay     string
@@ -880,6 +881,7 @@ func refreshZTAPIAliasCache() error {
 			AudioCompletionRatio: publications[i].AudioCompletionRatio, Version: publications[i].Version,
 			BillingDimensions:      append([]string(nil), publications[i].BillingDimensions...),
 			SaleUSD:                copyZTAPIStringMap(publications[i].SaleUSD),
+			TokenPriceRulesJSON:    publications[i].TokenPriceRulesJSON,
 			MediaPriceContractJSON: publications[i].MediaPriceContractJSON,
 			InputPriceDisplay:      publications[i].InputPriceDisplay, OutputPriceDisplay: publications[i].OutputPriceDisplay,
 			ImageProtocolContract: cloneZTAPIImageProtocolContract(publications[i].ImageProtocolContract),

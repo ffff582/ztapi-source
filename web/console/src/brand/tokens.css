@@ -1151,6 +1151,33 @@ textarea {
   padding: 0;
 }
 
+.model-token-tier-list {
+  gap: 12px;
+}
+
+.model-token-tier-list li {
+  display: block;
+}
+
+.model-token-tier-list li + li {
+  border-top: 1px solid var(--line);
+  padding-top: 9px;
+}
+
+.model-token-tier-condition {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.model-token-tier-price {
+  display: grid;
+  grid-template-columns: minmax(72px, 1fr) auto;
+  gap: 10px;
+  align-items: baseline;
+}
+
 .model-support-actions {
   display: flex;
   gap: 6px;
@@ -2208,6 +2235,16 @@ textarea {
   .model-price-list li {
     grid-template-columns: minmax(0, 1fr);
     gap: 1px;
+  }
+
+  .model-token-tier-price {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1px;
+  }
+
+  .model-token-tier-price strong {
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 
   .model-support-table td.model-support-actions {

@@ -49,6 +49,7 @@ export interface PricingModel {
   supported_endpoint_types?: UserModelEndpointType[];
   supported_options?: UserModelSupportedOptions;
   pricing_rules?: UserModelPricingRule[];
+  token_price_rules?: UserModelTokenPriceRule[];
   billing_unit?: string;
   model_name: string;
   description: string;
@@ -126,6 +127,11 @@ export interface UserModelPricingRule {
   sale_usd: Record<string, string>;
 }
 
+export interface UserModelTokenPriceRule {
+  conditions: string[];
+  sale_usd: Record<string, string>;
+}
+
 export interface UserModelCatalogItem {
   modality: UserModelModality;
   model_name: string;
@@ -142,6 +148,7 @@ export interface UserModelCatalogItem {
   pricing_version: string;
   supported_options?: UserModelSupportedOptions;
   pricing_rules?: UserModelPricingRule[];
+  token_price_rules?: UserModelTokenPriceRule[];
   billing_unit?: string;
 }
 
@@ -335,6 +342,7 @@ function parseUserModelCatalogItem(value: unknown): UserModelCatalogItem {
     ? parseStringArray(value.billing_dimensions)
     : parseRequiredStringArray(value.billing_dimensions);
   const saleUSD = parseDecimalStringRecord(value.sale_usd);
+  const hasTokenTiers = value.token_price_rules !== undefined;
   const inputPrice = value.input_price_per_million;
   const outputPrice = value.output_price_per_million;
   const billingRule = value.billing_rule;
@@ -360,9 +368,9 @@ function parseUserModelCatalogItem(value: unknown): UserModelCatalogItem {
     (modality === 'video' && (endpointTypes.length !== 1 || endpointTypes[0] !== 'video-tasks')) ||
     ((modality === 'text' || isEmbedding) && endpointTypes.some((endpoint) => endpoint === 'images' || endpoint === 'video-tasks')) ||
     typeof inputPrice !== 'string' ||
-    (media ? inputPrice !== '' : !positiveDecimalString(inputPrice)) ||
+    (media || hasTokenTiers ? inputPrice !== '' : !positiveDecimalString(inputPrice)) ||
     typeof outputPrice !== 'string' ||
-    (media ? outputPrice !== '' : isEmbedding ? !/^0(?:\.0+)?$/.test(outputPrice) : !positiveDecimalString(outputPrice)) ||
+    (media || hasTokenTiers ? outputPrice !== '' : isEmbedding ? !/^0(?:\.0+)?$/.test(outputPrice) : !positiveDecimalString(outputPrice)) ||
     !['token', 'multi_dimension', 'input_only'].includes(String(billingRule)) ||
     !requiredString(value.pricing_version)
   ) {
@@ -371,6 +379,7 @@ function parseUserModelCatalogItem(value: unknown): UserModelCatalogItem {
 
   if (media) {
     if (
+      hasTokenTiers ||
       billingDimensions.length !== 0 ||
       Object.keys(saleUSD).length !== 0 ||
       billingRule !== 'multi_dimension' ||
@@ -443,6 +452,31 @@ function parseUserModelCatalogItem(value: unknown): UserModelCatalogItem {
 
   const dimensionSet = new Set(billingDimensions);
   const saleDimensions = Object.keys(saleUSD);
+  if (hasTokenTiers && (isEmbedding || !Array.isArray(value.token_price_rules) || value.token_price_rules.length === 0)) {
+    throw new DataContractError();
+  }
+  const tokenPriceRules: UserModelTokenPriceRule[] | undefined = hasTokenTiers
+    ? (value.token_price_rules as unknown[]).map((rule) => {
+      if (!isRecord(rule) || Object.keys(rule).length !== 2 ||
+        !Object.prototype.hasOwnProperty.call(rule, 'conditions') ||
+        !Object.prototype.hasOwnProperty.call(rule, 'sale_usd')) {
+        throw new DataContractError();
+      }
+      const conditions = parseStringArray(rule.conditions);
+      const ruleSaleUSD = parseDecimalStringRecord(rule.sale_usd);
+      if (
+        new Set(conditions).size !== conditions.length ||
+        Object.keys(ruleSaleUSD).length !== dimensionSet.size ||
+        Object.keys(ruleSaleUSD).some((dimension) => !dimensionSet.has(dimension))
+      ) {
+        throw new DataContractError();
+      }
+      return { conditions, sale_usd: ruleSaleUSD };
+    })
+    : undefined;
+  if (tokenPriceRules && new Set(tokenPriceRules.map((rule) => JSON.stringify([...rule.conditions].sort()))).size !== tokenPriceRules.length) {
+    throw new DataContractError();
+  }
   const expectedBillingRule =
     isEmbedding ? 'input_only' : billingDimensions.length === 2 &&
     billingDimensions[0] === 'input_tokens' &&
@@ -452,14 +486,13 @@ function parseUserModelCatalogItem(value: unknown): UserModelCatalogItem {
   if (
     (isEmbedding && (billingDimensions.length !== 1 || billingDimensions[0] !== 'input_tokens')) ||
     dimensionSet.size !== billingDimensions.length ||
-    saleDimensions.length !== dimensionSet.size ||
-    saleDimensions.some((dimension) => !dimensionSet.has(dimension)) ||
-    !saleUSD.input_tokens ||
-    (!isEmbedding && !saleUSD.output_tokens) ||
-    canonicalDecimalString(inputPrice) !==
-      canonicalDecimalString(saleUSD.input_tokens) ||
-    (!isEmbedding && canonicalDecimalString(outputPrice) !==
-      canonicalDecimalString(saleUSD.output_tokens)) ||
+    (hasTokenTiers ? saleDimensions.length !== 0 :
+      saleDimensions.length !== dimensionSet.size ||
+      saleDimensions.some((dimension) => !dimensionSet.has(dimension)) ||
+      !saleUSD.input_tokens ||
+      (!isEmbedding && !saleUSD.output_tokens) ||
+      canonicalDecimalString(inputPrice) !== canonicalDecimalString(saleUSD.input_tokens) ||
+      (!isEmbedding && canonicalDecimalString(outputPrice) !== canonicalDecimalString(saleUSD.output_tokens))) ||
     billingRule !== expectedBillingRule
   ) {
     throw new DataContractError();
@@ -479,6 +512,7 @@ function parseUserModelCatalogItem(value: unknown): UserModelCatalogItem {
     sale_usd: saleUSD,
     billing_rule: billingRule as UserModelCatalogItem['billing_rule'],
     pricing_version: value.pricing_version,
+    token_price_rules: tokenPriceRules,
   };
 }
 
@@ -683,6 +717,7 @@ export function parsePricingModels(value: unknown): PricingModel[] {
         modality: catalog.modality,
         supported_options: catalog.supported_options,
         pricing_rules: catalog.pricing_rules,
+        token_price_rules: catalog.token_price_rules,
         billing_unit: catalog.billing_unit,
       };
     }

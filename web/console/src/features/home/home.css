@@ -860,6 +860,19 @@
   background: #03080d;
 }
 
+.model-proof__grid .model-proof__token-tier {
+  align-items: flex-start;
+}
+
+.model-proof__token-tier dd {
+  display: grid;
+  gap: 3px;
+}
+
+.model-proof__token-tier dd strong {
+  white-space: nowrap;
+}
+
 .public-cta .public-shell {
   display: flex;
   gap: 40px;

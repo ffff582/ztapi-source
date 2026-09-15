@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/types"
@@ -109,6 +110,28 @@ func PriceZTAPIAttemptBilling(parent model.ZTAPIRequestSettlement, submission mo
 	}
 	usage := append([]model.ZTAPIAttemptBillingQuantity(nil), submission.Usage...)
 	sort.Slice(usage, func(i, j int) bool { return usage[i].Dimension < usage[j].Dimension })
+	var tierInput, tierOutput int64
+	for i, quantity := range usage {
+		if !ztapiAttemptTokenDimension(quantity.Dimension) || quantity.Quantity < 0 || quantity.Quantity > math.MaxInt32 ||
+			(i > 0 && usage[i-1].Dimension == quantity.Dimension) || !listed[quantity.Dimension] ||
+			(snapshot.Modality == model.ZTAPIModalityEmbedding && quantity.Dimension != "input_tokens") {
+			return invalid, model.ErrZTAPIAttemptBillingInvalid
+		}
+		if quantity.Dimension == "output_tokens" {
+			tierOutput += quantity.Quantity
+		} else {
+			tierInput += quantity.Quantity
+		}
+	}
+	if tierInput+tierOutput > math.MaxInt32 {
+		return invalid, model.ErrZTAPIAttemptBillingInvalid
+	}
+	selected, billingTier, err := relaycommon.SelectZTAPIFrozenTokenTier(&snapshot, &dto.Usage{
+		PromptTokens: int(tierInput), CompletionTokens: int(tierOutput),
+	})
+	if err != nil {
+		return invalid, model.ErrZTAPIAttemptBillingInvalid
+	}
 	check := relaycommon.ZTAPIUsageDimensionResult{Managed: true, UsageSemantic: submission.UsageSemantic}
 	var input, output int64
 	for i, quantity := range usage {
@@ -122,7 +145,7 @@ func PriceZTAPIAttemptBilling(parent model.ZTAPIRequestSettlement, submission mo
 		if !listed[quantity.Dimension] || (snapshot.Modality == model.ZTAPIModalityEmbedding && quantity.Dimension != "input_tokens") {
 			return invalid, model.ErrZTAPIAttemptBillingInvalid
 		}
-		price, err := decimal.NewFromString(strings.TrimSpace(snapshot.SaleUSD[quantity.Dimension]))
+		price, err := decimal.NewFromString(strings.TrimSpace(selected.SaleUSD[quantity.Dimension]))
 		if err != nil || price.IsNegative() {
 			return invalid, model.ErrZTAPIAttemptBillingInvalid
 		}
@@ -148,10 +171,14 @@ func PriceZTAPIAttemptBilling(parent model.ZTAPIRequestSettlement, submission mo
 	if err != nil {
 		return invalid, err
 	}
-	metadata, err := common.Marshal(map[string]any{
+	logInfo := map[string]any{
 		"billing_source": "wallet", "billing_status": "settled", "billing_dimensions": check.Dimensions,
 		"publication_version": snapshot.Version, "price_source_version": snapshot.PriceSourceVersion, "usage_semantic": submission.UsageSemantic,
-	})
+	}
+	if billingTier != "" {
+		logInfo["billing_tier"] = billingTier
+	}
+	metadata, err := common.Marshal(logInfo)
 	if err != nil {
 		return invalid, err
 	}

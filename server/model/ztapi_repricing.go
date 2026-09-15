@@ -160,6 +160,10 @@ func ApplyZTAPICommercialPricingV2(operatorID int) (ZTAPICommercialRepricingResu
 		return result, errors.New("ZTAPI database is not initialized")
 	}
 	err := withZTAPICatalogWrite(func(tx *gorm.DB) error {
+		quoteAB, err := ZTAPIQuotationABEntries()
+		if err != nil {
+			return err
+		}
 		var configs []ZTAPIModelConfig
 		if err := tx.Where("published = ?", true).Order("source_model ASC").Find(&configs).Error; err != nil {
 			return err
@@ -185,6 +189,10 @@ func ApplyZTAPICommercialPricingV2(operatorID int) (ZTAPICommercialRepricingResu
 			var currentSource ZTAPIModelPriceSource
 			if err := tx.First(&currentSource, publication.PriceSourceID).Error; err != nil {
 				return fmt.Errorf("load bound price source for %s: %w", config.SourceModel, err)
+			}
+			if currentSource.SourceDocumentChecksum == quoteAB.WorkbookSHA256 {
+				result.Unchanged++
+				continue
 			}
 			target, preview, err := buildZTAPICommercialPriceSourceV2(currentSource)
 			if err != nil {

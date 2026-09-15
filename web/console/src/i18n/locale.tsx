@@ -205,6 +205,7 @@ const english: Record<string, string> = {
   '公开模型': 'Public model',
   '说明': 'Description',
   '售价明细': 'Pricing details',
+  '默认价格': 'Default price',
   '{{name}} 售价': '{{name}} pricing',
   '按规则计费': 'Rule-based pricing',
   '服务目录': 'Service catalog',

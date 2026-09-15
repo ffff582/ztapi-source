@@ -1294,9 +1294,9 @@ jobs:
             "https://admin.ztapi.vip/api/admin/overview?from=$admin_from&to=$admin_to" |
             jq -e '.success == true' >/dev/null
 
-          # Reprice every currently published model in one database transaction.
-          # Pool-quoted models sell at 80% of official price; all other models
-          # sell at actual enterprise cost / 0.8 (20% gross margin).
+          # Reprice legacy frozen publications in one database transaction.
+          # Publications already bound to the approved September 15 A/B quote
+          # remain unchanged; the legacy endpoint must not overwrite their tiers.
           published_pricing_count=$("${compose[@]}" exec -T mysql sh -c \
             'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names' <<'SQL'
           SELECT COUNT(*) FROM ztapi_model_configs WHERE published = 1;

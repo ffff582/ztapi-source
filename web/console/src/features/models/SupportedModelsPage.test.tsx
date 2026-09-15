@@ -200,6 +200,56 @@ describe('SupportedModelsPage', () => {
     expect(headers.get('New-Api-User')).toBe('7');
   });
 
+  it('shows each text token tier with its condition and input, output, and cache prices', async () => {
+    const tiered = catalogItem({
+      model_name: 'zt-gpt-5.6-sol',
+      billing_dimensions: ['input_tokens', 'output_tokens', 'cache_read'],
+      sale_usd: {},
+      input_price_per_million: '', output_price_per_million: '',
+      billing_rule: 'multi_dimension',
+      token_price_rules: [
+        { conditions: ['输入 ≤272K'], sale_usd: { input_tokens: '3.9000000000', output_tokens: '19.5000000000', cache_read: '0.3900000000' } },
+        { conditions: ['输入 >272K'], sale_usd: { input_tokens: '7.8000000000', output_tokens: '29.2500000000', cache_read: '0.7800000000' } },
+      ],
+    });
+    const flat = catalogItem({ model_name: 'zt-gpt-flat' });
+    const catalog = [tiered, flat];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
+      success: true, data: catalog.map((item) => item.model_name), catalog,
+    })));
+
+    render(<SupportedModelsPage />);
+
+    const tieredRow = (await screen.findByText('zt-gpt-5.6-sol')).closest('tr') as HTMLElement;
+    const tiers = within(tieredRow).getAllByRole('listitem');
+    expect(tiers).toHaveLength(2);
+    expect(tiers[0]).toHaveTextContent('输入 ≤272K');
+    expect(tiers[0]).toHaveTextContent('输入$3.9 / 1M tokens');
+    expect(tiers[0]).toHaveTextContent('输出$19.5 / 1M tokens');
+    expect(tiers[0]).toHaveTextContent('缓存读取$0.39 / 1M tokens');
+    expect(tiers[1]).toHaveTextContent('输入 >272K');
+    expect(tiers[1]).toHaveTextContent('输入$7.8 / 1M tokens');
+    expect(tiers[1]).toHaveTextContent('输出$29.25 / 1M tokens');
+    const flatRow = screen.getByText('zt-gpt-flat').closest('tr') as HTMLElement;
+    expect(within(flatRow).getByText('$1.25 / 1M tokens')).toBeVisible();
+  });
+
+  it('labels an unconditional text rule as the default price', async () => {
+    const item = catalogItem({
+      model_name: 'zt-gpt-5-mini', input_price_per_million: '', output_price_per_million: '',
+      sale_usd: {}, token_price_rules: [{ conditions: [], sale_usd: {
+        input_tokens: '1.25', output_tokens: '5',
+      } }],
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
+      success: true, data: [item.model_name], catalog: [item],
+    })));
+    render(<SupportedModelsPage />);
+    const row = (await screen.findByText('zt-gpt-5-mini')).closest('tr') as HTMLElement;
+    expect(within(row).getByText('默认价格')).toBeVisible();
+    expect(within(row).getByText('$1.25 / 1M tokens')).toBeVisible();
+  });
+
   it('puts current mainstream models first and filters them with visible categories', async () => {
     const catalog = [
       catalogItem({

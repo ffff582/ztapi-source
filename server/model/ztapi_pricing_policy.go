@@ -13,6 +13,7 @@ const (
 	ZTAPIPricePolicyEnterprise40Margin ZTAPIPricePolicy = "enterprise_40_margin"
 	ZTAPIPricePolicyPool60Margin       ZTAPIPricePolicy = "pool_60_margin"
 	ZTAPIPricePolicyEnterprise20Margin ZTAPIPricePolicy = "enterprise_20_margin"
+	ZTAPIPricePolicyPool30Margin       ZTAPIPricePolicy = "pool_30_margin"
 	ZTAPIPricePolicyPoolOfficial80     ZTAPIPricePolicy = "pool_official_80"
 )
 
@@ -20,6 +21,7 @@ var (
 	ztapiEnterpriseSaleCostShare = decimal.RequireFromString("0.60")
 	ztapiPoolSaleCostShare       = decimal.RequireFromString("0.40")
 	ztapiEnterprise20CostShare   = decimal.RequireFromString("0.80")
+	ztapiPool30CostShare         = decimal.RequireFromString("0.70")
 	ztapiPoolOfficialSaleShare   = decimal.RequireFromString("0.80")
 )
 
@@ -31,6 +33,8 @@ func CalculateZTAPISalePriceForPolicy(cost decimal.Decimal, policy ZTAPIPricePol
 		return cost.Div(ztapiPoolSaleCostShare).Round(10), nil
 	case ZTAPIPricePolicyEnterprise20Margin:
 		return cost.Div(ztapiEnterprise20CostShare).Round(10), nil
+	case ZTAPIPricePolicyPool30Margin:
+		return cost.Div(ztapiPool30CostShare).Round(10), nil
 	default:
 		return decimal.Zero, errors.New("unsupported ZTAPI price policy")
 	}
@@ -55,6 +59,10 @@ func ValidateZTAPIPricePolicy(resourceType string, policy ZTAPIPricePolicy) erro
 			return nil
 		}
 	case ZTAPIPricePolicyPool60Margin:
+		if resourceType == "pool" {
+			return nil
+		}
+	case ZTAPIPricePolicyPool30Margin:
 		if resourceType == "pool" {
 			return nil
 		}

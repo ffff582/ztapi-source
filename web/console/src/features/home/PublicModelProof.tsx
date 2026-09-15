@@ -129,7 +129,7 @@ export function PublicModelProof() {
               {featuredModels.map((model) => {
                 const family = model.vendor_name ?? getPublicModelFamily(model.model_name, model.owner_by);
                 const media = model.modality === 'image' || model.modality === 'video';
-                const prices = !media && model.sale_usd
+                const prices = !media && !model.token_price_rules && model.sale_usd
                   ? { input: managedPrice(model.sale_usd.input_tokens), output: model.sale_usd.output_tokens ? managedPrice(model.sale_usd.output_tokens) : null }
                   : !media ? modelPrices(model, pricing, quotaPerUnit) : null;
                 return (
@@ -145,6 +145,16 @@ export function PublicModelProof() {
                           <dt>{t('价格')}</dt>
                           <dd>{t('按规格计费')}</dd>
                         </div>
+                      ) : model.token_price_rules ? (
+                        model.token_price_rules.map((rule, index) => (
+                          <div className="model-proof__token-tier" key={`${model.model_name}-tier-${index}`}>
+                            <dt>{rule.conditions.length === 0 ? t('默认价格') : rule.conditions.map((condition) => t(condition)).join(' · ')}</dt>
+                            <dd>
+                              <span>{t('输入')} <strong>{managedPrice(rule.sale_usd.input_tokens)}</strong></span>
+                              <span>{t('输出')} <strong>{managedPrice(rule.sale_usd.output_tokens)}</strong></span>
+                            </dd>
+                          </div>
+                        ))
                       ) : (
                         <>
                           <div>

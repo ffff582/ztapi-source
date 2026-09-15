@@ -370,6 +370,23 @@ func TestZTAPIAttemptBillingPricesFrozenExclusiveBuckets(t *testing.T) {
 	require.Equal(t, priced, again, "approval replay must have deterministic log metadata")
 }
 
+func TestZTAPIAttemptBillingSelectsActualFrozenTokenTier(t *testing.T) {
+	parent, submission := attemptBillingPriceFixture(t)
+	changeAttemptBillingSnapshot(t, &parent, func(s *relaycommon.ZTAPIPublicationSnapshot) {
+		s.TokenPriceRulesJSON = `[{"conditions":["输入长度≤272K"],"sale":{"input_tokens":"2","output_tokens":"4","cache_read":"0.2","cache_write":"3","cache_write_5m":"4","cache_write_1h":"6"}},{"conditions":["输入长度>272K"],"sale":{"input_tokens":"4","output_tokens":"8","cache_read":"0.4","cache_write":"6","cache_write_5m":"8","cache_write_1h":"12"}}]`
+		s.SaleUSD["input_tokens"] = "4"
+		s.SaleUSD["output_tokens"] = "8"
+	})
+	submission.Usage = []model.ZTAPIAttemptBillingQuantity{{Dimension: "input_tokens", Quantity: 200000}, {Dimension: "output_tokens", Quantity: 100}}
+	short, err := PriceZTAPIAttemptBilling(parent, submission)
+	require.NoError(t, err)
+	require.Equal(t, "1", short.Dimensions[0].UnitQuota)
+	submission.Usage[0].Quantity = 300000
+	long, err := PriceZTAPIAttemptBilling(parent, submission)
+	require.NoError(t, err)
+	require.Equal(t, "2", long.Dimensions[0].UnitQuota)
+}
+
 func TestZTAPIAttemptBillingPreservesFrozenMarkupAndRounding(t *testing.T) {
 	parent, submission := attemptBillingPriceFixture(t)
 	changeAttemptBillingSnapshot(t, &parent, func(s *relaycommon.ZTAPIPublicationSnapshot) {

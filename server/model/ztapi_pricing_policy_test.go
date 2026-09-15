@@ -37,6 +37,7 @@ func TestZTAPIPricePolicyCalculatesExplicitMargins(t *testing.T) {
 		want   string
 	}{
 		{name: "enterprise 20 percent margin", cost: "3.90", policy: ZTAPIPricePolicyEnterprise20Margin, want: "4.875"},
+		{name: "pool 30 percent margin", cost: "1.40", policy: ZTAPIPricePolicyPool30Margin, want: "2"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -45,6 +46,22 @@ func TestZTAPIPricePolicyCalculatesExplicitMargins(t *testing.T) {
 			require.Truef(t, got.Equal(decimal.RequireFromString(test.want)), "got %s want %s", got, test.want)
 		})
 	}
+}
+
+func TestZTAPIPoolThirtyMarginRequiresPoolResource(t *testing.T) {
+	require.NoError(t, ValidateZTAPIPricePolicy("pool", ZTAPIPricePolicyPool30Margin))
+	for _, resource := range []string{"enterprise", "official", "original_resource"} {
+		require.Error(t, ValidateZTAPIPricePolicy(resource, ZTAPIPricePolicyPool30Margin))
+	}
+	source := validZTAPIPriceSourceForTest()
+	source.ResourceType = "pool"
+	source.PricePolicy = string(ZTAPIPricePolicyPool30Margin)
+	source.InputPerMillion = "1.4"
+	source.OutputPerMillion = "7"
+	preview, err := BuildZTAPIModelPricePreview(&source)
+	require.NoError(t, err)
+	require.Equal(t, "2.0000000000", preview.InputSaleUSDPerMillion)
+	require.Equal(t, "10.0000000000", preview.OutputSaleUSDPerMillion)
 }
 
 func TestZTAPIPoolPolicySellsAtEightyPercentOfOfficialPrice(t *testing.T) {

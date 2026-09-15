@@ -38,6 +38,7 @@ type ZTAPIPublicationSnapshot struct {
 	PriceSourceVersion     uint64
 	BillingDimensions      []string
 	SaleUSD                map[string]string
+	TokenPriceRulesJSON    string
 	MediaPriceContractJSON string
 	AllowedGroups          []string
 	AllowedChannelIDs      []int

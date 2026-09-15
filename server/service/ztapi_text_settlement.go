@@ -26,7 +26,13 @@ func postZTAPIDurableTextQuota(c *gin.Context, info *relaycommon.RelayInfo, usag
 		_ = pendZTAPIBilling(info, usage, []string{"invalid_frozen_price"})
 		return true
 	}
-	check := relaycommon.ValidateZTAPIUsageDimensions(c, ztapiUsageValidationInfo(info, &snapshot), usage)
+	selected, tier, tierErr := relaycommon.SelectZTAPIFrozenTokenTier(&snapshot, usage)
+	if tierErr != nil {
+		logger.LogError(c, "managed token tier selection requires reconciliation: "+tierErr.Error())
+		_ = pendZTAPIBilling(info, usage, []string{"token_tier_invalid"})
+		return true
+	}
+	check := relaycommon.ValidateZTAPIUsageDimensions(c, ztapiUsageValidationInfo(info, selected), usage)
 	if check.Pending {
 		missing := append(append([]string{}, check.MissingDimensions...), check.InvalidDimensions...)
 		if check.UsageMissing {
@@ -79,6 +85,9 @@ func postZTAPIDurableTextQuota(c *gin.Context, info *relaycommon.RelayInfo, usag
 		}
 	}
 	otherInfo := map[string]any{"billing_source": "wallet", "billing_status": "settled", "billing_dimensions": check.Dimensions, "publication_version": snapshot.Version, "price_source_version": snapshot.PriceSourceVersion, "usage_semantic": check.UsageSemantic}
+	if tier != "" {
+		otherInfo["billing_tier"] = tier
+	}
 	appendReasoningAuditInfo(info, otherInfo)
 	other, _ := common.Marshal(otherInfo)
 	elapsed := 0

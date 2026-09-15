@@ -67,6 +67,7 @@ type ZTAPIModelPriceSource struct {
 	SourceModel            string `json:"source_model" gorm:"size:255;not null;index"`
 	ResourceType           string `json:"resource_type" gorm:"size:32;not null;index"`
 	PricePolicy            string `json:"price_policy" gorm:"size:32;not null;default:enterprise_40_margin"`
+	TokenPriceRulesJSON    string `json:"token_price_rules,omitempty" gorm:"column:token_price_rules_json;type:text"`
 	MediaPriceContractJSON string `json:"media_price_contract,omitempty" gorm:"column:media_price_contract_json;type:text"`
 	SpendTier              string `json:"spend_tier" gorm:"size:32;not null"`
 	BillingDimensions      string `json:"-" gorm:"type:text;not null"`
@@ -83,6 +84,10 @@ type ZTAPIModelPriceSource struct {
 	CNYPerUSD              string `json:"cny_per_usd" gorm:"type:decimal(24,10);not null;default:0"`
 	QuotationEffectiveAt   int64  `json:"quotation_effective_at" gorm:"bigint;not null;index"`
 	SourceDocumentChecksum string `json:"source_document_checksum" gorm:"size:64;not null;index"`
+	QuotationGrade         string `json:"quotation_grade,omitempty" gorm:"size:4"`
+	QuotationCell          string `json:"quotation_cell,omitempty" gorm:"size:32"`
+	OfficialPriceCell      string `json:"official_price_cell,omitempty" gorm:"size:32"`
+	QuotationModelCode     string `json:"quotation_model_code,omitempty" gorm:"size:255"`
 	OperatorID             int    `json:"operator_id" gorm:"not null"`
 	Version                uint64 `json:"version" gorm:"not null;default:1"`
 	CreatedAt              int64  `json:"created_at" gorm:"bigint;not null"`
@@ -781,6 +786,7 @@ type ZTAPIModelPublicationSnapshot struct {
 	AllowedChannelIDs         string  `json:"-" gorm:"type:text;not null"`
 	PriceSourceID             int64   `json:"price_source_id" gorm:"not null;index"`
 	PricePolicy               string  `json:"price_policy" gorm:"size:32;not null;default:enterprise_40_margin"`
+	TokenPriceRulesJSON       string  `json:"token_price_rules,omitempty" gorm:"column:token_price_rules_json;type:text"`
 	MediaPriceContractJSON    string  `json:"media_price_contract,omitempty" gorm:"column:media_price_contract_json;type:text"`
 	ImageProtocolContractJSON string  `json:"image_protocol_contract,omitempty" gorm:"column:image_protocol_contract_json;type:text"`
 	VideoProtocolContractJSON string  `json:"video_protocol_contract,omitempty" gorm:"column:video_protocol_contract_json;type:text"`
@@ -812,7 +818,7 @@ func (snapshot *ZTAPIModelPublicationSnapshot) BeforeCreate(tx *gorm.DB) error {
 		return nil
 	}
 	var source ZTAPIModelPriceSource
-	if err := tx.Select("model_config_id", "source_model", "resource_type", "price_policy", "media_price_contract_json").First(&source, snapshot.PriceSourceID).Error; err != nil {
+	if err := tx.Select("model_config_id", "source_model", "resource_type", "price_policy", "token_price_rules_json", "media_price_contract_json").First(&source, snapshot.PriceSourceID).Error; err != nil {
 		return err
 	}
 	if err := ValidateZTAPIPricePolicy(source.ResourceType, ZTAPIPricePolicy(source.PricePolicy)); err != nil {
@@ -823,6 +829,9 @@ func (snapshot *ZTAPIModelPublicationSnapshot) BeforeCreate(tx *gorm.DB) error {
 	}
 	if snapshot.MediaPriceContractJSON != "" && snapshot.MediaPriceContractJSON != source.MediaPriceContractJSON {
 		return errors.New("publication snapshot media price contract does not match price source")
+	}
+	if snapshot.TokenPriceRulesJSON != "" && snapshot.TokenPriceRulesJSON != source.TokenPriceRulesJSON {
+		return errors.New("publication snapshot token price rules do not match price source")
 	}
 	if snapshot.ImageProtocolContractJSON != "" || imageRequired {
 		contract, canonical, err := types.ParseZTAPIImageProtocolContract(snapshot.ImageProtocolContractJSON)
@@ -882,6 +891,7 @@ func (snapshot *ZTAPIModelPublicationSnapshot) BeforeCreate(tx *gorm.DB) error {
 		}
 	}
 	snapshot.PricePolicy = source.PricePolicy
+	snapshot.TokenPriceRulesJSON = source.TokenPriceRulesJSON
 	snapshot.MediaPriceContractJSON = source.MediaPriceContractJSON
 	return nil
 }
