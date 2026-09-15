@@ -86,6 +86,43 @@ func TestZTAPIABMediaImage2FrozenEnterpriseBuckets(t *testing.T) {
 	require.ErrorContains(t, err, "enterprise A")
 }
 
+func TestBuildZTAPIABImage2PriceSourceUsesExactEnterpriseQuote(t *testing.T) {
+	quote, err := ZTAPIQuotationABEntries()
+	require.NoError(t, err)
+	old := validZTAPIPriceSourceForTest()
+	old.ModelConfigID = 12
+	old.SourceModel = "gpt-image-2"
+	old.SourceDocumentChecksum = ZTAPIQuotationSHA256
+	old.MediaPriceContractJSON = gpImage2ContractForTest(t)
+	protocol := image2ABProtocol(t)
+	source, err := BuildZTAPIABImage2PriceSource(quote, old, &protocol, 7, 1_789_000_000)
+	require.NoError(t, err)
+	require.Equal(t, quote.WorkbookSHA256, source.SourceDocumentChecksum)
+	require.Equal(t, "A", source.QuotationGrade)
+	require.Equal(t, "D100", source.QuotationCell)
+	require.Equal(t, string(ZTAPIPricePolicyEnterprise20Margin), source.PricePolicy)
+	require.Equal(t, "3.9000000000", source.InputPerMillion)
+	require.Equal(t, "23.4000000000", source.OutputPerMillion)
+	contract, err := types.ParseZTAPIMediaPriceContract(source.MediaPriceContractJSON)
+	require.NoError(t, err)
+	require.Len(t, contract.Rules, 5)
+	preview, err := BuildZTAPIModelPricePreview(&source)
+	require.NoError(t, err)
+	require.Equal(t, "4.8750000000", preview.InputSaleUSDPerMillion)
+	require.Equal(t, "29.2500000000", preview.OutputSaleUSDPerMillion)
+	require.NoError(t, validateZTAPIABPriceSource(&source))
+	tampered := source
+	tampered.InputPerMillion = "3.8000000000"
+	require.ErrorContains(t, validateZTAPIABPriceSource(&tampered), "input_tokens")
+	tampered = source
+	tampered.MediaPriceContractJSON = old.MediaPriceContractJSON
+	require.ErrorContains(t, validateZTAPIABPriceSource(&tampered), "exact quotation")
+	bad := old
+	bad.SourceDocumentChecksum = "bad"
+	_, err = BuildZTAPIABImage2PriceSource(quote, bad, &protocol, 7, 1_789_000_000)
+	require.Error(t, err)
+}
+
 func TestZTAPIABMediaSeedanceGateway720pNoVideo(t *testing.T) {
 	cases := []struct {
 		cell, model, cost, sale string

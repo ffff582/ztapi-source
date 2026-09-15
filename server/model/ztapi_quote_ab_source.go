@@ -171,6 +171,9 @@ func validateZTAPIABPriceSource(source *ZTAPIModelPriceSource) error {
 	if source.SourceDocumentChecksum != quote.WorkbookSHA256 {
 		return errors.New("A/B quote source has an unexpected workbook checksum")
 	}
+	if source.SourceModel == "gpt-image-2" {
+		return validateZTAPIABImage2PriceSource(quote, source)
+	}
 	identities, err := ZTAPIQuotationEntries()
 	if err != nil {
 		return err
@@ -229,6 +232,53 @@ func validateZTAPIABPriceSource(source *ZTAPIModelPriceSource) error {
 		}
 		if actual != expectedEvidence[i] {
 			return fmt.Errorf("A/B quote source %s does not match the exact workbook", fields[i])
+		}
+	}
+	return nil
+}
+
+func validateZTAPIABImage2PriceSource(quote ZTAPIABQuotationManifest, source *ZTAPIModelPriceSource) error {
+	var row ZTAPIABQuotationEntry
+	for _, candidate := range quote.Entries {
+		if candidate.QuotationCell == "D100" {
+			row = candidate
+			break
+		}
+	}
+	if row.ModelName != "GPT Image 2" || row.ModelCode != "zq-g-i-2" || !row.Active || row.Grade != "A" {
+		return errors.New("gpt-image-2 has no exact active A quotation")
+	}
+	contract, err := buildZTAPIABImage2Contract(row)
+	if err != nil {
+		return err
+	}
+	raw, err := json.Marshal(contract)
+	if err != nil {
+		return err
+	}
+	want, err := canonicalizeZTAPIMediaPriceContract(string(raw))
+	if err != nil {
+		return err
+	}
+	if source.MediaPriceContractJSON != want || source.ResourceType != "enterprise" ||
+		source.PricePolicy != string(ZTAPIPricePolicyEnterprise20Margin) || source.SpendTier != "A" ||
+		source.Currency != "USD" || source.QuotationGrade != row.Grade ||
+		source.QuotationCell != row.QuotationCell || source.OfficialPriceCell != row.OfficialPriceCell ||
+		source.QuotationModelCode != row.ModelCode || source.BillingDimensions != `["input_tokens","output_tokens"]` ||
+		source.TokenPriceRulesJSON != "" {
+		return errors.New("gpt-image-2 A/B price source differs from the exact quotation")
+	}
+	values := ztapiPriceSourceValues(source)
+	for dimension, raw := range values {
+		wantCost := decimal.Zero
+		if dimension == ZTAPIBillingDimensionInputTokens {
+			wantCost = decimal.RequireFromString("3.9")
+		} else if dimension == ZTAPIBillingDimensionOutputTokens {
+			wantCost = decimal.RequireFromString("23.4")
+		}
+		cost, parseErr := decimal.NewFromString(raw)
+		if parseErr != nil || !cost.Equal(wantCost) {
+			return fmt.Errorf("gpt-image-2 A/B cost %s differs from the exact quotation", dimension)
 		}
 	}
 	return nil

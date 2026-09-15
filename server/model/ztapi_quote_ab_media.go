@@ -143,6 +143,65 @@ func buildZTAPIABImage2Contract(row ZTAPIABQuotationEntry) (types.ZTAPIMediaPric
 	return contract, nil
 }
 
+// BuildZTAPIABImage2PriceSource rebinds only the frozen gpt-image-2 buckets.
+func BuildZTAPIABImage2PriceSource(quote ZTAPIABQuotationManifest, old ZTAPIModelPriceSource, image *types.ZTAPIImageProtocolContract, operatorID int, effectiveAt int64) (ZTAPIModelPriceSource, error) {
+	if old.ModelConfigID <= 0 || old.SourceModel != "gpt-image-2" || old.SourceDocumentChecksum != ZTAPIQuotationSHA256 ||
+		operatorID <= 0 || effectiveAt <= 0 {
+		return ZTAPIModelPriceSource{}, errors.New("gpt-image-2 requires an existing frozen quotation and operator")
+	}
+	current, err := ZTAPIQuotationABEntries()
+	if err != nil || quote.WorkbookSHA256 != current.WorkbookSHA256 {
+		return ZTAPIModelPriceSource{}, errors.New("gpt-image-2 A/B workbook checksum differs from the frozen quotation")
+	}
+	var row ZTAPIABQuotationEntry
+	for _, candidate := range quote.Entries {
+		if candidate.QuotationCell == "D100" {
+			row = candidate
+			break
+		}
+	}
+	if row.QuotationCell != "D100" || row.ModelName != "GPT Image 2" || row.ModelCode != "zq-g-i-2" {
+		return ZTAPIModelPriceSource{}, errors.New("gpt-image-2 has no exact enterprise A quotation identity")
+	}
+	contract, err := BuildZTAPIABMediaPriceContract(row, image, nil)
+	if err != nil {
+		return ZTAPIModelPriceSource{}, err
+	}
+	raw, err := json.Marshal(contract)
+	if err != nil {
+		return ZTAPIModelPriceSource{}, err
+	}
+	canonical, err := types.CanonicalizeZTAPIMediaPriceContract(string(raw))
+	if err != nil {
+		return ZTAPIModelPriceSource{}, err
+	}
+	values := make(map[string]types.ZTAPIMediaPriceRule, len(contract.Rules))
+	for _, rule := range contract.Rules {
+		values[rule.ID] = rule
+	}
+	input, inputOK := values["text_input"]
+	output, outputOK := values["image_output"]
+	if !inputOK || !outputOK {
+		return ZTAPIModelPriceSource{}, errors.New("gpt-image-2 quoted input or output bucket is missing")
+	}
+	next := old
+	next.ID, next.Version, next.CreatedAt = 0, 0, 0
+	next.ResourceType, next.PricePolicy, next.SpendTier = "enterprise", string(ZTAPIPricePolicyEnterprise20Margin), "A"
+	next.Currency, next.CNYPerUSD = "USD", "0"
+	next.SourceDocumentChecksum, next.QuotationGrade, next.QuotationCell = quote.WorkbookSHA256, row.Grade, row.QuotationCell
+	next.OfficialPriceCell, next.QuotationModelCode = row.OfficialPriceCell, row.ModelCode
+	next.QuotationEffectiveAt, next.OperatorID = effectiveAt, operatorID
+	next.BillingDimensions, next.TokenPriceRulesJSON = `["input_tokens","output_tokens"]`, ""
+	next.MediaPriceContractJSON = canonical
+	clearZTAPIPriceSourceCosts(&next)
+	next.InputPerMillion = decimal.RequireFromString(input.CostUSD["text_input"]).StringFixed(10)
+	next.OutputPerMillion = decimal.RequireFromString(output.CostUSD["image_output"]).StringFixed(10)
+	if err := ValidateZTAPIModelPriceSource(&next); err != nil {
+		return ZTAPIModelPriceSource{}, err
+	}
+	return next, nil
+}
+
 // The draft checks the quoted condition matrix; its USD-per-million unit is not confirmed.
 // Callers must not publish the draft without written unit and validity evidence.
 func buildZTAPIABSeedanceGatewayContract(row ZTAPIABQuotationEntry) (types.ZTAPIMediaPriceContract, error) {

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/types"
 	"gorm.io/gorm"
 )
 
@@ -20,6 +21,7 @@ type ZTAPIABQuotePricingReady struct {
 	BillingDimensions []string                    `json:"billing_dimensions"`
 	SaleUSD           map[string]string           `json:"sale_usd"`
 	TokenPriceRules   []ZTAPIPublicTokenPriceRule `json:"token_price_rules,omitempty"`
+	PricingRules      []ZTAPIPublicPricingRule    `json:"pricing_rules,omitempty"`
 }
 
 type ZTAPIABQuotePricingBlocked struct {
@@ -53,7 +55,14 @@ func PreviewZTAPIABCommercialPricing() (ZTAPIABQuotePricingPreview, error) {
 	}
 	sort.Strings(ordered)
 	for _, name := range ordered {
-		source, buildErr := BuildZTAPIABTextPriceSource(quote, name, 1, 1, 1_789_000_000)
+		var source ZTAPIModelPriceSource
+		var mediaRules []ZTAPIPublicPricingRule
+		var buildErr error
+		if name == "GPT Image 2" {
+			source, mediaRules, buildErr = previewZTAPIABImage2PriceSource(quote)
+		} else {
+			source, buildErr = BuildZTAPIABTextPriceSource(quote, name, 1, 1, 1_789_000_000)
+		}
 		if buildErr != nil {
 			result.Blocked = append(result.Blocked, ZTAPIABQuotePricingBlocked{ModelName: name, Reason: buildErr.Error()})
 			continue
@@ -95,9 +104,48 @@ func PreviewZTAPIABCommercialPricing() (ZTAPIABQuotePricingPreview, error) {
 			QuotationCell: source.QuotationCell, PricePolicy: source.PricePolicy,
 			BillingDimensions: append([]string(nil), preview.BillingDimensions...),
 			SaleUSD:           copyZTAPIStringMap(preview.SaleUSD), TokenPriceRules: rules,
+			PricingRules: mediaRules,
 		})
 	}
 	return result, nil
+}
+
+func previewZTAPIABImage2PriceSource(quote ZTAPIABQuotationManifest) (ZTAPIModelPriceSource, []ZTAPIPublicPricingRule, error) {
+	if DB == nil {
+		return ZTAPIModelPriceSource{}, nil, errors.New("gpt-image-2 frozen publication is unavailable")
+	}
+	publications, err := loadZTAPIQuotedPublications(DB)
+	if err != nil {
+		return ZTAPIModelPriceSource{}, nil, err
+	}
+	for _, publication := range publications {
+		if publication.SourceModel != "gpt-image-2" || publication.ImageProtocolContract == nil {
+			continue
+		}
+		var old ZTAPIModelPriceSource
+		if err := DB.First(&old, publication.PriceSourceID).Error; err != nil {
+			return ZTAPIModelPriceSource{}, nil, err
+		}
+		var source ZTAPIModelPriceSource
+		if old.SourceDocumentChecksum == quote.WorkbookSHA256 {
+			if err := validateZTAPIABPriceSource(&old); err != nil {
+				return ZTAPIModelPriceSource{}, nil, err
+			}
+			source = old
+		} else {
+			source, err = BuildZTAPIABImage2PriceSource(quote, old, publication.ImageProtocolContract, 1, 1_789_000_000)
+			if err != nil {
+				return ZTAPIModelPriceSource{}, nil, err
+			}
+		}
+		publication.MediaPriceContractJSON = source.MediaPriceContractJSON
+		_, rules, _ := ztapiPublicMediaMetadata(publication)
+		if len(rules) == 0 {
+			return ZTAPIModelPriceSource{}, nil, errors.New("gpt-image-2 has no customer-visible price rules")
+		}
+		return source, rules, nil
+	}
+	return ZTAPIModelPriceSource{}, nil, errors.New("gpt-image-2 frozen publication is unavailable")
 }
 
 // ApplyZTAPIABCommercialPricing changes only explicitly named existing publications.
@@ -177,13 +225,30 @@ func ApplyZTAPIABCommercialPricing(operatorID int, workbookSHA string, modelName
 				return err
 			}
 			if oldSource.SourceDocumentChecksum == quote.WorkbookSHA256 {
-				if err := validateZTAPIABPriceSource(&oldSource); err != nil || previous.TokenPriceRulesJSON != oldSource.TokenPriceRulesJSON {
+				if err := validateZTAPIABPriceSource(&oldSource); err != nil || previous.TokenPriceRulesJSON != oldSource.TokenPriceRulesJSON ||
+					previous.MediaPriceContractJSON != oldSource.MediaPriceContractJSON {
 					return fmt.Errorf("%s already has inconsistent A/B price evidence", name)
 				}
 				result.Unchanged++
 				continue
 			}
-			target, err := BuildZTAPIABTextPriceSource(quote, name, config.ID, operatorID, effectiveAt)
+			var target ZTAPIModelPriceSource
+			if name == "GPT Image 2" {
+				if previous.MediaPriceContractJSON == "" || previous.MediaPriceContractJSON != oldSource.MediaPriceContractJSON {
+					return fmt.Errorf("%s lacks frozen media price evidence", name)
+				}
+				image, canonical, parseErr := types.ParseZTAPIImageProtocolContract(previous.ImageProtocolContractJSON)
+				if parseErr != nil || canonical != previous.ImageProtocolContractJSON {
+					return fmt.Errorf("%s lacks frozen image protocol evidence", name)
+				}
+				oldContract, parseErr := types.ParseZTAPIMediaPriceContract(previous.MediaPriceContractJSON)
+				if parseErr != nil || types.ValidateZTAPIImagePriceProtocolCompatibility(oldContract, image) != nil {
+					return fmt.Errorf("%s frozen image pricing does not match protocol", name)
+				}
+				target, err = BuildZTAPIABImage2PriceSource(quote, oldSource, &image, operatorID, effectiveAt)
+			} else {
+				target, err = BuildZTAPIABTextPriceSource(quote, name, config.ID, operatorID, effectiveAt)
+			}
 			if err != nil {
 				return fmt.Errorf("%s: %w", name, err)
 			}
