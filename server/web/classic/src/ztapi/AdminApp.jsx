@@ -144,6 +144,10 @@ function AdminRoutes() {
     auth.session?.user?.role,
     AdminPermission.balanceWrite,
   );
+  const userCanResetPassword = hasAdminPermission(
+    auth.session?.user?.role,
+    AdminPermission.userPasswordWrite,
+  );
   const userCanViewLedger = hasAdminPermission(
     auth.session?.user?.role,
     AdminPermission.financeRead,
@@ -209,6 +213,7 @@ function AdminRoutes() {
               canAdjustBalance={userCanAdjustBalance}
               canChangeStaffStatus={auth.session?.user?.role === AdminRole.root}
               canChangeStatus={userCanChangeStatus}
+              canResetPassword={userCanResetPassword}
               canViewLedger={userCanViewLedger}
             />
           </ProtectedPage>

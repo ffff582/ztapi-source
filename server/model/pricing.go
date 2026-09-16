@@ -43,7 +43,10 @@ type Pricing struct {
 	OutputPricePerMillion  string                       `json:"output_price_per_million"`
 	BillingDimensions      []string                     `json:"billing_dimensions"`
 	SaleUSD                map[string]string            `json:"sale_usd"`
-	BillingRule            string                       `json:"billing_rule,omitempty"`
+	// Tiered models publish their prices per tier instead of one rate, so the
+	// public price list has to carry the tiers it emptied the single rate for.
+	TokenPriceRules []ZTAPIPublicTokenPriceRule `json:"token_price_rules,omitempty"`
+	BillingRule     string                      `json:"billing_rule,omitempty"`
 	SupportedOptions       *ZTAPIPublicSupportedOptions `json:"supported_options,omitempty"`
 	PricingRules           []ZTAPIPublicPricingRule     `json:"pricing_rules,omitempty"`
 	BillingUnit            string                       `json:"billing_unit,omitempty"`

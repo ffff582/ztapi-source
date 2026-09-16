@@ -16,6 +16,13 @@ export interface AuthCredentials {
   password: string;
   email?: string;
   verification_code?: string;
+  captcha_id?: string;
+  captcha_code?: string;
+}
+
+export interface RegistrationCaptcha {
+  captcha_id: string;
+  captcha_image: string;
 }
 
 export interface ApiSuccess<T> {
@@ -798,6 +805,19 @@ export function parsePricingEnvelope(value: unknown): PricingEnvelope {
     usable_group: parseStringRecord(value.usable_group),
     pricing_version: value.pricing_version,
   };
+}
+
+export function parseRegistrationCaptcha(value: unknown): RegistrationCaptcha {
+  if (
+    !isRecord(value) ||
+    !requiredString(value.captcha_id) ||
+    !requiredString(value.captcha_image) ||
+    !value.captcha_image.startsWith('data:image/png;base64,')
+  ) {
+    throw new DataContractError();
+  }
+
+  return { captcha_id: value.captcha_id, captcha_image: value.captcha_image };
 }
 
 export function parseRuntimeStatus(value: unknown): RuntimeStatus {

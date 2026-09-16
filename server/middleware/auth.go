@@ -97,6 +97,13 @@ func loadAuthenticatedIdentity(c *gin.Context) (*authenticatedIdentity, bool) {
 		if !ztapiJWTParsed {
 			user, authErr = model.ValidateAccessToken(accessToken)
 		}
+		// A bearer credential that no longer authenticates is an expired or
+		// rotated session. Saying so with 401 lets the console refresh and
+		// retry; a 200 carrying success:false reads to it as a broken page.
+		reauthStatus := http.StatusOK
+		if len(parts) == 2 && parts[0] == "Bearer" {
+			reauthStatus = http.StatusUnauthorized
+		}
 		if authErr != nil {
 			if errors.Is(authErr, model.ErrDatabase) {
 				common.SysLog("ValidateAccessToken database error: " + authErr.Error())
@@ -105,14 +112,25 @@ func loadAuthenticatedIdentity(c *gin.Context) (*authenticatedIdentity, bool) {
 					"message": common.TranslateMessage(c, i18n.MsgDatabaseError),
 				})
 			} else {
-				c.JSON(http.StatusOK, authReauthFailure(
+				c.JSON(reauthStatus, authReauthFailure(
 					common.TranslateMessage(c, i18n.MsgAuthAccessTokenInvalid),
 				))
 			}
 			c.Abort()
 			return nil, false
 		}
-		if user == nil || user.Username == "" || !validUserInfo(user.Username, user.Role) {
+		if user == nil {
+			// The credential no longer belongs to an account, so the caller is
+			// told to authenticate again rather than to read an empty success.
+			c.JSON(reauthStatus, authReauthFailure(
+				common.TranslateMessage(c, i18n.MsgAuthUserInfoInvalid),
+			))
+			c.Abort()
+			return nil, false
+		}
+		// An account whose own record is unusable is an authorization problem,
+		// not an expired session: refreshing would change nothing.
+		if user.Username == "" || !validUserInfo(user.Username, user.Role) {
 			c.JSON(http.StatusOK, authReauthFailure(
 				common.TranslateMessage(c, i18n.MsgAuthUserInfoInvalid),
 			))

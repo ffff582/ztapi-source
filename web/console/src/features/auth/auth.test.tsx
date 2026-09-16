@@ -71,19 +71,29 @@ function submitLogin(username = 'alice', password = 'correct-horse') {
   fireEvent.click(screen.getByRole('button', { name: '登录' }));
 }
 
-function submitRegistration(
+const captchaImageFixture = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==';
+
+function captchaResponse(id = 'captcha-1') {
+  return {
+    success: true,
+    data: { captcha_id: id, captcha_image: captchaImageFixture },
+  };
+}
+
+async function submitRegistration(
   username = 'alice',
   password = 'correct-horse',
-  email = 'alice@example.com',
+  captchaCode = 'k7fn',
 ) {
+  await screen.findByAltText('验证码图片');
   fireEvent.change(screen.getByLabelText('账号'), {
     target: { value: username },
   });
   fireEvent.change(screen.getByLabelText('密码'), {
     target: { value: password },
   });
-  fireEvent.change(screen.getByLabelText('邮箱'), {
-    target: { value: email },
+  fireEvent.change(screen.getByLabelText('验证码'), {
+    target: { value: captchaCode },
   });
   fireEvent.click(screen.getByRole('button', { name: '创建账号' }));
 }
@@ -288,7 +298,9 @@ describe('protected authentication routes', () => {
     expect(screen.getByLabelText('账号')).toHaveFocus();
   });
 
-  it('submits an email without requesting a registration verification code', async () => {
+  it('registers with a human verification code and never asks for an email', async () => {
+    const captchaImage =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==';
     const fetchMock = vi.fn(
       async (...args: [RequestInfo | URL, RequestInit?]) => {
         const [input] = args;
@@ -296,8 +308,11 @@ describe('protected authentication routes', () => {
         if (url.endsWith('/refresh')) {
           return jsonResponse({ success: false, message: 'unauthorized' }, 401);
         }
-        if (url.endsWith('/status')) {
-          return jsonResponse({ success: true, data: { email_verification: true } });
+        if (url.endsWith('/auth/captcha')) {
+          return jsonResponse({
+            success: true,
+            data: { captcha_id: 'captcha-1', captcha_image: captchaImage },
+          });
         }
         if (url.endsWith('/register')) {
           return jsonResponse(authResponse());
@@ -309,13 +324,12 @@ describe('protected authentication routes', () => {
 
     renderRoute('/register');
     await waitForRegisterForm();
-    expect(await screen.findByLabelText('邮箱')).toBeVisible();
+    expect(screen.queryByLabelText('邮箱')).not.toBeInTheDocument();
+    expect(await screen.findByAltText('验证码图片')).toHaveAttribute('src', captchaImage);
 
     fireEvent.change(screen.getByLabelText('账号'), { target: { value: 'alice' } });
     fireEvent.change(screen.getByLabelText('密码'), { target: { value: 'correct-horse' } });
-    fireEvent.change(screen.getByLabelText('邮箱'), { target: { value: 'Alice@Example.com' } });
-    expect(screen.queryByLabelText('邮箱验证码')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '发送验证码' })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('验证码'), { target: { value: ' k7fn ' } });
     fireEvent.click(screen.getByRole('button', { name: '创建账号' }));
 
     await waitFor(() => {
@@ -329,11 +343,51 @@ describe('protected authentication routes', () => {
     expect(JSON.parse(String(registerCall?.[1]?.body))).toEqual({
       username: 'alice',
       password: 'correct-horse',
-      email: 'alice@example.com',
+      captcha_id: 'captcha-1',
+      captcha_code: 'k7fn',
     });
-    expect(fetchMock.mock.calls.some(([input]) =>
-      requestUrl(input as RequestInfo | URL).includes('/verification?'),
-    )).toBe(false);
+  });
+
+  it('asks for a new challenge when the submitted one is refused', async () => {
+    let issued = 0;
+    const fetchMock = vi.fn(
+      async (...args: [RequestInfo | URL, RequestInit?]) => {
+        const [input] = args;
+        const url = requestUrl(input);
+        if (url.endsWith('/refresh')) {
+          return jsonResponse({ success: false, message: 'unauthorized' }, 401);
+        }
+        if (url.endsWith('/auth/captcha')) {
+          issued += 1;
+          return jsonResponse({
+            success: true,
+            data: {
+              captcha_id: `captcha-${issued}`,
+              captcha_image: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==',
+            },
+          });
+        }
+        if (url.endsWith('/register')) {
+          return jsonResponse({ success: false, message: 'invalid captcha' }, 400);
+        }
+        return jsonResponse({ success: false, message: 'not found' }, 404);
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderRoute('/register');
+    await waitForRegisterForm();
+    await screen.findByAltText('验证码图片');
+
+    fireEvent.change(screen.getByLabelText('账号'), { target: { value: 'alice' } });
+    fireEvent.change(screen.getByLabelText('密码'), { target: { value: 'correct-horse' } });
+    fireEvent.change(screen.getByLabelText('验证码'), { target: { value: 'wrong' } });
+    fireEvent.click(screen.getByRole('button', { name: '创建账号' }));
+
+    await waitFor(() => {
+      expect(issued).toBe(2);
+    });
+    expect(screen.getByLabelText('验证码')).toHaveValue('');
   });
 
   it('posts only the submitted username and password when logging in', async () => {
@@ -545,15 +599,20 @@ describe('protected authentication routes', () => {
   it('preserves registration values after a server error', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async (input: RequestInfo | URL) =>
-        requestUrl(input).endsWith('/refresh')
-          ? jsonResponse({ success: false, message: 'unauthorized' }, 401)
-          : jsonResponse({ success: false, message: 'username unavailable' }, 409),
-      ),
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = requestUrl(input);
+        if (url.endsWith('/refresh')) {
+          return jsonResponse({ success: false, message: 'unauthorized' }, 401);
+        }
+        if (url.endsWith('/auth/captcha')) {
+          return jsonResponse(captchaResponse());
+        }
+        return jsonResponse({ success: false, message: 'username unavailable' }, 409);
+      }),
     );
     renderRoute('/register');
     await waitForRegisterForm();
-    submitRegistration();
+    await submitRegistration();
     await screen.findByRole('alert');
 
     expect(screen.getByLabelText('账号')).toHaveValue('alice');
@@ -675,19 +734,22 @@ describe('protected authentication routes', () => {
 
   it('posts trimmed registration credentials and navigates to the console', async () => {
     const fetchMock = vi.fn(
-      async (...args: [RequestInfo | URL, RequestInit?]) =>
-        requestUrl(args[0]).endsWith('/refresh')
-          ? jsonResponse(
-              { success: false, message: 'unauthorized' },
-              401,
-            )
-          : jsonResponse(authResponse()),
+      async (...args: [RequestInfo | URL, RequestInit?]) => {
+        const url = requestUrl(args[0]);
+        if (url.endsWith('/refresh')) {
+          return jsonResponse({ success: false, message: 'unauthorized' }, 401);
+        }
+        if (url.endsWith('/auth/captcha')) {
+          return jsonResponse(captchaResponse());
+        }
+        return jsonResponse(authResponse());
+      },
     );
     vi.stubGlobal('fetch', fetchMock);
 
     renderRoute('/register');
     await waitForRegisterForm();
-    submitRegistration(' alice ');
+    await submitRegistration(' alice ');
 
     expect(
       await screen.findByRole('heading', { name: '使用概览' }),
@@ -700,7 +762,8 @@ describe('protected authentication routes', () => {
     expect(JSON.parse(String(init?.body))).toEqual({
       username: 'alice',
       password: 'correct-horse',
-      email: 'alice@example.com',
+      captcha_id: 'captcha-1',
+      captcha_code: 'k7fn',
     });
   });
 

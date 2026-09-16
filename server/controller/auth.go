@@ -29,6 +29,8 @@ type ztAPIAuthRequest struct {
 	Password         string `json:"password"`
 	Email            string `json:"email"`
 	VerificationCode string `json:"verification_code"`
+	CaptchaID        string `json:"captcha_id"`
+	CaptchaCode      string `json:"captcha_code"`
 }
 
 type ZTAPIUserDTO struct {
@@ -56,6 +58,7 @@ type ztAPIPasswordResetConfirmRequest struct {
 
 var ztAPIVerifyPassword = service.VerifyZTAPIPassword
 var ztAPISendEmail = common.SendEmail
+var ztAPIConsumeCaptcha = service.ConsumeZTAPICaptcha
 
 func ZTAPIRegister(c *gin.Context) {
 	if !common.RegisterEnabled || !common.PasswordRegisterEnabled {
@@ -67,8 +70,9 @@ func ZTAPIRegister(c *gin.Context) {
 		return
 	}
 
-	email := strings.ToLower(strings.TrimSpace(request.Email))
-	exists, err := model.CheckUserExistOrDeleted(username, email)
+	// Registration asks for no email, so nothing an unverified visitor types
+	// can claim an address that belongs to somebody else.
+	exists, err := model.CheckUserExistOrDeleted(username, "")
 	if err != nil {
 		writeZTAPIAuthError(c, http.StatusInternalServerError, "internal server error")
 		return
@@ -83,7 +87,7 @@ func ZTAPIRegister(c *gin.Context) {
 		writeZTAPIAuthError(c, http.StatusBadRequest, "invalid registration")
 		return
 	}
-	user, err := model.CreateZTAPIUserWithEncodedPasswordAndEmail(username, encodedPassword, email)
+	user, err := model.CreateZTAPIUserWithEncodedPasswordAndEmail(username, encodedPassword, "")
 	if err != nil {
 		exists, lookupErr := model.CheckUserExistOrDeleted(username, "")
 		if lookupErr == nil && exists {
@@ -281,12 +285,24 @@ func decodeZTAPIRegistration(c *gin.Context) (ztAPIAuthRequest, string, bool) {
 		writeZTAPIAuthError(c, http.StatusBadRequest, "invalid registration")
 		return ztAPIAuthRequest{}, "", false
 	}
-	request.Email = strings.ToLower(strings.TrimSpace(request.Email))
-	if common.Validate.Var(request.Email, "required,email") != nil {
-		writeZTAPIAuthError(c, http.StatusBadRequest, "invalid registration")
+	// The challenge is graded last so a failed one cannot be used to probe
+	// which usernames or passwords the server would have accepted.
+	if !ztAPIConsumeCaptcha(request.CaptchaID, request.CaptchaCode, time.Now().UTC()) {
+		writeZTAPIAuthError(c, http.StatusBadRequest, "invalid captcha")
 		return ztAPIAuthRequest{}, "", false
 	}
 	return request, username, true
+}
+
+// ZTAPIIssueCaptcha hands out one human-verification challenge for the
+// registration form.
+func ZTAPIIssueCaptcha(c *gin.Context) {
+	captcha, err := service.IssueZTAPICaptcha(time.Now().UTC())
+	if err != nil {
+		writeZTAPIAuthError(c, http.StatusServiceUnavailable, "captcha unavailable")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": captcha})
 }
 
 func issueZTAPIAuthSession(c *gin.Context, user *model.User) {

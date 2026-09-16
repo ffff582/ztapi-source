@@ -25,9 +25,11 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -52,6 +54,11 @@ type adminUserStatusRequest struct {
 	Status         int    `json:"status"`
 	ExpectedStatus int    `json:"expected_status"`
 	Reason         string `json:"reason"`
+}
+
+type adminUserPasswordRequest struct {
+	Password string `json:"password"`
+	Reason   string `json:"reason"`
 }
 
 type adminUserRoleRequest struct {
@@ -193,6 +200,47 @@ func UpdateZTAPIAdminUserStatus(c *gin.Context) {
 		})
 		return
 	}
+	common.ApiSuccess(c, projectAdminUser(updated, c.GetInt("role")))
+}
+
+// ResetZTAPIAdminUserPassword sets a password for a customer who cannot reach
+// password recovery, and records who did it and why. The password itself never
+// reaches the audit log, and the account's sessions end with the change.
+func ResetZTAPIAdminUserPassword(c *gin.Context) {
+	userID, ok := parseAdminUserID(c)
+	if !ok {
+		return
+	}
+	var request adminUserPasswordRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		writeAdminUserError(c, err)
+		return
+	}
+	request.Reason = strings.TrimSpace(request.Reason)
+	if request.Reason == "" {
+		writeAdminUserError(c, errors.New("password reset reason is required"))
+		return
+	}
+	if err := service.ValidateZTAPIPassword(request.Password); err != nil {
+		writeAdminUserError(c, errors.New("password must be 10 to 256 characters"))
+		return
+	}
+	encodedPassword, err := service.HashZTAPIPassword(request.Password)
+	if err != nil {
+		writeAdminUserError(c, errors.New("password could not be stored"))
+		return
+	}
+	updated, err := model.ResetZTAPIUserPasswordByAdmin(userID, c.GetInt("id"), c.GetInt("role"), encodedPassword, time.Now().UTC())
+	if err != nil {
+		writeAdminUserError(c, err)
+		return
+	}
+	invalidateAdminUserSecurityCaches(updated.Id)
+	recordManageAuditFor(c, updated.Id, "user.password_reset", map[string]interface{}{
+		"target_user_id": updated.Id,
+		"reason":         request.Reason,
+		"result":         "committed",
+	})
 	common.ApiSuccess(c, projectAdminUser(updated, c.GetInt("role")))
 }
 

@@ -11,13 +11,16 @@ const (
 	PermissionModelWrite      AdminPermission = "model.write"
 	PermissionUserRead        AdminPermission = "user.read"
 	PermissionUserStatusWrite AdminPermission = "user.status.write"
-	PermissionBalanceWrite    AdminPermission = "balance.write"
-	PermissionFinanceRead     AdminPermission = "finance.read"
-	PermissionFinanceWrite    AdminPermission = "finance.write"
-	PermissionLogRead         AdminPermission = "log.read"
-	PermissionSystemWrite     AdminPermission = "system.write"
-	PermissionRoleWrite       AdminPermission = "role.write"
-	PermissionAuditRead       AdminPermission = "audit.read"
+	// Resetting a password takes over an account, so support and finance staff
+	// never get it, even though they can read users.
+	PermissionUserPasswordWrite AdminPermission = "user.password.write"
+	PermissionBalanceWrite      AdminPermission = "balance.write"
+	PermissionFinanceRead       AdminPermission = "finance.read"
+	PermissionFinanceWrite      AdminPermission = "finance.write"
+	PermissionLogRead           AdminPermission = "log.read"
+	PermissionSystemWrite       AdminPermission = "system.write"
+	PermissionRoleWrite         AdminPermission = "role.write"
+	PermissionAuditRead         AdminPermission = "audit.read"
 )
 
 // HasAdminPermission is deliberately an explicit policy table. Role values are
@@ -40,14 +43,14 @@ func HasAdminPermission(role int, permission AdminPermission) bool {
 		}
 	case RoleAdminUser:
 		switch permission {
-		case PermissionOverviewRead, PermissionChannelRead, PermissionChannelWrite, PermissionModelRead, PermissionModelWrite, PermissionUserRead, PermissionUserStatusWrite, PermissionBalanceWrite, PermissionFinanceRead, PermissionFinanceWrite, PermissionLogRead, PermissionAuditRead:
+		case PermissionOverviewRead, PermissionChannelRead, PermissionChannelWrite, PermissionModelRead, PermissionModelWrite, PermissionUserRead, PermissionUserStatusWrite, PermissionUserPasswordWrite, PermissionBalanceWrite, PermissionFinanceRead, PermissionFinanceWrite, PermissionLogRead, PermissionAuditRead:
 			return true
 		default:
 			return false
 		}
 	case RoleRootUser:
 		switch permission {
-		case PermissionOverviewRead, PermissionChannelRead, PermissionChannelWrite, PermissionModelRead, PermissionModelWrite, PermissionUserRead, PermissionUserStatusWrite, PermissionBalanceWrite, PermissionFinanceRead, PermissionFinanceWrite, PermissionLogRead, PermissionSystemWrite, PermissionRoleWrite, PermissionAuditRead:
+		case PermissionOverviewRead, PermissionChannelRead, PermissionChannelWrite, PermissionModelRead, PermissionModelWrite, PermissionUserRead, PermissionUserStatusWrite, PermissionUserPasswordWrite, PermissionBalanceWrite, PermissionFinanceRead, PermissionFinanceWrite, PermissionLogRead, PermissionSystemWrite, PermissionRoleWrite, PermissionAuditRead:
 			return true
 		default:
 			return false

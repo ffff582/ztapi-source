@@ -21,6 +21,17 @@ func TestAdminPermissionMatrix(t *testing.T) {
 	if HasAdminPermission(RoleSupportUser, PermissionBalanceWrite) {
 		t.Fatal("support should not have balance.write")
 	}
+	if !HasAdminPermission(RoleAdminUser, PermissionUserPasswordWrite) {
+		t.Fatal("admin should have user.password.write")
+	}
+	if !HasAdminPermission(RoleRootUser, PermissionUserPasswordWrite) {
+		t.Fatal("root should have user.password.write")
+	}
+	for _, role := range []int{RoleSupportUser, RoleFinanceUser, RoleCommonUser} {
+		if HasAdminPermission(role, PermissionUserPasswordWrite) {
+			t.Fatalf("role %d should not have user.password.write", role)
+		}
+	}
 }
 
 func TestAdminPermissionFailsClosed(t *testing.T) {

@@ -22,6 +22,7 @@ var auditContentTemplates = map[string]string{
 	"user.manage":           "Performed ${action} on user ${username} (ID: ${id})",
 	"user.status_update":    "Changed user ${target_user_id} status from ${from_status} to ${to_status}: ${reason}",
 	"user.role_update":      "Changed user ${target_user_id} role from ${from_role} to ${to_role}: ${reason}",
+	"user.password_reset":   "Reset user ${target_user_id} password and ended their sessions: ${reason} (${result})",
 	"user.quota_add":        "Increased user quota by ${quota}",
 	"user.quota_subtract":   "Decreased user quota by ${quota}",
 	"user.quota_override":   "Overrode user quota from ${from} to ${to}",

@@ -34,21 +34,26 @@ type ztAPIRealRouterResponse struct {
 	Message string `json:"message"`
 }
 
+func seedZTAPIRouterUser(t *testing.T, username, password string) {
+	t.Helper()
+	encoded, err := service.HashZTAPIPassword(password)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	user := model.User{
+		Username: username, Password: encoded, Role: common.RoleCommonUser,
+		Status: common.UserStatusEnabled, AffCode: username + "-aff",
+	}
+	if err := model.DB.Create(&user).Error; err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+}
+
 func TestAuthRouterRealLoginJWTCallsTokenLogAndSessionRoutes(t *testing.T) {
 	setupZTAPIAuthRouterTestDB(t)
 	engine := newZTAPIRealRouter(t, false)
+	seedZTAPIRouterUser(t, "alice", "at-least-ten")
 
-	register := performZTAPIRouterRequest(
-		engine,
-		http.MethodPost,
-		"/api/auth/register",
-		`{"username":"alice","password":"at-least-ten","email":"alice@example.com"}`,
-		"",
-		"192.0.2.10:1000",
-	)
-	if register.Code != http.StatusOK {
-		t.Fatalf("registration status = %d; body=%s", register.Code, register.Body.String())
-	}
 	login := performZTAPIRouterRequest(
 		engine,
 		http.MethodPost,
@@ -105,20 +110,21 @@ func TestAuthRouterAdminHostRejectsOrdinaryLoginAndExistingJWT(t *testing.T) {
 	setupZTAPIAuthRouterTestDB(t)
 	engine := newZTAPIRealRouter(t, false)
 
-	register := performZTAPIRouterRequest(
+	seedZTAPIRouterUser(t, "alice", "at-least-ten")
+	signIn := performZTAPIRouterRequest(
 		engine,
 		http.MethodPost,
-		"/api/auth/register",
-		`{"username":"alice","password":"at-least-ten","email":"alice@example.com"}`,
+		"/api/auth/login",
+		`{"username":"alice","password":"at-least-ten"}`,
 		"",
 		"192.0.2.13:1000",
 	)
-	if register.Code != http.StatusOK {
-		t.Fatalf("registration status = %d; body=%s", register.Code, register.Body.String())
+	if signIn.Code != http.StatusOK {
+		t.Fatalf("login status = %d; body=%s", signIn.Code, signIn.Body.String())
 	}
 	var registration ztAPIRealRouterResponse
-	if err := common.Unmarshal(register.Body.Bytes(), &registration); err != nil {
-		t.Fatalf("decode registration response: %v", err)
+	if err := common.Unmarshal(signIn.Body.Bytes(), &registration); err != nil {
+		t.Fatalf("decode login response: %v", err)
 	}
 
 	loginRequest := httptest.NewRequest(

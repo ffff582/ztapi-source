@@ -17,9 +17,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import React, { useCallback, useEffect, useState } from 'react';
-import { WalletCards, X } from 'lucide-react';
+import { KeyRound, WalletCards, X } from 'lucide-react';
 import { adminRequest } from '../../auth/admin-session.js';
 import BalanceAdjustmentDialog from './BalanceAdjustmentDialog.jsx';
+import PasswordResetDialog from './PasswordResetDialog.jsx';
 
 const roleLabels = {
   1: '普通用户',
@@ -40,6 +41,7 @@ export default function UserDetailDrawer({
   canAdjustBalance = false,
   canChangeStaffStatus = false,
   canChangeStatus = false,
+  canResetPassword = false,
   canViewLedger = false,
   onChanged,
   onClose,
@@ -50,6 +52,8 @@ export default function UserDetailDrawer({
   const [status, setStatus] = useState('loading');
   const [error, setError] = useState('');
   const [balanceOpen, setBalanceOpen] = useState(false);
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [issuedPassword, setIssuedPassword] = useState('');
   const [statusFormOpen, setStatusFormOpen] = useState(false);
   const [statusReason, setStatusReason] = useState('');
   const [savingStatus, setSavingStatus] = useState(false);
@@ -210,6 +214,16 @@ export default function UserDetailDrawer({
                   调整余额
                 </button>
               ) : null}
+              {canResetPassword && (user.role === 1 || canChangeStaffStatus) ? (
+                <button
+                  type='button'
+                  className='ztapi-user-secondary-button'
+                  onClick={() => setPasswordOpen(true)}
+                >
+                  <KeyRound aria-hidden='true' size={16} />
+                  修改密码
+                </button>
+              ) : null}
               {canChangeStatus && (user.role === 1 || canChangeStaffStatus) ? (
                 <button
                   type='button'
@@ -220,6 +234,13 @@ export default function UserDetailDrawer({
                 </button>
               ) : null}
             </div>
+
+            {issuedPassword ? (
+              <p role='status' className='ztapi-user-issued-password'>
+                新密码已生效：<code>{issuedPassword}</code>
+                ，请转告用户。关闭本窗口后不再显示。
+              </p>
+            ) : null}
 
             {statusFormOpen ? (
               <form className='ztapi-user-inline-form' onSubmit={changeStatus}>
@@ -286,6 +307,16 @@ export default function UserDetailDrawer({
           user={user}
           onClose={() => setBalanceOpen(false)}
           onSuccess={reloadAfterBalance}
+        />
+      ) : null}
+      {passwordOpen && user ? (
+        <PasswordResetDialog
+          user={user}
+          onClose={() => setPasswordOpen(false)}
+          onSuccess={async (password) => {
+            setIssuedPassword(password);
+            await load();
+          }}
         />
       ) : null}
     </div>

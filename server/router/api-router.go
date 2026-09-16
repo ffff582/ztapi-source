@@ -75,6 +75,7 @@ func SetApiRouter(router *gin.Engine) {
 
 		authRoute := apiRouter.Group("/auth")
 		{
+			authRoute.GET("/captcha", middleware.CriticalRateLimit(), controller.ZTAPIIssueCaptcha)
 			authRoute.POST("/register", middleware.CriticalRateLimit(), anonymousRequestBodyLimit, controller.ZTAPIRegister)
 			authRoute.POST("/login", middleware.CriticalRateLimit(), anonymousRequestBodyLimit, controller.ZTAPILogin)
 			authRoute.POST("/password-reset/request", middleware.CriticalRateLimit(), anonymousRequestBodyLimit, controller.ZTAPIRequestPasswordReset)
@@ -195,6 +196,7 @@ func SetApiRouter(router *gin.Engine) {
 			adminBalanceRoute.GET("/users", middleware.AdminPermissionAuth(common.PermissionUserRead), controller.GetZTAPIAdminUsers)
 			adminBalanceRoute.GET("/users/:id", requireNumericUserID(), middleware.AdminPermissionAuth(common.PermissionUserRead), controller.GetZTAPIAdminUser)
 			adminBalanceRoute.PATCH("/users/:id/status", requireNumericUserID(), middleware.AdminPermissionAuth(common.PermissionUserStatusWrite), controller.UpdateZTAPIAdminUserStatus)
+			adminBalanceRoute.POST("/users/:id/password", requireNumericUserID(), middleware.AdminPermissionAuth(common.PermissionUserPasswordWrite), controller.ResetZTAPIAdminUserPassword)
 			adminBalanceRoute.GET("/staff", middleware.AdminPermissionAuth(common.PermissionRoleWrite), controller.GetZTAPIAdminStaff)
 			adminBalanceRoute.PATCH("/staff/:id/role", requireNumericUserID(), middleware.AdminPermissionAuth(common.PermissionRoleWrite), controller.UpdateZTAPIAdminStaffRole)
 			adminBalanceRoute.POST("/users/:id/balance-adjustments", requireNumericUserID(), middleware.AdminPermissionAuth(common.PermissionBalanceWrite), controller.CreateBalanceAdjustment)

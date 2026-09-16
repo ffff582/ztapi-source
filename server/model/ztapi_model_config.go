@@ -1124,6 +1124,12 @@ func projectZTAPIPublicPricing(publications []ZTAPIRuntimePublication) []Pricing
 		item.OutputPricePerMillion = public.OutputPricePerMillion
 		item.BillingDimensions = append([]string{}, public.BillingDimensions...)
 		item.SaleUSD = copyZTAPIStringMap(public.SaleUSD)
+		for _, rule := range public.TokenPriceRules {
+			item.TokenPriceRules = append(item.TokenPriceRules, ZTAPIPublicTokenPriceRule{
+				Conditions: append([]string{}, rule.Conditions...),
+				SaleUSD:    copyZTAPIStringMap(rule.SaleUSD),
+			})
+		}
 		item.BillingRule = public.BillingRule
 		item.SupportedEndpointTypes = append([]constant.EndpointType(nil), public.SupportedEndpointTypes...)
 		if public.SupportedOptions != nil {

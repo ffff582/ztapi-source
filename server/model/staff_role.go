@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"gorm.io/gorm"
@@ -30,13 +31,14 @@ import (
 )
 
 var (
-	ErrAdminUserStateConflict    = errors.New("user state changed; refresh and retry")
-	ErrAdminUserForbidden        = errors.New("operator cannot manage this user")
-	ErrAdminUserInvalidStatus    = errors.New("invalid user status")
-	ErrAdminUserInvalidRole      = errors.New("invalid staff role")
-	ErrLastEnabledRoot           = errors.New("the last enabled root user cannot be changed")
-	ErrAdminUserDebtOutstanding  = errors.New("user debt must be repaid before the account can be enabled")
-	ErrAdminUserCacheSyncPending = errors.New("user status committed but cache synchronization is pending")
+	ErrAdminUserStateConflict     = errors.New("user state changed; refresh and retry")
+	ErrAdminUserForbidden         = errors.New("operator cannot manage this user")
+	ErrAdminUserInvalidStatus     = errors.New("invalid user status")
+	ErrAdminUserInvalidRole       = errors.New("invalid staff role")
+	ErrLastEnabledRoot            = errors.New("the last enabled root user cannot be changed")
+	ErrAdminUserDebtOutstanding   = errors.New("user debt must be repaid before the account can be enabled")
+	ErrAdminUserCacheSyncPending  = errors.New("user status committed but cache synchronization is pending")
+	ErrAdminUserSelfPasswordReset = errors.New("change your own password from your account settings")
 
 	staffRoleSQLiteMu        sync.Mutex
 	ztapiUserStatusCacheSync = func(user User) error { return updateUserCache(user) }
@@ -125,6 +127,51 @@ func UpdateZTAPIUserRole(userID, nextRole, expectedRole int) (*User, error) {
 		return nil
 	})
 	return &updated, err
+}
+
+// ResetZTAPIUserPasswordByAdmin sets an account's password on the owner's
+// behalf and revokes its sessions in the same transaction, so a password the
+// operator now knows cannot be used alongside a session it did not replace.
+// Only a root operator may reset a staff account, and nobody resets their own
+// password here: that runs through the account's own password change.
+func ResetZTAPIUserPasswordByAdmin(userID, operatorID, operatorRole int, encodedPassword string, now time.Time) (*User, error) {
+	if encodedPassword == "" {
+		return nil, errors.New("password is empty")
+	}
+	if userID == operatorID {
+		return nil, ErrAdminUserSelfPasswordReset
+	}
+	unlock := lockStaffRoleSQLite()
+	defer unlock()
+
+	var updated User
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		user, err := lockZTAPIUser(tx, userID)
+		if err != nil {
+			return err
+		}
+		if operatorRole != common.RoleRootUser && user.Role != common.RoleCommonUser {
+			return ErrAdminUserForbidden
+		}
+		changed := tx.Model(&User{}).Where("id = ?", user.Id).Update("password", encodedPassword)
+		if changed.Error != nil {
+			return changed.Error
+		}
+		if changed.RowsAffected != 1 {
+			return errors.New("password reset did not update exactly one user")
+		}
+		if err := tx.Model(&AuthSession{}).
+			Where("user_id = ? AND revoked_at IS NULL", user.Id).
+			Update("revoked_at", now).Error; err != nil {
+			return err
+		}
+		updated = *user
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &updated, nil
 }
 
 func lockStaffRoleSQLite() func() {

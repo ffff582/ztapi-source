@@ -1,7 +1,8 @@
-import { useRef, useState, type FormEvent } from 'react';
-import { LoaderCircle, UserPlus } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { LoaderCircle, RefreshCw, UserPlus } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
-import { authErrorMessage } from '../../api/client';
+import { apiClient, authErrorMessage } from '../../api/client';
+import { parseRegistrationCaptcha, type RegistrationCaptcha } from '../../api/contracts';
 import { useAuth } from '../../auth/session';
 import { AuthShell } from './AuthShell';
 import { InlineNotice } from './InlineNotice';
@@ -12,7 +13,6 @@ const USERNAME_ERROR =
   '账号需为 3-32 字节，仅可使用字母、数字、下划线或连字符';
 const PASSWORD_ERROR = '密码需至少 10 个字符且不超过 256 字节';
 const usernamePattern = /^[\p{L}\p{N}_-]+$/u;
-const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const textEncoder = new TextEncoder();
 
 interface RegistrationInput {
@@ -56,13 +56,32 @@ export function RegisterPage() {
   const { register } = useAuth();
   const usernameRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
-  const emailRef = useRef<HTMLInputElement>(null);
+  const captchaRef = useRef<HTMLInputElement>(null);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [email, setEmail] = useState('');
+  const [captcha, setCaptcha] = useState<RegistrationCaptcha | null>(null);
+  const [captchaCode, setCaptchaCode] = useState('');
+  const [captchaPending, setCaptchaPending] = useState(true);
   const [fieldErrors, setFieldErrors] = useState<RegistrationErrors>({});
   const [serverError, setServerError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+
+  const loadCaptcha = useCallback(async () => {
+    setCaptchaPending(true);
+    setCaptchaCode('');
+    try {
+      const value = await apiClient.get<unknown>('/auth/captcha');
+      setCaptcha(parseRegistrationCaptcha(value));
+    } catch {
+      setCaptcha(null);
+    } finally {
+      setCaptchaPending(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadCaptcha();
+  }, [loadCaptcha]);
 
   function updateRegistrationUsername(value: string) {
     setUsername(value);
@@ -84,7 +103,6 @@ export function RegisterPage() {
     }
 
     const errors = validateRegistrationInput({ username, password });
-    const normalizedEmail = email.trim().toLowerCase();
     setFieldErrors(errors);
     setServerError(null);
 
@@ -98,9 +116,14 @@ export function RegisterPage() {
       return;
     }
 
-    if (!emailPattern.test(normalizedEmail)) {
-      setServerError(t('请输入有效的邮箱地址'));
-      emailRef.current?.focus();
+    if (captcha === null) {
+      setServerError(t('验证码加载失败，请点击刷新'));
+      return;
+    }
+
+    if (captchaCode.trim() === '') {
+      setServerError(t('请输入图中的验证码'));
+      captchaRef.current?.focus();
       return;
     }
 
@@ -110,11 +133,15 @@ export function RegisterPage() {
       await register({
         username: username.trim(),
         password,
-        email: normalizedEmail,
+        captcha_id: captcha.captcha_id,
+        captcha_code: captchaCode.trim(),
       });
       navigate('/console', { replace: true });
     } catch (error) {
       setServerError(authErrorMessage(error));
+      // Every challenge is single use, so a failed attempt needs a fresh one.
+      void loadCaptcha();
+      captchaRef.current?.focus();
     } finally {
       setPending(false);
     }
@@ -167,19 +194,40 @@ export function RegisterPage() {
           onChange={(event) => updateRegistrationPassword(event.target.value)}
         />
         <div className="auth-field">
-          <label htmlFor="register-email">{t('邮箱')}</label>
-          <input
-            ref={emailRef}
-            id="register-email"
-            name="email"
-            type="email"
-            autoComplete="email"
-            value={email}
-            onChange={(event) => {
-              setEmail(event.target.value);
-              setServerError(null);
-            }}
-          />
+          <label htmlFor="register-captcha">{t('验证码')}</label>
+          <div className="auth-code-row">
+            <input
+              ref={captchaRef}
+              id="register-captcha"
+              name="captcha"
+              autoComplete="off"
+              inputMode="text"
+              maxLength={8}
+              value={captchaCode}
+              onChange={(event) => {
+                setCaptchaCode(event.target.value);
+                setServerError(null);
+              }}
+            />
+            <button
+              type="button"
+              className="auth-captcha"
+              aria-label={t('刷新验证码')}
+              onClick={() => void loadCaptcha()}
+              disabled={captchaPending}
+            >
+              {captcha === null ? (
+                <RefreshCw aria-hidden="true" />
+              ) : (
+                <img src={captcha.captcha_image} alt={t('验证码图片')} />
+              )}
+            </button>
+          </div>
+          <p className="auth-field__help">
+            {captcha === null
+              ? t('验证码加载失败，请点击刷新')
+              : t('看不清可以点击图片换一张')}
+          </p>
         </div>
         <button className="auth-submit" type="submit" disabled={pending}>
           {pending ? (
