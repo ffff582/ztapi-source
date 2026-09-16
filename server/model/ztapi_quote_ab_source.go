@@ -39,8 +39,17 @@ func ztapiABTokenConditionSupported(condition string) bool {
 	return true
 }
 
-// BuildZTAPIABTextPriceSource creates a new source; it never edits an old publication.
+// BuildZTAPIABTextPriceSource creates a new source under the legacy FX; it
+// never edits an old publication.
 func BuildZTAPIABTextPriceSource(quote ZTAPIABQuotationManifest, modelName string, modelConfigID, operatorID int, effectiveAt int64) (ZTAPIModelPriceSource, error) {
+	return BuildZTAPIABTextPriceSourceWithFX(quote, modelName, modelConfigID, operatorID, effectiveAt, ZTAPIABFXParams{})
+}
+
+// BuildZTAPIABTextPriceSourceWithFX prices a quoted model under the given FX.
+// In platform_v1 mode every quoted cost is first expressed in CNY (USD quotes
+// at the upstream settlement rate), then converted to the billing unit at the
+// platform rate frozen on the source, without the legacy 3% buffer.
+func BuildZTAPIABTextPriceSourceWithFX(quote ZTAPIABQuotationManifest, modelName string, modelConfigID, operatorID int, effectiveAt int64, fxParams ZTAPIABFXParams) (ZTAPIModelPriceSource, error) {
 	var source ZTAPIModelPriceSource
 	if modelConfigID <= 0 || operatorID <= 0 || effectiveAt <= 0 {
 		return source, errors.New("quotation source requires model, operator and effective time")
@@ -85,18 +94,41 @@ func BuildZTAPIABTextPriceSource(quote ZTAPIABQuotationManifest, modelName strin
 		InputPerMillion: "0", OutputPerMillion: "0", CacheReadPerMillion: "0",
 		CacheWritePerMillion: "0", CacheWrite5mPerMillion: "0", CacheWrite1hPerMillion: "0",
 		ImageUnitCost: "0", AudioUnitCost: "0", RequestUnitCost: "0", CNYPerUSD: "0",
+		PlatformCNYPerUnit: "0", UpstreamCNYPerUSD: "0",
 	}
+	quoteCurrency := source.Currency
 	fx := decimal.NewFromInt(1)
-	if source.Currency == "CNY" {
+	if quoteCurrency == "CNY" {
 		source.CNYPerUSD = "7.2000000000"
 		fx = decimal.RequireFromString(source.CNYPerUSD)
-	} else if source.Currency != "USD" {
+	} else if quoteCurrency != "USD" {
 		return ZTAPIModelPriceSource{}, errors.New("text quotation has unsupported currency")
+	}
+	platformV1 := fxParams.Mode == ZTAPIFXModePlatformV1
+	upstreamUSD := decimal.Zero
+	if fxParams.Mode != "" && !platformV1 {
+		return ZTAPIModelPriceSource{}, fmt.Errorf("unsupported FX mode %q", fxParams.Mode)
+	}
+	if platformV1 {
+		if !ztapiFXRateInRange(fxParams.PlatformRate) {
+			return ZTAPIModelPriceSource{}, errors.New("platform FX rate is out of the supported range")
+		}
+		if quoteCurrency == "USD" {
+			if !fxParams.UpstreamUSDRate.IsPositive() {
+				return ZTAPIModelPriceSource{}, ErrZTAPIUpstreamUSDRateUnset
+			}
+			upstreamUSD = fxParams.UpstreamUSDRate
+		}
+		source.Currency = "CNY"
+		source.FXMode = ZTAPIFXModePlatformV1
+		source.PlatformCNYPerUnit = fxParams.PlatformRate.StringFixed(10)
+		source.CNYPerUSD = source.PlatformCNYPerUnit
+		source.UpstreamCNYPerUSD = upstreamUSD.StringFixed(10)
 	}
 	maxCost := map[string]decimal.Decimal{}
 	frozen := make([]ztapiABFrozenSaleRule, 0, len(row.TokenPriceRules))
 	for _, rule := range row.TokenPriceRules {
-		if rule.Currency != source.Currency {
+		if rule.Currency != quoteCurrency {
 			return ZTAPIModelPriceSource{}, errors.New("text quotation mixes currencies across tiers")
 		}
 		for _, condition := range rule.Conditions {
@@ -115,7 +147,15 @@ func BuildZTAPIABTextPriceSource(quote ZTAPIABQuotationManifest, modelName strin
 			if err != nil || saleErr != nil || !wantQuotedSale.Equal(quotedSale) {
 				return ZTAPIModelPriceSource{}, fmt.Errorf("quoted sale does not derive from %s cost", dimension)
 			}
-			if source.Currency == "CNY" {
+			// storedCost is what the source records: the upstream bill in CNY
+			// under platform_v1, the quoted amount under the legacy FX.
+			storedCost := decimal.RequireFromString(raw)
+			if platformV1 {
+				if quoteCurrency == "USD" {
+					storedCost = storedCost.Mul(upstreamUSD).Round(10)
+				}
+				cost = storedCost.Div(fxParams.PlatformRate).Round(10)
+			} else if quoteCurrency == "CNY" {
 				cost, err = ConvertZTAPICNYCostToUSD(cost, fx)
 				if err != nil {
 					return ZTAPIModelPriceSource{}, err
@@ -126,9 +166,8 @@ func BuildZTAPIABTextPriceSource(quote ZTAPIABQuotationManifest, modelName strin
 				return ZTAPIModelPriceSource{}, err
 			}
 			sale[dimension] = final.StringFixed(10)
-			originalCost := decimal.RequireFromString(raw)
-			if originalCost.GreaterThan(maxCost[dimension]) {
-				maxCost[dimension] = originalCost
+			if storedCost.GreaterThan(maxCost[dimension]) {
+				maxCost[dimension] = storedCost
 			}
 		}
 		frozen = append(frozen, ztapiABFrozenSaleRule{Conditions: append([]string{}, rule.Conditions...), Sale: sale})
@@ -192,49 +231,61 @@ func validateZTAPIABPriceSource(source *ZTAPIModelPriceSource) error {
 	if modelName == "" {
 		return errors.New("A/B quote source has no exact model identity")
 	}
-	expected, err := BuildZTAPIABTextPriceSource(quote, modelName, source.ModelConfigID, source.OperatorID, source.QuotationEffectiveAt)
+	fxParams, err := ztapiABFXParamsFromSource(source)
 	if err != nil {
 		return err
 	}
-	actualEvidence := []string{
-		source.SourceModel, source.ResourceType, source.PricePolicy, source.SpendTier,
-		source.Currency, source.CNYPerUSD, source.BillingDimensions, source.TokenPriceRulesJSON,
-		source.SourceDocumentChecksum, source.QuotationGrade, source.QuotationCell,
-		source.OfficialPriceCell, source.QuotationModelCode,
-		source.InputPerMillion, source.OutputPerMillion, source.CacheReadPerMillion,
-		source.CacheWritePerMillion, source.CacheWrite5mPerMillion, source.CacheWrite1hPerMillion,
-		source.ImageUnitCost, source.AudioUnitCost, source.RequestUnitCost,
+	expected, err := BuildZTAPIABTextPriceSourceWithFX(quote, modelName, source.ModelConfigID, source.OperatorID, source.QuotationEffectiveAt, fxParams)
+	if err != nil {
+		return err
 	}
-	expectedEvidence := []string{
-		expected.SourceModel, expected.ResourceType, expected.PricePolicy, expected.SpendTier,
-		expected.Currency, expected.CNYPerUSD, expected.BillingDimensions, expected.TokenPriceRulesJSON,
-		expected.SourceDocumentChecksum, expected.QuotationGrade, expected.QuotationCell,
-		expected.OfficialPriceCell, expected.QuotationModelCode,
-		expected.InputPerMillion, expected.OutputPerMillion, expected.CacheReadPerMillion,
-		expected.CacheWritePerMillion, expected.CacheWrite5mPerMillion, expected.CacheWrite1hPerMillion,
-		expected.ImageUnitCost, expected.AudioUnitCost, expected.RequestUnitCost,
+	if field := ztapiABPriceSourceEvidenceMismatch(source, &expected); field != "" {
+		return fmt.Errorf("A/B quote source %s does not match the exact workbook", field)
 	}
+	return nil
+}
+
+// ztapiABPriceSourceEvidenceMismatch names the first field where two A/B price
+// sources differ. Decimal columns are compared by value, because a database
+// round trip can drop trailing zeros.
+func ztapiABPriceSourceEvidenceMismatch(actual, expected *ZTAPIModelPriceSource) string {
+	evidence := func(source *ZTAPIModelPriceSource) []string {
+		return []string{
+			source.SourceModel, source.ResourceType, source.PricePolicy, source.SpendTier,
+			source.Currency, source.CNYPerUSD, source.BillingDimensions, source.TokenPriceRulesJSON,
+			source.SourceDocumentChecksum, source.QuotationGrade, source.QuotationCell,
+			source.OfficialPriceCell, source.QuotationModelCode,
+			source.InputPerMillion, source.OutputPerMillion, source.CacheReadPerMillion,
+			source.CacheWritePerMillion, source.CacheWrite5mPerMillion, source.CacheWrite1hPerMillion,
+			source.ImageUnitCost, source.AudioUnitCost, source.RequestUnitCost,
+			ztapiDecimalOrZero(source.PlatformCNYPerUnit), ztapiDecimalOrZero(source.UpstreamCNYPerUSD),
+			source.FXMode,
+		}
+	}
+	left := evidence(actual)
+	right := evidence(expected)
 	fields := []string{
 		"source_model", "resource_type", "price_policy", "spend_tier", "currency", "cny_per_usd",
 		"billing_dimensions", "token_price_rules_json", "source_document_checksum", "quotation_grade",
 		"quotation_cell", "official_price_cell", "quotation_model_code", "input_per_million",
 		"output_per_million", "cache_read_per_million", "cache_write_per_million",
 		"cache_write_5m_per_million", "cache_write_1h_per_million", "image_unit_cost",
-		"audio_unit_cost", "request_unit_cost",
+		"audio_unit_cost", "request_unit_cost", "platform_cny_per_unit",
+		"upstream_cny_per_usd", "fx_mode",
 	}
-	for i, actual := range actualEvidence {
+	for i := range left {
 		if i == 5 || i >= 13 {
-			got, gotErr := decimal.NewFromString(actual)
-			want, wantErr := decimal.NewFromString(expectedEvidence[i])
+			got, gotErr := decimal.NewFromString(left[i])
+			want, wantErr := decimal.NewFromString(right[i])
 			if gotErr == nil && wantErr == nil && got.Equal(want) {
 				continue
 			}
 		}
-		if actual != expectedEvidence[i] {
-			return fmt.Errorf("A/B quote source %s does not match the exact workbook", fields[i])
+		if left[i] != right[i] {
+			return fields[i]
 		}
 	}
-	return nil
+	return ""
 }
 
 func validateZTAPIABImage2PriceSource(quote ZTAPIABQuotationManifest, source *ZTAPIModelPriceSource) error {

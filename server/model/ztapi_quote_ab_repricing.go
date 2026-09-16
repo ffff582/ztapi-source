@@ -159,13 +159,31 @@ func ApplyZTAPIABCommercialPricing(operatorID int, workbookSHA string, modelName
 	if operatorID <= 0 || workbookSHA != quote.WorkbookSHA256 || len(modelNames) == 0 || DB == nil {
 		return result, errors.New("A/B repricing requires an operator, exact workbook checksum, models and database")
 	}
+	err = withZTAPICatalogWrite(func(tx *gorm.DB) error {
+		fxParams, fxErr := currentZTAPIABFXParams(tx)
+		if fxErr != nil {
+			return fxErr
+		}
+		return applyZTAPIABCommercialPricingTx(tx, quote, operatorID, modelNames, fxParams, &result)
+	})
+	if err != nil {
+		return ZTAPICommercialRepricingResult{}, err
+	}
+	invalidateZTAPICatalogCaches()
+	return result, nil
+}
+
+// applyZTAPIABCommercialPricingTx re-prices the named models inside an open
+// catalog write, so callers can combine it with other catalog changes.
+func applyZTAPIABCommercialPricingTx(tx *gorm.DB, quote ZTAPIABQuotationManifest, operatorID int,
+	modelNames []string, fxParams ZTAPIABFXParams, result *ZTAPICommercialRepricingResult) error {
 	frozen, err := ZTAPIQuotationEntries()
 	if err != nil {
-		return result, err
+		return err
 	}
 	bridge, err := BuildZTAPIABQuotationIdentityBridge(quote, frozen)
 	if err != nil {
-		return result, err
+		return err
 	}
 	byName := make(map[string]ZTAPIABModelIdentity, len(bridge.Mapped))
 	for _, identity := range bridge.Mapped {
@@ -175,158 +193,177 @@ func ApplyZTAPIABCommercialPricing(operatorID int, workbookSHA string, modelName
 	for _, name := range modelNames {
 		identity, ok := byName[name]
 		if !ok || identity.SourceModel == "" {
-			return result, fmt.Errorf("A/B quotation model %q has no verified existing identity", name)
+			return fmt.Errorf("A/B quotation model %q has no verified existing identity", name)
 		}
 		if _, duplicate := selected[name]; duplicate {
-			return result, fmt.Errorf("A/B quotation model %q is repeated", name)
+			return fmt.Errorf("A/B quotation model %q is repeated", name)
 		}
 		selected[name] = identity
 	}
 	orderedNames := append([]string(nil), modelNames...)
 	sort.Strings(orderedNames)
 	effectiveAt := time.Date(2026, time.September, 15, 0, 0, 0, 0, time.FixedZone("CST", 8*3600)).Unix()
-	err = withZTAPICatalogWrite(func(tx *gorm.DB) error {
-		var configs []ZTAPIModelConfig
-		if err := tx.Where("published = ?", true).Find(&configs).Error; err != nil {
-			return err
-		}
-		published := make(map[string]ZTAPIModelConfig, len(configs))
-		for _, config := range configs {
-			published[config.SourceModel] = config
-		}
-		publications, err := loadZTAPIQuotedPublications(tx)
-		if err != nil {
-			return err
-		}
-		bound := make(map[int]ZTAPIRuntimePublication, len(publications))
-		for _, publication := range publications {
-			bound[publication.ModelConfigID] = publication
-		}
-		for _, name := range orderedNames {
-			identity := selected[name]
-			config, ok := published[identity.SourceModel]
-			if !ok || config.PublicNameValue() != identity.PublicName || config.Protocol != identity.Protocol ||
-				config.ProviderFamily != identity.ProviderFamily {
-				return fmt.Errorf("%s has no matching published model and route identity", name)
-			}
-			publication, ok := bound[config.ID]
-			if !ok || publication.SnapshotID != config.PublicationSnapshotID || publication.Version != config.Version {
-				return fmt.Errorf("%s lacks an active frozen publication", name)
-			}
-			var previous ZTAPIModelPublicationSnapshot
-			if err := tx.First(&previous, publication.SnapshotID).Error; err != nil {
-				return err
-			}
-			if len(previous.ChannelIDs()) == 0 {
-				return fmt.Errorf("%s lacks a previously verified route", name)
-			}
-			var oldSource ZTAPIModelPriceSource
-			if err := tx.First(&oldSource, publication.PriceSourceID).Error; err != nil {
-				return err
-			}
-			if oldSource.SourceDocumentChecksum == quote.WorkbookSHA256 {
-				if err := validateZTAPIABPriceSource(&oldSource); err != nil || previous.TokenPriceRulesJSON != oldSource.TokenPriceRulesJSON ||
-					previous.MediaPriceContractJSON != oldSource.MediaPriceContractJSON {
-					return fmt.Errorf("%s already has inconsistent A/B price evidence", name)
-				}
-				result.Unchanged++
-				continue
-			}
-			var target ZTAPIModelPriceSource
-			if name == "GPT Image 2" {
-				if previous.MediaPriceContractJSON == "" || previous.MediaPriceContractJSON != oldSource.MediaPriceContractJSON {
-					return fmt.Errorf("%s lacks frozen media price evidence", name)
-				}
-				image, canonical, parseErr := types.ParseZTAPIImageProtocolContract(previous.ImageProtocolContractJSON)
-				if parseErr != nil || canonical != previous.ImageProtocolContractJSON {
-					return fmt.Errorf("%s lacks frozen image protocol evidence", name)
-				}
-				oldContract, parseErr := types.ParseZTAPIMediaPriceContract(previous.MediaPriceContractJSON)
-				if parseErr != nil || types.ValidateZTAPIImagePriceProtocolCompatibility(oldContract, image) != nil {
-					return fmt.Errorf("%s frozen image pricing does not match protocol", name)
-				}
-				target, err = BuildZTAPIABImage2PriceSource(quote, oldSource, &image, operatorID, effectiveAt)
-			} else {
-				target, err = BuildZTAPIABTextPriceSource(quote, name, config.ID, operatorID, effectiveAt)
-			}
-			if err != nil {
-				return fmt.Errorf("%s: %w", name, err)
-			}
-			preview, err := BuildZTAPIModelPricePreview(&target)
-			if err != nil {
-				return fmt.Errorf("%s price preview: %w", name, err)
-			}
-			var latest uint64
-			if err := tx.Model(&ZTAPIModelPriceSource{}).Where("model_config_id = ?", config.ID).
-				Select("COALESCE(MAX(version), 0)").Scan(&latest).Error; err != nil {
-				return err
-			}
-			now := common.GetTimestamp()
-			target.Version = latest + 1
-			target.CreatedAt = now
-			if err := tx.Create(&target).Error; err != nil {
-				return err
-			}
-			config.CacheReadRatio = previous.CacheReadRatio
-			config.CacheCreationRatio = previous.CacheCreationRatio
-			config.CacheCreation5mRatio = previous.CacheCreation5mRatio
-			config.CacheCreation1hRatio = previous.CacheCreation1hRatio
-			config.ImageRatio = previous.ImageRatio
-			config.AudioRatio = previous.AudioRatio
-			config.AudioCompletionRatio = previous.AudioCompletionRatio
-			if err := applyZTAPICommercialPreview(&config, preview); err != nil {
-				return err
-			}
-			var verificationIDs []int64
-			if err := json.Unmarshal([]byte(previous.VerificationIDs), &verificationIDs); err != nil {
-				return fmt.Errorf("%s has invalid frozen verification evidence", name)
-			}
-			evidence := ztapiPublicationEvidence{
-				AllowedChannelIDs: previous.ChannelIDs(), VerificationIDs: verificationIDs,
-				PriceSourceID: target.ID, IdentityUpdatedAt: previous.IdentityUpdatedAt,
-				ImageProtocolContractJSON: previous.ImageProtocolContractJSON,
-				VideoProtocolContractJSON: previous.VideoProtocolContractJSON,
-			}
-			nextVersion := config.Version + 1
-			snapshot, err := createZTAPIModelPublicationSnapshotTx(tx, &config, nextVersion, evidence)
-			if err != nil {
-				return fmt.Errorf("%s snapshot: %w", name, err)
-			}
-			updates := map[string]any{
-				"input_cost_per_million": config.InputCostPerMillion, "output_cost_per_million": config.OutputCostPerMillion,
-				"input_price_per_million": config.InputPricePerMillion, "output_price_per_million": config.OutputPricePerMillion,
-				"cache_read_ratio": config.CacheReadRatio, "cache_creation_ratio": config.CacheCreationRatio,
-				"cache_creation_5m_ratio": config.CacheCreation5mRatio, "cache_creation_1h_ratio": config.CacheCreation1hRatio,
-				"publication_snapshot_id": snapshot.ID, "version": nextVersion, "updated_at": now,
-			}
-			updated := tx.Model(&ZTAPIModelConfig{}).Where("id = ? AND version = ?", config.ID, config.Version).Updates(updates)
-			if updated.Error != nil {
-				return updated.Error
-			}
-			if updated.RowsAffected != 1 {
-				return ErrZTAPIModelVersionConflict
-			}
-			payload := common.MapToJsonStr(map[string]any{
-				"previous_price_source_id": oldSource.ID, "price_source_id": target.ID,
-				"workbook_sha256": quote.WorkbookSHA256, "quotation_grade": target.QuotationGrade,
-				"quotation_cell": target.QuotationCell, "price_policy": target.PricePolicy,
-			})
-			if err := tx.Create(&ZTAPIAuditEvent{
-				Action: "model.ab_quote_published", ModelConfigID: config.ID,
-				PublicName: config.PublicNameValue(), Version: nextVersion,
-				OperatorID: operatorID, Payload: payload, CreatedAt: now,
-			}).Error; err != nil {
-				return err
-			}
-			result.Imported++
-			result.Republished++
-			result.Models = append(result.Models, config.PublicNameValue())
-		}
-		return nil
-	})
-	if err != nil {
-		return ZTAPICommercialRepricingResult{}, err
+	var configs []ZTAPIModelConfig
+	if err := tx.Where("published = ?", true).Find(&configs).Error; err != nil {
+		return err
 	}
-	invalidateZTAPICatalogCaches()
-	return result, nil
+	published := make(map[string]ZTAPIModelConfig, len(configs))
+	for _, config := range configs {
+		published[config.SourceModel] = config
+	}
+	publications, err := loadZTAPIQuotedPublications(tx)
+	if err != nil {
+		return err
+	}
+	bound := make(map[int]ZTAPIRuntimePublication, len(publications))
+	for _, publication := range publications {
+		bound[publication.ModelConfigID] = publication
+	}
+	for _, name := range orderedNames {
+		identity := selected[name]
+		config, ok := published[identity.SourceModel]
+		if !ok || config.PublicNameValue() != identity.PublicName || config.Protocol != identity.Protocol ||
+			config.ProviderFamily != identity.ProviderFamily {
+			return fmt.Errorf("%s has no matching published model and route identity", name)
+		}
+		publication, ok := bound[config.ID]
+		if !ok || publication.SnapshotID != config.PublicationSnapshotID || publication.Version != config.Version {
+			return fmt.Errorf("%s lacks an active frozen publication", name)
+		}
+		var previous ZTAPIModelPublicationSnapshot
+		if err := tx.First(&previous, publication.SnapshotID).Error; err != nil {
+			return err
+		}
+		if len(previous.ChannelIDs()) == 0 {
+			return fmt.Errorf("%s lacks a previously verified route", name)
+		}
+		var oldSource ZTAPIModelPriceSource
+		if err := tx.First(&oldSource, publication.PriceSourceID).Error; err != nil {
+			return err
+		}
+		// Media quotes keep the legacy USD contract until media FX is supported.
+		targetFX := fxParams
+		if name == ztapiImage2QuotationModel {
+			targetFX = ZTAPIABFXParams{}
+		}
+		if oldSource.SourceDocumentChecksum == quote.WorkbookSHA256 &&
+			(previous.TokenPriceRulesJSON != oldSource.TokenPriceRulesJSON ||
+				previous.MediaPriceContractJSON != oldSource.MediaPriceContractJSON) {
+			return fmt.Errorf("%s already has inconsistent A/B price evidence", name)
+		}
+		// The image quote can only be rebuilt from the first frozen quotation,
+		// so an image price already published from this workbook stays as it is.
+		if name == ztapiImage2QuotationModel && oldSource.SourceDocumentChecksum == quote.WorkbookSHA256 &&
+			validateZTAPIABPriceSource(&oldSource) == nil {
+			result.Unchanged++
+			continue
+		}
+		var target ZTAPIModelPriceSource
+		if name == "GPT Image 2" {
+			if previous.MediaPriceContractJSON == "" || previous.MediaPriceContractJSON != oldSource.MediaPriceContractJSON {
+				return fmt.Errorf("%s lacks frozen media price evidence", name)
+			}
+			image, canonical, parseErr := types.ParseZTAPIImageProtocolContract(previous.ImageProtocolContractJSON)
+			if parseErr != nil || canonical != previous.ImageProtocolContractJSON {
+				return fmt.Errorf("%s lacks frozen image protocol evidence", name)
+			}
+			oldContract, parseErr := types.ParseZTAPIMediaPriceContract(previous.MediaPriceContractJSON)
+			if parseErr != nil || types.ValidateZTAPIImagePriceProtocolCompatibility(oldContract, image) != nil {
+				return fmt.Errorf("%s frozen image pricing does not match protocol", name)
+			}
+			target, err = BuildZTAPIABImage2PriceSource(quote, oldSource, &image, operatorID, effectiveAt)
+		} else {
+			target, err = BuildZTAPIABTextPriceSourceWithFX(quote, name, config.ID, operatorID, effectiveAt, targetFX)
+		}
+		if errors.Is(err, ErrZTAPIUpstreamUSDRateUnset) {
+			result.Skipped = append(result.Skipped, config.PublicNameValue())
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+		// Nothing to publish when the rebuilt price matches what customers pay.
+		if oldSource.SourceDocumentChecksum == quote.WorkbookSHA256 &&
+			oldSource.MediaPriceContractJSON == target.MediaPriceContractJSON &&
+			ztapiABPriceSourceEvidenceMismatch(&oldSource, &target) == "" &&
+			validateZTAPIABPriceSource(&oldSource) == nil {
+			result.Unchanged++
+			continue
+		}
+		preview, err := BuildZTAPIModelPricePreview(&target)
+		if err != nil {
+			return fmt.Errorf("%s price preview: %w", name, err)
+		}
+		if err := ztapiPreviewKeepsMinimumMargin(preview); err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+		var latest uint64
+		if err := tx.Model(&ZTAPIModelPriceSource{}).Where("model_config_id = ?", config.ID).
+			Select("COALESCE(MAX(version), 0)").Scan(&latest).Error; err != nil {
+			return err
+		}
+		now := common.GetTimestamp()
+		target.Version = latest + 1
+		target.CreatedAt = now
+		if err := tx.Create(&target).Error; err != nil {
+			return err
+		}
+		config.CacheReadRatio = previous.CacheReadRatio
+		config.CacheCreationRatio = previous.CacheCreationRatio
+		config.CacheCreation5mRatio = previous.CacheCreation5mRatio
+		config.CacheCreation1hRatio = previous.CacheCreation1hRatio
+		config.ImageRatio = previous.ImageRatio
+		config.AudioRatio = previous.AudioRatio
+		config.AudioCompletionRatio = previous.AudioCompletionRatio
+		if err := applyZTAPICommercialPreview(&config, preview); err != nil {
+			return err
+		}
+		var verificationIDs []int64
+		if err := json.Unmarshal([]byte(previous.VerificationIDs), &verificationIDs); err != nil {
+			return fmt.Errorf("%s has invalid frozen verification evidence", name)
+		}
+		evidence := ztapiPublicationEvidence{
+			AllowedChannelIDs: previous.ChannelIDs(), VerificationIDs: verificationIDs,
+			PriceSourceID: target.ID, IdentityUpdatedAt: previous.IdentityUpdatedAt,
+			ImageProtocolContractJSON: previous.ImageProtocolContractJSON,
+			VideoProtocolContractJSON: previous.VideoProtocolContractJSON,
+		}
+		nextVersion := config.Version + 1
+		snapshot, err := createZTAPIModelPublicationSnapshotTx(tx, &config, nextVersion, evidence)
+		if err != nil {
+			return fmt.Errorf("%s snapshot: %w", name, err)
+		}
+		updates := map[string]any{
+			"input_cost_per_million": config.InputCostPerMillion, "output_cost_per_million": config.OutputCostPerMillion,
+			"input_price_per_million": config.InputPricePerMillion, "output_price_per_million": config.OutputPricePerMillion,
+			"cache_read_ratio": config.CacheReadRatio, "cache_creation_ratio": config.CacheCreationRatio,
+			"cache_creation_5m_ratio": config.CacheCreation5mRatio, "cache_creation_1h_ratio": config.CacheCreation1hRatio,
+			"publication_snapshot_id": snapshot.ID, "version": nextVersion, "updated_at": now,
+		}
+		updated := tx.Model(&ZTAPIModelConfig{}).Where("id = ? AND version = ?", config.ID, config.Version).Updates(updates)
+		if updated.Error != nil {
+			return updated.Error
+		}
+		if updated.RowsAffected != 1 {
+			return ErrZTAPIModelVersionConflict
+		}
+		payload := common.MapToJsonStr(map[string]any{
+			"previous_price_source_id": oldSource.ID, "price_source_id": target.ID,
+			"workbook_sha256": quote.WorkbookSHA256, "quotation_grade": target.QuotationGrade,
+			"quotation_cell": target.QuotationCell, "price_policy": target.PricePolicy,
+			"fx_mode": target.FXMode, "platform_cny_per_unit": target.PlatformCNYPerUnit,
+			"upstream_cny_per_usd": target.UpstreamCNYPerUSD,
+		})
+		if err := tx.Create(&ZTAPIAuditEvent{
+			Action: "model.ab_quote_published", ModelConfigID: config.ID,
+			PublicName: config.PublicNameValue(), Version: nextVersion,
+			OperatorID: operatorID, Payload: payload, CreatedAt: now,
+		}).Error; err != nil {
+			return err
+		}
+		result.Imported++
+		result.Republished++
+		result.Models = append(result.Models, config.PublicNameValue())
+	}
+	return nil
 }

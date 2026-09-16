@@ -17,6 +17,7 @@ type ZTAPICommercialRepricingResult struct {
 	Republished int      `json:"republished"`
 	Unchanged   int      `json:"unchanged"`
 	Models      []string `json:"models"`
+	Skipped     []string `json:"skipped,omitempty"`
 }
 
 func clearZTAPIPriceSourceCosts(source *ZTAPIModelPriceSource) {

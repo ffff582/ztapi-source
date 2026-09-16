@@ -37,6 +37,7 @@ import {
 import AdminOverviewPage from './features/overview/AdminOverviewPage.jsx';
 import AdminChannelsPage from './features/channels/AdminChannelsPage.jsx';
 import AdminModelsPage from './features/models/AdminModelsPage.jsx';
+import FXPricingPage from './features/pricing/FXPricingPage.jsx';
 import AdminUsersPage from './features/users/AdminUsersPage.jsx';
 import StaffRolesPage from './features/users/StaffRolesPage.jsx';
 import OrdersPage from './features/finance/OrdersPage.jsx';
@@ -186,6 +187,17 @@ function AdminRoutes() {
               canWrite={modelCanWrite}
               canConfirmBelowCost={modelCanConfirmBelowCost}
             />
+          </ProtectedPage>
+        }
+      />
+      <Route
+        path='/pricing'
+        element={
+          <ProtectedPage
+            permission={AdminPermission.modelRead}
+            title='汇率与定价'
+          >
+            <FXPricingPage canWrite={modelCanWrite} />
           </ProtectedPage>
         }
       />

@@ -277,6 +277,9 @@ func migrateDB() error {
 	if err := migrateZTAPIMediaPricingColumns(DB); err != nil {
 		return err
 	}
+	if err := migrateZTAPIFXPricingColumns(DB); err != nil {
+		return err
+	}
 
 	err := DB.AutoMigrate(
 		&Channel{},
@@ -321,6 +324,7 @@ func migrateDB() error {
 		&ZTAPIDiscoveredModel{},
 		&ZTAPIModelIdentity{},
 		&ZTAPIModelPriceSource{},
+		&ZTAPIFXPolicy{},
 		&ZTAPIModelVerification{},
 		&ZTAPIModelPublicationSnapshot{},
 		&ZTAPIAuditEvent{},
@@ -378,6 +382,9 @@ func migrateDB() error {
 	if err := EnsureZTAPIModelConfigsForEnabledAbilities(); err != nil {
 		return err
 	}
+	if err := ensureZTAPIFXPolicySeeded(DB); err != nil {
+		return err
+	}
 	if common.UsingSQLite {
 		if err := ensureSubscriptionPlanTableSQLite(); err != nil {
 			return err
@@ -398,6 +405,9 @@ func migrateDBFast() error {
 		return err
 	}
 	if err := migrateZTAPIMediaPricingColumns(DB); err != nil {
+		return err
+	}
+	if err := migrateZTAPIFXPricingColumns(DB); err != nil {
 		return err
 	}
 
@@ -449,6 +459,7 @@ func migrateDBFast() error {
 		{&ZTAPIDiscoveredModel{}, "ZTAPIDiscoveredModel"},
 		{&ZTAPIModelIdentity{}, "ZTAPIModelIdentity"},
 		{&ZTAPIModelPriceSource{}, "ZTAPIModelPriceSource"},
+		{&ZTAPIFXPolicy{}, "ZTAPIFXPolicy"},
 		{&ZTAPIModelVerification{}, "ZTAPIModelVerification"},
 		{&ZTAPIModelPublicationSnapshot{}, "ZTAPIModelPublicationSnapshot"},
 		{&ZTAPIAuditEvent{}, "ZTAPIAuditEvent"},
@@ -524,6 +535,9 @@ func migrateDBFast() error {
 		return err
 	}
 	if err := EnsureZTAPIModelConfigsForEnabledAbilities(); err != nil {
+		return err
+	}
+	if err := ensureZTAPIFXPolicySeeded(DB); err != nil {
 		return err
 	}
 	if common.UsingSQLite {

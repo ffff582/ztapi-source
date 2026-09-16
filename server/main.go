@@ -56,6 +56,8 @@ func main() {
 		common.FatalLog("failed to initialize resources: " + err.Error())
 		return
 	}
+	service.EnsureZTAPIUpstreamFXRate()
+	model.RunZTAPIFXInitialRepricing()
 
 	common.SysLog("New API " + common.Version + " started")
 	if os.Getenv("GIN_MODE") != "debug" {

@@ -20,6 +20,12 @@ TOKEN_PRICE_KEYS = {
     "缓存写入1h": "cache_write_1h",
 }
 
+# The 9.15 workbook's gateway row for GPT 5.4 Nano (F89) repeats GPT 5.6 Terra's
+# price; its original-vendor row (F63) carries the real official price.
+OFFICIAL_PRICE_RESOURCE_OVERRIDES = {
+    ("gpt 5.4 nano", "网关"): "原厂",
+}
+
 MEDIA_MODELS = {
     "GPT Image 2": "image",
     "Gemini 2.5 Flash Image": "image",
@@ -55,6 +61,10 @@ def parse_token_price_rules(text, quoted_fraction, cost_share):
             raise ValueError("empty quotation tier")
         if re.fullmatch(r"输入\s*(?:US)?\$[0-9.]+", segment):
             segment = "输入单价=" + re.sub(r"^输入\s*", "", segment)
+        values = [part.split("=", 1)[1].strip() for part in segment.split("｜") if "=" in part]
+        if values and all(value == "-" for value in values):
+            # A tier priced "-" everywhere is not offered; requests beyond it are rejected.
+            continue
         currency = None
         prices = {}
         conditions = []
@@ -140,7 +150,8 @@ def main():
             if len(matching) != 1:
                 raise ValueError(f"ambiguous mapping for {(code, grade)}")
             _, resource, original = matching[0]
-        price, price_cell = official[(original.casefold(), resource)]
+        price_resource = OFFICIAL_PRICE_RESOURCE_OVERRIDES.get((original.casefold(), resource), resource)
+        price, price_cell = official[(original.casefold(), price_resource)]
         status = str(row[4].value or "")
         entries.append(
             {

@@ -1,0 +1,184 @@
+.ztapi-fx-page {
+  display: grid;
+  gap: 20px;
+}
+
+.ztapi-fx-card {
+  border: 1px solid var(--semi-color-border, #e3e8ee);
+  border-radius: 10px;
+  background: var(--semi-color-bg-1, #fff);
+  padding: 18px 20px;
+  display: grid;
+  gap: 14px;
+}
+
+.ztapi-fx-card h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.ztapi-fx-card p {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--semi-color-text-2, #5a6572);
+}
+
+.ztapi-fx-current {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 28px;
+}
+
+.ztapi-fx-figure {
+  display: grid;
+  gap: 2px;
+}
+
+.ztapi-fx-figure span {
+  font-size: 12.5px;
+  color: var(--semi-color-text-2, #5a6572);
+}
+
+.ztapi-fx-figure strong {
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ztapi-fx-figure.pending strong {
+  color: #a8610a;
+}
+
+.ztapi-fx-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.ztapi-fx-field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ztapi-fx-field label {
+  font-size: 12.5px;
+  color: var(--semi-color-text-2, #5a6572);
+}
+
+.ztapi-fx-field input,
+.ztapi-fx-field select {
+  width: 100%;
+  padding: 7px 9px;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid var(--semi-color-border, #e3e8ee);
+  border-radius: 6px;
+  background: var(--semi-color-bg-0, #fff);
+  color: inherit;
+}
+
+.ztapi-fx-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.ztapi-fx-button {
+  border: 1px solid var(--semi-color-border, #e3e8ee);
+  border-radius: 6px;
+  background: var(--semi-color-bg-0, #fff);
+  color: inherit;
+  padding: 7px 14px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.ztapi-fx-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.ztapi-fx-button.primary {
+  background: #0a7660;
+  border-color: #0a7660;
+  color: #fff;
+}
+
+.ztapi-fx-message {
+  font-size: 13.5px;
+}
+
+.ztapi-fx-message.error {
+  color: #b42318;
+}
+
+.ztapi-fx-message.ok {
+  color: #0a7660;
+}
+
+.ztapi-fx-quotes {
+  font-size: 13px;
+  color: var(--semi-color-text-2, #5a6572);
+  font-variant-numeric: tabular-nums;
+}
+
+.ztapi-fx-table-wrap {
+  overflow-x: auto;
+}
+
+.ztapi-fx-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+
+.ztapi-fx-table th,
+.ztapi-fx-table td {
+  border-bottom: 1px solid var(--semi-color-border, #e3e8ee);
+  padding: 8px 10px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.ztapi-fx-table th {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--semi-color-text-2, #5a6572);
+}
+
+.ztapi-fx-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.ztapi-fx-status {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 12.5px;
+}
+
+.ztapi-fx-status.reprice {
+  background: #fdf0d5;
+  color: #8a5406;
+}
+
+.ztapi-fx-status.unchanged {
+  background: #e6efeb;
+  color: #3d6355;
+}
+
+.ztapi-fx-status.blocked {
+  background: #fbe3e0;
+  color: #b42318;
+}
+
+.ztapi-fx-history {
+  font-size: 13px;
+  color: var(--semi-color-text-2, #5a6572);
+  display: grid;
+  gap: 4px;
+}

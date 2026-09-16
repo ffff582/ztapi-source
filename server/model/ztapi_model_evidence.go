@@ -82,6 +82,9 @@ type ZTAPIModelPriceSource struct {
 	AudioUnitCost          string `json:"audio_unit_cost" gorm:"type:decimal(24,10);not null;default:0"`
 	RequestUnitCost        string `json:"request_unit_cost" gorm:"type:decimal(24,10);not null;default:0"`
 	CNYPerUSD              string `json:"cny_per_usd" gorm:"type:decimal(24,10);not null;default:0"`
+	FXMode                 string `json:"fx_mode,omitempty" gorm:"column:fx_mode;size:16;not null;default:''"`
+	PlatformCNYPerUnit     string `json:"platform_cny_per_unit,omitempty" gorm:"type:decimal(24,10);not null;default:0"`
+	UpstreamCNYPerUSD      string `json:"upstream_cny_per_usd,omitempty" gorm:"type:decimal(24,10);not null;default:0"`
 	QuotationEffectiveAt   int64  `json:"quotation_effective_at" gorm:"bigint;not null;index"`
 	SourceDocumentChecksum string `json:"source_document_checksum" gorm:"size:64;not null;index"`
 	QuotationGrade         string `json:"quotation_grade,omitempty" gorm:"size:4"`
@@ -277,6 +280,21 @@ func ValidateZTAPIModelPriceSource(source *ZTAPIModelPriceSource) error {
 			return errors.New("CNY price source requires a positive CNY-per-USD rate")
 		}
 	}
+	source.FXMode = strings.TrimSpace(source.FXMode)
+	source.PlatformCNYPerUnit = ztapiDecimalOrZero(source.PlatformCNYPerUnit)
+	source.UpstreamCNYPerUSD = ztapiDecimalOrZero(source.UpstreamCNYPerUSD)
+	switch source.FXMode {
+	case "":
+	case ZTAPIFXModePlatformV1:
+		platform, platformErr := decimal.NewFromString(source.PlatformCNYPerUnit)
+		rate, rateErr := decimal.NewFromString(strings.TrimSpace(source.CNYPerUSD))
+		if source.Currency != "CNY" || platformErr != nil || rateErr != nil ||
+			!platform.IsPositive() || !platform.Equal(rate) {
+			return errors.New("platform FX pricing requires CNY costs and a matching platform rate")
+		}
+	default:
+		return fmt.Errorf("unsupported price source FX mode %q", source.FXMode)
+	}
 	if ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicyPool60Margin ||
 		ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicyPoolOfficial80 {
 		if err := validateZTAPIPoolPriceSource(source, dimensions, values); err != nil {
@@ -304,7 +322,10 @@ func BuildZTAPIModelPricePreview(source *ZTAPIModelPriceSource) (*ZTAPIModelPric
 	poolOfficial, _, poolOfficialOK := ztapiPoolOfficialPriceContractFromManifest(ztapiQuotation, source.SourceModel)
 	for _, dimension := range dimensions {
 		cost := decimal.RequireFromString(strings.TrimSpace(values[dimension]))
-		if source.Currency == "CNY" {
+		if source.Currency == "CNY" && source.FXMode == ZTAPIFXModePlatformV1 {
+			// platform_v1 rates already carry their own stop-loss buffer.
+			cost = cost.Div(rate).Round(10)
+		} else if source.Currency == "CNY" {
 			cost, _ = ConvertZTAPICNYCostToUSD(cost, rate)
 		} else {
 			cost = cost.Round(10)

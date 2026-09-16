@@ -4,6 +4,7 @@ import {
   BookOpenCheck,
   ClipboardCheck,
   Boxes,
+  Coins,
   FileSearch,
   LayoutDashboard,
   Settings,
@@ -33,6 +34,12 @@ export const adminNavigation = [
     label: '模型管理',
     icon: Activity,
     route: '/models',
+    permission: AdminPermission.modelRead,
+  },
+  {
+    label: '汇率与定价',
+    icon: Coins,
+    route: '/pricing',
     permission: AdminPermission.modelRead,
   },
   {
