@@ -171,6 +171,34 @@ func TestZTAPIPasswordResetRequestIsUnavailableUntilEmailIsConfigured(t *testing
 	}
 }
 
+func TestZTAPIPasswordResetRequestSurvivesDisablingRegistrationEmailVerification(t *testing.T) {
+	setupZTAPIAuthControllerTest(t)
+	engine := newZTAPIAuthControllerEngine()
+	originalEmailVerification := common.EmailVerificationEnabled
+	originalSMTPServer := common.SMTPServer
+	originalSMTPFrom := common.SMTPFrom
+	common.EmailVerificationEnabled = false
+	common.SMTPServer = "smtp.example.com"
+	common.SMTPFrom = "noreply@example.com"
+	t.Cleanup(func() {
+		common.EmailVerificationEnabled = originalEmailVerification
+		common.SMTPServer = originalSMTPServer
+		common.SMTPFrom = originalSMTPFrom
+	})
+
+	response := performZTAPIAuthRequest(
+		t,
+		engine,
+		http.MethodPost,
+		"/auth/password-reset/request",
+		`{"email":"user@example.com"}`,
+		nil,
+	)
+	if response.Code != http.StatusOK {
+		t.Fatalf("password reset request status = %d, want 200; body=%s", response.Code, response.Body.String())
+	}
+}
+
 func enableZTAPIPasswordResetForTest(t *testing.T) {
 	t.Helper()
 	originalEmailVerification := common.EmailVerificationEnabled

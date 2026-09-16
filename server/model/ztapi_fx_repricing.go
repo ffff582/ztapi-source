@@ -306,6 +306,7 @@ type ZTAPIFXPricingRow struct {
 	ProposedOutput    string `json:"proposed_output_sale,omitempty"`
 	Status            string `json:"status"`
 	Reason            string `json:"reason,omitempty"`
+	NeedsRelist       bool   `json:"needs_relist,omitempty"`
 }
 
 type ZTAPIFXPricingPreview struct {
@@ -351,7 +352,7 @@ func PreviewZTAPIFXRepricing() (ZTAPIFXPricingPreview, error) {
 	if err := DB.Where("published = ?", true).Order("source_model ASC").Find(&configs).Error; err != nil {
 		return preview, err
 	}
-	publications, err := loadZTAPIQuotedPublications(DB)
+	publications, err := loadZTAPIRepriceablePublications(DB)
 	if err != nil {
 		return preview, err
 	}
@@ -375,6 +376,12 @@ func PreviewZTAPIFXRepricing() (ZTAPIFXPricingPreview, error) {
 		}
 		row.CurrentInputSale, row.CurrentOutputSale = ztapiFirstTierSale(&oldSource)
 		row.CurrentFXMode = oldSource.FXMode
+		// A corrected quotation takes the old price out of the catalog until it
+		// is repriced, so the page can say why the model is off sale.
+		if oldSource.SourceDocumentChecksum == quote.WorkbookSHA256 && validateZTAPIABPriceSource(&oldSource) != nil {
+			row.NeedsRelist = true
+			row.Reason = "当前价格与报价单不一致，已暂时下架，改价后恢复"
+		}
 		if oldSource.FXMode == ZTAPIFXModePlatformV1 {
 			row.CurrentPlatform = oldSource.PlatformCNYPerUnit
 		}
@@ -429,7 +436,7 @@ func PreviewZTAPIFXRepricing() (ZTAPIFXPricingPreview, error) {
 			continue
 		}
 		row.ProposedInput, row.ProposedOutput = ztapiFirstTierSale(&target)
-		if ztapiSameDecimal(row.CurrentInputSale, row.ProposedInput) && ztapiSameDecimal(row.CurrentOutputSale, row.ProposedOutput) {
+		if !row.NeedsRelist && ztapiSameDecimal(row.CurrentInputSale, row.ProposedInput) && ztapiSameDecimal(row.CurrentOutputSale, row.ProposedOutput) {
 			row.Status = "unchanged"
 		} else {
 			row.Status = "reprice"

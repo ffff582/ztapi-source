@@ -455,6 +455,9 @@ export default function FXPricingPage({ canWrite = false }) {
                     <span className={`ztapi-fx-status ${row.status}`}>
                       {statusLabels[row.status] || row.status}
                     </span>
+                    {row.needs_relist ? (
+                      <span className='ztapi-fx-status blocked'>暂时下架</span>
+                    ) : null}
                     {row.reason ? ` ${row.reason}` : ''}
                   </td>
                 </tr>

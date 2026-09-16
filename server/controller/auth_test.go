@@ -113,7 +113,7 @@ func TestAuthRegisterCreatesArgon2UserWithoutAPIKeyAndReturnsSafeSession(t *test
 		engine,
 		http.MethodPost,
 		"/auth/register",
-		`{"username":"  alice  ","password":"at-least-ten"}`,
+		`{"username":"  alice  ","password":"at-least-ten","email":"alice@example.com"}`,
 		nil,
 	)
 	if recorder.Code != http.StatusOK {
@@ -156,7 +156,7 @@ func TestAuthRegisterCreatesArgon2UserWithoutAPIKeyAndReturnsSafeSession(t *test
 	assertIssuedRefreshCookie(t, recorder, false)
 }
 
-func TestAuthRegisterRequiresAndStoresVerifiedEmailWhenEmailVerificationIsEnabled(t *testing.T) {
+func TestAuthRegisterRequiresAndStoresEmailWithoutRegistrationVerification(t *testing.T) {
 	db := setupZTAPIAuthControllerTest(t)
 	engine := newZTAPIAuthControllerEngine()
 	originalEmailVerificationEnabled := common.EmailVerificationEnabled
@@ -174,24 +174,19 @@ func TestAuthRegisterRequiresAndStoresVerifiedEmailWhenEmailVerificationIsEnable
 		nil,
 	)
 	if missingEmail.Code != http.StatusBadRequest {
-		t.Fatalf("registration without verified email status = %d, want 400; body=%s", missingEmail.Code, missingEmail.Body.String())
+		t.Fatalf("registration without email status = %d, want 400; body=%s", missingEmail.Code, missingEmail.Body.String())
 	}
 
-	common.RegisterVerificationCodeWithKey(
-		"alice@example.com",
-		"123456",
-		common.EmailVerificationPurpose,
-	)
 	registered := performZTAPIAuthRequest(
 		t,
 		engine,
 		http.MethodPost,
 		"/auth/register",
-		`{"username":"alice","password":"at-least-ten","email":"Alice@Example.com","verification_code":"123456"}`,
+		`{"username":"alice","password":"at-least-ten","email":"Alice@Example.com"}`,
 		nil,
 	)
 	if registered.Code != http.StatusOK {
-		t.Fatalf("verified email registration status = %d, want 200; body=%s", registered.Code, registered.Body.String())
+		t.Fatalf("email registration status = %d, want 200; body=%s", registered.Code, registered.Body.String())
 	}
 
 	var user model.User
@@ -201,12 +196,9 @@ func TestAuthRegisterRequiresAndStoresVerifiedEmailWhenEmailVerificationIsEnable
 	if user.Email != "alice@example.com" {
 		t.Fatalf("stored email = %q, want normalized email", user.Email)
 	}
-	if common.VerifyCodeWithKey("alice@example.com", "123456", common.EmailVerificationPurpose) {
-		t.Fatal("registration verification code remained reusable")
-	}
 }
 
-func TestAuthRegisterDoesNotTrustUnverifiedEmailWhenVerificationIsDisabled(t *testing.T) {
+func TestAuthRegisterStoresEmailWhenRegistrationVerificationSettingIsDisabled(t *testing.T) {
 	db := setupZTAPIAuthControllerTest(t)
 	engine := newZTAPIAuthControllerEngine()
 	originalEmailVerificationEnabled := common.EmailVerificationEnabled
@@ -230,8 +222,8 @@ func TestAuthRegisterDoesNotTrustUnverifiedEmailWhenVerificationIsDisabled(t *te
 	if err := db.Where("username = ?", "alice").First(&user).Error; err != nil {
 		t.Fatal(err)
 	}
-	if user.Email != "" {
-		t.Fatalf("unverified email was stored: %q", user.Email)
+	if user.Email != "victim@example.com" {
+		t.Fatalf("stored email = %q, want normalized email", user.Email)
 	}
 }
 
@@ -239,10 +231,10 @@ func TestAuthRegisterRejectsInvalidAndDuplicateCredentialsWithoutDatabaseDetails
 	setupZTAPIAuthControllerTest(t)
 	engine := newZTAPIAuthControllerEngine()
 	tests := []string{
-		`{"username":"ab","password":"at-least-ten"}`,
-		`{"username":"ali ce","password":"at-least-ten"}`,
-		`{"username":"alice","password":"short"}`,
-		`{"username":"alice","password":"` + strings.Repeat("a", 257) + `"}`,
+		`{"username":"ab","password":"at-least-ten","email":"alice@example.com"}`,
+		`{"username":"ali ce","password":"at-least-ten","email":"alice@example.com"}`,
+		`{"username":"alice","password":"short","email":"alice@example.com"}`,
+		`{"username":"alice","password":"` + strings.Repeat("a", 257) + `","email":"alice@example.com"}`,
 		`{"username":"alice","password":`,
 	}
 	for _, body := range tests {
@@ -258,7 +250,7 @@ func TestAuthRegisterRejectsInvalidAndDuplicateCredentialsWithoutDatabaseDetails
 		engine,
 		http.MethodPost,
 		"/auth/register",
-		`{"username":"alice","password":"at-least-ten"}`,
+		`{"username":"alice","password":"at-least-ten","email":"alice@example.com"}`,
 		nil,
 	)
 	if first.Code != http.StatusOK {
@@ -269,7 +261,7 @@ func TestAuthRegisterRejectsInvalidAndDuplicateCredentialsWithoutDatabaseDetails
 		engine,
 		http.MethodPost,
 		"/auth/register",
-		`{"username":"alice","password":"different-ten"}`,
+		`{"username":"alice","password":"different-ten","email":"alice@example.com"}`,
 		nil,
 	)
 	if duplicate.Code != http.StatusConflict {
@@ -282,7 +274,7 @@ func TestAuthConcurrentDuplicateRegistrationCreatesExactlyOneUser(t *testing.T) 
 	db := setupZTAPIAuthControllerTest(t)
 	engine := newZTAPIAuthControllerEngine()
 	const attempts = 2
-	const body = `{"username":"alice","password":"at-least-ten"}`
+	const body = `{"username":"alice","password":"at-least-ten","email":"alice@example.com"}`
 
 	start := make(chan struct{})
 	results := make(chan *httptest.ResponseRecorder, attempts)
@@ -362,7 +354,7 @@ func TestAuthLoginReturnsSessionAndUsesGenericInvalidCredentialResponse(t *testi
 		engine,
 		http.MethodPost,
 		"/auth/register",
-		`{"username":"alice","password":"at-least-ten"}`,
+		`{"username":"alice","password":"at-least-ten","email":"alice@example.com"}`,
 		nil,
 	)
 	if register.Code != http.StatusOK {
@@ -443,7 +435,7 @@ func TestAuthAdminHostRejectsCommonUserLoginAndRefreshButAllowsStaff(t *testing.
 		engine,
 		http.MethodPost,
 		"/auth/register",
-		`{"username":"alice","password":"at-least-ten"}`,
+		`{"username":"alice","password":"at-least-ten","email":"alice@example.com"}`,
 		nil,
 	)
 	if register.Code != http.StatusOK {
@@ -518,7 +510,7 @@ func TestAuthLoginEnforcesRegistrationPasswordBoundaries(t *testing.T) {
 		{username: "alice", password: minimumPassword},
 		{username: "bob", password: maximumPassword},
 	} {
-		body := fmt.Sprintf(`{"username":%q,"password":%q}`, fixture.username, fixture.password)
+		body := fmt.Sprintf(`{"username":%q,"password":%q,"email":%q}`, fixture.username, fixture.password, fixture.username+"@example.com")
 		recorder := performZTAPIAuthRequest(t, engine, http.MethodPost, "/auth/register", body, nil)
 		if recorder.Code != http.StatusOK {
 			t.Fatalf("register %s fixture: status=%d body=%s", fixture.username, recorder.Code, recorder.Body.String())
@@ -603,7 +595,7 @@ func TestAuthLoginPerformsOneArgon2VerificationForEveryValidCredentialAttempt(t 
 		engine,
 		http.MethodPost,
 		"/auth/register",
-		`{"username":"alice","password":"at-least-ten"}`,
+		`{"username":"alice","password":"at-least-ten","email":"alice@example.com"}`,
 		nil,
 	)
 	if register.Code != http.StatusOK {
@@ -714,7 +706,7 @@ func TestAuthRefreshRotatesCookieAndLogoutRevokesFamilyAndClearsCookie(t *testin
 		engine,
 		http.MethodPost,
 		"/auth/register",
-		`{"username":"alice","password":"at-least-ten"}`,
+		`{"username":"alice","password":"at-least-ten","email":"alice@example.com"}`,
 		nil,
 	)
 	initialCookie := requireRefreshCookie(t, register)
@@ -788,7 +780,7 @@ func TestAuthRefreshRejectsMissingExpiredRevokedAndReplayedCookies(t *testing.T)
 		engine,
 		http.MethodPost,
 		"/auth/register",
-		`{"username":"alice","password":"at-least-ten"}`,
+		`{"username":"alice","password":"at-least-ten","email":"alice@example.com"}`,
 		nil,
 	)
 	initialCookie := requireRefreshCookie(t, register)
@@ -856,7 +848,7 @@ func TestAuthCookieIsSecureInReleaseMode(t *testing.T) {
 		engine,
 		http.MethodPost,
 		"/auth/register",
-		`{"username":"alice","password":"at-least-ten"}`,
+		`{"username":"alice","password":"at-least-ten","email":"alice@example.com"}`,
 		nil,
 	)
 	if register.Code != http.StatusOK {

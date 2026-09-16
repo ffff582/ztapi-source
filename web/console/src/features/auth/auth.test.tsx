@@ -74,12 +74,16 @@ function submitLogin(username = 'alice', password = 'correct-horse') {
 function submitRegistration(
   username = 'alice',
   password = 'correct-horse',
+  email = 'alice@example.com',
 ) {
   fireEvent.change(screen.getByLabelText('账号'), {
     target: { value: username },
   });
   fireEvent.change(screen.getByLabelText('密码'), {
     target: { value: password },
+  });
+  fireEvent.change(screen.getByLabelText('邮箱'), {
+    target: { value: email },
   });
   fireEvent.click(screen.getByRole('button', { name: '创建账号' }));
 }
@@ -284,7 +288,7 @@ describe('protected authentication routes', () => {
     expect(screen.getByLabelText('账号')).toHaveFocus();
   });
 
-  it('verifies and submits an email when registration email verification is enabled', async () => {
+  it('submits an email without requesting a registration verification code', async () => {
     const fetchMock = vi.fn(
       async (...args: [RequestInfo | URL, RequestInit?]) => {
         const [input] = args;
@@ -294,9 +298,6 @@ describe('protected authentication routes', () => {
         }
         if (url.endsWith('/status')) {
           return jsonResponse({ success: true, data: { email_verification: true } });
-        }
-        if (url.includes('/verification?')) {
-          return jsonResponse({ success: true });
         }
         if (url.endsWith('/register')) {
           return jsonResponse(authResponse());
@@ -313,14 +314,8 @@ describe('protected authentication routes', () => {
     fireEvent.change(screen.getByLabelText('账号'), { target: { value: 'alice' } });
     fireEvent.change(screen.getByLabelText('密码'), { target: { value: 'correct-horse' } });
     fireEvent.change(screen.getByLabelText('邮箱'), { target: { value: 'Alice@Example.com' } });
-    fireEvent.click(screen.getByRole('button', { name: '发送验证码' }));
-
-    await waitFor(() => {
-      expect(fetchMock.mock.calls.some(([input]) =>
-        requestUrl(input as RequestInfo | URL).includes('/verification?email=alice%40example.com'),
-      )).toBe(true);
-    });
-    fireEvent.change(screen.getByLabelText('邮箱验证码'), { target: { value: '123456' } });
+    expect(screen.queryByLabelText('邮箱验证码')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '发送验证码' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '创建账号' }));
 
     await waitFor(() => {
@@ -335,8 +330,10 @@ describe('protected authentication routes', () => {
       username: 'alice',
       password: 'correct-horse',
       email: 'alice@example.com',
-      verification_code: '123456',
     });
+    expect(fetchMock.mock.calls.some(([input]) =>
+      requestUrl(input as RequestInfo | URL).includes('/verification?'),
+    )).toBe(false);
   });
 
   it('posts only the submitted username and password when logging in', async () => {
@@ -703,6 +700,7 @@ describe('protected authentication routes', () => {
     expect(JSON.parse(String(init?.body))).toEqual({
       username: 'alice',
       password: 'correct-horse',
+      email: 'alice@example.com',
     });
   });
 

@@ -605,7 +605,7 @@ test('guarded deployment atomically applies the approved commercial pricing poli
   assert.doesNotMatch(source, /0\.4100000000|3\.4166666667/);
 });
 
-test('guarded deployment respects email verification while proving ordinary-user access', () => {
+test('guarded deployment proves email-only registration while preserving password-reset mail status', () => {
   const source = readFileSync(workflowPath, 'utf8');
 
   assert.match(source, /current_email_verification/);
@@ -613,16 +613,13 @@ test('guarded deployment respects email verification while proving ordinary-user
     source,
     /\.data\.email_verification \| select\(type == "boolean"\)/,
   );
-  assert.match(source, /\{username:\$username,password:\$password\}/);
+  assert.match(source, /acceptance_email="\$acceptance_username@ztapi\.invalid"/);
+  assert.match(source, /\{username:\$username,password:\$password,email:\$email\}/);
   assert.match(source, /https:\/\/ztapi\.vip\/api\/auth\/register/);
-  assert.match(source, /acceptance_public_register_status/);
-  assert.match(source, /test "\$acceptance_public_register_status" = "400"/);
-  assert.match(source, /\.success == false/);
-  assert.match(source, /acceptance_admin_create_result/);
-  assert.match(source, /\{username:\$username,password:\$password,display_name:\$username,role:1\}/);
-  assert.match(source, /https:\/\/admin\.ztapi\.vip\/api\/user\//);
-  assert.match(source, /"Authorization: Bearer \$admin_access_token"/);
-  assert.match(source, /"New-API-User: \$admin_user_id"/);
+  assert.match(source, /acceptance_register_result/);
+  assert.match(source, /\.success == true and \.data\.user\.role == 1/);
+  assert.doesNotMatch(source, /acceptance_public_register_status/);
+  assert.doesNotMatch(source, /admin_with_email_verification_enforced/);
   assert.match(
     source,
     /for registration_option in RegisterEnabled PasswordRegisterEnabled/,

@@ -484,6 +484,18 @@ func ValidateZTAPIQuotationIdentity(sourceModel, publicName, protocol, providerF
 // Validate the price source pinned by each snapshot, never the latest mutable
 // price import. This filters old publications without changing historical rows.
 func loadZTAPIQuotedPublications(db *gorm.DB) ([]ZTAPIRuntimePublication, error) {
+	return loadZTAPIPublicationsForQuotation(db, false)
+}
+
+// loadZTAPIRepriceablePublications also returns publications whose A/B price no
+// longer rebuilds from the quotation, which is what a corrected quote leaves
+// behind. Repricing is the remedy for that, so it has to see those models;
+// identity and the snapshot-to-source binding are still required.
+func loadZTAPIRepriceablePublications(db *gorm.DB) ([]ZTAPIRuntimePublication, error) {
+	return loadZTAPIPublicationsForQuotation(db, true)
+}
+
+func loadZTAPIPublicationsForQuotation(db *gorm.DB, allowStaleABPrice bool) ([]ZTAPIRuntimePublication, error) {
 	publications, err := loadZTAPIActivePublications(db)
 	if err != nil || len(publications) == 0 {
 		return publications, err
@@ -492,7 +504,7 @@ func loadZTAPIQuotedPublications(db *gorm.DB) ([]ZTAPIRuntimePublication, error)
 	for _, publication := range publications {
 		ids = append(ids, publication.SnapshotID)
 	}
-	checksums, err := ztapiQuotationChecksums(db, ids)
+	checksums, err := ztapiQuotationChecksumsAllowingStaleABPrice(db, ids, allowStaleABPrice)
 	if err != nil {
 		return nil, err
 	}
@@ -507,6 +519,10 @@ func loadZTAPIQuotedPublications(db *gorm.DB) ([]ZTAPIRuntimePublication, error)
 }
 
 func ztapiQuotationChecksums(db *gorm.DB, ids []int64) (map[int64]string, error) {
+	return ztapiQuotationChecksumsAllowingStaleABPrice(db, ids, false)
+}
+
+func ztapiQuotationChecksumsAllowingStaleABPrice(db *gorm.DB, ids []int64, allowStaleABPrice bool) (map[int64]string, error) {
 	if db == nil {
 		return nil, errors.New("ZTAPI database is not initialized")
 	}
@@ -532,7 +548,7 @@ func ztapiQuotationChecksums(db *gorm.DB, ids []int64) (map[int64]string, error)
 		preview, err := BuildZTAPIModelPricePreview(&row.ZTAPIModelPriceSource)
 		basisPermitted := ztapiEnterprisePriceBasis(row.SourceModel, row.ResourceType)
 		if quote, quoteErr := ZTAPIQuotationABEntries(); quoteErr == nil && row.SourceDocumentChecksum == quote.WorkbookSHA256 {
-			basisPermitted = validateZTAPIABPriceSource(&row.ZTAPIModelPriceSource) == nil
+			basisPermitted = allowStaleABPrice || validateZTAPIABPriceSource(&row.ZTAPIModelPriceSource) == nil
 		}
 		if err == nil && row.SnapshotPricePolicy == row.PricePolicy && row.SnapshotTokenPriceRulesJSON == row.TokenPriceRulesJSON && basisPermitted &&
 			ztapiCacheRatiosMatchPreview(&ZTAPIModelConfig{

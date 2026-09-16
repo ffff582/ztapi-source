@@ -42,7 +42,7 @@ func TestAuthRouterRealLoginJWTCallsTokenLogAndSessionRoutes(t *testing.T) {
 		engine,
 		http.MethodPost,
 		"/api/auth/register",
-		`{"username":"alice","password":"at-least-ten"}`,
+		`{"username":"alice","password":"at-least-ten","email":"alice@example.com"}`,
 		"",
 		"192.0.2.10:1000",
 	)
@@ -109,7 +109,7 @@ func TestAuthRouterAdminHostRejectsOrdinaryLoginAndExistingJWT(t *testing.T) {
 		engine,
 		http.MethodPost,
 		"/api/auth/register",
-		`{"username":"alice","password":"at-least-ten"}`,
+		`{"username":"alice","password":"at-least-ten","email":"alice@example.com"}`,
 		"",
 		"192.0.2.13:1000",
 	)

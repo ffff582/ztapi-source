@@ -67,10 +67,7 @@ func ZTAPIRegister(c *gin.Context) {
 		return
 	}
 
-	email := ""
-	if common.EmailVerificationEnabled {
-		email = strings.ToLower(strings.TrimSpace(request.Email))
-	}
+	email := strings.ToLower(strings.TrimSpace(request.Email))
 	exists, err := model.CheckUserExistOrDeleted(username, email)
 	if err != nil {
 		writeZTAPIAuthError(c, http.StatusInternalServerError, "internal server error")
@@ -95,9 +92,6 @@ func ZTAPIRegister(c *gin.Context) {
 		}
 		writeZTAPIAuthError(c, http.StatusInternalServerError, "internal server error")
 		return
-	}
-	if email != "" {
-		common.DeleteKey(email, common.EmailVerificationPurpose)
 	}
 	issueZTAPIAuthSession(c, user)
 }
@@ -220,9 +214,10 @@ func ZTAPIRequestPasswordReset(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
+// Registration no longer reads the email verification switch, so password
+// reset must not depend on it either: configured mail is all it needs.
 func ztAPIPasswordResetEnabled() bool {
-	return common.EmailVerificationEnabled &&
-		strings.TrimSpace(common.SMTPServer) != "" &&
+	return strings.TrimSpace(common.SMTPServer) != "" &&
 		strings.TrimSpace(common.SMTPFrom) != ""
 }
 
@@ -287,13 +282,9 @@ func decodeZTAPIRegistration(c *gin.Context) (ztAPIAuthRequest, string, bool) {
 		return ztAPIAuthRequest{}, "", false
 	}
 	request.Email = strings.ToLower(strings.TrimSpace(request.Email))
-	if common.EmailVerificationEnabled {
-		if common.Validate.Var(request.Email, "required,email") != nil ||
-			request.VerificationCode == "" ||
-			!common.VerifyCodeWithKey(request.Email, request.VerificationCode, common.EmailVerificationPurpose) {
-			writeZTAPIAuthError(c, http.StatusBadRequest, "invalid email verification")
-			return ztAPIAuthRequest{}, "", false
-		}
+	if common.Validate.Var(request.Email, "required,email") != nil {
+		writeZTAPIAuthError(c, http.StatusBadRequest, "invalid registration")
+		return ztAPIAuthRequest{}, "", false
 	}
 	return request, username, true
 }

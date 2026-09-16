@@ -161,6 +161,43 @@ func TestApplyZTAPIFXRepricingMovesQuotedModelsOntoThePlatformRate(t *testing.T)
 	require.Zero(t, second.Republished)
 }
 
+func TestApplyZTAPIFXRepricingRestoresPricesThatNoLongerMatchTheQuotation(t *testing.T) {
+	db := setupZTAPIPublicCatalogTestDB(t)
+	require.NoError(t, db.AutoMigrate(&ZTAPIAuditEvent{}, &ZTAPICatalogLock{}))
+	seedZTAPIFXPolicyForTest(t, db, "6.7628")
+	config := seedZTAPIPublicCatalogRecord(t, db, "glm-5.2", "zt-glm-5.2", ZTAPIProviderGLM,
+		ZTAPIProtocolOpenAICompatible, []string{ZTAPIBillingDimensionInputTokens, ZTAPIBillingDimensionOutputTokens})
+	quote, err := ZTAPIQuotationABEntries()
+	require.NoError(t, err)
+	_, err = ApplyZTAPIABCommercialPricing(7, quote.WorkbookSHA256, []string{"GLM 5.2"})
+	require.NoError(t, err)
+	var published ZTAPIModelConfig
+	require.NoError(t, db.First(&published, config.ID).Error)
+	var snapshot ZTAPIModelPublicationSnapshot
+	require.NoError(t, db.First(&snapshot, published.PublicationSnapshotID).Error)
+
+	// Correcting a quotation leaves the published price unable to rebuild from
+	// it, which takes the model out of the catalog until it is repriced.
+	require.NoError(t, db.Model(&ZTAPIModelPriceSource{}).Where("id = ?", snapshot.PriceSourceID).
+		Update("official_price_cell", "ZZ999").Error)
+	offSale, err := loadZTAPIQuotedPublications(db)
+	require.NoError(t, err)
+	require.Empty(t, offSale)
+
+	result, err := ApplyZTAPIFXRepricing(7)
+	require.NoError(t, err)
+	require.Equal(t, 1, result.Republished)
+
+	relisted, err := loadZTAPIQuotedPublications(db)
+	require.NoError(t, err)
+	require.Len(t, relisted, 1)
+	var restored ZTAPIModelPriceSource
+	require.NoError(t, db.First(&restored, relisted[0].PriceSourceID).Error)
+	require.NoError(t, validateZTAPIABPriceSource(&restored))
+	require.True(t, decimal.RequireFromString(restored.PlatformCNYPerUnit).
+		Equal(decimal.RequireFromString("6.63")), "platform rate was %s", restored.PlatformCNYPerUnit)
+}
+
 func TestApplyZTAPIFXRepricingSkipsUSDQuotesWithoutAnUpstreamRate(t *testing.T) {
 	db := setupZTAPIPublicCatalogTestDB(t)
 	require.NoError(t, db.AutoMigrate(&ZTAPIAuditEvent{}, &ZTAPICatalogLock{}))

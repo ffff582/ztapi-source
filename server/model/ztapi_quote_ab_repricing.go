@@ -211,7 +211,7 @@ func applyZTAPIABCommercialPricingTx(tx *gorm.DB, quote ZTAPIABQuotationManifest
 	for _, config := range configs {
 		published[config.SourceModel] = config
 	}
-	publications, err := loadZTAPIQuotedPublications(tx)
+	publications, err := loadZTAPIRepriceablePublications(tx)
 	if err != nil {
 		return err
 	}
