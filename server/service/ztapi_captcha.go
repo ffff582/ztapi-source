@@ -143,17 +143,23 @@ func drawZTAPICaptcha(answer string) (string, error) {
 	draw.Draw(canvas, canvas.Bounds(), &image.Uniform{color.RGBA{R: 244, G: 246, B: 248, A: 255}}, image.Point{}, draw.Src)
 	drawZTAPICaptchaNoise(canvas)
 
-	glyphWidth := ztAPICaptchaWidth / (len(answer) + 1)
+	// Each character is drawn about its own centre, so rotation and scale keep
+	// it inside the image instead of pushing it off an edge.
+	step := float64(ztAPICaptchaWidth) / float64(len(answer)+1)
 	for index, character := range answer {
 		glyph := renderZTAPICaptchaGlyph(character)
-		angle := (float64(randomZTAPICaptchaInt(45)) - 22) / 100
-		scale := 2.6 + float64(randomZTAPICaptchaInt(70))/100
+		width := float64(glyph.Bounds().Dx())
+		height := float64(glyph.Bounds().Dy())
+		angle := (float64(randomZTAPICaptchaInt(41)) - 20) / 100
+		scale := 2.7 + float64(randomZTAPICaptchaInt(50))/100
 		sin, cos := math.Sin(angle), math.Cos(angle)
-		originX := float64(glyphWidth*index + glyphWidth/2 + randomZTAPICaptchaInt(6))
-		originY := float64(ztAPICaptchaHeight/2 + randomZTAPICaptchaInt(8) - 4)
+		a, b := scale*cos, -scale*sin
+		c, d := scale*sin, scale*cos
+		centreX := step*(float64(index)+1) + float64(randomZTAPICaptchaInt(7)) - 3
+		centreY := float64(ztAPICaptchaHeight)/2 + float64(randomZTAPICaptchaInt(7)) - 3
 		transform := f64.Aff3{
-			scale * cos, -scale * sin, originX,
-			scale * sin, scale * cos, originY,
+			a, b, centreX - (a*width/2 + b*height/2),
+			c, d, centreY - (c*width/2 + d*height/2),
 		}
 		draw.ApproxBiLinear.Transform(canvas, transform, glyph, glyph.Bounds(), draw.Over, nil)
 	}

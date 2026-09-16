@@ -31,7 +31,9 @@ function chooseFeaturedModels(models: PricingModel[]) {
   });
 }
 
-function managedPrice(value: string) {
+function managedPrice(value: string | undefined) {
+  // A dimension a model does not charge for has no published price.
+  if (typeof value !== 'string' || value === '') return null;
   const [whole, fraction = ''] = value.split('.');
   const trimmed = fraction.replace(/0+$/, '');
   return `$${whole}${trimmed ? `.${trimmed}` : ''} / 1M tokens`;
@@ -129,8 +131,9 @@ export function PublicModelProof() {
               {featuredModels.map((model) => {
                 const family = model.vendor_name ?? getPublicModelFamily(model.model_name, model.owner_by);
                 const media = model.modality === 'image' || model.modality === 'video';
-                const prices = !media && !model.token_price_rules && model.sale_usd
-                  ? { input: managedPrice(model.sale_usd.input_tokens), output: model.sale_usd.output_tokens ? managedPrice(model.sale_usd.output_tokens) : null }
+                const managedInput = media ? null : managedPrice(model.sale_usd?.input_tokens);
+                const prices = managedInput !== null && !model.token_price_rules
+                  ? { input: managedInput, output: managedPrice(model.sale_usd?.output_tokens) }
                   : !media ? modelPrices(model, pricing, quotaPerUnit) : null;
                 return (
                   <article key={model.model_name}>
@@ -150,8 +153,8 @@ export function PublicModelProof() {
                           <div className="model-proof__token-tier" key={`${model.model_name}-tier-${index}`}>
                             <dt>{rule.conditions.length === 0 ? t('默认价格') : rule.conditions.map((condition) => t(condition)).join(' · ')}</dt>
                             <dd>
-                              <span>{t('输入')} <strong>{managedPrice(rule.sale_usd.input_tokens)}</strong></span>
-                              <span>{t('输出')} <strong>{managedPrice(rule.sale_usd.output_tokens)}</strong></span>
+                              <span>{t('输入')} <strong>{managedPrice(rule.sale_usd.input_tokens) ?? t('按规则计费')}</strong></span>
+                              <span>{t('输出')} <strong>{managedPrice(rule.sale_usd.output_tokens) ?? t('按规则计费')}</strong></span>
                             </dd>
                           </div>
                         ))

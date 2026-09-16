@@ -122,7 +122,7 @@ export function ModelsPage() {
                               <td className="model-price-cell">
                                 <ul className="model-price-list" aria-label={t('{{name}} 售价', { name: model.model_name })}>
                                   {prices.map((price) => (
-                                    <li key={price.dimension}>
+                                    <li key={price.key}>
                                       <span>{t(price.label)}</span>
                                       <strong>{t(price.price)}</strong>
                                     </li>

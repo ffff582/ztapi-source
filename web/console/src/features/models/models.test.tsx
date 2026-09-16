@@ -64,6 +64,35 @@ describe('ZTAPI public model pricing', () => {
     expect(within(claude).queryByText('按规则计费')).not.toBeInTheDocument();
   });
 
+  it('lists every tier of a model priced by tier instead of a missing single rate', async () => {
+    const tiered = {
+      ...managedPublicPricing,
+      data: [{
+        ...managedPublicPricing.data[0],
+        model_name: 'zt-gpt-5.6-sol',
+        input_price_per_million: '',
+        output_price_per_million: '',
+        sale_usd: {},
+        billing_dimensions: ['input_tokens', 'output_tokens'],
+        billing_rule: 'token',
+        token_price_rules: [
+          { conditions: ['输入长度≤272K'], sale_usd: { input_tokens: '3.9000000000', output_tokens: '19.5000000000' } },
+          { conditions: ['输入长度>272K'], sale_usd: { input_tokens: '7.8000000000', output_tokens: '29.2500000000' } },
+        ],
+      }],
+    };
+    renderModels(vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/api/status')
+      ? statusResponse() : jsonResponse(tiered)));
+
+    const row = (await screen.findByText('zt-gpt-5.6-sol')).closest('tr') as HTMLElement;
+    expect(within(row).getByText('输入（输入长度≤272K）')).toBeVisible();
+    expect(within(row).getByText('$3.9 / 1M tokens')).toBeVisible();
+    expect(within(row).getByText('输出（输入长度>272K）')).toBeVisible();
+    expect(within(row).getByText('$29.25 / 1M tokens')).toBeVisible();
+    expect(within(row).getAllByRole('listitem')).toHaveLength(4);
+    expect(within(row).queryByText('按规则计费')).not.toBeInTheDocument();
+  });
+
   it('shows only exact input prices for both embeddings, with no output or legacy ratio price', async () => {
     renderModels(vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/api/status')
       ? statusResponse() : jsonResponse(publicPricingWithEmbeddings)));

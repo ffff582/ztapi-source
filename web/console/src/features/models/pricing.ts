@@ -13,30 +13,69 @@ const dimensionDetails: Record<string, { label: string; unit: string }> = {
 };
 const dimensionOrder = Object.keys(dimensionDetails);
 
-export function modelPriceDetails(model: PricingModel, pricing: PricingEnvelope, quotaPerUnit: number) {
+export interface ModelPriceDetail {
+  key: string;
+  dimension: string;
+  label: string;
+  price: string;
+}
+
+function rankDimension(dimension: string) {
+  const index = dimensionOrder.indexOf(dimension);
+  return index < 0 ? dimensionOrder.length : index;
+}
+
+function orderedDimensions(dimensions: string[]) {
+  return [...dimensions].sort(
+    (a, b) => rankDimension(a) - rankDimension(b) || a.localeCompare(b),
+  );
+}
+
+function formatSalePrice(value: string | undefined, unit: string) {
+  if (typeof value !== 'string' || value === '') return null;
+  const [whole, fraction = ''] = value.split('.');
+  const trimmed = fraction.replace(/0+$/, '');
+  return `$${whole}${trimmed ? `.${trimmed}` : ''} / ${unit}`;
+}
+
+export function modelPriceDetails(
+  model: PricingModel,
+  pricing: PricingEnvelope,
+  quotaPerUnit: number,
+): ModelPriceDetail[] {
+  // A model priced by tier publishes one set of prices per tier instead of a
+  // single rate, so every tier is listed with the condition it applies under.
+  if (model.token_price_rules && model.token_price_rules.length > 0) {
+    return model.token_price_rules.flatMap((rule, index) =>
+      orderedDimensions(Object.keys(rule.sale_usd)).flatMap((dimension) => {
+        const detail = dimensionDetails[dimension] ?? { label: dimension, unit: '计费单位' };
+        const price = formatSalePrice(rule.sale_usd[dimension], detail.unit);
+        if (price === null) return [];
+        const condition = rule.conditions.join('、');
+        return [{
+          key: `${index}-${dimension}`,
+          dimension,
+          label: condition ? `${detail.label}（${condition}）` : detail.label,
+          price,
+        }];
+      }),
+    );
+  }
+
   const saleUSD = model.sale_usd;
   if (!saleUSD || !model.billing_dimensions) {
     const legacy = modelPrices(model, pricing, quotaPerUnit);
     return [
-      { dimension: 'input_tokens', label: '输入', price: legacy.input },
-      { dimension: 'output_tokens', label: '输出', price: legacy.output },
+      { key: 'input_tokens', dimension: 'input_tokens', label: '输入', price: legacy.input },
+      { key: 'output_tokens', dimension: 'output_tokens', label: '输出', price: legacy.output },
     ];
   }
-  const rank = (dimension: string) => {
-    const index = dimensionOrder.indexOf(dimension);
-    return index < 0 ? dimensionOrder.length : index;
-  };
-  return [...model.billing_dimensions]
-    .sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))
-    .map((dimension) => {
-      const detail = dimensionDetails[dimension] ?? { label: dimension, unit: '计费单位' };
-      const [whole, fraction = ''] = saleUSD[dimension].split('.');
-      const trimmed = fraction.replace(/0+$/, '');
-      return {
-        dimension, label: detail.label,
-        price: `$${whole}${trimmed ? `.${trimmed}` : ''} / ${detail.unit}`,
-      };
-    });
+  return orderedDimensions(model.billing_dimensions).flatMap((dimension) => {
+    const detail = dimensionDetails[dimension] ?? { label: dimension, unit: '计费单位' };
+    const price = formatSalePrice(saleUSD[dimension], detail.unit);
+    if (price === null) return [];
+    return [{ key: dimension, dimension, label: detail.label, price }];
+  });
 }
 
 function formatPrice(value: number) {
