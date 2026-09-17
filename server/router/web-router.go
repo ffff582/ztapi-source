@@ -33,6 +33,9 @@ func SetWebRouter(router *gin.Engine, assets ThemeAssets) {
 	router.NoRoute(func(c *gin.Context) {
 		c.Set(middleware.RouteTagKey, "web")
 		if strings.HasPrefix(c.Request.RequestURI, "/v1") || strings.HasPrefix(c.Request.RequestURI, "/api") || strings.HasPrefix(c.Request.RequestURI, "/assets") {
+			// A cached "this route does not exist" outlives the release that
+			// adds the route, and the client never asks again.
+			c.Header("Cache-Control", "no-store")
 			controller.RelayNotFound(c)
 			return
 		}

@@ -216,6 +216,10 @@ async function performRequest<T>(
       ...init,
       headers,
       credentials: 'include',
+      // Account data is always read from the server. It also keeps a stale
+      // cached answer — a 404 from before a route existed, say — from
+      // outliving the release that fixed it.
+      cache: 'no-store',
     });
   } catch {
     throw new AuthClientError('unknown');

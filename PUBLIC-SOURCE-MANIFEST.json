@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "de2ea5934294fa7535d87dc742509ca744943f16",
+  "release_commit": "c1f23915be622b84e41a5f9831fb7e434cf5ac0d",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-de2ea5934294fa7535d87dc742509ca744943f16",
+  "source_tag": "production-c1f23915be622b84e41a5f9831fb7e434cf5ac0d",
   "files": [
     {
       "path": ".dockerignore",
@@ -21,8 +21,8 @@
     },
     {
       "path": ".github/workflows/ztapi-deploy.yml",
-      "sha256": "2da79028943566c917569f7e8dbfb5d05d98d57eee685354bee29e5a1cd05ffb",
-      "size": 177715
+      "sha256": "29ae6fb3cc00653bf60d00ab7be25adf9e6ccc7c62a30326e748b7e21700e89b",
+      "size": 178506
     },
     {
       "path": ".github/workflows/ztapi-edge-diagnostic.yml",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "1d083dbf9aa7ea85e53c7dfdf163908e0398391662814f2ce2e47350204500c4",
+      "sha256": "789f3923178e9ba6aa081d71bbc24a2b7f907adffae694a8f9c29ecb46c55839",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "2949b078e58e9697ae57e593cdd967c343348dc9b062dc1506d63c96de074f60",
+      "sha256": "99554a1686822bf4722692d65baf994931ca7dc73efd2478ae3047af7a78433a",
       "size": 942
     },
     {
@@ -1841,8 +1841,13 @@
     },
     {
       "path": "server/middleware/cache.go",
-      "sha256": "9240e9eb680daa5334322c59f2b6a1fb58b40a4046c6cb5d3e48cde960f191c7",
-      "size": 389
+      "sha256": "a6400feebe7278d2ca9f04adf692cdb421803caa4f82eb3a2bd57716264ace95",
+      "size": 968
+    },
+    {
+      "path": "server/middleware/cache_test.go",
+      "sha256": "2b6cda5e28fb1b9daa5ca282b3b4e859ecf9f3c8a48559ec2c27756b3018ace0",
+      "size": 1296
     },
     {
       "path": "server/middleware/cors.go",
@@ -4286,8 +4291,8 @@
     },
     {
       "path": "server/router/web-router.go",
-      "sha256": "5c71fdb44b87ef44e27bf5f007a0fc594b2f26f3ce050f6de40b2b1ff1ce49d6",
-      "size": 1456
+      "sha256": "fc0d382bfc54a48fd843345496cfb980af0c67959b4a02c3a692bf4c49d8c710",
+      "size": 1621
     },
     {
       "path": "server/router/ztapi_publication_test_helpers_test.go",
@@ -9286,8 +9291,8 @@
     },
     {
       "path": "tests/contracts/deployment-workflow.test.mjs",
-      "sha256": "29f6174b9e10b4aaada3c7a7a3cdb7e5e8f75a26da152f9916b142f5e22e4f1e",
-      "size": 31427
+      "sha256": "7e919171581d48d166390246a0e671f636e010d94cee2ad9c739577e4f558c55",
+      "size": 32395
     },
     {
       "path": "tests/contracts/deployment.test.mjs",
@@ -9475,9 +9480,14 @@
       "size": 61662
     },
     {
+      "path": "web/console/src/api/client.cache.test.ts",
+      "sha256": "62100fb852bc05c964c54764d2423460c6c7c9a160a9a98bb57ed45ba2a430a7",
+      "size": 1064
+    },
+    {
       "path": "web/console/src/api/client.ts",
-      "sha256": "3efc391d090c1b37783dfc58a98b52a3d65a1262a6392bf6cd8cc5aa2d6e0ad2",
-      "size": 10863
+      "sha256": "c1f0cc3a11cd762da832464df60acb5a1165cfa5ca15ae2928a40c2ec7f8a199",
+      "size": 11085
     },
     {
       "path": "web/console/src/api/contracts.embeddings.test.ts",

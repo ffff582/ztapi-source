@@ -375,7 +375,7 @@ test('ZTAPI deployment initializes privately before publishing Nginx', () => {
     /curl[\s\S]{0,200}--resolve ztapi\.vip:443:127\.0\.0\.1/,
   );
   assert.match(source, /for domain in ztapi\.vip www\.ztapi\.vip/);
-  assert.match(source, /dig \+short A "\$domain"/);
+  assert.match(source, /public_dns "\$domain" A 1/);
   assert.match(source, /--resolve ztapi\.vip:443:123\.254\.104\.157/);
 });
 
@@ -416,6 +416,22 @@ test('public endpoint verification tolerates bounded connection failures', () =>
     'the external release gate must prove the loopback acceptance port is unreachable',
   );
   assert.match(publicStep, /acceptance port 18081 is externally reachable/);
+});
+
+test('public endpoint verification reads real DNS records and pins the server address', () => {
+  const source = readFileSync(workflowPath, 'utf8');
+  const publicStepStart = source.indexOf('- name: Verify public endpoints');
+  const publicStepEnd = source.indexOf('- name:', publicStepStart + 10);
+  const publicStep = source.slice(publicStepStart, publicStepEnd);
+
+  // A runner behind a proxy resolver sees synthetic addresses, so the gate
+  // must not trust the local resolver for the public records.
+  assert.doesNotMatch(publicStep, /\bdig\b/);
+  assert.match(publicStep, /https:\/\/cloudflare-dns\.com\/dns-query\?name=\$1&type=\$2/);
+  assert.match(publicStep, /test "\$\(public_dns "\$domain" A 1\)" = "123\.254\.104\.157"/);
+  assert.match(publicStep, /test -z "\$\(public_dns "\$domain" AAAA 28\)"/);
+  // A proxy would ignore --resolve and could answer a closed port itself.
+  assert.match(publicStep, /public_curl\(\) \{\n\s+curl --noproxy '\*'/);
 });
 
 test('ZTAPI deployment reuses valid certificates and serializes renewal', () => {

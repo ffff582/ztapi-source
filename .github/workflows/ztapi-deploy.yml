@@ -3135,8 +3135,10 @@ jobs:
       - name: Verify public endpoints
         id: verify_public_endpoints
         run: |
+          # Server checks go straight to the pinned address: a proxy would
+          # ignore --resolve and could answer an unreachable port itself.
           public_curl() {
-            curl --silent --show-error \
+            curl --noproxy '*' --silent --show-error \
               --connect-timeout 10 \
               --max-time 30 \
               --retry 3 \
@@ -3145,9 +3147,21 @@ jobs:
               --retry-all-errors \
               "$@"
           }
+          # The runner's own resolver may be a proxy that answers with
+          # synthetic addresses, so public records are read over DNS-over-HTTPS.
+          public_dns() {
+            local answer
+            answer=$(curl --silent --show-error --fail \
+              --connect-timeout 10 --max-time 30 \
+              --retry 3 --retry-delay 2 --retry-all-errors \
+              --header 'accept: application/dns-json' \
+              "https://cloudflare-dns.com/dns-query?name=$1&type=$2")
+            jq -r --argjson type "$3" \
+              '.Answer[]? | select(.type == $type) | .data' <<< "$answer" | sort -u
+          }
           for domain in ztapi.vip www.ztapi.vip admin.ztapi.vip; do
-            test "$(dig +short A "$domain" | sort -u)" = "123.254.104.157"
-            test -z "$(dig +short AAAA "$domain")"
+            test "$(public_dns "$domain" A 1)" = "123.254.104.157"
+            test -z "$(public_dns "$domain" AAAA 28)"
           done
           public_status=$(public_curl --fail \
             --resolve ztapi.vip:443:123.254.104.157 \
