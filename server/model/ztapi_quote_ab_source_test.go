@@ -87,8 +87,8 @@ func TestZTAPIABExactIdentityAndTextPriceReadinessCounts(t *testing.T) {
 	require.NoError(t, err)
 	bridge, err := BuildZTAPIABQuotationIdentityBridge(quote, frozen)
 	require.NoError(t, err)
-	require.Len(t, bridge.Mapped, 42)
-	require.Len(t, bridge.Unmatched, 8)
+	require.Len(t, bridge.Mapped, 47)
+	require.Len(t, bridge.Unmatched, 3)
 	ready, blocked := 0, 0
 	for _, identity := range bridge.Mapped {
 		if _, err := BuildZTAPIABTextPriceSource(quote, identity.ModelName, 1, 7, 1_789_000_000); err == nil {
@@ -97,6 +97,6 @@ func TestZTAPIABExactIdentityAndTextPriceReadinessCounts(t *testing.T) {
 			blocked++
 		}
 	}
-	require.Equal(t, 35, ready)
-	require.Equal(t, 7, blocked)
+	require.Equal(t, 39, ready)
+	require.Equal(t, 8, blocked)
 }

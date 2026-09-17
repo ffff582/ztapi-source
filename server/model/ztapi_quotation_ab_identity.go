@@ -75,6 +75,19 @@ var ztapiABFrozenIdentityClaims = map[string]ztapiABFrozenIdentity{
 	"Text Embedding Ada 002":        {"text-embedding-ada-002", "zt-text-embedding-ada-002"},
 }
 
+// The 2026-09-15 workbook quotes models the first quotation never listed, so
+// they have no frozen row to inherit an identity from. Each one is declared
+// here against that workbook: the upstream ID is the provider's own model ID,
+// which a release confirms against the channel's fetched model list before it
+// imports a price or publishes anything.
+var ztapiABIntroducedIdentityClaims = map[string]ZTAPIABModelIdentity{
+	"GLM 5.3":       {SourceModel: "glm-5.3", PublicName: "zt-glm-5.3", Protocol: "openai_compatible", ProviderFamily: "glm", Modality: "text"},
+	"GLM 5.3 Flash": {SourceModel: "glm-5.3-flash", PublicName: "zt-glm-5.3-flash", Protocol: "openai_compatible", ProviderFamily: "glm", Modality: "text"},
+	"GPT 6 Astra":   {SourceModel: "gpt-6-astra", PublicName: "zt-gpt-6-astra", Protocol: "openai_compatible", ProviderFamily: "openai", Modality: "text"},
+	"Kimi K3":       {SourceModel: "kimi-k3", PublicName: "zt-kimi-k3", Protocol: "openai_compatible", ProviderFamily: "moonshot", Modality: "text"},
+	"Seedance 2.5":  {SourceModel: "doubao-seedance-2-5", PublicName: "zt-seedance-2.5", Protocol: "openai_compatible", ProviderFamily: "seedance", Modality: "video"},
+}
+
 // BuildZTAPIABQuotationIdentityBridge reports evidence only; it does not grant publication authority.
 func BuildZTAPIABQuotationIdentityBridge(quote ZTAPIABQuotationManifest, frozen []ZTAPIQuotationEntry) (ZTAPIABIdentityReport, error) {
 	report := ZTAPIABIdentityReport{WorkbookSHA256: quote.WorkbookSHA256, FrozenSHA256: ZTAPIQuotationSHA256}
@@ -103,10 +116,37 @@ func BuildZTAPIABQuotationIdentityBridge(quote ZTAPIABQuotationManifest, frozen 
 		}
 		cellsByName[entry.ModelName][entry.QuotationCell] = true
 	}
+	frozenByPublic := make(map[string]ZTAPIQuotationEntry, len(frozenBySource))
+	for _, entry := range frozenBySource {
+		frozenByPublic[entry.PublicName] = entry
+	}
+	introducedSeen := make(map[string]string, len(ztapiABIntroducedIdentityClaims))
 	for modelName, cells := range cellsByName {
 		claim, claimed := ztapiABFrozenIdentityClaims[modelName]
 		if !claimed {
-			report.Unmatched = append(report.Unmatched, modelName)
+			introduced, declared := ztapiABIntroducedIdentityClaims[modelName]
+			if !declared {
+				report.Unmatched = append(report.Unmatched, modelName)
+				continue
+			}
+			// A model introduced by this workbook must not take over an
+			// identity the frozen quotation already carries, and two of them
+			// must not claim the same one.
+			if _, taken := frozenBySource[introduced.SourceModel]; taken {
+				return report, fmt.Errorf("introduced identity %q is already frozen: %w", modelName, ErrZTAPIQuotationIdentityMismatch)
+			}
+			if _, taken := frozenByPublic[introduced.PublicName]; taken {
+				return report, fmt.Errorf("introduced public identity %q is already frozen: %w", modelName, ErrZTAPIQuotationIdentityMismatch)
+			}
+			for _, key := range []string{"source:" + introduced.SourceModel, "public:" + introduced.PublicName} {
+				if other, duplicate := introducedSeen[key]; duplicate {
+					return report, fmt.Errorf("introduced identity %q repeats %q: %w", modelName, other, ErrZTAPIQuotationIdentityMismatch)
+				}
+				introducedSeen[key] = modelName
+			}
+			introduced.ModelName = modelName
+			introduced.QuotationCells = sortedZTAPIQuotationCells(cells)
+			report.Mapped = append(report.Mapped, introduced)
 			continue
 		}
 		old, present := frozenBySource[claim.source]
@@ -122,15 +162,21 @@ func BuildZTAPIABQuotationIdentityBridge(quote ZTAPIABQuotationManifest, frozen 
 			Protocol: old.Protocol, ProviderFamily: old.ProviderFamily, Modality: old.Modality,
 			FrozenLabel: old.Label,
 		}
-		for cell := range cells {
-			identity.QuotationCells = append(identity.QuotationCells, cell)
-		}
-		sort.Strings(identity.QuotationCells)
+		identity.QuotationCells = sortedZTAPIQuotationCells(cells)
 		report.Mapped = append(report.Mapped, identity)
 	}
 	sort.Slice(report.Mapped, func(i, j int) bool { return report.Mapped[i].ModelName < report.Mapped[j].ModelName })
 	sort.Strings(report.Unmatched)
 	return report, nil
+}
+
+func sortedZTAPIQuotationCells(cells map[string]bool) []string {
+	ordered := make([]string, 0, len(cells))
+	for cell := range cells {
+		ordered = append(ordered, cell)
+	}
+	sort.Strings(ordered)
+	return ordered
 }
 
 func CurrentZTAPIABQuotationIdentityBridge() (ZTAPIABIdentityReport, error) {

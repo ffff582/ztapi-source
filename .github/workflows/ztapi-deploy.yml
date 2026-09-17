@@ -2077,6 +2077,239 @@ jobs:
           SQL
           )
           test "$blocked_media_count" = "0"
+          # Bring the models the 2026-09-15 A/B workbook adds into the catalog.
+          # The workbook owns identity and price: the server derives every
+          # figure from it, so nothing here can price a model. A model that has
+          # never been published still needs its own paid upstream verification,
+          # which is why this runs only outside no-paid acceptance.
+          roll_out_quoted_models() {
+          quoted_workbook_checksum=$(jq -er ".workbook_sha256" /opt/ztapi/server/model/ztapi_quotation_ab_20260915.json)
+          test "${#quoted_workbook_checksum}" = 64
+          quoted_rollout_tsv=$(mktemp /tmp/ztapi-quoted-rollout.XXXXXX)
+          cat > "$quoted_rollout_tsv" <<'QUOTED_ROLLOUT'
+          Kimi K3	kimi-k3	zt-kimi-k3	moonshot	text	sibling:zt-kimi-k2.6
+          GPT 6 Astra	gpt-6-astra	zt-gpt-6-astra	openai	text	sibling:zt-gpt-5.6-sol
+          GLM 5.3	glm-5.3	zt-glm-5.3	glm	text	channel:Yunxin enterprise
+          GLM 5.3 Flash	glm-5.3-flash	zt-glm-5.3-flash	glm	text	channel:Yunxin enterprise
+          Seedance 2.5	doubao-seedance-2-5	zt-seedance-2.5	seedance	video	channel:Yunxin enterprise
+          QUOTED_ROLLOUT
+          quoted_rollout_published=""
+          quoted_rollout_skipped=""
+          while IFS=$'\t' read -r quoted_name quoted_source quoted_public quoted_family quoted_modality quoted_route; do
+            test -n "$quoted_name" || continue
+            case "$quoted_route" in
+              sibling:*)
+                quoted_sibling="${quoted_route#sibling:}"
+                quoted_channel_id=$("${compose[@]}" exec -T mysql sh -c \
+                  'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names' <<SQL
+          SELECT channel.id
+          FROM channels AS channel
+          JOIN ztapi_model_configs AS config
+            ON config.published = 1 AND config.public_name = '$quoted_sibling'
+          JOIN ztapi_model_publication_snapshots AS snapshot
+            ON snapshot.id = config.publication_snapshot_id
+           AND JSON_CONTAINS(snapshot.allowed_channel_ids, CAST(channel.id AS JSON))
+          WHERE channel.status = 1
+            AND channel.ztapi_managed = 1
+            AND FIND_IN_SET('default', channel.\`group\`) > 0
+          ORDER BY channel.id ASC
+          LIMIT 1;
+          SQL
+                )
+                ;;
+              channel:*)
+                quoted_channel_name="${quoted_route#channel:}"
+                quoted_channel_id=$("${compose[@]}" exec -T mysql sh -c \
+                  'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names' <<SQL
+          SELECT channel.id
+          FROM channels AS channel
+          WHERE channel.status = 1
+            AND channel.ztapi_managed = 1
+            AND channel.name = '$quoted_channel_name'
+            AND FIND_IN_SET('default', channel.\`group\`) > 0
+          ORDER BY COALESCE(channel.priority, 0) ASC, channel.id ASC
+          LIMIT 1;
+          SQL
+                )
+                ;;
+              *)
+                echo "$quoted_name has an unsupported route selector" >&2
+                exit 1
+                ;;
+            esac
+            if [[ ! "$quoted_channel_id" =~ ^[1-9][0-9]*$ ]]; then
+              echo "no enabled managed route is available for $quoted_name" >&2
+              exit 1
+            fi
+            # Discovery is a free model listing. It also proves the quoted
+            # upstream ID is one this channel actually serves, so a name taken
+            # from the quotation can never become a route on its own.
+            quoted_discovery=$(curl --fail --silent --show-error \
+              --resolve admin.ztapi.vip:443:127.0.0.1 \
+              --header "Authorization: Bearer $admin_access_token" \
+              --header "New-API-User: $admin_user_id" \
+              "https://admin.ztapi.vip/api/channel/ztapi/fetch_models/$quoted_channel_id?import=true")
+            if ! echo "$quoted_discovery" | jq -e --arg source "$quoted_source" \
+                '.success == true and any(.data.model_ids[]; . == $source)' >/dev/null; then
+              echo "upstream channel $quoted_channel_id does not serve $quoted_source; $quoted_name is not listed" >&2
+              # Name what the channel does serve nearby, so a quoted ID the
+              # provider spells differently is corrected from evidence rather
+              # than from another guess.
+              echo "$quoted_discovery" | jq -r --arg source "$quoted_source" \
+                '.data.model_ids[] | select(startswith($source | .[0:6]))' | head -20 >&2 || true
+              quoted_rollout_skipped="${quoted_rollout_skipped}${quoted_public}:absent "
+              continue
+            fi
+            quoted_model_list=$(curl --fail --silent --show-error \
+              --resolve admin.ztapi.vip:443:127.0.0.1 \
+              --header "Authorization: Bearer $admin_access_token" \
+              --header "New-API-User: $admin_user_id" \
+              "https://admin.ztapi.vip/api/models/ztapi/?keyword=$quoted_source&page_size=100")
+            quoted_model=$(echo "$quoted_model_list" | jq -cer --arg source "$quoted_source" \
+              '.data.items | map(select(.source_model == $source)) | select(length == 1) | .[0]')
+            quoted_model_id=$(echo "$quoted_model" | jq -er '.id')
+            if echo "$quoted_model" | jq -e '.published == true' >/dev/null; then
+              quoted_rollout_published="${quoted_rollout_published}${quoted_public} "
+              continue
+            fi
+            if ! echo "$quoted_model" | jq -e --arg public "$quoted_public" --arg family "$quoted_family" '
+                .public_name == $public
+                and .protocol == "openai_compatible"
+                and .provider_family == $family' >/dev/null; then
+              quoted_identity_payload=$(echo "$quoted_model" | jq -c \
+                --arg source "$quoted_source" \
+                --arg public "$quoted_public" \
+                --arg family "$quoted_family" \
+                --arg checksum "$quoted_workbook_checksum" '
+                  {
+                    version:.version,
+                    source_model:$source,
+                    public_name:$public,
+                    protocol:"openai_compatible",
+                    provider_family:$family,
+                    source_reference:("quotation:" + $checksum + ":" + $source),
+                    reason:"adopt the 2026-09-15 A/B quotation identity",
+                    confirm:true
+                  }')
+              quoted_identity_result=$(printf '%s' "$quoted_identity_payload" | curl --fail --silent --show-error \
+                --request PUT \
+                --resolve admin.ztapi.vip:443:127.0.0.1 \
+                --header 'Content-Type: application/json' \
+                --header "Authorization: Bearer $admin_access_token" \
+                --header "New-API-User: $admin_user_id" \
+                --data-binary @- \
+                "https://admin.ztapi.vip/api/models/ztapi/$quoted_model_id/identity")
+              echo "$quoted_identity_result" | jq -e --arg public "$quoted_public" \
+                '.success == true and .data.model.public_name == $public' >/dev/null
+            fi
+            quoted_model=$(curl --fail --silent --show-error \
+              --resolve admin.ztapi.vip:443:127.0.0.1 \
+              --header "Authorization: Bearer $admin_access_token" \
+              --header "New-API-User: $admin_user_id" \
+              "https://admin.ztapi.vip/api/models/ztapi/$quoted_model_id" | jq -cer '.data')
+            quoted_price_payload=$(echo "$quoted_model" | jq -c --arg quoted "$quoted_name" '
+              {
+                version:.version,
+                quotation_model:$quoted,
+                quotation_effective_at:1789401600,
+                reason:"derive the price from the 2026-09-15 A/B quotation",
+                confirm:true
+              }')
+            quoted_price_result=$(printf '%s' "$quoted_price_payload" | curl --fail --silent --show-error \
+              --resolve admin.ztapi.vip:443:127.0.0.1 \
+              --header 'Content-Type: application/json' \
+              --header "Authorization: Bearer $admin_access_token" \
+              --header "New-API-User: $admin_user_id" \
+              --data-binary @- \
+              "https://admin.ztapi.vip/api/models/ztapi/$quoted_model_id/price-sources")
+            echo "$quoted_price_result" | jq -e --arg checksum "$quoted_workbook_checksum" '
+              .success == true
+              and .data.price_source.source_document_checksum == $checksum' >/dev/null
+            quoted_verification=$(jq -cn --argjson channel_id "$quoted_channel_id" \
+              '{channel_id:$channel_id}' | curl --fail --silent --show-error --max-time 420 \
+                --resolve admin.ztapi.vip:443:127.0.0.1 \
+                --header 'Content-Type: application/json' \
+                --header "Authorization: Bearer $admin_access_token" \
+                --header "New-API-User: $admin_user_id" \
+                --data-binary @- \
+                "https://admin.ztapi.vip/api/models/ztapi/$quoted_model_id/verify")
+            if [ "$quoted_modality" = video ]; then
+              echo "$quoted_verification" | jq -e '
+                .success == true
+                and .data.verification.modality == "video"
+                and .data.verification.streaming_required == false
+                and .data.verification.non_streaming_passed == true
+                and .data.verification.usage_reconciled == true
+                and .data.verification.media_result_valid == true
+                and .data.verification.video_create_passed == true
+                and .data.verification.video_fetch_passed == true
+                and .data.verification.video_terminal_passed == true
+                and .data.verification.video_restart_recovery_passed == true
+                and .data.verification.video_settlement_idempotence_passed == true
+                and (.data.verification.video_protocol_contract | length) > 0' >/dev/null
+            else
+              echo "$quoted_verification" | jq -e '
+                .success == true
+                and .data.verification.modality == "text"
+                and .data.verification.non_streaming_passed == true
+                and (.data.verification.streaming_required == false
+                     or .data.verification.streaming_passed == true)
+                and .data.verification.usage_reconciled == true
+                and .data.verification.invalid_key_classified == true
+                and .data.verification.insufficient_balance_classified == true
+                and .data.verification.rate_limit_classified == true
+                and .data.verification.timeout_classified == true' >/dev/null
+            fi
+            quoted_model=$(curl --fail --silent --show-error \
+              --resolve admin.ztapi.vip:443:127.0.0.1 \
+              --header "Authorization: Bearer $admin_access_token" \
+              --header "New-API-User: $admin_user_id" \
+              "https://admin.ztapi.vip/api/models/ztapi/$quoted_model_id" | jq -cer '.data')
+            quoted_publish_payload=$(echo "$quoted_model" | jq -c '
+              {
+                version:.version,
+                source_model:.source_model,
+                public_name:.public_name,
+                family:.family,
+                input_cost_per_million:.input_cost_per_million,
+                output_cost_per_million:.output_cost_per_million,
+                input_price_per_million:.input_price_per_million,
+                output_price_per_million:.output_price_per_million,
+                cache_read_ratio:.cache_read_ratio,
+                cache_creation_ratio:.cache_creation_ratio,
+                cache_creation_5m_ratio:.cache_creation_5m_ratio,
+                cache_creation_1h_ratio:.cache_creation_1h_ratio,
+                image_ratio:.image_ratio,
+                audio_ratio:.audio_ratio,
+                audio_completion_ratio:.audio_completion_ratio,
+                enabled_groups:["default"],
+                published:true,
+                confirm_below_cost:false
+              }')
+            quoted_publish_result=$(printf '%s' "$quoted_publish_payload" | curl --fail --silent --show-error \
+              --request PUT \
+              --resolve admin.ztapi.vip:443:127.0.0.1 \
+              --header 'Content-Type: application/json' \
+              --header "Authorization: Bearer $admin_access_token" \
+              --header "New-API-User: $admin_user_id" \
+              --data-binary @- \
+              "https://admin.ztapi.vip/api/models/ztapi/$quoted_model_id")
+            echo "$quoted_publish_result" | jq -e --arg public "$quoted_public" \
+              '.success == true and .data.published == true and .data.public_name == $public' >/dev/null
+            quoted_rollout_published="${quoted_rollout_published}${quoted_public} "
+          done < "$quoted_rollout_tsv"
+          rm -f "$quoted_rollout_tsv"
+          }
+          # A model that has never been published cannot be published without
+          # its own paid upstream verification, so no-paid acceptance leaves the
+          # catalog exactly as it found it.
+          if [ "$ZTAPI_NO_PAID_ACCEPTANCE" != true ]; then
+            roll_out_quoted_models
+            write_receipt quoted_rollout "published=${quoted_rollout_published:-none} skipped=${quoted_rollout_skipped:-none}"
+          else
+            write_receipt quoted_rollout "published=none skipped=no_paid_acceptance"
+          fi
+          require_receipt quoted_rollout
           test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
             --resolve ztapi.vip:443:127.0.0.1 \
             https://ztapi.vip/v1/models)" = "401"
@@ -2432,9 +2665,15 @@ jobs:
             echo 'zt-seedance-2.0'
             echo 'zt-seedance-2.0-fast'
             echo 'zt-seedance-2.0-mini'
+            # Models this release listed from the A/B workbook belong in the
+            # catalog an ordinary user sees, exactly like the frozen ones.
+            for quoted_published_name in $quoted_rollout_published; do
+              echo "$quoted_published_name"
+            done
           } | LC_ALL=C sort -u > "$expected_published_models"
           expected_pricing_model_count=$(jq -er 'length' "$pricing_baseline")
-          expected_public_model_count=$((expected_pricing_model_count + 5))
+          quoted_rollout_count=$(set -- $quoted_rollout_published; echo $#)
+          expected_public_model_count=$((expected_pricing_model_count + 5 + quoted_rollout_count))
           test "$(wc -l < "$expected_published_models" | tr -d ' ')" = "$expected_public_model_count"
           jq -r '[.entries[] | select(.status == "mapping_pending" and .public_name != "") | .public_name] | unique[]' \
             "$quotation" | LC_ALL=C sort > "$expected_unpublished_models"

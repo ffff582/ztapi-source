@@ -9,6 +9,7 @@ var ztapiSeedanceProviderModels = map[string]struct{}{
 	"doubao-seedance-2.0":      {},
 	"doubao-seedance-2-0-fast": {},
 	"doubao-seedance-2-0-mini": {},
+	"doubao-seedance-2-5":      {},
 }
 
 // BuildZTAPISeedanceProtocolContract returns the paid-verified AIHub surface.

@@ -198,7 +198,10 @@ func validateZTAPIMediaPriceMatrix(modality string, conditionKeys []string, rule
 			add(tier, map[string]string{"prompt_tokens_tier": tier}, ztapiMediaDimensionInputTokens, ztapiMediaDimensionOutputTokens)
 		}
 	case modality == ztapiMediaModalityVideo && shape == "contains_video_input,resolution":
-		for _, resolution := range []string{"480p", "720p", "1080p", "4k"} {
+		// A model that is not quoted at 4K prices the other three resolutions
+		// in full; every other omission still leaves the matrix incomplete,
+		// and an unpriced resolution can never be selected or reserved.
+		for _, resolution := range ztapiVideoPricedResolutions(rules) {
 			for _, containsVideo := range []string{"false", "true"} {
 				id := resolution + "_video_" + containsVideo
 				add(id, map[string]string{"contains_video_input": containsVideo, "resolution": resolution}, ztapiMediaDimensionInputTokens)
@@ -220,6 +223,17 @@ func validateZTAPIMediaPriceMatrix(modality string, conditionKeys []string, rule
 		}
 	}
 	return nil
+}
+
+// ztapiVideoPricedResolutions returns the resolution set a matrix must cover:
+// all four, or the three below 4K when 4K is not priced at all.
+func ztapiVideoPricedResolutions(rules []ZTAPIMediaPriceRule) []string {
+	for _, rule := range rules {
+		if rule.Conditions["resolution"] == "4k" {
+			return []string{"480p", "720p", "1080p", "4k"}
+		}
+	}
+	return []string{"480p", "720p", "1080p"}
 }
 
 func ValidateZTAPIImagePriceProtocolCompatibility(price ZTAPIMediaPriceContract, protocol ZTAPIImageProtocolContract) error {

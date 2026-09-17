@@ -16,5 +16,13 @@ func ZTAPIModelModality(sourceModel string) string {
 			}
 		}
 	}
+	// A model the A/B workbook introduces has no row in the first quotation, so
+	// its modality comes from the identity that workbook declares. Without this
+	// a video model would be billed and routed as text.
+	for _, identity := range ztapiABIntroducedIdentityClaims {
+		if identity.SourceModel == sourceModel {
+			return identity.Modality
+		}
+	}
 	return ZTAPIModalityText
 }

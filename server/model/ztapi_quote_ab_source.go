@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/QuantumNous/new-api/types"
 	"github.com/shopspring/decimal"
 )
 
@@ -213,6 +214,9 @@ func validateZTAPIABPriceSource(source *ZTAPIModelPriceSource) error {
 	if source.SourceModel == "gpt-image-2" {
 		return validateZTAPIABImage2PriceSource(quote, source)
 	}
+	if source.MediaPriceContractJSON != "" && ZTAPIModelModality(source.SourceModel) == ZTAPIModalityVideo {
+		return validateZTAPIABVideoPriceSource(quote, source)
+	}
 	identities, err := ZTAPIQuotationEntries()
 	if err != nil {
 		return err
@@ -288,6 +292,50 @@ func ztapiABPriceSourceEvidenceMismatch(actual, expected *ZTAPIModelPriceSource)
 	return ""
 }
 
+// validateZTAPIABVideoPriceSource rebuilds a stored video price from the
+// workbook and the rate the source itself froze, so an imported price can
+// never say something the quotation does not.
+func validateZTAPIABVideoPriceSource(quote ZTAPIABQuotationManifest, source *ZTAPIModelPriceSource) error {
+	identities, err := ZTAPIQuotationEntries()
+	if err != nil {
+		return err
+	}
+	bridge, err := BuildZTAPIABQuotationIdentityBridge(quote, identities)
+	if err != nil {
+		return err
+	}
+	modelName := ""
+	for _, claim := range bridge.Mapped {
+		if claim.SourceModel == source.SourceModel {
+			modelName = claim.ModelName
+			break
+		}
+	}
+	if modelName == "" {
+		return errors.New("A/B video price source has no exact model identity")
+	}
+	fxParams, err := ztapiABFXParamsFromSource(source)
+	if err != nil {
+		return err
+	}
+	video, _, err := types.BuildZTAPISeedanceProtocolContract(source.SourceModel)
+	if err != nil {
+		return err
+	}
+	expected, err := BuildZTAPIABSeedanceOriginalResourcePriceSource(quote, modelName, &video,
+		source.ModelConfigID, source.OperatorID, source.QuotationEffectiveAt, fxParams)
+	if err != nil {
+		return err
+	}
+	if source.MediaPriceContractJSON != expected.MediaPriceContractJSON {
+		return errors.New("A/B video price source media contract does not match the exact workbook")
+	}
+	if field := ztapiABPriceSourceEvidenceMismatch(source, &expected); field != "" {
+		return fmt.Errorf("A/B quote source %s does not match the exact workbook", field)
+	}
+	return nil
+}
+
 func validateZTAPIABImage2PriceSource(quote ZTAPIABQuotationManifest, source *ZTAPIModelPriceSource) error {
 	var row ZTAPIABQuotationEntry
 	for _, candidate := range quote.Entries {
@@ -333,4 +381,54 @@ func validateZTAPIABImage2PriceSource(quote ZTAPIABQuotationManifest, source *ZT
 		}
 	}
 	return nil
+}
+
+// BuildZTAPIQuotedModelPriceSource derives one quoted model's price from the
+// A/B workbook and the platform FX policy in force. It is the only way a new
+// quoted model's price enters the catalog: the caller names the model, and
+// every figure comes from the audited workbook rather than from the caller.
+func BuildZTAPIQuotedModelPriceSource(modelName string, modelConfigID, operatorID int, effectiveAt int64) (ZTAPIModelPriceSource, error) {
+	if DB == nil {
+		return ZTAPIModelPriceSource{}, errors.New("ZTAPI database is not initialized")
+	}
+	quote, err := ZTAPIQuotationABEntries()
+	if err != nil {
+		return ZTAPIModelPriceSource{}, err
+	}
+	identities, err := ZTAPIQuotationEntries()
+	if err != nil {
+		return ZTAPIModelPriceSource{}, err
+	}
+	bridge, err := BuildZTAPIABQuotationIdentityBridge(quote, identities)
+	if err != nil {
+		return ZTAPIModelPriceSource{}, err
+	}
+	identity := ZTAPIABModelIdentity{}
+	for _, claim := range bridge.Mapped {
+		if claim.ModelName == modelName {
+			identity = claim
+			break
+		}
+	}
+	if identity.SourceModel == "" {
+		return ZTAPIModelPriceSource{}, fmt.Errorf("quotation model %q has no exact identity", modelName)
+	}
+	fxParams, err := currentZTAPIABFXParams(DB)
+	if err != nil {
+		return ZTAPIModelPriceSource{}, err
+	}
+	switch identity.Modality {
+	case ZTAPIModalityText, ZTAPIModalityEmbedding:
+		return BuildZTAPIABTextPriceSourceWithFX(quote, modelName, modelConfigID, operatorID, effectiveAt, fxParams)
+	case ZTAPIModalityVideo:
+		video, _, protocolErr := types.BuildZTAPISeedanceProtocolContract(identity.SourceModel)
+		if protocolErr != nil {
+			return ZTAPIModelPriceSource{}, protocolErr
+		}
+		return BuildZTAPIABSeedanceOriginalResourcePriceSource(quote, modelName, &video,
+			modelConfigID, operatorID, effectiveAt, fxParams)
+	default:
+		// Image pricing keeps its own frozen bucket evidence.
+		return ZTAPIModelPriceSource{}, fmt.Errorf("quotation model %q has no derived price path", modelName)
+	}
 }

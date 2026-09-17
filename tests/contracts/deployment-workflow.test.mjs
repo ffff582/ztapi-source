@@ -750,3 +750,51 @@ test('ZTAPI deployment persists and verifies runtime branding', () => {
   assert.match(source, /grep -q '"system_name":"ZTAPI"'/);
   assert.match(source, /grep -q '"server_address":"https:\\\/\\\/ztapi\.vip"'/);
 });
+
+test('newly quoted models are priced by the server and never by the release script', () => {
+  const source = readText(workflowPath);
+  const start = source.indexOf('roll_out_quoted_models() {');
+  const end = source.indexOf('require_receipt quoted_rollout', start);
+
+  assert.ok(start >= 0, 'the quoted-model rollout must exist');
+  assert.ok(end > start, 'the rollout must record a receipt');
+  const rollout = source.slice(start, end);
+
+  for (const quoted of [
+    'Kimi K3\tkimi-k3\tzt-kimi-k3',
+    'GPT 6 Astra\tgpt-6-astra\tzt-gpt-6-astra',
+    'GLM 5.3\tglm-5.3\tzt-glm-5.3',
+    'GLM 5.3 Flash\tglm-5.3-flash\tzt-glm-5.3-flash',
+    'Seedance 2.5\tdoubao-seedance-2-5\tzt-seedance-2.5',
+  ]) {
+    assert.ok(rollout.includes(quoted), `${quoted.split('\t')[0]} must be rolled out`);
+  }
+
+  // The price request names the quoted model and carries no figures: a price
+  // typed into this file could otherwise reach the catalog.
+  assert.ok(rollout.includes('quotation_model:$quoted'));
+  for (const figure of [
+    'input_per_million',
+    'output_per_million',
+    'cache_read_per_million',
+    'media_price_contract',
+    'price_policy',
+  ]) {
+    assert.ok(!rollout.includes(figure), `${figure} must not be stated by the release`);
+  }
+
+  // An upstream ID taken from a quotation is not a route: the channel has to
+  // serve it, and a first publication has to pass its own paid verification.
+  assert.ok(rollout.includes('fetch_models/$quoted_channel_id?import=true'));
+  assert.ok(rollout.includes('any(.data.model_ids[]; . == $source)'));
+  assert.ok(rollout.includes('/verify"'));
+  assert.ok(rollout.includes('.data.verification.video_settlement_idempotence_passed == true'));
+  assert.ok(rollout.includes('.data.verification.invalid_key_classified == true'));
+
+  const guard = source.slice(end - 700, end);
+  assert.ok(
+    guard.includes('if [ "$ZTAPI_NO_PAID_ACCEPTANCE" != true ]; then'),
+    'no-paid acceptance must not publish a model that was never verified',
+  );
+  assert.ok(guard.includes('skipped=no_paid_acceptance'));
+});

@@ -185,3 +185,27 @@ func TestZTAPIModelVerificationHandlerDoesNotEchoUpstreamFailure(t *testing.T) {
 	require.Contains(t, recorder.Body.String(), `"status_category":"upstream_response"`)
 	require.NotContains(t, recorder.Body.String(), "RAW_UPSTREAM_SECRET_RESPONSE")
 }
+
+// A release names the quoted model; the figures come from the workbook. Prices
+// a caller types in are ignored, so a release script cannot price a model.
+func TestBuildZTAPIModelPriceSourceDerivesQuotedModelAndIgnoresSubmittedFigures(t *testing.T) {
+	setupZTAPIModelEvidenceControllerTestDB(t)
+	request := ztapiModelPriceSourceRequest{
+		QuotationModel: "Kimi K3", QuotationEffectiveAt: 1_789_000_000,
+		SourceModel: "not-the-quoted-model", ResourceType: "enterprise",
+		PricePolicy: "enterprise_40_margin", InputPerMillion: "0.0000000001",
+		BillingDimensions: []string{"input_tokens"}, Currency: "USD",
+	}
+	source, err := buildZTAPIModelPriceSource(17, 9, request)
+	require.NoError(t, err)
+	require.Equal(t, "kimi-k3", source.SourceModel)
+	require.Equal(t, "pool", source.ResourceType)
+	require.Equal(t, "pool_30_margin", source.PricePolicy)
+	require.NotEqual(t, "0.0000000001", source.InputPerMillion)
+	require.Equal(t, 17, source.ModelConfigID)
+	require.Equal(t, 9, source.OperatorID)
+
+	request.QuotationModel = "Gemini 3.8 Flash"
+	_, err = buildZTAPIModelPriceSource(17, 9, request)
+	require.Error(t, err)
+}

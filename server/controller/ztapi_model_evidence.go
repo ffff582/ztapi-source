@@ -50,6 +50,10 @@ type ztapiModelPriceSourceRequest struct {
 	SourceDocumentChecksum string   `json:"source_document_checksum"`
 	Reason                 string   `json:"reason"`
 	Confirm                bool     `json:"confirm"`
+	// QuotationModel asks the server to derive every price from the A/B
+	// workbook itself. A caller then states which quoted model it means and
+	// nothing else; no submitted figure can enter the catalog.
+	QuotationModel string `json:"quotation_model"`
 }
 
 type ztapiModelVerificationRequest struct {
@@ -121,6 +125,9 @@ func UpdateZTAPIModelIdentity(c *gin.Context) {
 }
 
 func buildZTAPIModelPriceSource(id int, operatorID int, request ztapiModelPriceSourceRequest) (model.ZTAPIModelPriceSource, error) {
+	if name := strings.TrimSpace(request.QuotationModel); name != "" {
+		return model.BuildZTAPIQuotedModelPriceSource(name, id, operatorID, request.QuotationEffectiveAt)
+	}
 	dimensions, err := json.Marshal(request.BillingDimensions)
 	if err != nil {
 		return model.ZTAPIModelPriceSource{}, err

@@ -187,8 +187,17 @@ func TestPreviewZTAPIABCommercialPricingSeparatesReadyAndBlocked(t *testing.T) {
 	preview, err := PreviewZTAPIABCommercialPricing()
 	require.NoError(t, err)
 	require.Equal(t, 50, preview.QuotedModels)
-	require.Len(t, preview.PricingReady, 35)
-	require.Len(t, preview.Blocked, 15)
+	require.Len(t, preview.PricingReady, 39)
+	require.Len(t, preview.Blocked, 11)
+	readyNames := map[string]bool{}
+	for _, item := range preview.PricingReady {
+		readyNames[item.ModelName] = true
+	}
+	// The 2026-09-15 workbook introduces these four text models; they price
+	// from the same basis as the models they sit beside.
+	for _, name := range []string{"GLM 5.3", "GLM 5.3 Flash", "GPT 6 Astra", "Kimi K3"} {
+		require.True(t, readyNames[name], "%s is quoted but not priced", name)
+	}
 	for _, item := range preview.PricingReady {
 		if item.ModelName == "GPT 5.6 Sol" {
 			require.Equal(t, "A", item.QuotationGrade)
