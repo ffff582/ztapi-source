@@ -113,6 +113,9 @@ func SetApiRouter(router *gin.Engine) {
 			{
 				selfRoute.GET("/self/groups", controller.GetUserGroups)
 				selfRoute.GET("/self", controller.GetSelf)
+				// The console reads reserved settlements under /self like the
+				// rest of the account; the bare path stays for older clients.
+				selfRoute.GET("/self/pending-settlements", controller.GetSelfZTAPIRequestSettlements)
 				selfRoute.GET("/pending-settlements", controller.GetSelfZTAPIRequestSettlements)
 				selfRoute.GET("/models", controller.GetUserModels)
 				selfRoute.PUT("/self", controller.UpdateSelf)

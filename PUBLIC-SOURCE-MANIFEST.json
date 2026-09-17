@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "9517af463559b8e7f9a6bbd09684edb9d2697e53",
+  "release_commit": "c614f9d7959986a016c673b88d39860e03f71398",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-9517af463559b8e7f9a6bbd09684edb9d2697e53",
+  "source_tag": "production-c614f9d7959986a016c673b88d39860e03f71398",
   "files": [
     {
       "path": ".dockerignore",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "21a73b28ef873e10a196da085b302a659482fc4b15f2b289e86a379b6e08622c",
+      "sha256": "c05d80764795167a1b94e22895108d38167c5c2165ac92a81ce1d892eb3d5c62",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "34b220d076415fb7b0df7273ca8b16cfc9b66251aa336762361ce54a9d00fd0b",
+      "sha256": "bcfaa3d570120703f5708ad5facf0771bbe05fbf72c07ae5179653e1e9f142b1",
       "size": 942
     },
     {
@@ -4206,8 +4206,8 @@
     },
     {
       "path": "server/router/api-router.go",
-      "sha256": "34ffaeb7281fc02950cb5cd025e0e7ea9d5818fced1ebb5276569df6695a3a25",
-      "size": 36205
+      "sha256": "4c81a4a41faca1710af20dc92ccd12a40953c7312012c9ffcaac7388301660e6",
+      "size": 36429
     },
     {
       "path": "server/router/auth_refresh_rate_limit_test.go",
@@ -4223,6 +4223,11 @@
       "path": "server/router/auth_router_test.go",
       "sha256": "8fdaf18627051d800b523d84a7279625a426f6c627a2ea0a92ef490415d3b716",
       "size": 11404
+    },
+    {
+      "path": "server/router/console_routes_test.go",
+      "sha256": "edcb4b7d10d611ebb353654fdf573c1965558bfd44c2703ab7b2ed2f2126cac7",
+      "size": 726
     },
     {
       "path": "server/router/dashboard.go",
