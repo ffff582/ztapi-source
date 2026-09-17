@@ -340,6 +340,11 @@ async function installAdminAPI(page: Page, unexpected: string[]) {
       await route.fulfill({ json: adminSession });
       return;
     }
+    // The console reads the U conversion rate once for every amount it shows.
+    if (url.pathname === '/api/status') {
+      await fulfill(route, { quota_per_unit: 500000 });
+      return;
+    }
     if (url.pathname === '/api/models/ztapi/') {
       await fulfill(route, {
         items: [adminModel],
