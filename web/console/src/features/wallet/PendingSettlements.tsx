@@ -2,7 +2,7 @@ import { ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 import { useCallback, useState } from 'react';
 import { apiClient } from '../../api/client';
 import { DataContractError, parseRuntimeStatus } from '../../api/contracts';
-import { formatAccountUSD } from './AccountBalance';
+import { formatAccountUnits } from './AccountBalance';
 import { useAccountResource } from './useAccountResource';
 import { localeTag, useLocale } from '../../i18n/locale';
 
@@ -100,7 +100,7 @@ export function PendingSettlements() {
                   <small>{new Date(item.created_at).toLocaleString(localeTag(locale), { hour12: false })}</small>
                 </td>
                 <td data-label={t('模型')} style={{ overflowWrap: 'anywhere', whiteSpace: 'normal', maxWidth: 280 }}>{item.model}</td>
-                <td data-label={t('预留金额 (USD)')}>{formatAccountUSD(item.amount)}</td>
+                <td data-label={t('预留金额 (U)')}>{formatAccountUnits(item.amount)}</td>
                 <td data-label={t('状态')}><span className="console-status console-status--info">
                   {t(item.status === 'reserved' ? '预留中' : '待核账')}
                 </span></td>

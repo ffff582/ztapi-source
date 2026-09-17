@@ -101,7 +101,7 @@ describe('ZTAPI user log pagination', () => {
     });
     expect(screen.getByText('ztapi-newest')).toBeVisible();
     expect(screen.getByText('zt-claude-sonnet-5')).toBeVisible();
-    expect(screen.getByText('$0.004321')).toBeVisible();
+    expect(screen.getByText('0.004321 U')).toBeVisible();
     expect(screen.getByText('本次实际扣费')).toBeVisible();
     expect(screen.getByText('输入 120')).toBeVisible();
     expect(screen.getByText('输出 48')).toBeVisible();

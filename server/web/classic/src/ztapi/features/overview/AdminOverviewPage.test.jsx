@@ -159,7 +159,7 @@ describe('AdminOverviewPage', () => {
     render(<AdminOverviewPage />);
 
     expect((await screen.findByText('请求数')).parentElement).toHaveTextContent('12请求数');
-    expect(screen.getByText('已计费额度').parentElement).toHaveTextContent('480已计费额度');
+    expect(screen.getByText('已计费').parentElement).toHaveTextContent('0.00096 U已计费');
     expect(screen.getByText('状态 1')).toBeVisible();
     expect(screen.getByLabelText('2025-08-01：8 次请求，320 已计费额度')).toBeVisible();
     expect(screen.getByText('请求失败')).toBeVisible();

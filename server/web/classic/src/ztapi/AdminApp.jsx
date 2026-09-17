@@ -39,6 +39,7 @@ import AdminChannelsPage from './features/channels/AdminChannelsPage.jsx';
 import AdminModelsPage from './features/models/AdminModelsPage.jsx';
 import FXPricingPage from './features/pricing/FXPricingPage.jsx';
 import AdminUsersPage from './features/users/AdminUsersPage.jsx';
+import { QuotaPerUnitProvider } from './quota.jsx';
 import StaffRolesPage from './features/users/StaffRolesPage.jsx';
 import OrdersPage from './features/finance/OrdersPage.jsx';
 import LedgerPage from './features/finance/LedgerPage.jsx';
@@ -215,6 +216,10 @@ function AdminRoutes() {
               canChangeStatus={userCanChangeStatus}
               canResetPassword={userCanResetPassword}
               canViewLedger={userCanViewLedger}
+              canViewLogs={hasAdminPermission(
+                auth.session?.user?.role,
+                AdminPermission.logRead,
+              )}
             />
           </ProtectedPage>
         }
@@ -301,14 +306,16 @@ function AdminRoutes() {
 export default function AdminApp() {
   return (
     <AdminAuthProvider>
-      <BrowserRouter
-        future={{
-          v7_startTransition: true,
-          v7_relativeSplatPath: true,
-        }}
-      >
-        <AdminRoutes />
-      </BrowserRouter>
+      <QuotaPerUnitProvider>
+        <BrowserRouter
+          future={{
+            v7_startTransition: true,
+            v7_relativeSplatPath: true,
+          }}
+        >
+          <AdminRoutes />
+        </BrowserRouter>
+      </QuotaPerUnitProvider>
     </AdminAuthProvider>
   );
 }

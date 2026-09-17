@@ -112,7 +112,7 @@ test('authenticated user creates and settles a USDT TRC-20 top-up', async ({ pag
   });
 
   await page.goto('/console/wallet');
-  await expect(page.getByRole('region', { name: '账户余额' }).getByText('$0.00')).toBeVisible();
+  await expect(page.getByRole('region', { name: '账户余额' }).getByText('0.00 U')).toBeVisible();
   await expect(page.getByRole('heading', { level: 1, name: '余额充值' })).toBeVisible();
   const activeWalletNavigation = page.getByRole('link', { name: '余额充值' });
   await expect(activeWalletNavigation).toBeVisible();
@@ -140,7 +140,7 @@ test('authenticated user creates and settles a USDT TRC-20 top-up', async ({ pag
   await expectNoHorizontalOverflow(page);
 
   await expect(page.getByText('充值已到账')).toBeVisible({ timeout: 5_000 });
-  await expect(page.getByRole('region', { name: '账户余额' }).getByText('$10.00')).toBeVisible();
+  await expect(page.getByRole('region', { name: '账户余额' }).getByText('10.00 U')).toBeVisible();
   await expect(page.getByRole('region', { name: '充值记录' }).getByText('已到账')).toBeVisible();
   const receiptStatusBox = await page.getByRole('region', { name: '充值记录' }).getByText('已到账').boundingBox();
   expect(receiptStatusBox).not.toBeNull();
@@ -156,7 +156,7 @@ test('authenticated user creates and settles a USDT TRC-20 top-up', async ({ pag
   });
 
   await page.reload();
-  await expect(page.getByRole('region', { name: '账户余额' }).getByText('$10.00')).toBeVisible();
+  await expect(page.getByRole('region', { name: '账户余额' }).getByText('10.00 U')).toBeVisible();
   await expect(page.getByRole('region', { name: '充值记录' }).getByText('USDT-E2E-91')).toBeVisible();
   await expect(page.getByRole('region', { name: '充值记录' }).getByText('已到账')).toBeVisible();
   expect(orderReads).toBe(2);

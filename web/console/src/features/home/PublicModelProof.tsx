@@ -10,8 +10,8 @@ import {
   type PricingModel,
   type PublicModelFamily,
 } from '../../api/contracts';
-import { modelPrices } from '../models/pricing';
 import { useLocale } from '../../i18n/locale';
+import { formatUnitPrice, modelPrices } from '../models/pricing';
 
 const families: PublicModelFamily[] = ['OpenAI', 'Claude', 'Gemini'];
 const preferredModels: Record<PublicModelFamily, string> = {
@@ -34,9 +34,7 @@ function chooseFeaturedModels(models: PricingModel[]) {
 function managedPrice(value: string | undefined) {
   // A dimension a model does not charge for has no published price.
   if (typeof value !== 'string' || value === '') return null;
-  const [whole, fraction = ''] = value.split('.');
-  const trimmed = fraction.replace(/0+$/, '');
-  return `$${whole}${trimmed ? `.${trimmed}` : ''} / 1M tokens`;
+  return formatUnitPrice(value, '1M tokens');
 }
 
 export function PublicModelProof() {

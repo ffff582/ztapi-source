@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import React, { useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { adminRequest } from '../../auth/admin-session.js';
+import { formatU, uToQuota, useQuotaPerUnit } from '../../quota.jsx';
 
 function createIdempotencyKey() {
   if (typeof crypto?.randomUUID === 'function') return crypto.randomUUID();
@@ -27,16 +28,20 @@ function createIdempotencyKey() {
 
 export default function BalanceAdjustmentDialog({ user, onClose, onSuccess }) {
   const idempotencyKey = useRef(createIdempotencyKey());
+  const quotaPerUnit = useQuotaPerUnit();
   const [delta, setDelta] = useState('');
   const [reason, setReason] = useState('');
   const [status, setStatus] = useState('idle');
   const [error, setError] = useState('');
 
+  // Operators think in U; the ledger stores internal quota units.
+  const parsedUnits = uToQuota(delta.trim() === '' ? Number.NaN : delta, quotaPerUnit);
+
   const submit = async (event) => {
     event.preventDefault();
-    const parsedDelta = Number(delta);
+    const parsedDelta = parsedUnits;
     if (!Number.isInteger(parsedDelta) || parsedDelta === 0) {
-      setError('调整金额必须是非零整数。');
+      setError('调整金额必须是非零的 U 数量。');
       return;
     }
     if (!reason.trim()) {
@@ -84,7 +89,7 @@ export default function BalanceAdjustmentDialog({ user, onClose, onSuccess }) {
           <div>
             <h3>调整余额</h3>
             <p>
-              {user.username} · 当前余额 {user.quota}
+              {user.username} · 当前余额 {formatU(user.quota, quotaPerUnit)}
             </p>
           </div>
           <button
@@ -99,17 +104,22 @@ export default function BalanceAdjustmentDialog({ user, onClose, onSuccess }) {
         </header>
         <form onSubmit={submit}>
           <label>
-            <span>调整金额</span>
+            <span>调整金额（U）</span>
             <input
               autoFocus
               required
-              step='1'
+              step='0.01'
               type='number'
               value={delta}
               onChange={(event) => setDelta(event.target.value)}
-              placeholder='正数充值，负数扣减'
+              placeholder='正数充值，负数扣减，单位 U'
             />
           </label>
+          <p className='ztapi-user-form-note'>
+            {Number.isInteger(parsedUnits) && parsedUnits !== 0
+              ? `本次写入 ${parsedUnits > 0 ? '+' : ''}${parsedUnits.toLocaleString('en-US')} 额度（${formatU(parsedUnits, quotaPerUnit)}），调整后约 ${formatU(user.quota + parsedUnits, quotaPerUnit)}`
+              : '请输入非零的 U 数量，例如 5 或 -2.5。'}
+          </p>
           <label>
             <span>调整原因</span>
             <textarea

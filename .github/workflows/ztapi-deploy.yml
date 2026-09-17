@@ -29,7 +29,7 @@ concurrency:
 jobs:
   deploy:
     environment: production
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, ztapi-local]
     timeout-minutes: 45
     steps:
       - name: Check out ZTAPI source

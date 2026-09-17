@@ -1,6 +1,7 @@
 import { Copy, Search, TriangleAlert } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { apiClient } from '../../api/client';
+import { formatUnitPrice } from './pricing';
 import { UsageBillingNote } from '../../components/UsageBillingNote';
 import { useLocale } from '../../i18n/locale';
 import {
@@ -157,15 +158,6 @@ function orderedBillingDimensions(dimensions: string[]) {
   });
 }
 
-function formatDecimal(value: string) {
-  const [whole, fraction = ''] = value.split('.');
-  const groupedWhole = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  const trimmedFraction = fraction.replace(/0+$/, '');
-  return trimmedFraction.length > 0
-    ? `${groupedWhole}.${trimmedFraction}`
-    : groupedWhole;
-}
-
 function billingDimensionDetail(dimension: string) {
   return (
     billingDimensionDetails[dimension] ?? {
@@ -176,7 +168,7 @@ function billingDimensionDetail(dimension: string) {
 }
 
 function formatPrice(value: string, unit: string) {
-  return `$${formatDecimal(value)} / ${unit}`;
+  return formatUnitPrice(value, unit);
 }
 
 const conditionLabels: Record<string, Record<string, string>> = {

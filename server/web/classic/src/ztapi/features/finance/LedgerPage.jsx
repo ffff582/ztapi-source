@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Download, RefreshCw } from 'lucide-react';
 import { adminDownload, adminRequest } from '../../auth/admin-session.js';
+import { formatU, useQuotaPerUnit } from '../../quota.jsx';
 
 function query(filters, page = 1) {
   const params = new URLSearchParams();
@@ -34,6 +35,7 @@ function query(filters, page = 1) {
 }
 
 export default function LedgerPage() {
+  const quotaPerUnit = useQuotaPerUnit();
   const empty = { userId: '', operatorId: '', source: '', requestId: '' };
   const [draft, setDraft] = useState(empty);
   const [filters, setFilters] = useState(empty);
@@ -159,9 +161,9 @@ export default function LedgerPage() {
                     <td>{item.id}</td>
                     <td>{item.user_id}</td>
                     <td>{item.operator_id}</td>
-                    <td>{item.delta}</td>
-                    <td>{item.balance_before}</td>
-                    <td>{item.balance_after}</td>
+                    <td>{formatU(item.delta, quotaPerUnit)}</td>
+                    <td>{formatU(item.balance_before, quotaPerUnit)}</td>
+                    <td>{formatU(item.balance_after, quotaPerUnit)}</td>
                     <td>{item.source_type}</td>
                     <td>{item.reason}</td>
                     <td>{item.request_id}</td>

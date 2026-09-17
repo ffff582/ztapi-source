@@ -577,7 +577,7 @@ export function KeysPage() {
             </label>
             {!form.unlimitedQuota && (
               <div className="console-field console-field--nested">
-                <label htmlFor="key-spending-limit">{t('额度上限')}</label>
+                <label htmlFor="key-spending-limit">{t('额度上限 (U)')}</label>
                 <input
                   aria-invalid={formErrors.spending !== undefined}
                   id="key-spending-limit"

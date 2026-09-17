@@ -160,21 +160,21 @@ describe('SupportedModelsPage', () => {
     expect(within(row as HTMLElement).getByText('OpenAI')).toBeVisible();
     expect(within(row as HTMLElement).getByText('OpenAI 兼容')).toBeVisible();
     expect(within(row as HTMLElement).getByText('/v1/chat/completions')).toBeVisible();
-    expect(within(row as HTMLElement).getByText('$1.25 / 1M tokens')).toBeVisible();
-    expect(within(row as HTMLElement).getByText('$5 / 1M tokens')).toBeVisible();
+    expect(within(row as HTMLElement).getByText('1.25 U / 1M tokens')).toBeVisible();
+    expect(within(row as HTMLElement).getByText('5 U / 1M tokens')).toBeVisible();
     const claudeRow = screen.getByText('zt-claude-sonnet-4.6').closest('tr');
     expect(claudeRow).not.toBeNull();
     expect(within(claudeRow as HTMLElement).getByText('缓存读取')).toBeVisible();
     expect(
-      within(claudeRow as HTMLElement).getByText('$0.0000001 / 1M tokens'),
+      within(claudeRow as HTMLElement).getByText('0.0000001 U / 1M tokens'),
     ).toBeVisible();
     const claudePrices = within(claudeRow as HTMLElement)
       .getAllByRole('listitem')
       .map((item) => item.textContent);
     expect(claudePrices).toEqual([
-      '输入$3 / 1M tokens',
-      '输出$15 / 1M tokens',
-      '缓存读取$0.0000001 / 1M tokens',
+      '输入3 U / 1M tokens',
+      '输出15 U / 1M tokens',
+      '缓存读取0.0000001 U / 1M tokens',
     ]);
     expect(screen.getByText('3 个可用模型')).toBeVisible();
     expect(within(row as HTMLElement).getByRole('link', { name: '测试 zt-gpt-5.4-mini' })).toHaveAttribute(
@@ -224,14 +224,14 @@ describe('SupportedModelsPage', () => {
     const tiers = within(tieredRow).getAllByRole('listitem');
     expect(tiers).toHaveLength(2);
     expect(tiers[0]).toHaveTextContent('输入 ≤272K');
-    expect(tiers[0]).toHaveTextContent('输入$3.9 / 1M tokens');
-    expect(tiers[0]).toHaveTextContent('输出$19.5 / 1M tokens');
-    expect(tiers[0]).toHaveTextContent('缓存读取$0.39 / 1M tokens');
+    expect(tiers[0]).toHaveTextContent('输入3.9 U / 1M tokens');
+    expect(tiers[0]).toHaveTextContent('输出19.5 U / 1M tokens');
+    expect(tiers[0]).toHaveTextContent('缓存读取0.39 U / 1M tokens');
     expect(tiers[1]).toHaveTextContent('输入 >272K');
-    expect(tiers[1]).toHaveTextContent('输入$7.8 / 1M tokens');
-    expect(tiers[1]).toHaveTextContent('输出$29.25 / 1M tokens');
+    expect(tiers[1]).toHaveTextContent('输入7.8 U / 1M tokens');
+    expect(tiers[1]).toHaveTextContent('输出29.25 U / 1M tokens');
     const flatRow = screen.getByText('zt-gpt-flat').closest('tr') as HTMLElement;
-    expect(within(flatRow).getByText('$1.25 / 1M tokens')).toBeVisible();
+    expect(within(flatRow).getByText('1.25 U / 1M tokens')).toBeVisible();
   });
 
   it('labels an unconditional text rule as the default price', async () => {
@@ -247,7 +247,7 @@ describe('SupportedModelsPage', () => {
     render(<SupportedModelsPage />);
     const row = (await screen.findByText('zt-gpt-5-mini')).closest('tr') as HTMLElement;
     expect(within(row).getByText('默认价格')).toBeVisible();
-    expect(within(row).getByText('$1.25 / 1M tokens')).toBeVisible();
+    expect(within(row).getByText('1.25 U / 1M tokens')).toBeVisible();
   });
 
   it('puts current mainstream models first and filters them with visible categories', async () => {
@@ -346,13 +346,13 @@ describe('SupportedModelsPage', () => {
     expect(within(imageRow).getByText('/v1/images/generations')).toBeVisible();
     expect(within(imageRow).getByText(/1024x1024/)).toBeVisible();
     expect(within(imageRow).getByText(/图片输出/)).toBeVisible();
-    expect(within(imageRow).getByText('$39 / 1M tokens')).toBeVisible();
+    expect(within(imageRow).getByText('39 U / 1M tokens')).toBeVisible();
 
     const videoRow = screen.getByText('zt-seedance-2').closest('tr') as HTMLElement;
     expect(within(videoRow).getByText('异步视频任务')).toBeVisible();
     expect(within(videoRow).getByText('/v1/video/generations')).toBeVisible();
     expect(within(videoRow).getByText('720p · 5 秒 · 无视频输入')).toBeVisible();
-    expect(within(videoRow).getByText('$10.419212963 / 1M tokens')).toBeVisible();
+    expect(within(videoRow).getByText('10.4192 U / 1M tokens')).toBeVisible();
   });
 
   it('searches, filters, and copies the exact public model ID', async () => {
@@ -431,7 +431,7 @@ describe('SupportedModelsPage', () => {
     })));
     render(<SupportedModelsPage />);
     expect(await screen.findByText('39 个可用模型')).toBeVisible();
-    for (const [name, price] of [['zt-text-embedding-ada-002', '$0.13 / 1M tokens'], ['zt-text-embedding-3-small', '$0.026 / 1M tokens']]) {
+    for (const [name, price] of [['zt-text-embedding-ada-002', '0.13 U / 1M tokens'], ['zt-text-embedding-3-small', '0.026 U / 1M tokens']]) {
       const row = screen.getByText(name).closest('tr') as HTMLElement;
       expect(within(row).getByText('POST /v1/embeddings')).toBeVisible();
       expect(within(row).getByText('文本向量 Embeddings')).toBeVisible();

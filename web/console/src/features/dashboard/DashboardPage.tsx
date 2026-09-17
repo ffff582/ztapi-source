@@ -181,7 +181,7 @@ export function DashboardPage() {
                         </td>
                         <td className="usage-log-charge-cell">
                           <span aria-hidden="true" className="usage-log-cell-label">{t('实际费用')}</span>
-                          <strong>${log.billed_amount.toFixed(6)}</strong>
+                          <strong>{log.billed_amount.toFixed(6)} U</strong>
                           <small>{t('本次实际扣费')}</small>
                         </td>
                         <td>

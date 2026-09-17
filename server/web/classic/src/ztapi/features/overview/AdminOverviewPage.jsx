@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React, { useEffect, useRef, useState } from 'react';
 import { getAdminOverview } from './overview-api.js';
+import { formatU, useQuotaPerUnit } from '../../quota.jsx';
 
 const rangeSeconds = 7 * 24 * 60 * 60;
 
@@ -26,10 +27,12 @@ function formatNumber(value) { return new Intl.NumberFormat('zh-CN').format(valu
 function currentRange() { const to = Math.floor(Date.now() / 1000); return { from: to - rangeSeconds, to }; }
 function formatDay(value) { return new Date(value * 1000).toISOString().slice(0, 10); }
 function isOverviewResponse(value) { return value && typeof value === 'object' && value.requests && Number.isFinite(value.requests.total) && Number.isFinite(value.requests.success) && Number.isFinite(value.requests.failure); }
-function Stat({ value, label }) { return <div className='ztapi-overview-stat'><strong>{formatNumber(value)}</strong><span>{label}</span></div>; }
+// A value already formatted for display (a U amount) is shown as given.
+function Stat({ value, label }) { return <div className='ztapi-overview-stat'><strong>{typeof value === 'string' ? value : formatNumber(value)}</strong><span>{label}</span></div>; }
 function EmptyList({ children }) { return <p className='ztapi-overview-empty-list'>{children}</p>; }
 
 export default function AdminOverviewPage() {
+  const quotaPerUnit = useQuotaPerUnit();
   const [state, setState] = useState({ status: 'loading', data: null });
   const requestRef = useRef({ generation: 0, controller: null });
 
@@ -65,7 +68,7 @@ export default function AdminOverviewPage() {
   const maxQuota = hasSeries ? Math.max(...data.series.map((item) => item.billed_quota), 1) : 1;
   return <section className='ztapi-admin-page ztapi-overview' aria-labelledby='ztapi-page-title'>
     <div className='ztapi-overview-heading'><div><h1 id='ztapi-page-title'>概览</h1><p>当前显示所选七天范围内的运营情况。</p></div><button type='button' className='ztapi-overview-refresh' onClick={load}>刷新概览</button></div>
-    <div className='ztapi-overview-stat-band'><Stat value={data.requests.total} label='请求数' /><Stat value={data.requests.success} label='成功' /><Stat value={data.requests.failure} label='失败' />{hasFinancials ? <><Stat value={data.billed_quota} label='已计费额度' /><Stat value={data.user_balance_total} label='用户余额' /><Stat value={data.pending_top_ups} label='待处理充值' /></> : null}</div>
+    <div className='ztapi-overview-stat-band'><Stat value={data.requests.total} label='请求数' /><Stat value={data.requests.success} label='成功' /><Stat value={data.requests.failure} label='失败' />{hasFinancials ? <><Stat value={formatU(data.billed_quota, quotaPerUnit)} label='已计费' /><Stat value={formatU(data.user_balance_total, quotaPerUnit)} label='用户余额' /><Stat value={data.pending_top_ups} label='待处理充值' /></> : null}</div>
     {data.requests.total === 0 ? <p className='ztapi-overview-empty'>所选范围内暂无运营记录。</p> : null}
     <section className='ztapi-overview-panel ztapi-overview-chart' aria-label='请求量和已计费额度图表'><h2>请求量和已计费额度</h2>{hasSeries ? <div className='ztapi-overview-chart-points'>{data.series.map((item) => <div className='ztapi-overview-chart-point' key={item.start} aria-label={`${formatDay(item.start)}：${item.requests} 次请求，${item.billed_quota} 已计费额度`}><span>{formatDay(item.start)}</span><div className='ztapi-overview-chart-track'><i className='is-requests' style={{ width: `${(item.requests / maxRequests) * 100}%` }} /><i className='is-quota' style={{ width: `${(item.billed_quota / maxQuota) * 100}%` }} /></div><strong>{formatNumber(item.requests)} / {formatNumber(item.billed_quota)}</strong></div>)}</div> : <EmptyList>所选范围内暂无图表数据。</EmptyList>}</section>
     <div className='ztapi-overview-grid'>

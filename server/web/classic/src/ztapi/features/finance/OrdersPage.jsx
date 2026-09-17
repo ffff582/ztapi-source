@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Download, RefreshCw } from 'lucide-react';
 import { adminDownload, adminRequest } from '../../auth/admin-session.js';
+import { formatU, useQuotaPerUnit } from '../../quota.jsx';
 
 const statusLabels = {
   pending: '待处理',
@@ -49,6 +50,7 @@ function buildQuery(filters, page = 1) {
 }
 
 export default function OrdersPage({ canWrite = false }) {
+  const quotaPerUnit = useQuotaPerUnit();
   const [draft, setDraft] = useState({
     keyword: '',
     status: '',
@@ -231,8 +233,8 @@ export default function OrdersPage({ canWrite = false }) {
                   <th>创建时间</th>
                   <th>订单号</th>
                   <th>用户</th>
-                  <th>充值额度</th>
-                  <th>实付金额</th>
+                  <th>入账余额</th>
+                  <th>实付 USDT</th>
                   <th>支付</th>
                   <th>状态</th>
                   {canWrite ? <th>操作</th> : null}
@@ -244,7 +246,7 @@ export default function OrdersPage({ canWrite = false }) {
                     <td>{formatTime(order.create_time)}</td>
                     <td>{order.trade_no}</td>
                     <td>{order.username || `#${order.user_id}`}</td>
-                    <td>{order.amount}</td>
+                    <td>{formatU(order.amount, quotaPerUnit)}</td>
                     <td>{order.money}</td>
                     <td>
                       {order.payment_provider || order.payment_method || '-'}

@@ -24,6 +24,7 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import AdminLogsPage from './AdminLogsPage.jsx';
 import AuditLogPage from './AuditLogPage.jsx';
 import { adminDownload, adminRequest } from '../../auth/admin-session.js';
@@ -71,7 +72,11 @@ describe('AdminLogsPage', () => {
         },
       ]),
     );
-    render(<AdminLogsPage />);
+    render(
+      <MemoryRouter>
+        <AdminLogsPage />
+      </MemoryRouter>,
+    );
     expect(await screen.findByText('req-safe-7')).toBeVisible();
     expect(screen.getByText('150')).toBeVisible();
     expect(screen.getByText('2 秒')).toBeVisible();
@@ -81,9 +86,27 @@ describe('AdminLogsPage', () => {
     expect(Number(params.get('to')) - Number(params.get('from'))).toBe(86400);
   });
 
+  it('opens already filtered to the user the address bar names', async () => {
+    adminRequest.mockResolvedValue(page([]));
+    render(
+      <MemoryRouter initialEntries={['/logs?user_id=8']}>
+        <AdminLogsPage />
+      </MemoryRouter>,
+    );
+    await screen.findByText('所选范围内没有请求日志。');
+
+    const url = adminRequest.mock.calls[0][0].url;
+    expect(new URL(url, 'https://admin.ztapi.vip').searchParams.get('user_id')).toBe('8');
+    expect(screen.getByLabelText('用户 ID')).toHaveValue('8');
+  });
+
   it('filters on the server and exports exactly the active query', async () => {
     adminRequest.mockResolvedValue(page([]));
-    render(<AdminLogsPage />);
+    render(
+      <MemoryRouter>
+        <AdminLogsPage />
+      </MemoryRouter>,
+    );
     await screen.findByText('所选范围内没有请求日志。');
     fireEvent.change(
       screen.getByRole('searchbox', { name: '搜索 request ID' }),

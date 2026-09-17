@@ -110,7 +110,7 @@ describe('PlaygroundPage', () => {
 
     expect(await screen.findByText('测试成功')).toBeVisible();
     expect(screen.getByText('15 tokens')).toBeVisible();
-    expect(screen.getByText('$0.000024')).toBeVisible();
+    expect(screen.getByText('0.000024 U')).toBeVisible();
     expect(screen.getByText('req-playground-1')).toBeVisible();
     expect(screen.getByRole('link', { name: '在使用日志中查看' })).toHaveAttribute(
       'href',

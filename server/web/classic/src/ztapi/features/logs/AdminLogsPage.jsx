@@ -18,14 +18,17 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Download, RefreshCw } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import { adminDownload, adminRequest } from '../../auth/admin-session.js';
 
-function initialFilters() {
+// A user id in the address bar lets the user drawer open this page already
+// filtered to one customer, which is how reconciliation usually starts.
+function initialFilters(userId = '') {
   const to = Math.floor(Date.now() / 1000);
   return {
     requestId: '',
     status: '',
-    userId: '',
+    userId,
     model: '',
     from: to - 86400,
     to,
@@ -47,7 +50,11 @@ function requestQuery(filters, page = 1) {
 }
 
 export default function AdminLogsPage() {
-  const first = useRef(initialFilters()).current;
+  const [searchParams] = useSearchParams();
+  const requestedUser = (searchParams.get('user_id') || '').trim();
+  const first = useRef(
+    initialFilters(/^[0-9]+$/.test(requestedUser) ? requestedUser : ''),
+  ).current;
   const [draft, setDraft] = useState(first);
   const [filters, setFilters] = useState(first);
   const [data, setData] = useState({ items: [], total: 0, page: 1 });

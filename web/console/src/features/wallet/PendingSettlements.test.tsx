@@ -54,11 +54,11 @@ describe('wallet pending reservations', () => {
     render(<WalletPage />);
     const region = holds();
     expect(await within(region).findByText('request-1')).toBeVisible();
-    expect(within(region).getAllByText('$2.50')).toHaveLength(2);
+    expect(within(region).getAllByText('2.50 U')).toHaveLength(2);
     expect(within(region).getByText('预留中')).toBeVisible();
     expect(within(region).getByText('待核账')).toBeVisible();
     expect(within(region).getByText(/尚未计费/)).toBeVisible();
-    expect(await within(screen.getByRole('region', { name: '账户余额' })).findByText('$10.00')).toBeVisible();
+    expect(await within(screen.getByRole('region', { name: '账户余额' })).findByText('10.00 U')).toBeVisible();
     expect(within(region).queryByText(/合计|总额/)).toBeNull();
   });
 
@@ -102,7 +102,7 @@ describe('wallet pending reservations', () => {
     const { state } = setup(); state.items = [];
     render(<WalletPage />);
     expect(await within(holds()).findByText('暂无待核账预留。')).toBeVisible();
-    expect(within(holds()).queryByText('$0.00')).toBeNull();
+    expect(within(holds()).queryByText('0.00 U')).toBeNull();
   });
 
   it.each(['http', 'contract'])('keeps login and balance on a %s resource error, then retries', async (kind) => {
@@ -120,7 +120,7 @@ describe('wallet pending reservations', () => {
     expect(await within(holds()).findByText('预留记录加载失败，请刷新重试。')).toBeVisible();
     expect(within(holds()).queryByText('暂无待核账预留。')).toBeNull();
     expect(getAuthSession()?.access_token).toBe('offline-wallet-token');
-    expect(await within(screen.getByRole('region', { name: '账户余额' })).findByText('$10.00')).toBeVisible();
+    expect(await within(screen.getByRole('region', { name: '账户余额' })).findByText('10.00 U')).toBeVisible();
     fail = false;
     fireEvent.click(within(holds()).getByRole('button', { name: '刷新预留记录' }));
     expect(await within(holds()).findByText('request-1')).toBeVisible();

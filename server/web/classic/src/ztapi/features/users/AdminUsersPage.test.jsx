@@ -24,6 +24,7 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import AdminUsersPage from './AdminUsersPage.jsx';
 import BalanceAdjustmentDialog from './BalanceAdjustmentDialog.jsx';
 import StaffRolesPage from './StaffRolesPage.jsx';
@@ -104,7 +105,11 @@ describe('AdminUsersPage', () => {
       );
     });
 
-    render(<AdminUsersPage canAdjustBalance canChangeStatus canViewLedger />);
+    render(
+      <MemoryRouter>
+        <AdminUsersPage canAdjustBalance canChangeStatus canViewLedger />
+      </MemoryRouter>,
+    );
 
     expect(await screen.findByText('alice')).toBeVisible();
     fireEvent.change(screen.getByRole('searchbox', { name: '搜索用户' }), {
@@ -126,7 +131,7 @@ describe('AdminUsersPage', () => {
     expect(await screen.findByText('首次充值')).toBeVisible();
 
     fireEvent.click(screen.getByRole('button', { name: '调整余额' }));
-    fireEvent.change(screen.getByLabelText('调整金额'), {
+    fireEvent.change(screen.getByLabelText('调整金额（U）'), {
       target: { value: '500' },
     });
     fireEvent.change(screen.getByLabelText('调整原因'), {
@@ -140,7 +145,8 @@ describe('AdminUsersPage', () => {
         .find((value) => value.url.endsWith('/balance-adjustments'));
       expect(request).toBeTruthy();
       const body = JSON.parse(request.body);
-      expect(body).toMatchObject({ delta: 500, reason: '线下充值到账' });
+      // 500 U is written to the ledger as internal quota units.
+      expect(body).toMatchObject({ delta: 250_000_000, reason: '线下充值到账' });
       expect(body.idempotency_key).toEqual(expect.any(String));
       expect(body.idempotency_key.length).toBeGreaterThan(10);
     });
@@ -159,7 +165,11 @@ describe('AdminUsersPage', () => {
       );
     });
 
-    render(<AdminUsersPage canChangeStatus />);
+    render(
+      <MemoryRouter>
+        <AdminUsersPage canChangeStatus />
+      </MemoryRouter>,
+    );
     fireEvent.click(await screen.findByRole('button', { name: '查看 alice' }));
     expect(
       await screen.findByRole('dialog', { name: '用户详情' }),
@@ -196,7 +206,11 @@ describe('AdminUsersPage', () => {
       throw new Error(`unexpected request ${request.url}`);
     });
 
-    render(<AdminUsersPage />);
+    render(
+      <MemoryRouter>
+        <AdminUsersPage />
+      </MemoryRouter>,
+    );
     await screen.findByText('没有符合条件的用户。');
 
     const searchbox = screen.getByRole('searchbox', { name: '搜索用户' });
@@ -244,7 +258,7 @@ describe('BalanceAdjustmentDialog', () => {
         onSuccess={onSuccess}
       />,
     );
-    fireEvent.change(screen.getByLabelText('调整金额'), {
+    fireEvent.change(screen.getByLabelText('调整金额（U）'), {
       target: { value: '100' },
     });
     fireEvent.change(screen.getByLabelText('调整原因'), {

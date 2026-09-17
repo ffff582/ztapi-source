@@ -407,7 +407,7 @@ describe('ZTAPI one-time API keys', () => {
     fireEvent.click(submit);
     expect(screen.getByText('请输入大于 0 的额度上限')).toBeVisible();
 
-    fireEvent.change(screen.getByLabelText('额度上限'), {
+    fireEvent.change(screen.getByLabelText('额度上限 (U)'), {
       target: { value: '10' },
     });
     fireEvent.change(screen.getByLabelText('IP 白名单'), {
@@ -472,7 +472,7 @@ describe('ZTAPI one-time API keys', () => {
         target: { value: 'quota-boundary' },
       });
       fireEvent.click(screen.getByLabelText('不限制密钥额度'));
-      fireEvent.change(screen.getByLabelText('额度上限'), {
+      fireEvent.change(screen.getByLabelText('额度上限 (U)'), {
         target: { value: spendingLimit },
       });
       fireEvent.click(screen.getByRole('button', { name: '创建 API Key' }));
@@ -543,7 +543,7 @@ describe('ZTAPI one-time API keys', () => {
     fireEvent.click(await screen.findByLabelText('gpt-4o'));
     fireEvent.click(screen.getByLabelText('claude-3-5-sonnet'));
     fireEvent.click(screen.getByLabelText('不限制密钥额度'));
-    fireEvent.change(screen.getByLabelText('额度上限'), {
+    fireEvent.change(screen.getByLabelText('额度上限 (U)'), {
       target: { value: '10.25' },
     });
     fireEvent.change(screen.getByLabelText('IP 白名单'), {

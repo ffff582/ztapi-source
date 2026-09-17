@@ -31,11 +31,25 @@ function orderedDimensions(dimensions: string[]) {
   );
 }
 
+// Prices are quoted in U, the currency customers top up and are billed in.
+// Billing keeps every published decimal; a reader only needs enough of them to
+// compare models, so the display rounds a long tail away.
+export function formatUnitPrice(value: string, unit: string) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return `${value} U / ${unit}`;
+  // Six significant digits keep even the cheapest model's price visible while
+  // dropping a ten-decimal tail nobody compares prices with.
+  let text = Math.abs(amount) >= 1e-6 ? amount.toPrecision(6) : amount.toFixed(10);
+  if (text.includes('e')) text = amount.toFixed(10);
+  const [whole, fraction = ''] = text.split('.');
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const trimmed = fraction.replace(/0+$/, '');
+  return `${grouped}${trimmed ? `.${trimmed}` : ''} U / ${unit}`;
+}
+
 function formatSalePrice(value: string | undefined, unit: string) {
   if (typeof value !== 'string' || value === '') return null;
-  const [whole, fraction = ''] = value.split('.');
-  const trimmed = fraction.replace(/0+$/, '');
-  return `$${whole}${trimmed ? `.${trimmed}` : ''} / ${unit}`;
+  return formatUnitPrice(value, unit);
 }
 
 export function modelPriceDetails(
@@ -129,8 +143,8 @@ export function modelPrices(
       return { input: '按规则计费', output: '按规则计费' };
     }
     return {
-      input: `$${formatPrice(input)} / 1M tokens`,
-      output: `$${formatPrice(output)} / 1M tokens`,
+      input: `${formatPrice(input)} U / 1M tokens`,
+      output: `${formatPrice(output)} U / 1M tokens`,
     };
   }
 
@@ -138,6 +152,6 @@ export function modelPrices(
   if (!Number.isFinite(fixedPrice)) {
     return { input: '按规则计费', output: '按规则计费' };
   }
-  const fixed = `$${formatPrice(fixedPrice)} / 次`;
+  const fixed = `${formatPrice(fixedPrice)} U / 次`;
   return { input: fixed, output: fixed };
 }

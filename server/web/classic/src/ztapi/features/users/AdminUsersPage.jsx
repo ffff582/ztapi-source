@@ -35,6 +35,7 @@ export default function AdminUsersPage({
   canChangeStatus = false,
   canResetPassword = false,
   canViewLedger = false,
+  canViewLogs = false,
 }) {
   const [users, setUsers] = useState([]);
   const [query, setQuery] = useState('');
@@ -163,6 +164,7 @@ export default function AdminUsersPage({
           canChangeStatus={canChangeStatus}
           canResetPassword={canResetPassword}
           canViewLedger={canViewLedger}
+          canViewLogs={canViewLogs}
           onChanged={load}
           onClose={() => setSelectedUserId(null)}
         />

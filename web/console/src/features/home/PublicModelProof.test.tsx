@@ -99,10 +99,10 @@ describe('public homepage model proof', () => {
     expect(await screen.findByText('1 个实时公开模型')).toBeVisible();
     const card = screen.getByText('zt-gpt-5.6-sol').closest('article') as HTMLElement;
     expect(within(card).getByText('输入 ≤272K')).toBeVisible();
-    expect(within(card).getByText('$3.9 / 1M tokens')).toBeVisible();
+    expect(within(card).getByText('3.9 U / 1M tokens')).toBeVisible();
     expect(within(card).getByText('输入 >272K')).toBeVisible();
-    expect(within(card).getByText('$29.25 / 1M tokens')).toBeVisible();
-    expect(within(card).queryByText('$13 / 1M tokens')).not.toBeInTheDocument();
+    expect(within(card).getByText('29.25 U / 1M tokens')).toBeVisible();
+    expect(within(card).queryByText('13 U / 1M tokens')).not.toBeInTheDocument();
   });
 
   it('labels a single unconditional public rule as the default price', async () => {
@@ -126,9 +126,9 @@ describe('public homepage model proof', () => {
     expect(screen.queryByText(/模型目录正在配置/)).not.toBeInTheDocument();
     expect(document.querySelectorAll('.model-proof__grid article')).toHaveLength(3);
     for (const [name, vendor, input, output] of [
-      ['zt-gpt-5.6-sol', 'OpenAI', '$13 / 1M tokens', '$58.5 / 1M tokens'],
-      ['zt-claude-sonnet-5', 'Claude', '$2.6 / 1M tokens', '$13 / 1M tokens'],
-      ['zt-gemini-3.5-flash', 'Gemini', '$2.05 / 1M tokens', '$12.3 / 1M tokens'],
+      ['zt-gpt-5.6-sol', 'OpenAI', '13 U / 1M tokens', '58.5 U / 1M tokens'],
+      ['zt-claude-sonnet-5', 'Claude', '2.6 U / 1M tokens', '13 U / 1M tokens'],
+      ['zt-gemini-3.5-flash', 'Gemini', '2.05 U / 1M tokens', '12.3 U / 1M tokens'],
     ]) {
       const row = screen.getByText(name).closest('article') as HTMLElement;
       expect(within(row).getByText(vendor)).toBeVisible();
@@ -148,7 +148,7 @@ describe('public homepage model proof', () => {
       ? statusResponse() : jsonResponse({ ...managedPublicPricing, data: [row] })));
     expect(await screen.findByText('1 个实时公开模型')).toBeVisible();
     const card = screen.getByText(row.model_name).closest('article') as HTMLElement;
-    expect(within(card).getByText('$0.026 / 1M tokens')).toBeVisible();
+    expect(within(card).getByText('0.026 U / 1M tokens')).toBeVisible();
     expect(within(card).queryByText('输出')).not.toBeInTheDocument();
   });
 
@@ -189,7 +189,7 @@ describe('public homepage model proof', () => {
 
     const openAiCard = screen.getByText('gpt-home').closest('article');
     expect(openAiCard).not.toBeNull();
-    expect(within(openAiCard as HTMLElement).getByText('$7.5 / 1M tokens')).toBeVisible();
+    expect(within(openAiCard as HTMLElement).getByText('7.5 U / 1M tokens')).toBeVisible();
     expect(screen.getByRole('link', { name: '查看全部模型与价格' })).toHaveAttribute(
       'href',
       '/models',

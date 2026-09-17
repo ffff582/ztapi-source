@@ -233,3 +233,25 @@ test('certificate reuse and copy hook verify exact required hostnames', () => {
     }
   }
 });
+
+test('every console host revalidates index.html and caches hashed assets', () => {
+  const nginx = readFileSync(nginxConfigPath, 'utf8');
+
+  // index.html names the hashed bundle. A cached copy keeps a returning
+  // visitor on a bundle a later deployment replaced, which is how a working
+  // page starts failing hours after a release.
+  const revalidations = nginx.match(/location = \/index\.html \{\s*\n\s*expires -1;/g) ?? [];
+  const catchAlls = nginx.match(/try_files \$uri \$uri\/ \/index\.html;/g) ?? [];
+  assert.equal(
+    revalidations.length,
+    catchAlls.length,
+    'each host serving the single-page app must revalidate its index.html',
+  );
+
+  const immutableAssets = nginx.match(/location \^~ \/assets\/ \{[\s\S]*?\}/g) ?? [];
+  assert.ok(immutableAssets.length >= 2, 'hashed assets should be cached on the public hosts');
+  for (const block of immutableAssets) {
+    assert.match(block, /expires 30d;/);
+    assert.match(block, /add_header Cache-Control "public, immutable";/);
+  }
+});

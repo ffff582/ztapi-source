@@ -426,7 +426,7 @@ test('user media catalog, guide and wallet remain usable without data exposure',
   const imageRow = page.getByText('zt-image-pro').locator('xpath=ancestor::*[@role="row"][1]');
   await expect(imageRow.getByText('/v1/images/generations')).toBeVisible();
   await expect(imageRow.getByText(/1024x1024/)).toBeVisible();
-  await expect(imageRow.getByText('$39 / 1M tokens')).toBeVisible();
+  await expect(imageRow.getByText('39 U / 1M tokens')).toBeVisible();
   const videoRow = page.getByText('zt-video-pro').locator('xpath=ancestor::*[@role="row"][1]');
   await expect(videoRow.getByText('/v1/video/generations')).toBeVisible();
   await expect(videoRow.getByText('720p · 5 秒 · 无视频输入')).toBeVisible();
@@ -443,7 +443,7 @@ test('user media catalog, guide and wallet remain usable without data exposure',
   await expect(page.getByLabel('测试模型')).toHaveValue('zt-claude-sonnet-5');
   await page.getByRole('button', { name: '发送测试请求' }).click();
   await expect(page.getByText('在线测试连接正常。')).toBeVisible();
-  await expect(page.getByText('$0.004321')).toBeVisible();
+  await expect(page.getByText('0.004321 U')).toBeVisible();
   await expect(page.getByText('req-browser-usage-001')).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expectConsoleRegionsDoNotOverlap(page);
@@ -464,7 +464,7 @@ test('user media catalog, guide and wallet remain usable without data exposure',
 
   await page.goto('/console/wallet');
   await expect(page.getByRole('heading', { level: 1, name: '余额充值' })).toBeVisible();
-  await expect(page.getByRole('region', { name: '账户余额' }).getByText('$10.00')).toBeVisible();
+  await expect(page.getByRole('region', { name: '账户余额' }).getByText('10.00 U')).toBeVisible();
   await expect(page.getByText('最低 10 USDT')).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expectConsoleRegionsDoNotOverlap(page);
@@ -476,7 +476,7 @@ test('user media catalog, guide and wallet remain usable without data exposure',
   await page.goto('/console');
   await expect(page.getByRole('heading', { level: 1, name: '使用概览' })).toBeVisible();
   const usageRow = page.getByText('zt-claude-sonnet-5').locator('xpath=ancestor::tr[1]');
-  await expect(usageRow.getByText('$0.004321')).toBeVisible();
+  await expect(usageRow.getByText('0.004321 U')).toBeVisible();
   await expect(usageRow.getByText('输入 120')).toBeVisible();
   await expect(usageRow.getByText('输出 48')).toBeVisible();
   await expect(usageRow.getByText('总计 168')).toBeVisible();
@@ -491,7 +491,7 @@ test('user media catalog, guide and wallet remain usable without data exposure',
   await page.goto('/console/logs');
   await expect(page.getByRole('heading', { level: 1, name: '使用日志' })).toBeVisible();
   const fullLogRow = page.getByText('zt-claude-sonnet-5').locator('xpath=ancestor::tr[1]');
-  await expect(fullLogRow.getByText('$0.004321')).toBeVisible();
+  await expect(fullLogRow.getByText('0.004321 U')).toBeVisible();
   await expect(fullLogRow.getByText('本次实际扣费')).toBeVisible();
   await expect(fullLogRow.getByText('输入 120')).toBeVisible();
   await expect(fullLogRow.getByText('输出 48')).toBeVisible();

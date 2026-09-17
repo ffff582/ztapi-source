@@ -218,7 +218,7 @@ export function PlaygroundPage() {
               <div className="playground-answer">{result.text}</div>
               <dl className="playground-metrics">
                 <div><dt>{t('Token 用量')}</dt><dd>{result.usage?.total_tokens ?? 0} tokens</dd></div>
-                <div><dt>{t('本次费用')}</dt><dd>{billedAmount === null ? t('入账中') : `$${billedAmount.toFixed(6)}`}</dd></div>
+                <div><dt>{t('本次费用')}</dt><dd>{billedAmount === null ? t('入账中') : `${billedAmount.toFixed(6)} U`}</dd></div>
                 <div><dt>{t('页面耗时')}</dt><dd>{elapsedMs === null ? '—' : `${elapsedMs} ms`}</dd></div>
                 <div><dt>{t('结束原因')}</dt><dd>{result.finish_reason || '—'}</dd></div>
               </dl>

@@ -56,9 +56,9 @@ describe('ZTAPI public model pricing', () => {
     }
     expect(screen.queryByText('当前没有可展示的公开模型。')).not.toBeInTheDocument();
     const claude = screen.getByText('zt-claude-haiku-4.5').closest('tr') as HTMLElement;
-    expect(within(claude).getByText('$1.3 / 1M tokens')).toBeVisible();
-    expect(within(claude).getByText('$6.5 / 1M tokens')).toBeVisible();
-    expect(within(claude).getByText('$0.13 / 1M tokens')).toBeVisible();
+    expect(within(claude).getByText('1.3 U / 1M tokens')).toBeVisible();
+    expect(within(claude).getByText('6.5 U / 1M tokens')).toBeVisible();
+    expect(within(claude).getByText('0.13 U / 1M tokens')).toBeVisible();
     expect(within(claude).getByText('缓存读取')).toBeVisible();
     expect(within(claude).getAllByRole('listitem')).toHaveLength(6);
     expect(within(claude).queryByText('按规则计费')).not.toBeInTheDocument();
@@ -86,9 +86,9 @@ describe('ZTAPI public model pricing', () => {
 
     const row = (await screen.findByText('zt-gpt-5.6-sol')).closest('tr') as HTMLElement;
     expect(within(row).getByText('输入（输入长度≤272K）')).toBeVisible();
-    expect(within(row).getByText('$3.9 / 1M tokens')).toBeVisible();
+    expect(within(row).getByText('3.9 U / 1M tokens')).toBeVisible();
     expect(within(row).getByText('输出（输入长度>272K）')).toBeVisible();
-    expect(within(row).getByText('$29.25 / 1M tokens')).toBeVisible();
+    expect(within(row).getByText('29.25 U / 1M tokens')).toBeVisible();
     expect(within(row).getAllByRole('listitem')).toHaveLength(4);
     expect(within(row).queryByText('按规则计费')).not.toBeInTheDocument();
   });
@@ -97,13 +97,13 @@ describe('ZTAPI public model pricing', () => {
     renderModels(vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/api/status')
       ? statusResponse() : jsonResponse(publicPricingWithEmbeddings)));
     await screen.findByText('zt-text-embedding-ada-002');
-    for (const [name, price] of [['zt-text-embedding-ada-002', '$0.13 / 1M tokens'], ['zt-text-embedding-3-small', '$0.026 / 1M tokens']]) {
+    for (const [name, price] of [['zt-text-embedding-ada-002', '0.13 U / 1M tokens'], ['zt-text-embedding-3-small', '0.026 U / 1M tokens']]) {
       const row = screen.getByText(name).closest('tr') as HTMLElement;
       expect(within(row).getByText(price)).toBeVisible();
       expect(within(row).getAllByRole('listitem')).toHaveLength(1);
       expect(within(row).getByText('输入')).toBeVisible();
       expect(within(row).queryByText('输出')).not.toBeInTheDocument();
-      expect(row).not.toHaveTextContent('$0 /');
+      expect(row).not.toHaveTextContent('0 U /');
       expect(row).not.toHaveTextContent('按规则计费');
     }
   });
@@ -180,13 +180,13 @@ describe('ZTAPI public model pricing', () => {
 
     const staticRow = (await screen.findByText('gpt-static')).closest('tr');
     expect(staticRow).not.toBeNull();
-    expect(within(staticRow as HTMLElement).getByText('$7.5 / 1M tokens')).toBeVisible();
-    expect(within(staticRow as HTMLElement).getByText('$30 / 1M tokens')).toBeVisible();
+    expect(within(staticRow as HTMLElement).getByText('7.5 U / 1M tokens')).toBeVisible();
+    expect(within(staticRow as HTMLElement).getByText('30 U / 1M tokens')).toBeVisible();
 
     const fixedRow = screen.getByText('claude-fixed').closest('tr');
     expect(fixedRow).not.toBeNull();
     expect(
-      within(fixedRow as HTMLElement).getAllByText('$0.3 / 次'),
+      within(fixedRow as HTMLElement).getAllByText('0.3 U / 次'),
     ).toHaveLength(2);
 
     const tieredRow = screen.getByText('gpt-tiered').closest('tr');
@@ -194,7 +194,7 @@ describe('ZTAPI public model pricing', () => {
     expect(
       within(tieredRow as HTMLElement).getAllByText('按规则计费'),
     ).toHaveLength(2);
-    expect(tieredRow).not.toHaveTextContent('$198');
+    expect(tieredRow).not.toHaveTextContent('198 U');
 
     const multimodalRow = screen.getByText('gpt-multimodal').closest('tr');
     expect(multimodalRow).not.toBeNull();

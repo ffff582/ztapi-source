@@ -17,8 +17,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import React, { useCallback, useEffect, useState } from 'react';
-import { KeyRound, WalletCards, X } from 'lucide-react';
+import { KeyRound, ScrollText, WalletCards, X } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { adminRequest } from '../../auth/admin-session.js';
+import { formatU, useQuotaPerUnit } from '../../quota.jsx';
 import BalanceAdjustmentDialog from './BalanceAdjustmentDialog.jsx';
 import PasswordResetDialog from './PasswordResetDialog.jsx';
 
@@ -43,10 +45,13 @@ export default function UserDetailDrawer({
   canChangeStatus = false,
   canResetPassword = false,
   canViewLedger = false,
+  canViewLogs = false,
   onChanged,
   onClose,
   userId,
 }) {
+  const navigate = useNavigate();
+  const quotaPerUnit = useQuotaPerUnit();
   const [user, setUser] = useState(null);
   const [ledger, setLedger] = useState([]);
   const [status, setStatus] = useState('loading');
@@ -184,11 +189,11 @@ export default function UserDetailDrawer({
               </div>
               <div>
                 <dt>余额</dt>
-                <dd>{user.quota}</dd>
+                <dd>{formatU(user.quota, quotaPerUnit)}</dd>
               </div>
               <div>
                 <dt>已使用</dt>
-                <dd>{user.used_quota}</dd>
+                <dd>{formatU(user.used_quota, quotaPerUnit)}</dd>
               </div>
               <div>
                 <dt>请求数</dt>
@@ -222,6 +227,16 @@ export default function UserDetailDrawer({
                 >
                   <KeyRound aria-hidden='true' size={16} />
                   修改密码
+                </button>
+              ) : null}
+              {canViewLogs ? (
+                <button
+                  type='button'
+                  className='ztapi-user-secondary-button'
+                  onClick={() => navigate(`/logs?user_id=${user.id}`)}
+                >
+                  <ScrollText aria-hidden='true' size={16} />
+                  查看使用明细
                 </button>
               ) : null}
               {canChangeStatus && (user.role === 1 || canChangeStaffStatus) ? (
@@ -284,10 +299,11 @@ export default function UserDetailDrawer({
                       <article key={entry.id}>
                         <strong>
                           {entry.delta > 0 ? '+' : ''}
-                          {entry.delta}
+                          {formatU(entry.delta, quotaPerUnit)}
                         </strong>
                         <span>
-                          {entry.balance_before} → {entry.balance_after}
+                          {formatU(entry.balance_before, quotaPerUnit)} →{' '}
+                          {formatU(entry.balance_after, quotaPerUnit)}
                         </span>
                         <p>{entry.reason}</p>
                         <time>{formatTime(entry.created_at)}</time>

@@ -215,7 +215,8 @@ describe('ReconciliationPage routing and queues', () => {
     mount(2);
     expect(screen.getByRole('alert')).toHaveTextContent('无权访问此页面');
     expect(screen.queryByRole('link', { name: '财务对账' })).toBeNull();
-    expect(requests).toHaveLength(0);
+    // The runtime's U conversion rate is public settings, not finance data.
+    expect(requests.filter((request) => !request.url.startsWith('/api/status'))).toHaveLength(0);
   });
 
   it('advances and returns using server cursors and resets them when switching tabs', async () => {

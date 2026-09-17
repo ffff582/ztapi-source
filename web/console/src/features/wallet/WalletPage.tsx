@@ -11,7 +11,7 @@ import {
 import { QRCodeSVG } from 'qrcode.react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiClient } from '../../api/client';
-import { AccountBalance, formatAccountUSD } from './AccountBalance';
+import { AccountBalance, formatAccountUnits } from './AccountBalance';
 import { PendingSettlements } from './PendingSettlements';
 import { TopUpHistory, formatTopUpTime } from './TopUpHistory';
 import {
@@ -334,7 +334,7 @@ export function WalletPage() {
 
               {order.status === 'settled' && (
                 <dl className="wallet-receipt">
-                  <div><dt>{t('本次入账')}</dt><dd>{formatAccountUSD(order.credit_units)} USD</dd></div>
+                  <div><dt>{t('本次入账')}</dt><dd>{formatAccountUnits(order.credit_units)}</dd></div>
                   <div><dt>{t('实际支付')}</dt><dd>{order.pay_amount} USDT</dd></div>
                   <div><dt>{t('到账时间')}</dt><dd>{formatTopUpTime(order.settled_at ?? 0, locale)} </dd></div>
                   <div><dt>{t('订单号')}</dt><dd><code>{order.trade_no}</code></dd></div>

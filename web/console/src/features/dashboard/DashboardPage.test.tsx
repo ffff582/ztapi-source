@@ -66,7 +66,7 @@ describe('DashboardPage usage log', () => {
     const row = (await screen.findByText('zt-claude-sonnet-5')).closest('tr');
     expect(row).not.toBeNull();
     const usageLog = within(row as HTMLElement);
-    expect(usageLog.getByText('$0.004321')).toBeVisible();
+    expect(usageLog.getByText('0.004321 U')).toBeVisible();
     expect(usageLog.getByText('输入 120')).toBeVisible();
     expect(usageLog.getByText('输出 48')).toBeVisible();
     expect(usageLog.getByText('总计 168')).toBeVisible();

@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   media-commercial-gates:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, ztapi-local]
     timeout-minutes: 45
     services:
       mysql:
@@ -50,7 +50,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: server/go.mod
-          cache-dependency-path: server/go.sum
+          cache: false
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -66,7 +66,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
 
       - name: Install web dependencies
         run: pnpm install --frozen-lockfile
@@ -138,7 +137,7 @@ jobs:
           retention-days: 14
 
   commercial-finance:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, ztapi-local]
     timeout-minutes: 15
     services:
       mysql:
@@ -161,7 +160,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: server/go.mod
-          cache-dependency-path: server/go.sum
+          cache: false
 
       - name: Run mandatory commercial billing and refund lifecycle
         working-directory: server
@@ -171,7 +170,7 @@ jobs:
         run: go test ./model -run '^TestZTAPICommercialMySQL' -count=1 -v -timeout=3m
 
   financial-integrity:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, ztapi-local]
     timeout-minutes: 15
     services:
       mysql:
@@ -194,7 +193,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: server/go.mod
-          cache-dependency-path: server/go.sum
+          cache: false
 
       - name: Run MySQL financial integrity tests
         working-directory: server
@@ -207,7 +206,7 @@ jobs:
           go test ./service -run '^TestWalletFundingLedgerMySQLIntegration$' -count=1 -v
 
   usdt-settled-replay:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, ztapi-local]
     timeout-minutes: 15
     services:
       mysql:
@@ -230,7 +229,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: server/go.mod
-          cache-dependency-path: server/go.sum
+          cache: false
 
       - name: Verify synthetic fixture and mandatory replay configuration
         working-directory: server
@@ -244,7 +243,7 @@ jobs:
         run: go test ./model -run '^TestUSDTAlreadySettledReplayMySQL$' -count=1 -v -timeout=2m
 
   health-integrity:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, ztapi-local]
     timeout-minutes: 15
     services:
       mysql:
@@ -267,7 +266,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: server/go.mod
-          cache-dependency-path: server/go.sum
+          cache: false
 
       - name: Run mandatory MySQL health integrity test
         working-directory: server

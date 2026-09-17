@@ -71,11 +71,11 @@ describe('recharge balance visibility', () => {
   it('shows the actual credited balance and persisted receipt without a session order', async () => {
     mockAccount();
     render(<WalletPage />);
-    expect(await within(screen.getByRole('region', { name: '账户余额' })).findByText('$10.00')).toBeVisible();
+    expect(await within(screen.getByRole('region', { name: '账户余额' })).findByText('10.00 U')).toBeVisible();
     const history = screen.getByRole('region', { name: '充值记录' });
     expect(await within(history).findByText(tradeNo)).toBeVisible();
     expect(within(history).getByText('10.57 USDT')).toBeVisible();
-    expect(within(history).getByText('$10.00')).toBeVisible();
+    expect(within(history).getByText('10.00 U')).toBeVisible();
     expect(within(history).getByText('已到账')).toBeVisible();
     expect(sessionStorage.getItem('ztapi.usdt.pending_trade_no')).toBeNull();
   });
@@ -85,12 +85,12 @@ describe('recharge balance visibility', () => {
     const { fetchMock } = mockAccount(0);
     render(<WalletPage />);
     await act(async () => undefined);
-    expect(within(screen.getByRole('region', { name: '账户余额' })).getByText('$0.00')).toBeVisible();
+    expect(within(screen.getByRole('region', { name: '账户余额' })).getByText('0.00 U')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: '创建支付订单' }));
     await act(async () => undefined);
     await act(async () => vi.advanceTimersByTimeAsync(2_000));
     expect(screen.getByText('充值已到账')).toBeVisible();
-    expect(within(screen.getByRole('region', { name: '账户余额' })).getByText('$10.00')).toBeVisible();
+    expect(within(screen.getByRole('region', { name: '账户余额' })).getByText('10.00 U')).toBeVisible();
     expect(within(screen.getByRole('region', { name: '充值记录' })).getByText('已到账')).toBeVisible();
     const callsAtSettlement = fetchMock.mock.calls.length;
     await act(async () => vi.advanceTimersByTimeAsync(10_000));
@@ -98,7 +98,7 @@ describe('recharge balance visibility', () => {
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1);
   });
 
-  it.each([[1_000_000, 100_000, '$10.00'], [-400, 500_000, '-$0.0008']])(
+  it.each([[1_000_000, 100_000, '10.00 U'], [-400, 500_000, '-0.0008 U']])(
     'uses the runtime conversion and preserves signed balance %s', async (quota, divisor, display) => {
       mockAccount(quota, divisor);
       render(<DashboardPage />);
@@ -112,20 +112,20 @@ describe('recharge balance visibility', () => {
     render(<WalletPage />);
     const balance = screen.getByRole('region', { name: '账户余额' });
     expect(await within(balance).findByText('余额加载失败，请刷新重试。')).toBeVisible();
-    expect(within(balance).queryByText('$0.00')).toBeNull();
+    expect(within(balance).queryByText('0.00 U')).toBeNull();
     account.invalid = false;
     fireEvent.click(within(balance).getByRole('button', { name: '刷新余额' }));
-    expect(await within(balance).findByText('$10.00')).toBeVisible();
+    expect(await within(balance).findByText('10.00 U')).toBeVisible();
   });
 
   it('reloads the actual balance on window focus', async () => {
     const { account } = mockAccount(0);
     render(<DashboardPage />);
     const balance = screen.getByRole('region', { name: '账户余额' });
-    expect(await within(balance).findByText('$0.00')).toBeVisible();
+    expect(await within(balance).findByText('0.00 U')).toBeVisible();
     account.quota = 5_000_000;
     fireEvent(window, new Event('focus'));
-    expect(await within(balance).findByText('$10.00')).toBeVisible();
+    expect(await within(balance).findByText('10.00 U')).toBeVisible();
   });
 
   it('ignores a stale balance response that arrives after a newer refresh', async () => {
@@ -144,10 +144,10 @@ describe('recharge balance visibility', () => {
     await act(async () => undefined);
     fireEvent(window, new Event('focus'));
     const balance = screen.getByRole('region', { name: '账户余额' });
-    expect(await within(balance).findByText('$10.00')).toBeVisible();
+    expect(await within(balance).findByText('10.00 U')).toBeVisible();
     await act(async () => release(success({ quota: 0 })));
-    expect(within(balance).getByText('$10.00')).toBeVisible();
-    expect(within(balance).queryByText('$0.00')).toBeNull();
+    expect(within(balance).getByText('10.00 U')).toBeVisible();
+    expect(within(balance).queryByText('0.00 U')).toBeNull();
   });
 
   it.each([0, -1])('rejects an invalid runtime conversion %s instead of showing money', async (divisor) => {
@@ -155,7 +155,7 @@ describe('recharge balance visibility', () => {
     render(<WalletPage />);
     const balance = screen.getByRole('region', { name: '账户余额' });
     expect(await within(balance).findByText('余额加载失败，请刷新重试。')).toBeVisible();
-    expect(within(balance).queryByText('$10.00')).toBeNull();
+    expect(within(balance).queryByText('10.00 U')).toBeNull();
   });
 
   it('paginates saved orders without presenting expired or other-provider payments as credited USD', async () => {
@@ -175,11 +175,11 @@ describe('recharge balance visibility', () => {
     render(<WalletPage />);
     const history = screen.getByRole('region', { name: '充值记录' });
     expect(await within(history).findByText('已过期')).toBeVisible();
-    expect(within(history).queryByText('$10.00')).toBeNull();
+    expect(within(history).queryByText('10.00 U')).toBeNull();
     expect(within(history).getByRole('button', { name: '上一页充值记录' })).toBeDisabled();
     fireEvent.click(within(history).getByRole('button', { name: '下一页充值记录' }));
     expect(await within(history).findByText('LEGACY-ORDER')).toBeVisible();
-    expect(within(history).queryByText('$10.00')).toBeNull();
+    expect(within(history).queryByText('10.00 U')).toBeNull();
     expect(within(history).queryByText('10.57 USDT')).toBeNull();
     expect(within(history).getByRole('button', { name: '下一页充值记录' })).toBeDisabled();
   });

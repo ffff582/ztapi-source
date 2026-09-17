@@ -2,7 +2,7 @@ import { ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 import { useCallback, useState } from 'react';
 import { apiClient } from '../../api/client';
 import { parseUserTopUpPage } from '../../api/contracts';
-import { formatAccountUSD } from './AccountBalance';
+import { formatAccountUnits } from './AccountBalance';
 import { useAccountResource } from './useAccountResource';
 import { localeTag, useLocale, type Locale } from '../../i18n/locale';
 
@@ -40,13 +40,13 @@ export function TopUpHistory() {
             <table className="console-table wallet-history__table">
               <thead><tr>
                 <th scope="col">{t('订单号 / 创建时间')}</th><th scope="col">{t('订单金额')}</th>
-                <th scope="col">{t('已入账余额 (USD)')}</th><th scope="col">{t('状态')}</th><th scope="col">{t('到账时间')}</th>
+                <th scope="col">{t('已入账余额 (U)')}</th><th scope="col">{t('状态')}</th><th scope="col">{t('到账时间')}</th>
               </tr></thead>
               <tbody>{history.data.items.map((item) => (
                 <tr key={item.id}>
                   <td><code>{item.trade_no}</code><small>{formatTopUpTime(item.create_time, locale)}</small></td>
                   <td data-label={t('订单金额')}>{item.payment_provider === 'usdt_trc20' ? `${item.money.toFixed(2)} USDT` : '--'}</td>
-                  <td data-label={t('已入账余额 (USD)')}>{item.status === 'success' && item.payment_provider === 'usdt_trc20' ? formatAccountUSD(item.amount) : '--'}</td>
+                  <td data-label={t('已入账余额 (U)')}>{item.status === 'success' && item.payment_provider === 'usdt_trc20' ? formatAccountUnits(item.amount) : '--'}</td>
                   <td data-label={t('状态')}><span className={`console-status console-status--${item.status === 'success' ? 'success' : 'info'}`}>{t(statusLabels[item.status] ?? '待核验')}</span></td>
                   <td data-label={t('到账时间')}>{item.status === 'success' ? formatTopUpTime(item.complete_time, locale) : '--'}</td>
                 </tr>
