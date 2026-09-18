@@ -258,3 +258,35 @@ describe('ZTAPI public model pricing', () => {
     expect(screen.queryByText('gpt-malformed')).not.toBeInTheDocument();
   });
 });
+
+describe('public model catalog ordering', () => {
+  it('leads each vendor with its current generation and keeps vendors in a fixed order', async () => {
+    const base = managedPublicPricing.data[0];
+    const fixture = {
+      ...managedPublicPricing,
+      data: [
+        { ...base, model_name: 'zt-glm-5.2', provider_family: 'glm', vendor_name: 'GLM' },
+        { ...base, model_name: 'zt-gpt-5.6-sol', provider_family: 'openai', vendor_name: 'OpenAI' },
+        { ...base, model_name: 'zt-glm-5.3', provider_family: 'glm', vendor_name: 'GLM' },
+        { ...base, model_name: 'zt-gpt-4.1', provider_family: 'openai', vendor_name: 'OpenAI' },
+        { ...base, model_name: 'zt-gpt-6-astra', provider_family: 'openai', vendor_name: 'OpenAI' },
+      ],
+    };
+    renderModels(vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/api/status')
+      ? statusResponse() : jsonResponse(fixture)));
+
+    await screen.findByText('zt-gpt-6-astra');
+    const rows = [...document.querySelectorAll('.catalog-table tbody tr')].map(
+      (row) => row.querySelector('td')?.textContent?.trim(),
+    );
+    // OpenAI before GLM whatever order the API returned, and inside each
+    // vendor the model that replaced the others comes first.
+    expect(rows).toEqual([
+      'zt-gpt-6-astra',
+      'zt-gpt-5.6-sol',
+      'zt-gpt-4.1',
+      'zt-glm-5.3',
+      'zt-glm-5.2',
+    ]);
+  });
+});

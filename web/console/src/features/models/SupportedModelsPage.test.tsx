@@ -513,3 +513,89 @@ describe('SupportedModelsPage', () => {
     expect(screen.queryByText('zt-gpt-5.4-mini')).not.toBeInTheDocument();
   });
 });
+
+describe('model recency ordering', () => {
+  it('leads with each vendor current generation and demotes the ones it replaced', async () => {
+    const catalog = [
+      catalogItem({ model_name: 'zt-gpt-5.6-sol' }),
+      catalogItem({ model_name: 'zt-gpt-6-astra' }),
+      catalogItem({
+        model_name: 'zt-kimi-k2.7-code',
+        provider_family: 'moonshot',
+        provider_name: 'Kimi',
+      }),
+      catalogItem({
+        model_name: 'zt-kimi-k3',
+        provider_family: 'moonshot',
+        provider_name: 'Kimi',
+      }),
+      catalogItem({ model_name: 'zt-glm-5.2', provider_family: 'glm', provider_name: 'GLM' }),
+      catalogItem({ model_name: 'zt-glm-5.3', provider_family: 'glm', provider_name: 'GLM' }),
+      catalogItem({
+        model_name: 'zt-claude-opus-4.8',
+        provider_family: 'anthropic',
+        provider_name: 'Claude',
+      }),
+      catalogItem({
+        model_name: 'zt-claude-opus-5',
+        provider_family: 'anthropic',
+        provider_name: 'Claude',
+      }),
+    ];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
+      success: true,
+      message: '',
+      data: catalog.map((item) => item.model_name),
+      catalog,
+    })));
+
+    render(<SupportedModelsPage />);
+
+    await screen.findByText('zt-gpt-6-astra');
+    const visibleModelIDs = screen
+      .getAllByRole('row')
+      .slice(1)
+      .map((row) => within(row).getAllByRole('cell')[0].textContent?.replace('模型 ID', ''));
+    // Every vendor's newest model comes first; a larger number from an older
+    // vendor line never outranks a current one, so Kimi K3 leads GPT 5.6.
+    expect(visibleModelIDs).toEqual([
+      'zt-gpt-6-astra',
+      'zt-claude-opus-5',
+      'zt-kimi-k3',
+      'zt-glm-5.3',
+      'zt-gpt-5.6-sol',
+      'zt-claude-opus-4.8',
+      'zt-kimi-k2.7-code',
+      'zt-glm-5.2',
+    ]);
+  });
+
+  it('keeps a newly added model ahead of the generation it supersedes without a curated list', async () => {
+    const catalog = [
+      catalogItem({ model_name: 'zt-gpt-4.1' }),
+      catalogItem({ model_name: 'zt-gpt-5.4' }),
+      catalogItem({
+        model_name: 'zt-brand-new-9.9',
+        provider_family: 'newcomer',
+        provider_name: 'Newcomer',
+      }),
+    ];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
+      success: true,
+      message: '',
+      data: catalog.map((item) => item.model_name),
+      catalog,
+    })));
+
+    render(<SupportedModelsPage />);
+
+    await screen.findByText('zt-brand-new-9.9');
+    const visibleModelIDs = screen
+      .getAllByRole('row')
+      .slice(1)
+      .map((row) => within(row).getAllByRole('cell')[0].textContent?.replace('模型 ID', ''));
+    // A vendor nobody curated still leads with its current model, and the
+    // older OpenAI generation stays behind the newer one.
+    expect(visibleModelIDs).toEqual(['zt-gpt-5.4', 'zt-brand-new-9.9', 'zt-gpt-4.1']);
+  });
+});

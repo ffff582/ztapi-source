@@ -533,11 +533,30 @@ jobs:
             'gemini-2.5-flash-image',
             'doubao-seedance-2.0',
             'doubao-seedance-2-0-fast',
-            'doubao-seedance-2-0-mini'
+            'doubao-seedance-2-0-mini',
+            'doubao-seedance-2-5'
           )
           ORDER BY id ASC;
           SQL
-            test "$(wc -l < "$media_publication_backup" | tr -d ' ')" = "5"
+            # Every media model that exists must be in the backup. Counting the
+            # rows rather than naming a number keeps a model added later from
+            # being silently left out of the rollback.
+            media_publication_expected=$("${compose[@]}" exec -T mysql sh -c \
+              'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names' <<'SQL'
+          SELECT COUNT(*)
+          FROM ztapi_model_configs
+          WHERE source_model IN (
+            'gpt-image-2',
+            'gemini-2.5-flash-image',
+            'doubao-seedance-2.0',
+            'doubao-seedance-2-0-fast',
+            'doubao-seedance-2-0-mini',
+            'doubao-seedance-2-5'
+          );
+          SQL
+            )
+            [[ "$media_publication_expected" =~ ^[1-9][0-9]*$ ]]
+            test "$(wc -l < "$media_publication_backup" | tr -d ' ')" = "$media_publication_expected"
             chmod 0600 "$media_publication_backup"
             media_publication_state_captured=true
           }
@@ -2583,6 +2602,14 @@ jobs:
                     and (.supported_options | type) == "object"
                     and (.pricing_rules | length) > 0
                     and (.billing_unit | length) > 0
+                  elif (.token_price_rules | length) > 0 then
+                    .input_price_per_million == ""
+                    and .output_price_per_million == ""
+                    and (.sale_usd | length) == 0
+                    and all(.token_price_rules[];
+                      (.conditions | type) == "array"
+                      and (.sale_usd | length) > 0
+                      and all(.sale_usd[]; (tonumber) >= 0))
                   else
                     (.input_price_per_million | tonumber) >= 0
                     and (.output_price_per_million | tonumber) >= 0

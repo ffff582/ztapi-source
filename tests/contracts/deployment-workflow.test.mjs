@@ -798,3 +798,33 @@ test('newly quoted models are priced by the server and never by the release scri
   );
   assert.ok(guard.includes('skipped=no_paid_acceptance'));
 });
+
+test('rollback backs up every media publication, not a fixed five', () => {
+  const source = readText(workflowPath);
+  const start = source.indexOf('capture_media_publication_state() {');
+  const end = source.indexOf('restore_media_publication_state() {', start);
+
+  assert.ok(start >= 0 && end > start, 'media publication capture must exist');
+  const capture = source.slice(start, end);
+
+  // A media model left out of the backup keeps whatever publication state a
+  // failed release leaves behind, because the restore never names it.
+  for (const sourceModel of [
+    'gpt-image-2',
+    'gemini-2.5-flash-image',
+    'doubao-seedance-2.0',
+    'doubao-seedance-2-0-fast',
+    'doubao-seedance-2-0-mini',
+    'doubao-seedance-2-5',
+  ]) {
+    assert.ok(
+      capture.split(`'${sourceModel}'`).length === 3,
+      `${sourceModel} must be backed up and counted`,
+    );
+  }
+  assert.ok(
+    capture.includes('= "$media_publication_expected"'),
+    'the backup must be checked against the models that exist, not a fixed count',
+  );
+  assert.ok(!/= "[0-9]+"/.test(capture), 'no hard-coded media publication count');
+});

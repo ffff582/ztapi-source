@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "ded9b0e7ea4fa4eac42b1a93702a8cf450352c0e",
+  "release_commit": "e29b5709697dd155af5e4b47b304280d3c3f2cf9",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-ded9b0e7ea4fa4eac42b1a93702a8cf450352c0e",
+  "source_tag": "production-e29b5709697dd155af5e4b47b304280d3c3f2cf9",
   "files": [
     {
       "path": ".dockerignore",
@@ -21,8 +21,8 @@
     },
     {
       "path": ".github/workflows/ztapi-deploy.yml",
-      "sha256": "b0f58d8ab1c50da0cdd84f59c8020198af4936233f70a24e5d49f05bde7935c2",
-      "size": 192506
+      "sha256": "d1967cd18fd68d84ccb7ab2705f172907e656a3210a51ba8cc89ec7c9918b71c",
+      "size": 193835
     },
     {
       "path": ".github/workflows/ztapi-edge-diagnostic.yml",
@@ -31,8 +31,8 @@
     },
     {
       "path": ".github/workflows/ztapi-financial-ci.yml",
-      "sha256": "ea9259bfab163756915751ae6f21c8138b0ba522d77709172eb336d1296fab4b",
-      "size": 9854
+      "sha256": "55215df1eaa46fb9d65bba2ed2565e806c9646f4e358b0cf84e63b675c0e1146",
+      "size": 10085
     },
     {
       "path": ".github/workflows/ztapi-production-alert-acceptance.yml",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "a3d1761b3f97f3cf0ea3b537d92745b4dc1994811b9c3c26dcd745a5e10b052b",
+      "sha256": "da898dbb8f7767fbd83c99d188edabc09c0f3504dd741eb94d409744fcee12cd",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "61aa8a2ed4327926d983379d6b13b86240a51ec63ecea618a7f1fbe14405f85e",
+      "sha256": "5b5d618db65301c5859b3ebe62660a75fa42a4670853c945a81aab219990a77b",
       "size": 942
     },
     {
@@ -9296,8 +9296,8 @@
     },
     {
       "path": "tests/contracts/deployment-workflow.test.mjs",
-      "sha256": "9f22435848f0f1759b9ab3091af46e4816eba0f6ef2036f5ca6a5c8eb44c7c33",
-      "size": 34449
+      "sha256": "bf376243c38ac0e4c7f161582fcb4ce3d200ebc3b7ed51a8e5cfe2b14caabec3",
+      "size": 35571
     },
     {
       "path": "tests/contracts/deployment.test.mjs",
@@ -9756,23 +9756,28 @@
     },
     {
       "path": "web/console/src/features/models/ModelsPage.tsx",
-      "sha256": "f9110904a5271f63f6f8378627f7be6bd9531247c7a1f8f152681d258838d139",
-      "size": 5888
+      "sha256": "2c93cae1fe04afe12a252bafa5947e5be08dbb3a8bd7f6a8e54c997684567558",
+      "size": 6267
     },
     {
       "path": "web/console/src/features/models/SupportedModelsPage.test.tsx",
-      "sha256": "3af5c2a08a7a56da0c52ec16a96c5092310343aeb3715ce627aa5cb0d015d252",
-      "size": 20655
+      "sha256": "6e89983e20e6548092c1054ced128e09369a5b0ac3c342cdb5255f585c6aa67a",
+      "size": 23572
     },
     {
       "path": "web/console/src/features/models/SupportedModelsPage.tsx",
-      "sha256": "c298d5c7cca1abf58bc16534eb02025f70f4374856f2eb78d5654e718b6ed303",
-      "size": 19779
+      "sha256": "ff50852a340b395f34b22316f4fd32e0861df47dd05cb5c390bcbae92556640f",
+      "size": 18703
+    },
+    {
+      "path": "web/console/src/features/models/catalog-order.ts",
+      "sha256": "09b07183acc8f020631adfee6ad2f04f787359c54fbd55ccccf1e6984634eda8",
+      "size": 3582
     },
     {
       "path": "web/console/src/features/models/models.test.tsx",
-      "sha256": "50947460ff84e1d8579f732baffea57f2a979d08572c031d7ba5232839426fe7",
-      "size": 10061
+      "sha256": "d174da90a2964ab700298088980c1e4deb795b8815d6c2c4631bee7d53ca82ac",
+      "size": 11463
     },
     {
       "path": "web/console/src/features/models/pricing.ts",

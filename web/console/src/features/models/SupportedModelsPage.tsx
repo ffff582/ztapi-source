@@ -1,6 +1,7 @@
 import { Copy, Search, TriangleAlert } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { apiClient } from '../../api/client';
+import { sortCatalogByRecency } from './catalog-order';
 import { formatUnitPrice } from './pricing';
 import { UsageBillingNote } from '../../components/UsageBillingNote';
 import { useLocale } from '../../i18n/locale';
@@ -89,28 +90,6 @@ const modelCategories: Array<{ id: ModelCategory; label: string }> = [
   { id: 'video', label: '视频模型' },
 ];
 
-const mainstreamModelOrder = [
-  'zt-gpt-5.6-sol',
-  'zt-claude-sonnet-5',
-  'zt-gemini-3.5-flash',
-  'zt-gpt-5.6-luna',
-  'zt-gpt-5.5',
-  'zt-claude-opus-4.8',
-  'zt-gemini-3.1-pro-preview',
-  'zt-gpt-5.4',
-  'zt-claude-sonnet-4.6',
-  'zt-gemini-3-flash-preview',
-  'zt-deepseek-v4-pro',
-  'zt-qwen-3.8-max',
-  'zt-kimi-k2.7-code',
-  'zt-glm-5.2',
-  'zt-glm-5.1',
-  'zt-deepseek-v4-flash',
-] as const;
-
-const mainstreamModelRanks = new Map<string, number>(
-  mainstreamModelOrder.map((modelName, index) => [modelName, index]),
-);
 
 const domesticFamilies = new Set(['deepseek', 'glm', 'kimi', 'moonshot', 'qwen']);
 
@@ -134,19 +113,6 @@ function matchesCategory(item: UserModelCatalogItem, category: ModelCategory) {
   }
 }
 
-function compareModelPopularity(left: UserModelCatalogItem, right: UserModelCatalogItem) {
-  const unranked = mainstreamModelOrder.length;
-  const leftRank = mainstreamModelRanks.get(left.model_name) ?? unranked;
-  const rightRank = mainstreamModelRanks.get(right.model_name) ?? unranked;
-  if (leftRank !== rightRank) {
-    return leftRank - rightRank;
-  }
-  const modalityRank = { text: 0, embedding: 1, image: 2, video: 3 };
-  return (
-    modalityRank[left.modality] - modalityRank[right.modality] ||
-    left.model_name.localeCompare(right.model_name)
-  );
-}
 
 function orderedBillingDimensions(dimensions: string[]) {
   return [...dimensions].sort((left, right) => {
@@ -237,9 +203,7 @@ export function SupportedModelsPage() {
       .then(parseUserModelCatalog)
       .then((response) => {
         if (active) {
-          setCatalog(
-            [...response.catalog].sort(compareModelPopularity),
-          );
+          setCatalog(sortCatalogByRecency(response.catalog));
           setStatus('ready');
         }
       })

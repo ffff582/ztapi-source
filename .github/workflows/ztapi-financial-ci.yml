@@ -125,8 +125,11 @@ jobs:
       - name: Run responsive media browser acceptance
         run: pnpm exec playwright test tests/e2e/media-models-and-guide.spec.ts
 
+      # Keep this evidence only while someone could still be reading it. A
+      # passing run's report is never opened, and storing every one of them
+      # filled the account's artifact quota until no release could be uploaded.
       - name: Upload browser acceptance evidence
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: media-browser-acceptance
@@ -134,7 +137,7 @@ jobs:
             test-results/
             playwright-report/
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 7
 
   commercial-finance:
     runs-on: [self-hosted, ztapi-local]
