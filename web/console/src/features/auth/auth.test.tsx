@@ -814,6 +814,37 @@ describe('protected authentication routes', () => {
     expect(screen.queryByLabelText('邮箱验证码')).not.toBeInTheDocument();
   });
 
+  it('renders every registration captcha label in English', async () => {
+    localStorage.setItem('ztapi.locale', 'en');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = requestUrl(input);
+        if (url.endsWith('/refresh')) {
+          return jsonResponse({ success: false, message: 'unauthorized' }, 401);
+        }
+        if (url.endsWith('/auth/captcha')) {
+          return jsonResponse(captchaResponse());
+        }
+        return jsonResponse(authResponse());
+      }),
+    );
+
+    renderRoute('/register');
+
+    expect(
+      await screen.findByRole('heading', { name: 'Create a ZTAPI account' }),
+    ).toBeVisible();
+    expect(screen.getByLabelText('Verification code')).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Refresh verification code' }),
+    ).toBeVisible();
+    expect(await screen.findByAltText('Verification code image')).toBeVisible();
+    expect(screen.getByText('Click the image to get a new code.')).toBeVisible();
+    expect(screen.queryByText('验证码')).not.toBeInTheDocument();
+    expect(screen.queryByText('看不清可以点击图片换一张')).not.toBeInTheDocument();
+  });
+
   it.each([
     ['invalid credentials', '账号或密码错误'],
     ['username unavailable', '账号不可用，请更换后重试'],

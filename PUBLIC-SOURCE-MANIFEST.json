@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "d1cd2eae3a03422d63fa2e31eccc143cf4aa13b6",
+  "release_commit": "33c2faf6b0d3e854ea46b3b1aa032b421c04e0a5",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-d1cd2eae3a03422d63fa2e31eccc143cf4aa13b6",
+  "source_tag": "production-33c2faf6b0d3e854ea46b3b1aa032b421c04e0a5",
   "files": [
     {
       "path": ".dockerignore",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "fadb7c591e578dcfc7e6ac8132448ca398418aa3696d859f44307e15a9fd4f31",
+      "sha256": "c389b408defc1f1bc17f7aa9cc9a121c0a8f968ad7b8374f2522a3341de34c19",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "a0c169eaf0594011c6f7e5c9033491462e7cb6f2a3c70bb6388ed9693bb9ff99",
+      "sha256": "4201b1745c28c95058cf66bf977652f724b3879eecf8556d1cb2f78f14a4c1c6",
       "size": 942
     },
     {
@@ -9676,8 +9676,8 @@
     },
     {
       "path": "web/console/src/features/auth/auth.test.tsx",
-      "sha256": "f4f9036f3c24771c234203189eb275302be023c74115fbb99bacaabc290e2bb7",
-      "size": 46525
+      "sha256": "86d3fb78eb3ee16fa40e2d49aaa681a840c5b111e6b9260f1130244cc5281081",
+      "size": 47722
     },
     {
       "path": "web/console/src/features/dashboard/DashboardPage.test.tsx",
@@ -9911,8 +9911,8 @@
     },
     {
       "path": "web/console/src/i18n/locale.tsx",
-      "sha256": "fe09936fb26aadf6d2712e52808cd6d82a08da56802a52d95910206de0620b09",
-      "size": 28275
+      "sha256": "f5d8cdd5f36a7b48f978065661fd9b68ffbf5a6e49ac398503338c4c24ded295",
+      "size": 28671
     },
     {
       "path": "web/console/src/main.tsx",
