@@ -356,6 +356,9 @@ func StartUSDTTopUpWatcher() error {
 	if !config.Enabled {
 		return nil
 	}
+	// A deployment that changes the receiving address leaves customers holding
+	// the previous one, so it keeps being watched until an operator retires it.
+	model.KeepPreviousReceivingAddressWatched(config.ReceivingAddress, time.Now().UTC())
 	hostname, _ := os.Hostname()
 	holderID := strings.TrimSpace(hostname) + ":" + uuid.NewString()
 	watcher := NewUSDTWatcher(config, NewTronGridClient("https://api.trongrid.io", config.TronGridAPIKey, nil), holderID)

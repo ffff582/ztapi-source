@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "2bfe7c21c49b04bbc347eaf1e8da3832d03b6dbc",
+  "release_commit": "7e1ce90b50b422f2b0a6378e414421922c722f06",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-2bfe7c21c49b04bbc347eaf1e8da3832d03b6dbc",
+  "source_tag": "production-7e1ce90b50b422f2b0a6378e414421922c722f06",
   "files": [
     {
       "path": ".dockerignore",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "ecb4898cac8f3176cb17b163986c1d819c035b9a5202bba037f30e4273f0643a",
+      "sha256": "aa3f1311c877bfc05e7e7f211f5bcc9309c1dc8258186785ae5150ee3ab288a1",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "1020ebf82dcf4bfebd89994dcccd27b78ea09981cb019a2b03176627255db2d0",
+      "sha256": "9c54490e95d241e01535b941ad148628266146a33fc4b6c478cd0a3274794d5e",
       "size": 942
     },
     {
@@ -2336,13 +2336,13 @@
     },
     {
       "path": "server/model/usdt_watched_address.go",
-      "sha256": "ac2bb13198f98330f9418a9fb37ffc7429846672c027b1e087ced69a8ebba64a",
-      "size": 6253
+      "sha256": "4167e225324cc683c13ff6189354e60b19705cd8d4671f010e1c8eb471565149",
+      "size": 8255
     },
     {
       "path": "server/model/usdt_watched_address_test.go",
-      "sha256": "5feecf8477575c020bf88eab05c245213ec678dbfea8f163dae5300c12772f9d",
-      "size": 4483
+      "sha256": "a0ff2752ac0c8d915ca3556838c6e37f741cfebc3600f355e5d5e73654939cb8",
+      "size": 6354
     },
     {
       "path": "server/model/usedata.go",
@@ -4681,8 +4681,8 @@
     },
     {
       "path": "server/service/usdt_topup_watcher.go",
-      "sha256": "a37db6c82cdea11af3458f0e726857a84683f670d79016ef57cdb44d09e3ad18",
-      "size": 10955
+      "sha256": "ede0525f589343e76cc143afe84111d49ecb9bcb4bffc7551ace7ee55124bc6d",
+      "size": 11196
     },
     {
       "path": "server/service/usdt_topup_watcher_test.go",

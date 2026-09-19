@@ -115,3 +115,54 @@ func TestListEnabledUSDTWatchedAddressesReturnsOnlyEnabledOnes(t *testing.T) {
 	require.False(t, all[1].Enabled)
 	require.Equal(t, 9, all[1].OperatorID)
 }
+
+// Changing the receiving address must not strand a customer who was already
+// shown the previous one.
+func TestKeepPreviousReceivingAddressWatchedFollowsAChange(t *testing.T) {
+	db := setupUSDTWatchedAddressTest(t)
+	require.NoError(t, db.AutoMigrate(&Option{}))
+	now := time.Date(2026, time.September, 19, 10, 0, 0, 0, time.UTC)
+	first := "TTn3KVXkxSi9eHnpdLBFL1PpncMZmm6Tpu"
+	second := "TLrsoJgfpKZrACoG73r95PAcCyr6cF4DwX"
+
+	// The first deployment only records what it is asking customers to pay.
+	KeepPreviousReceivingAddressWatched(first, now)
+	watched, err := ListUSDTWatchedReceivingAddresses()
+	require.NoError(t, err)
+	require.Empty(t, watched)
+
+	// Repeating the same address changes nothing.
+	KeepPreviousReceivingAddressWatched(first, now.Add(time.Minute))
+	watched, err = ListUSDTWatchedReceivingAddresses()
+	require.NoError(t, err)
+	require.Empty(t, watched)
+
+	KeepPreviousReceivingAddressWatched(second, now.Add(time.Hour))
+	watched, err = ListUSDTWatchedReceivingAddresses()
+	require.NoError(t, err)
+	require.Len(t, watched, 1)
+	require.Equal(t, first, watched[0].Address)
+	require.True(t, watched[0].Enabled)
+
+	enabled, err := ListEnabledUSDTWatchedAddresses()
+	require.NoError(t, err)
+	require.Equal(t, []string{first}, enabled)
+
+	// A restart on the new address adds nothing further.
+	KeepPreviousReceivingAddressWatched(second, now.Add(2*time.Hour))
+	watched, err = ListUSDTWatchedReceivingAddresses()
+	require.NoError(t, err)
+	require.Len(t, watched, 1)
+}
+
+func TestKeepPreviousReceivingAddressWatchedIgnoresAnEmptyAddress(t *testing.T) {
+	db := setupUSDTWatchedAddressTest(t)
+	require.NoError(t, db.AutoMigrate(&Option{}))
+
+	KeepPreviousReceivingAddressWatched("   ", time.Now().UTC())
+
+	var stored int64
+	require.NoError(t, db.Model(&Option{}).
+		Where("`key` = ?", usdtReceivingAddressOptionKey).Count(&stored).Error)
+	require.Zero(t, stored)
+}

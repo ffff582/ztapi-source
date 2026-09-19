@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"gorm.io/gorm"
 )
 
@@ -183,4 +184,56 @@ func SetUSDTWatchedReceivingAddressEnabled(id int, enabled bool, operatorID int,
 		return nil, err
 	}
 	return &record, nil
+}
+
+const usdtReceivingAddressOptionKey = "ZTAPILastReceivingAddress"
+
+// KeepPreviousReceivingAddressWatched records which address a deployment is
+// asking customers to pay, and when that changes, keeps watching the one it
+// replaced. A customer who was shown the old address before the change is
+// credited without anyone reconciling the payment by hand.
+func KeepPreviousReceivingAddressWatched(receiving string, now time.Time) {
+	if DB == nil {
+		return
+	}
+	current := strings.TrimSpace(receiving)
+	if current == "" {
+		return
+	}
+	var stored Option
+	err := DB.Where(&Option{Key: usdtReceivingAddressOptionKey}).First(&stored).Error
+	switch {
+	case errors.Is(err, gorm.ErrRecordNotFound):
+	case err != nil:
+		logZTAPIReceivingAddressProblem("previous receiving address is unreadable", err)
+		return
+	default:
+		previous := strings.TrimSpace(stored.Value)
+		if previous == current {
+			return
+		}
+		if previous != "" {
+			// An operator can disable it once the old address has stopped
+			// receiving anything, but it is never dropped silently.
+			if _, createErr := CreateUSDTWatchedReceivingAddress(
+				previous, "上一个收款地址，自动保留监听", ztapiSystemOperatorID, now,
+			); createErr != nil && !errors.Is(createErr, ErrUSDTWatchedAddressDuplicate) {
+				logZTAPIReceivingAddressProblem(
+					"previous receiving address "+previous+" is no longer watched", createErr)
+			} else if createErr == nil {
+				common.SysLog("ZTAPI kept the previous receiving address watched: " + previous)
+			}
+		}
+	}
+	marker := Option{Key: usdtReceivingAddressOptionKey, Value: current}
+	if err := DB.Save(&marker).Error; err != nil {
+		logZTAPIReceivingAddressProblem("current receiving address was not recorded", err)
+	}
+}
+
+// The operator on an address the deployment itself kept, rather than a person.
+const ztapiSystemOperatorID = 1
+
+func logZTAPIReceivingAddressProblem(what string, err error) {
+	common.SysError("ZTAPI " + what + ": " + err.Error())
 }
