@@ -260,14 +260,25 @@ jobs:
             -o UserKnownHostsFile="$HOME/.ssh/ztapi_known_hosts" \
             -o StrictHostKeyChecking=yes \
             -o ConnectTimeout=60 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=20 \
+            -o TCPKeepAlive=yes \
             /tmp/ztapi-source.tgz \
             "$deploy_env" \
             ztapi-deploy@123.254.104.157:/tmp/
 
+          # A deployment step that prints nothing for minutes -- a media
+          # verification waiting on a generated video, say -- leaves this
+          # connection idle, and the path between the runner and the server
+          # drops it. The release then fails with no output at all, after the
+          # server has already been changed. Keepalives hold it open.
           ssh \
             -o UserKnownHostsFile="$HOME/.ssh/ztapi_known_hosts" \
             -o StrictHostKeyChecking=yes \
             -o ConnectTimeout=60 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=20 \
+            -o TCPKeepAlive=yes \
             ztapi-deploy@123.254.104.157 \
             "sudo -n bash -s" <<'REMOTE'
           deploy_ztapi() {
@@ -3488,6 +3499,9 @@ jobs:
             -o UserKnownHostsFile="$HOME/.ssh/ztapi_known_hosts" \
             -o StrictHostKeyChecking=yes \
             -o ConnectTimeout=60 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=20 \
+            -o TCPKeepAlive=yes \
             ztapi-deploy@123.254.104.157 \
             "sudo -n /opt/ztapi/release-receipts/$ZTAPI_RELEASE_VERSION/$ZTAPI_RELEASE_EXECUTION_ID/release-control.sh finalize $ZTAPI_RELEASE_VERSION $ZTAPI_RELEASE_EXECUTION_ID"
 
@@ -3499,5 +3513,8 @@ jobs:
             -o UserKnownHostsFile="$HOME/.ssh/ztapi_known_hosts" \
             -o StrictHostKeyChecking=yes \
             -o ConnectTimeout=60 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=20 \
+            -o TCPKeepAlive=yes \
             ztapi-deploy@123.254.104.157 \
             "sudo -n /opt/ztapi/release-receipts/$ZTAPI_RELEASE_VERSION/$ZTAPI_RELEASE_EXECUTION_ID/release-control.sh rollback $ZTAPI_RELEASE_VERSION $ZTAPI_RELEASE_EXECUTION_ID"

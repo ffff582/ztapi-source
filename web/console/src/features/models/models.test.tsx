@@ -290,3 +290,4 @@ describe('public model catalog ordering', () => {
     ]);
   });
 });
+

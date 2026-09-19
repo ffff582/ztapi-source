@@ -10,7 +10,7 @@ import {
 } from '../../api/contracts';
 import { PublicHeader } from '../../components/layout/PublicHeader';
 import { useLocale } from '../../i18n/locale';
-import { providerFamilyRank, sortCatalogByRecency } from './catalog-order';
+import { providerFamilyRank, sortVendorModelsByRecency } from './catalog-order';
 import { modelPriceDetails } from './pricing';
 
 export function ModelsPage() {
@@ -56,7 +56,7 @@ export function ModelsPage() {
     // same order on every visit rather than the order the API happened to
     // return them in.
     return [...result.values()]
-      .map((group) => ({ ...group, models: sortCatalogByRecency(group.models) }))
+      .map((group) => ({ ...group, models: sortVendorModelsByRecency(group.models) }))
       .sort(
         (left, right) =>
           providerFamilyRank(left.key) - providerFamilyRank(right.key) ||

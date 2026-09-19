@@ -98,6 +98,21 @@ export function compareCatalogRecency<T extends CatalogOrderItem>(
   };
 }
 
+// One list mixing every vendor leads with the newest model each of them sells,
+// whatever that model does.
 export function sortCatalogByRecency<T extends CatalogOrderItem>(catalog: readonly T[]) {
   return [...catalog].sort(compareCatalogRecency<T>(generationRanks(catalog)));
+}
+
+// One vendor's own table reads by what a model does first, so its chat models
+// stay together instead of being split apart by an image or embedding model
+// that happens to be the newest of its kind.
+export function sortVendorModelsByRecency<T extends CatalogOrderItem>(models: readonly T[]) {
+  const ranks = generationRanks(models);
+  const byRecency = compareCatalogRecency<T>(ranks);
+  return [...models].sort(
+    (left, right) =>
+      (modalityRank[left.modality ?? 'text'] ?? 0) -
+        (modalityRank[right.modality ?? 'text'] ?? 0) || byRecency(left, right),
+  );
 }

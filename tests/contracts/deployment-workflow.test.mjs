@@ -828,3 +828,19 @@ test('rollback backs up every media publication, not a fixed five', () => {
   );
   assert.ok(!/= "[0-9]+"/.test(capture), 'no hard-coded media publication count');
 });
+
+test('every session that changes the server keeps itself alive', () => {
+  const source = readText(workflowPath);
+  const sessions = source.split('ztapi-deploy@123.254.104.157').slice(0, -1);
+
+  assert.ok(sessions.length >= 3, 'deploy, finalize and rollback all reach the server');
+  for (const session of sessions) {
+    // A step that prints nothing for minutes must not be mistaken for a dead
+    // connection: the release then fails with no output, after the server has
+    // already been changed.
+    const options = session.slice(session.lastIndexOf('-o UserKnownHostsFile'));
+    assert.match(options, /-o ServerAliveInterval=30/);
+    assert.match(options, /-o ServerAliveCountMax=20/);
+    assert.match(options, /-o TCPKeepAlive=yes/);
+  }
+});
