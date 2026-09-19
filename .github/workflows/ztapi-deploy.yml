@@ -2709,19 +2709,41 @@ jobs:
           zt-claude-fable-5
           zt-claude-opus-5
           PUBLISHED_SINCE_BASELINE
+          # In the pricing baseline but no longer sold. The 2026-09-15
+          # quotation prices only the A and B grades, and these four are quoted
+          # on the flagship grade alone, so the catalog can no longer price
+          # them and the runtime stopped serving them.
+          retired_since_baseline=$(mktemp /tmp/ztapi-retired-since-baseline.XXXXXX)
+          cat > "$retired_since_baseline" <<'RETIRED_SINCE_BASELINE'
+          zt-qwen-3.5-flash
+          zt-qwen-3.7-max
+          zt-qwen-3.7-plus
+          zt-qwen-3.8-max
+          RETIRED_SINCE_BASELINE
+          baseline_models=$(mktemp /tmp/ztapi-baseline-models.XXXXXX)
+          retired_sorted=$(mktemp /tmp/ztapi-retired-sorted.XXXXXX)
+          expected_with_retired=$(mktemp /tmp/ztapi-expected-with-retired.XXXXXX)
+          jq -r '.[].model_name' "$pricing_baseline" | LC_ALL=C sort -u > "$baseline_models"
+          LC_ALL=C sort -u "$retired_since_baseline" > "$retired_sorted"
+          # A model can only be retired from a list it was actually on, so a
+          # name that no longer matches the baseline fails the release instead
+          # of quietly shrinking what it expects.
+          retired_since_baseline_count=$(grep -c . "$retired_sorted")
+          test "$(comm -12 "$baseline_models" "$retired_sorted" | grep -c .)" = "$retired_since_baseline_count"
           {
-            jq -r '.[].model_name' "$pricing_baseline"
+            cat "$baseline_models"
             cat "$published_since_baseline"
             # Models this release listed from the A/B workbook belong in the
             # catalog an ordinary user sees, exactly like the frozen ones.
             for quoted_published_name in $quoted_rollout_published; do
               echo "$quoted_published_name"
             done
-          } | LC_ALL=C sort -u > "$expected_published_models"
+          } | LC_ALL=C sort -u > "$expected_with_retired"
+          comm -23 "$expected_with_retired" "$retired_sorted" > "$expected_published_models"
           expected_pricing_model_count=$(jq -er 'length' "$pricing_baseline")
           published_since_baseline_count=$(grep -c . "$published_since_baseline")
           quoted_rollout_count=$(set -- $quoted_rollout_published; echo $#)
-          expected_public_model_count=$((expected_pricing_model_count + published_since_baseline_count + quoted_rollout_count))
+          expected_public_model_count=$((expected_pricing_model_count + published_since_baseline_count + quoted_rollout_count - retired_since_baseline_count))
           test "$(wc -l < "$expected_published_models" | tr -d ' ')" = "$expected_public_model_count"
           jq -r '[.entries[] | select(.status == "mapping_pending" and .public_name != "") | .public_name] | unique[]' \
             "$quotation" | LC_ALL=C sort > "$expected_unpublished_models"
@@ -2772,7 +2794,7 @@ jobs:
           rm -f "$expected_published_models" "$expected_available_models" \
             "$expected_unpublished_models" "$health_open_models_raw" "$health_open_models" \
             "$health_unavailable_models" "$user_catalog_models" "$openai_catalog_models" \
-            "$published_since_baseline"
+            "$published_since_baseline" "$retired_since_baseline" "$baseline_models"             "$retired_sorted" "$expected_with_retired"
 
           test "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
             "$acceptance_origin/wallet")" = 200

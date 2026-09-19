@@ -872,7 +872,30 @@ test('the expected catalog counts the models it lists instead of restating a num
   assert.ok(source.includes('published_since_baseline_count=$(grep -c . "$published_since_baseline")'));
   assert.ok(
     source.includes(
-      'expected_public_model_count=$((expected_pricing_model_count + published_since_baseline_count + quoted_rollout_count))',
+      'expected_public_model_count=$((expected_pricing_model_count + published_since_baseline_count + quoted_rollout_count - retired_since_baseline_count))',
     ),
+  );
+
+  // A model can only be retired from a list it was actually on, so a stale
+  // name fails the release rather than quietly shrinking what it expects.
+  const retired = source.slice(
+    source.indexOf("cat > \"$retired_since_baseline\" <<'RETIRED_SINCE_BASELINE'"),
+    source.indexOf('expected_public_model_count='),
+  );
+  for (const modelName of [
+    'zt-qwen-3.5-flash',
+    'zt-qwen-3.7-max',
+    'zt-qwen-3.7-plus',
+    'zt-qwen-3.8-max',
+  ]) {
+    assert.ok(retired.includes(`
+          ${modelName}
+`), `${modelName} must be retired`);
+  }
+  assert.ok(
+    retired.includes(
+      'test "$(comm -12 "$baseline_models" "$retired_sorted" | grep -c .)" = "$retired_since_baseline_count"',
+    ),
+    'a retired model must still be one the baseline lists',
   );
 });
