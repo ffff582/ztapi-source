@@ -17,6 +17,7 @@ import { ModelsPage } from '../features/models/ModelsPage';
 import { PlaygroundPage } from '../features/playground/PlaygroundPage';
 import { SupportedModelsPage } from '../features/models/SupportedModelsPage';
 import { WalletPage } from '../features/wallet/WalletPage';
+import { AccountPage } from '../features/account/AccountPage';
 
 const routes: RouteObject[] = [
   {
@@ -107,6 +108,10 @@ const routes: RouteObject[] = [
       {
         path: 'wallet',
         element: <WalletPage />,
+      },
+      {
+        path: 'account',
+        element: <AccountPage />,
       },
     ],
   },

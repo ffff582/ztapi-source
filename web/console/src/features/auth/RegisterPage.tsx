@@ -12,22 +12,27 @@ import { useLocale } from '../../i18n/locale';
 const USERNAME_ERROR =
   '账号需为 3-32 字节，仅可使用字母、数字、下划线或连字符';
 const PASSWORD_ERROR = '密码需至少 10 个字符且不超过 256 字节';
+const EMAIL_ERROR = '请输入有效的邮箱地址';
 const usernamePattern = /^[\p{L}\p{N}_-]+$/u;
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const textEncoder = new TextEncoder();
 
 interface RegistrationInput {
   username: string;
   password: string;
+  email?: string;
 }
 
 interface RegistrationErrors {
   username?: string;
   password?: string;
+  email?: string;
 }
 
 export function validateRegistrationInput({
   username,
   password,
+  email = '',
 }: RegistrationInput): RegistrationErrors {
   const errors: RegistrationErrors = {};
   const trimmedUsername = username.trim();
@@ -47,6 +52,10 @@ export function validateRegistrationInput({
     errors.password = PASSWORD_ERROR;
   }
 
+  if (email.trim() !== '' && !emailPattern.test(email.trim())) {
+    errors.email = EMAIL_ERROR;
+  }
+
   return errors;
 }
 
@@ -56,9 +65,11 @@ export function RegisterPage() {
   const { register } = useAuth();
   const usernameRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
+  const emailRef = useRef<HTMLInputElement>(null);
   const captchaRef = useRef<HTMLInputElement>(null);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [email, setEmail] = useState('');
   const [captcha, setCaptcha] = useState<RegistrationCaptcha | null>(null);
   const [captchaCode, setCaptchaCode] = useState('');
   const [captchaPending, setCaptchaPending] = useState(true);
@@ -95,6 +106,12 @@ export function RegisterPage() {
     setFieldErrors((current) => ({ ...current, password: undefined }));
   }
 
+  function updateRegistrationEmail(value: string) {
+    setEmail(value);
+    setServerError(null);
+    setFieldErrors((current) => ({ ...current, email: undefined }));
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -102,7 +119,7 @@ export function RegisterPage() {
       return;
     }
 
-    const errors = validateRegistrationInput({ username, password });
+    const errors = validateRegistrationInput({ username, password, email });
     setFieldErrors(errors);
     setServerError(null);
 
@@ -113,6 +130,11 @@ export function RegisterPage() {
 
     if (errors.password !== undefined) {
       passwordRef.current?.focus();
+      return;
+    }
+
+    if (errors.email !== undefined) {
+      emailRef.current?.focus();
       return;
     }
 
@@ -130,11 +152,13 @@ export function RegisterPage() {
     setPending(true);
 
     try {
+      const normalizedEmail = email.trim().toLowerCase();
       await register({
         username: username.trim(),
         password,
         captcha_id: captcha.captcha_id,
         captcha_code: captchaCode.trim(),
+        ...(normalizedEmail === '' ? {} : { email: normalizedEmail }),
       });
       navigate('/console', { replace: true });
     } catch (error) {
@@ -193,6 +217,33 @@ export function RegisterPage() {
           error={fieldErrors.password === undefined ? undefined : t(fieldErrors.password)}
           onChange={(event) => updateRegistrationPassword(event.target.value)}
         />
+        <div className="auth-field">
+          <label htmlFor="register-email">{t('邮箱（选填）')}</label>
+          <input
+            ref={emailRef}
+            id="register-email"
+            name="email"
+            type="email"
+            autoComplete="email"
+            value={email}
+            aria-describedby={
+              fieldErrors.email === undefined
+                ? 'register-email-help'
+                : 'register-email-error'
+            }
+            aria-invalid={fieldErrors.email !== undefined}
+            onChange={(event) => updateRegistrationEmail(event.target.value)}
+          />
+          {fieldErrors.email === undefined ? (
+            <p id="register-email-help" className="auth-field__help">
+              {t('可在注册后验证，用于找回密码。')}
+            </p>
+          ) : (
+            <p id="register-email-error" className="auth-field__error">
+              {t(fieldErrors.email)}
+            </p>
+          )}
+        </div>
         <div className="auth-field">
           <label htmlFor="register-captcha">{t('验证码')}</label>
           <div className="auth-code-row">

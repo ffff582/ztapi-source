@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "7e1ce90b50b422f2b0a6378e414421922c722f06",
+  "release_commit": "d1cd2eae3a03422d63fa2e31eccc143cf4aa13b6",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-7e1ce90b50b422f2b0a6378e414421922c722f06",
+  "source_tag": "production-d1cd2eae3a03422d63fa2e31eccc143cf4aa13b6",
   "files": [
     {
       "path": ".dockerignore",
@@ -21,7 +21,7 @@
     },
     {
       "path": ".github/workflows/ztapi-deploy.yml",
-      "sha256": "116c92cebda689bc384efbc44b83681943e8145c06e6c700afdad3ee67761989",
+      "sha256": "1552b2035509f2a6a5b6f80739219b91b36ba8060d538c838cd0b556922498be",
       "size": 197956
     },
     {
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "aa3f1311c877bfc05e7e7f211f5bcc9309c1dc8258186785ae5150ee3ab288a1",
+      "sha256": "fadb7c591e578dcfc7e6ac8132448ca398418aa3696d859f44307e15a9fd4f31",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "9c54490e95d241e01535b941ad148628266146a33fc4b6c478cd0a3274794d5e",
+      "sha256": "a0c169eaf0594011c6f7e5c9033491462e7cb6f2a3c70bb6388ed9693bb9ff99",
       "size": 942
     },
     {
@@ -856,8 +856,8 @@
     },
     {
       "path": "server/controller/auth.go",
-      "sha256": "965ef0e90168cf41f3dbb2f740b44482c90d55cefbed19a5e15d83b990d6df49",
-      "size": 12218
+      "sha256": "bdaa8fa7a69f3d294b3b2405041cc6eaaf9bf9712cb48f238034d5dd05c925c0",
+      "size": 15643
     },
     {
       "path": "server/controller/auth_password_reset_test.go",
@@ -866,8 +866,8 @@
     },
     {
       "path": "server/controller/auth_test.go",
-      "sha256": "e1f6c030921bdc81c5aedcba84adb666d153001f565640c548e86c4b57f10f21",
-      "size": 36589
+      "sha256": "71cc79c50dd6ae08a50c2abec742a9ae31716bbef7b6e0121eb0f756e1899219",
+      "size": 37725
     },
     {
       "path": "server/controller/balance_ledger.go",
@@ -1276,8 +1276,8 @@
     },
     {
       "path": "server/controller/user.go",
-      "sha256": "42a8635bb133a9efe83f677329eb377c22e988f4407914a036df4614d346ec48",
-      "size": 34361
+      "sha256": "051aa080177be5ebadcd3676d630628cea3f807d1816dd8ad1a6950926bacf93",
+      "size": 34451
     },
     {
       "path": "server/controller/user_log.go",
@@ -1333,6 +1333,11 @@
       "path": "server/controller/ztapi_attempt_billing_test.go",
       "sha256": "a2c7be4ee51bf83a72715344949647428c764388f2036f70b0cc8268b254be58",
       "size": 8701
+    },
+    {
+      "path": "server/controller/ztapi_email_test.go",
+      "sha256": "021614a1af5b3194eb4ee8e898cc177c65b2f5a3d8e0fe094758e7a6ee7c55c6",
+      "size": 4421
     },
     {
       "path": "server/controller/ztapi_fx.go",
@@ -1681,8 +1686,8 @@
     },
     {
       "path": "server/dto/user_settings.go",
-      "sha256": "88286f74f01e0eed104bc4bc18fc97a8969d0db485a2436ccd28310b7236f2ca",
-      "size": 2326
+      "sha256": "7af87d91e125df1c15badb3e135514db623bdd9ada8e3efab6a8cba5bff79fde",
+      "size": 2474
     },
     {
       "path": "server/dto/values.go",
@@ -1796,8 +1801,8 @@
     },
     {
       "path": "server/main.go",
-      "sha256": "1dec3acaa1184c955a4772d34c8633cb99783937a0630a7b04fcbcd3ca1a59d6",
-      "size": 10538
+      "sha256": "d21d3d6f97aebf737d6da9447450006bb769d1348df4495860df990f30ae6c12",
+      "size": 10593
     },
     {
       "path": "server/makefile",
@@ -2356,8 +2361,8 @@
     },
     {
       "path": "server/model/user.go",
-      "sha256": "7b3c19bbdcecb3f96d0ec62960ae7994eb450758a5803a8e6a9368e695d6ee24",
-      "size": 36113
+      "sha256": "379d72af34ed04e9a66bfad226a1a9a1046f7748f0d2e44553b233c00307a8f8",
+      "size": 38870
     },
     {
       "path": "server/model/user_cache.go",
@@ -4231,8 +4236,8 @@
     },
     {
       "path": "server/router/api-router.go",
-      "sha256": "080f34538ef748a270997d8276fe5b98b5800bc233b55875ab7a424acf524a25",
-      "size": 36941
+      "sha256": "cf42992df4bb5ea3df334d28afa84348dd86ae84330dfe46f6c1d38ecbab9ffa",
+      "size": 37163
     },
     {
       "path": "server/router/auth_refresh_rate_limit_test.go",
@@ -4251,8 +4256,8 @@
     },
     {
       "path": "server/router/console_routes_test.go",
-      "sha256": "edcb4b7d10d611ebb353654fdf573c1965558bfd44c2703ab7b2ed2f2126cac7",
-      "size": 726
+      "sha256": "220116263e7f9d15d93c3d91b89ae4be7a48774e666e06c883a680363df8df02",
+      "size": 828
     },
     {
       "path": "server/router/dashboard.go",
@@ -4866,8 +4871,13 @@
     },
     {
       "path": "server/service/ztapi_pboc_fx.go",
-      "sha256": "9c6719cd7dba73ac78323d42c82aae9d11a8708bbcb86c945ee26ff9d5d62278",
-      "size": 4343
+      "sha256": "2a2809ced7a887fb7bcda78ff97aaeb6c1bcc292971927dc45a9fa17b7b5b6a4",
+      "size": 9241
+    },
+    {
+      "path": "server/service/ztapi_pboc_fx_refresh_test.go",
+      "sha256": "3fffc781288fd9a40b79aafe227c3f3bafeaf40ca4381e10ccaf18d56c3f7aec",
+      "size": 3020
     },
     {
       "path": "server/service/ztapi_supplier_reconciliation.go",
@@ -7516,8 +7526,8 @@
     },
     {
       "path": "server/web/classic/src/ztapi/features/finance/WatchedAddressesPage.test.jsx",
-      "sha256": "e486f2f14c968457d6b2b680122dd92b3dc684695f86b8ddb6df31230d7d4876",
-      "size": 5935
+      "sha256": "0988525080fd37e5be62d607cb8ae463a25659ecc09018c813b4d6cbf9610fd6",
+      "size": 6906
     },
     {
       "path": "server/web/classic/src/ztapi/features/finance/reconciliation.css",
@@ -9321,8 +9331,8 @@
     },
     {
       "path": "tests/contracts/deployment-workflow.test.mjs",
-      "sha256": "55690b2bd0e2609e1fea27c98beb708c4d3603b1787ddef43a90aaf956f3030a",
-      "size": 38440
+      "sha256": "4e6ec0e4430895017fb0b90d203e1d7b35ac02c41866141bdf6072f353f96720",
+      "size": 38549
     },
     {
       "path": "tests/contracts/deployment.test.mjs",
@@ -9571,8 +9581,8 @@
     },
     {
       "path": "web/console/src/app/router.tsx",
-      "sha256": "90db7b811df1cd6b9982fc91c2e77dc044aa33d49e73ad2173c7d345bedce093",
-      "size": 2833
+      "sha256": "cbf2e7f33495918e791fbde46f708c0c6a6ad8ff26390c48bb72963bed73c0e3",
+      "size": 2972
     },
     {
       "path": "web/console/src/auth/session.tsx",
@@ -9591,8 +9601,8 @@
     },
     {
       "path": "web/console/src/components/layout/ConsoleShell.tsx",
-      "sha256": "db294266d4e5337dd767191e32671e8e63ae99a1ff54bfead14395db12a6340a",
-      "size": 2790
+      "sha256": "26856c5afb9df68f8d43f03ec58fc745f65a54623d772eb71e71e8561f4f7b7f",
+      "size": 2904
     },
     {
       "path": "web/console/src/components/layout/PublicHeader.tsx",
@@ -9603,6 +9613,16 @@
       "path": "web/console/src/components/layout/public-header.css",
       "sha256": "cd9204ed187ccc6808bc00e6c3aca494a384fd9f84f6d9149225891dc14bfb39",
       "size": 2460
+    },
+    {
+      "path": "web/console/src/features/account/AccountPage.test.tsx",
+      "sha256": "371987edbfa1efd6367ee8a810d277af7a51c9be9b43bb0dac1af678c206f78a",
+      "size": 2688
+    },
+    {
+      "path": "web/console/src/features/account/AccountPage.tsx",
+      "sha256": "2c2fd7119557705297ffd7ac872274ea167a94018f8832dfc0d2c6b22bf33562",
+      "size": 6972
     },
     {
       "path": "web/console/src/features/auth/AuthShell.tsx",
@@ -9636,8 +9656,8 @@
     },
     {
       "path": "web/console/src/features/auth/RegisterPage.tsx",
-      "sha256": "fc61c182aed017bdcd86254be5a9b64f5413d2d92a3e022663466908df7c07c9",
-      "size": 7948
+      "sha256": "8eb9261744b00501d25c27c58b21a78a71ce9d0a55c5010f630904f30e7c0d9e",
+      "size": 9690
     },
     {
       "path": "web/console/src/features/auth/ResetPasswordPage.tsx",
@@ -9656,8 +9676,8 @@
     },
     {
       "path": "web/console/src/features/auth/auth.test.tsx",
-      "sha256": "d37d5bccc92af8ab1da6843e8bf66fc7552382abc754771ec233da616170207b",
-      "size": 44985
+      "sha256": "f4f9036f3c24771c234203189eb275302be023c74115fbb99bacaabc290e2bb7",
+      "size": 46525
     },
     {
       "path": "web/console/src/features/dashboard/DashboardPage.test.tsx",
@@ -9891,8 +9911,8 @@
     },
     {
       "path": "web/console/src/i18n/locale.tsx",
-      "sha256": "fd038e68302a6d79ed6a4360b4bd62f29d4fc953f7bd149f1c3d3b23a16de9d0",
-      "size": 26846
+      "sha256": "fe09936fb26aadf6d2712e52808cd6d82a08da56802a52d95910206de0620b09",
+      "size": 28275
     },
     {
       "path": "web/console/src/main.tsx",

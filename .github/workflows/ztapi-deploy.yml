@@ -1403,7 +1403,6 @@ jobs:
             } > "$rollback_state"
             chmod 0600 "$rollback_state"
             watchdog_unit="ztapi-release-watchdog-${ZTAPI_RELEASE_VERSION:0:12}-$ZTAPI_RELEASE_EXECUTION_ID"
-            write_receipt external_acceptance_pending "no_paid_acceptance=true watchdog=$watchdog_unit.timer"
             systemd-run --quiet \
               --unit="$watchdog_unit" \
               --on-active=10m \
@@ -1411,6 +1410,7 @@ jobs:
               --property=Type=oneshot \
               "$control_script" rollback "$ZTAPI_RELEASE_VERSION" "$ZTAPI_RELEASE_EXECUTION_ID"
             systemctl is-active --quiet "$watchdog_unit.timer"
+            write_receipt external_acceptance_pending "no_paid_acceptance=true watchdog=$watchdog_unit.timer"
             return 0
           fi
 
@@ -3446,7 +3446,6 @@ jobs:
           command -v systemd-run >/dev/null
           systemctl stop "$watchdog_unit.timer" >/dev/null 2>&1 || true
           systemctl reset-failed "$watchdog_unit.timer" "$watchdog_unit.service" >/dev/null 2>&1 || true
-          write_receipt external_acceptance_pending "public_endpoint_verification=pending watchdog=$watchdog_unit.timer"
           "${compose[@]}" ps
           systemd-run --quiet \
             --unit="$watchdog_unit" \
@@ -3455,6 +3454,7 @@ jobs:
             --property=Type=oneshot \
             "$control_script" rollback "$ZTAPI_RELEASE_VERSION" "$ZTAPI_RELEASE_EXECUTION_ID"
           systemctl is-active --quiet "$watchdog_unit.timer"
+          write_receipt external_acceptance_pending "public_endpoint_verification=pending watchdog=$watchdog_unit.timer"
           }
           deploy_ztapi </dev/null
           REMOTE

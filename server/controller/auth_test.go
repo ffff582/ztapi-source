@@ -156,7 +156,7 @@ func TestAuthRegisterCreatesArgon2UserWithoutAPIKeyAndReturnsSafeSession(t *test
 	assertIssuedRefreshCookie(t, recorder, false)
 }
 
-func TestAuthRegisterNeedsAHumanVerificationAndStoresNoEmail(t *testing.T) {
+func TestAuthRegisterNeedsAHumanVerificationAndStoresOptionalEmailAsPending(t *testing.T) {
 	db := setupZTAPIAuthControllerTest(t)
 	engine := newZTAPIAuthControllerEngine()
 	originalEmailVerificationEnabled := common.EmailVerificationEnabled
@@ -176,7 +176,8 @@ func TestAuthRegisterNeedsAHumanVerificationAndStoresNoEmail(t *testing.T) {
 		}
 	}
 
-	// An address a visitor types is never verified, so it is not kept.
+	// Registration stays usable without an email code, but the address cannot
+	// become a password-recovery identity until the owner verifies it later.
 	registered := performZTAPIAuthRequest(
 		t,
 		engine,
@@ -194,11 +195,14 @@ func TestAuthRegisterNeedsAHumanVerificationAndStoresNoEmail(t *testing.T) {
 		t.Fatalf("load registered user: %v", err)
 	}
 	if user.Email != "" {
-		t.Fatalf("stored email = %q, want no stored email", user.Email)
+		t.Fatalf("verified email = %q, want none before verification", user.Email)
+	}
+	if pending := user.GetSetting().PendingEmail; pending != "alice@example.com" {
+		t.Fatalf("pending email = %q, want alice@example.com", pending)
 	}
 }
 
-func TestAuthRegisterKeepsNoEmailWhateverTheEmailVerificationSettingSays(t *testing.T) {
+func TestAuthRegisterOptionalEmailDoesNotDependOnLegacyVerificationSwitch(t *testing.T) {
 	db := setupZTAPIAuthControllerTest(t)
 	engine := newZTAPIAuthControllerEngine()
 	originalEmailVerificationEnabled := common.EmailVerificationEnabled
@@ -223,7 +227,34 @@ func TestAuthRegisterKeepsNoEmailWhateverTheEmailVerificationSettingSays(t *test
 		t.Fatal(err)
 	}
 	if user.Email != "" {
-		t.Fatalf("stored email = %q, want no stored email", user.Email)
+		t.Fatalf("verified email = %q, want none before verification", user.Email)
+	}
+	if pending := user.GetSetting().PendingEmail; pending != "victim@example.com" {
+		t.Fatalf("pending email = %q, want victim@example.com", pending)
+	}
+}
+
+func TestAuthRegisterRejectsMalformedOptionalEmail(t *testing.T) {
+	db := setupZTAPIAuthControllerTest(t)
+	engine := newZTAPIAuthControllerEngine()
+
+	response := performZTAPIAuthRequest(
+		t,
+		engine,
+		http.MethodPost,
+		"/auth/register",
+		`{"username":"alice","password":"at-least-ten","email":"not-an-email","captcha_id":"captcha-1","captcha_code":"k7fn"}`,
+		nil,
+	)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("invalid optional email status = %d, want 400; body=%s", response.Code, response.Body.String())
+	}
+	var count int64
+	if err := db.Model(&model.User{}).Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("invalid optional email created %d users", count)
 	}
 }
 

@@ -137,6 +137,37 @@ describe('watched receiving addresses', () => {
     });
   });
 
+  it('lets an authorized administrator restore a disabled address', async () => {
+    adminRequest.mockResolvedValueOnce({
+      ...catalog,
+      items: [{ ...catalog.items[0], enabled: false }],
+    });
+    render(<WatchedAddressesPage canWrite />);
+    await screen.findByText('已停用');
+
+    fireEvent.change(screen.getByLabelText('监听地址变更原因'), {
+      target: { value: '恢复旧地址收款监听' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '启用' }));
+
+    await waitFor(() => {
+      expect(adminRequest).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: 'PUT',
+          url: '/api/admin/payment/watched-addresses/3',
+        }),
+      );
+    });
+    const call = adminRequest.mock.calls.find(
+      ([config]) => config.method === 'PUT',
+    );
+    expect(JSON.parse(call[0].body)).toEqual({
+      enabled: true,
+      reason: '恢复旧地址收款监听',
+      confirm: true,
+    });
+  });
+
   it('hides every control from an administrator who may only read', async () => {
     adminRequest.mockResolvedValue(catalog);
 

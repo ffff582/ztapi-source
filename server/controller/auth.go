@@ -70,8 +70,9 @@ func ZTAPIRegister(c *gin.Context) {
 		return
 	}
 
-	// Registration asks for no email, so nothing an unverified visitor types
-	// can claim an address that belongs to somebody else.
+	pendingEmail := strings.ToLower(strings.TrimSpace(request.Email))
+	// An optional registration address remains pending until the signed-in
+	// user proves ownership. It therefore cannot claim password recovery.
 	exists, err := model.CheckUserExistOrDeleted(username, "")
 	if err != nil {
 		writeZTAPIAuthError(c, http.StatusInternalServerError, "internal server error")
@@ -87,7 +88,7 @@ func ZTAPIRegister(c *gin.Context) {
 		writeZTAPIAuthError(c, http.StatusBadRequest, "invalid registration")
 		return
 	}
-	user, err := model.CreateZTAPIUserWithEncodedPasswordAndEmail(username, encodedPassword, "")
+	user, err := model.CreateZTAPIUserWithEncodedPasswordAndPendingEmail(username, encodedPassword, pendingEmail)
 	if err != nil {
 		exists, lookupErr := model.CheckUserExistOrDeleted(username, "")
 		if lookupErr == nil && exists {
@@ -285,6 +286,10 @@ func decodeZTAPIRegistration(c *gin.Context) (ztAPIAuthRequest, string, bool) {
 		writeZTAPIAuthError(c, http.StatusBadRequest, "invalid registration")
 		return ztAPIAuthRequest{}, "", false
 	}
+	if email := strings.TrimSpace(request.Email); email != "" && common.Validate.Var(email, "email") != nil {
+		writeZTAPIAuthError(c, http.StatusBadRequest, "invalid registration")
+		return ztAPIAuthRequest{}, "", false
+	}
 	// The challenge is graded last so a failed one cannot be used to probe
 	// which usernames or passwords the server would have accepted.
 	if !ztAPIConsumeCaptcha(request.CaptchaID, request.CaptchaCode, time.Now().UTC()) {
@@ -292,6 +297,84 @@ func decodeZTAPIRegistration(c *gin.Context) (ztAPIAuthRequest, string, bool) {
 		return ztAPIAuthRequest{}, "", false
 	}
 	return request, username, true
+}
+
+type ztAPIEmailRequest struct {
+	Email            string `json:"email"`
+	VerificationCode string `json:"verification_code"`
+}
+
+func normalizeZTAPIEmail(raw string) (string, bool) {
+	email := strings.ToLower(strings.TrimSpace(raw))
+	return email, email != "" && common.Validate.Var(email, "email") == nil
+}
+
+func ZTAPIRequestEmailVerification(c *gin.Context) {
+	if !ztAPIPasswordResetEnabled() {
+		writeZTAPIAuthError(c, http.StatusServiceUnavailable, "email unavailable")
+		return
+	}
+	var request ztAPIEmailRequest
+	if err := common.DecodeJson(c.Request.Body, &request); err != nil {
+		writeZTAPIAuthError(c, http.StatusBadRequest, "invalid email")
+		return
+	}
+	email, valid := normalizeZTAPIEmail(request.Email)
+	if !valid {
+		writeZTAPIAuthError(c, http.StatusBadRequest, "invalid email")
+		return
+	}
+	taken, err := model.ZTAPIEmailBelongsToAnotherUser(c.GetInt("id"), email)
+	if err != nil {
+		writeZTAPIAuthError(c, http.StatusInternalServerError, "email verification failed")
+		return
+	}
+	if taken {
+		writeZTAPIAuthError(c, http.StatusConflict, "email unavailable")
+		return
+	}
+	code := common.GenerateVerificationCode(6)
+	subject := fmt.Sprintf("%s 邮箱验证", common.SystemName)
+	content := fmt.Sprintf(
+		"<p>您好，您正在绑定 %s 账号邮箱。</p><p>验证码：<strong>%s</strong></p><p>验证码 %d 分钟内有效且只能使用一次。</p>",
+		html.EscapeString(common.SystemName), html.EscapeString(code), common.VerificationValidMinutes,
+	)
+	common.RegisterVerificationCodeWithKey(email, code, common.EmailVerificationPurpose)
+	if err := ztAPISendEmail(subject, email, content); err != nil {
+		common.DeleteKey(email, common.EmailVerificationPurpose)
+		logger.LogError(c.Request.Context(), fmt.Sprintf("failed to send ZTAPI email verification to %s: %s", common.MaskEmail(email), err.Error()))
+		writeZTAPIAuthError(c, http.StatusServiceUnavailable, "email verification failed")
+		return
+	}
+	if err := model.SetZTAPIPendingEmail(c.GetInt("id"), email); err != nil {
+		common.DeleteKey(email, common.EmailVerificationPurpose)
+		writeZTAPIAuthError(c, http.StatusInternalServerError, "email verification failed")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+func ZTAPIVerifyAndBindEmail(c *gin.Context) {
+	var request ztAPIEmailRequest
+	if err := common.DecodeJson(c.Request.Body, &request); err != nil {
+		writeZTAPIAuthError(c, http.StatusBadRequest, "invalid email verification")
+		return
+	}
+	email, valid := normalizeZTAPIEmail(request.Email)
+	code := strings.TrimSpace(request.VerificationCode)
+	if !valid || code == "" || !common.ConsumeVerificationCodeWithKey(email, code, common.EmailVerificationPurpose) {
+		writeZTAPIAuthError(c, http.StatusBadRequest, "invalid email verification")
+		return
+	}
+	if err := model.BindZTAPIUserEmail(c.GetInt("id"), email); err != nil {
+		if errors.Is(err, model.ErrZTAPIEmailAlreadyBound) {
+			writeZTAPIAuthError(c, http.StatusConflict, "email unavailable")
+			return
+		}
+		writeZTAPIAuthError(c, http.StatusInternalServerError, "email verification failed")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
 // ZTAPIIssueCaptcha hands out one human-verification challenge for the

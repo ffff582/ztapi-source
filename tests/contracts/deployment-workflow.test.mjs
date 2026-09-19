@@ -621,7 +621,7 @@ test('guarded deployment atomically applies the approved commercial pricing poli
   assert.doesNotMatch(source, /0\.4100000000|3\.4166666667/);
 });
 
-test('guarded deployment proves registration needs human verification and asks for no email', () => {
+test('guarded deployment proves registration needs human verification and keeps email optional', () => {
   const source = readFileSync(workflowPath, 'utf8');
 
   assert.match(source, /current_email_verification/);
@@ -629,7 +629,8 @@ test('guarded deployment proves registration needs human verification and asks f
     source,
     /\.data\.email_verification \| select\(type == "boolean"\)/,
   );
-  // Registration collects no email at all any more.
+  // The acceptance account deliberately omits the optional email, so deployment
+  // never depends on outbound mail and still proves email-free registration.
   assert.doesNotMatch(source, /acceptance_email=/);
   assert.doesNotMatch(source, /password:\$password,email:\$email/);
   assert.match(source, /\{username:\$username,password:\$password\}/);

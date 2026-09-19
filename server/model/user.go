@@ -475,6 +475,93 @@ func CreateZTAPIUserWithEncodedPasswordAndEmail(username string, encodedPassword
 	return user, nil
 }
 
+// CreateZTAPIUserWithEncodedPasswordAndPendingEmail records an optional
+// registration email without granting password-recovery authority. The
+// address moves to User.Email only after the signed-in user verifies it.
+func CreateZTAPIUserWithEncodedPasswordAndPendingEmail(username string, encodedPassword string, pendingEmail string) (*User, error) {
+	user := &User{
+		Username:    username,
+		Password:    encodedPassword,
+		DisplayName: username,
+		Role:        common.RoleCommonUser,
+		Status:      common.UserStatusEnabled,
+		Quota:       common.QuotaForNewUser,
+		Group:       "default",
+		AffCode:     common.GetRandomString(4),
+	}
+	setting := dto.UserSetting{PendingEmail: strings.TrimSpace(pendingEmail)}
+	user.SetSetting(setting)
+	sensitiveDB := DB.Session(&gorm.Session{Logger: DB.Logger.LogMode(gormlogger.Silent)})
+	if err := sensitiveDB.Create(user).Error; err != nil {
+		return nil, err
+	}
+	return user, nil
+}
+
+var ErrZTAPIEmailAlreadyBound = errors.New("ztapi email already bound")
+
+func SetZTAPIPendingEmail(userID int, email string) error {
+	if DB == nil || userID <= 0 {
+		return errors.New("invalid user")
+	}
+	var user User
+	if err := DB.First(&user, userID).Error; err != nil {
+		return err
+	}
+	setting := user.GetSetting()
+	setting.PendingEmail = strings.TrimSpace(email)
+	user.SetSetting(setting)
+	if err := DB.Model(&User{}).Where("id = ?", userID).Update("setting", user.Setting).Error; err != nil {
+		return err
+	}
+	return invalidateUserCache(userID)
+}
+
+func ZTAPIEmailBelongsToAnotherUser(userID int, email string) (bool, error) {
+	if DB == nil {
+		return false, errors.New("database is not initialized")
+	}
+	var count int64
+	err := DB.Unscoped().Model(&User{}).
+		Where("email = ? AND id <> ?", strings.TrimSpace(email), userID).
+		Count(&count).Error
+	return count > 0, err
+}
+
+func BindZTAPIUserEmail(userID int, email string) error {
+	if DB == nil || userID <= 0 {
+		return errors.New("invalid user")
+	}
+	email = strings.TrimSpace(email)
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var count int64
+		if err := tx.Unscoped().Model(&User{}).
+			Where("email = ? AND id <> ?", email, userID).Count(&count).Error; err != nil {
+			return err
+		}
+		if count > 0 {
+			return ErrZTAPIEmailAlreadyBound
+		}
+		var user User
+		if err := tx.First(&user, userID).Error; err != nil {
+			return err
+		}
+		setting := user.GetSetting()
+		if !strings.EqualFold(strings.TrimSpace(setting.PendingEmail), email) {
+			return errors.New("pending email does not match")
+		}
+		setting.PendingEmail = ""
+		user.SetSetting(setting)
+		return tx.Model(&User{}).Where("id = ?", userID).Updates(map[string]interface{}{
+			"email": email, "setting": user.Setting,
+		}).Error
+	})
+	if err != nil {
+		return err
+	}
+	return invalidateUserCache(userID)
+}
+
 // CreateZTAPIManagedUserWithEncodedPassword creates an administrator-managed
 // account without sending its Argon2id password through the legacy bcrypt path.
 func CreateZTAPIManagedUserWithEncodedPassword(user *User) error {

@@ -6,6 +6,7 @@ import {
   LogOut,
   PlayCircle,
   ScrollText,
+  UserRound,
   WalletCards,
 } from 'lucide-react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
@@ -54,6 +55,12 @@ const consoleNavigation = [
     to: '/console/wallet',
     label: '余额充值',
     icon: WalletCards,
+    end: false,
+  },
+  {
+    to: '/console/account',
+    label: '账号设置',
+    icon: UserRound,
     end: false,
   },
 ];

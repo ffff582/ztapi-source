@@ -15,6 +15,8 @@ func TestConsoleAccountRoutesAreRegistered(t *testing.T) {
 	}
 	for _, route := range []string{
 		http.MethodGet + " /api/user/self",
+		http.MethodPost + " /api/user/self/email/verification",
+		http.MethodPut + " /api/user/self/email",
 		http.MethodGet + " /api/user/self/pending-settlements",
 		http.MethodGet + " /api/user/pending-settlements",
 		http.MethodGet + " /api/user/models",

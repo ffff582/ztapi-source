@@ -84,6 +84,7 @@ async function submitRegistration(
   username = 'alice',
   password = 'correct-horse',
   captchaCode = 'k7fn',
+  email = '',
 ) {
   await screen.findByAltText('验证码图片');
   fireEvent.change(screen.getByLabelText('账号'), {
@@ -92,6 +93,11 @@ async function submitRegistration(
   fireEvent.change(screen.getByLabelText('密码'), {
     target: { value: password },
   });
+  if (email !== '') {
+    fireEvent.change(screen.getByLabelText('邮箱（选填）'), {
+      target: { value: email },
+    });
+  }
   fireEvent.change(screen.getByLabelText('验证码'), {
     target: { value: captchaCode },
   });
@@ -298,7 +304,7 @@ describe('protected authentication routes', () => {
     expect(screen.getByLabelText('账号')).toHaveFocus();
   });
 
-  it('registers with a human verification code and never asks for an email', async () => {
+  it('registers with a human verification code and offers an optional email', async () => {
     const captchaImage =
       'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==';
     const fetchMock = vi.fn(
@@ -324,7 +330,7 @@ describe('protected authentication routes', () => {
 
     renderRoute('/register');
     await waitForRegisterForm();
-    expect(screen.queryByLabelText('邮箱')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('邮箱（选填）')).toBeInTheDocument();
     expect(await screen.findByAltText('验证码图片')).toHaveAttribute('src', captchaImage);
 
     fireEvent.change(screen.getByLabelText('账号'), { target: { value: 'alice' } });
@@ -698,6 +704,15 @@ describe('protected authentication routes', () => {
         password: '😀'.repeat(64),
       }),
     ).toEqual({});
+    expect(
+      validateRegistrationInput({
+        username: 'alice',
+        password: '1234567890',
+        email: 'not-an-email',
+      }),
+    ).toEqual({
+      email: '请输入有效的邮箱地址',
+    });
   });
 
   it('shows visible validation and does not submit invalid registration', async () => {
@@ -765,6 +780,38 @@ describe('protected authentication routes', () => {
       captcha_id: 'captcha-1',
       captcha_code: 'k7fn',
     });
+  });
+
+  it('submits an optional email without requiring an email code', async () => {
+    const fetchMock = vi.fn(
+      async (...args: [RequestInfo | URL, RequestInit?]) => {
+        const url = requestUrl(args[0]);
+        if (url.endsWith('/refresh')) {
+          return jsonResponse({ success: false, message: 'unauthorized' }, 401);
+        }
+        if (url.endsWith('/auth/captcha')) {
+          return jsonResponse(captchaResponse());
+        }
+        return jsonResponse(authResponse());
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderRoute('/register');
+    await waitForRegisterForm();
+    await submitRegistration('alice', 'correct-horse', 'k7fn', ' Owner@Example.com ');
+
+    const registerCall = fetchMock.mock.calls.find(([input]) =>
+      requestUrl(input as RequestInfo | URL).endsWith('/register'),
+    );
+    expect(JSON.parse(String((registerCall?.[1] as RequestInit)?.body))).toEqual({
+      username: 'alice',
+      password: 'correct-horse',
+      email: 'owner@example.com',
+      captcha_id: 'captcha-1',
+      captcha_code: 'k7fn',
+    });
+    expect(screen.queryByLabelText('邮箱验证码')).not.toBeInTheDocument();
   });
 
   it.each([
