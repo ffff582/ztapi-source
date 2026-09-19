@@ -2739,7 +2739,16 @@ jobs:
           comm -12 "$expected_published_models" "$health_open_models" > "$health_unavailable_models"
           comm -23 "$expected_published_models" "$health_unavailable_models" > "$expected_available_models"
           echo "$acceptance_catalog" | jq -r '.catalog[].model_name' | LC_ALL=C sort -u > "$user_catalog_models"
-          cmp -s "$expected_available_models" "$user_catalog_models"
+          if ! cmp -s "$expected_available_models" "$user_catalog_models"; then
+            # A bare comparison failure says only that two lists differ, which
+            # is not enough to tell a stale expectation from a broken catalog.
+            echo "the catalog an ordinary user sees differs from what this release expects" >&2
+            echo 'expected but not served:' >&2
+            comm -23 "$expected_available_models" "$user_catalog_models" >&2
+            echo 'served but not expected:' >&2
+            comm -13 "$expected_available_models" "$user_catalog_models" >&2
+            exit 1
+          fi
           test ! -s <(comm -12 "$health_unavailable_models" "$user_catalog_models")
           test ! -s <(comm -12 "$expected_unpublished_models" "$user_catalog_models")
 
@@ -2748,7 +2757,16 @@ jobs:
             "$acceptance_origin/v1/models")
           echo "$acceptance_models" | jq -e '.success == true' >/dev/null
           echo "$acceptance_models" | jq -r '.data[].id' | LC_ALL=C sort -u > "$openai_catalog_models"
-          cmp -s "$expected_available_models" "$openai_catalog_models"
+          if ! cmp -s "$expected_available_models" "$openai_catalog_models"; then
+            # A bare comparison failure says only that two lists differ, which
+            # is not enough to tell a stale expectation from a broken catalog.
+            echo "the model list the OpenAI endpoint serves differs from what this release expects" >&2
+            echo 'expected but not served:' >&2
+            comm -23 "$expected_available_models" "$openai_catalog_models" >&2
+            echo 'served but not expected:' >&2
+            comm -13 "$expected_available_models" "$openai_catalog_models" >&2
+            exit 1
+          fi
           test ! -s <(comm -12 "$health_unavailable_models" "$openai_catalog_models")
           test ! -s <(comm -12 "$expected_unpublished_models" "$openai_catalog_models")
           rm -f "$expected_published_models" "$expected_available_models" \

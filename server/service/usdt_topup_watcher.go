@@ -78,6 +78,29 @@ func NewUSDTWatcher(config setting.USDTTopUpConfig, client USDTTransferClient, h
 	}
 }
 
+// watchedAddresses always includes the deployed receiving address, which is
+// the only one an order ever asks a customer to pay. The administration site
+// can add others, so an address customers were given before a change keeps
+// crediting them afterwards.
+func (watcher *USDTWatcher) watchedAddresses() ([]string, error) {
+	configured := strings.TrimSpace(watcher.config.ReceivingAddress)
+	addresses := []string{configured}
+	seen := map[string]bool{configured: true}
+	extra, err := model.ListEnabledUSDTWatchedAddresses()
+	if err != nil {
+		return nil, err
+	}
+	for _, address := range extra {
+		trimmed := strings.TrimSpace(address)
+		if trimmed == "" || seen[trimmed] {
+			continue
+		}
+		seen[trimmed] = true
+		addresses = append(addresses, trimmed)
+	}
+	return addresses, nil
+}
+
 func (watcher *USDTWatcher) Wake() {
 	if watcher == nil {
 		return
@@ -182,16 +205,24 @@ func (watcher *USDTWatcher) pollOnce(ctx context.Context, now time.Time) (USDTWa
 		return watcher.recordUSDTWatcherFailure(now, "configuration", errors.New("USDT transfer client is not configured"))
 	}
 
-	transfers, err := watcher.client.ListConfirmedIncomingUSDT(ctx, watcher.config.ReceivingAddress, model.USDTTopUpContractAddress, orders[0].CreatedAt*1000)
+	addresses, err := watcher.watchedAddresses()
 	if err != nil {
-		category := "unavailable"
-		if errors.Is(err, ErrTronGridRateLimited) {
-			category = "rate_limited"
+		return watcher.recordUSDTWatcherFailure(now, "database", err)
+	}
+	var transfers []TRC20Transfer
+	for _, address := range addresses {
+		received, listErr := watcher.client.ListConfirmedIncomingUSDT(ctx, address, model.USDTTopUpContractAddress, orders[0].CreatedAt*1000)
+		if listErr != nil {
+			category := "unavailable"
+			if errors.Is(listErr, ErrTronGridRateLimited) {
+				category = "rate_limited"
+			}
+			if errors.Is(listErr, ErrTronGridForbidden) {
+				category = "forbidden"
+			}
+			return watcher.recordUSDTWatcherFailure(now, category, listErr)
 		}
-		if errors.Is(err, ErrTronGridForbidden) {
-			category = "forbidden"
-		}
-		return watcher.recordUSDTWatcherFailure(now, category, err)
+		transfers = append(transfers, received...)
 	}
 
 	settled := int64(0)

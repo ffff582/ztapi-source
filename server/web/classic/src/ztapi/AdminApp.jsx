@@ -44,6 +44,7 @@ import StaffRolesPage from './features/users/StaffRolesPage.jsx';
 import OrdersPage from './features/finance/OrdersPage.jsx';
 import LedgerPage from './features/finance/LedgerPage.jsx';
 import ReconciliationPage from './features/finance/ReconciliationPage.jsx';
+import WatchedAddressesPage from './features/finance/WatchedAddressesPage.jsx';
 import AdminLogsPage from './features/logs/AdminLogsPage.jsx';
 import AuditLogPage from './features/logs/AuditLogPage.jsx';
 import AdminSettingsPage from './features/settings/AdminSettingsPage.jsx';
@@ -157,6 +158,10 @@ function AdminRoutes() {
     auth.session?.user?.role,
     AdminPermission.financeWrite,
   );
+  const canWatchPaymentAddresses = hasAdminPermission(
+    auth.session?.user?.role,
+    AdminPermission.paymentAddressWrite,
+  );
 
   return (
     <Routes>
@@ -254,6 +259,17 @@ function AdminRoutes() {
             title='财务对账'
           >
             <ReconciliationPage canWrite={financeCanWrite} />
+          </ProtectedPage>
+        }
+      />
+      <Route
+        path='/finance/watched-addresses'
+        element={
+          <ProtectedPage
+            permission={AdminPermission.financeRead}
+            title='收款地址监听'
+          >
+            <WatchedAddressesPage canWrite={canWatchPaymentAddresses} />
           </ProtectedPage>
         }
       />

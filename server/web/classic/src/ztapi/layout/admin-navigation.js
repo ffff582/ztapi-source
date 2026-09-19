@@ -3,6 +3,7 @@ import {
   BadgeDollarSign,
   BookOpenCheck,
   ClipboardCheck,
+  Radar,
   Boxes,
   Coins,
   FileSearch,
@@ -64,6 +65,12 @@ export const adminNavigation = [
     label: '财务对账',
     icon: ClipboardCheck,
     route: '/finance/reconciliation',
+    permission: AdminPermission.financeRead,
+  },
+  {
+    label: '收款地址监听',
+    icon: Radar,
+    route: '/finance/watched-addresses',
     permission: AdminPermission.financeRead,
   },
   {

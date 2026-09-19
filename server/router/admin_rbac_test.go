@@ -20,6 +20,10 @@ func TestAdminRBACPermissionsCoverStaffBoundaries(t *testing.T) {
 		{"admin writes channels", common.RoleAdminUser, common.PermissionChannelWrite, true},
 		{"only root assigns roles", common.RoleAdminUser, common.PermissionRoleWrite, false},
 		{"root assigns roles", common.RoleRootUser, common.PermissionRoleWrite, true},
+		{"admin watches a payment address", common.RoleAdminUser, common.PermissionPaymentAddressWrite, true},
+		{"root watches a payment address", common.RoleRootUser, common.PermissionPaymentAddressWrite, true},
+		{"finance cannot watch a payment address", common.RoleFinanceUser, common.PermissionPaymentAddressWrite, false},
+		{"support cannot watch a payment address", common.RoleSupportUser, common.PermissionPaymentAddressWrite, false},
 	}
 
 	for _, tc := range cases {

@@ -187,6 +187,9 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			adminBalanceRoute.GET("/overview", middleware.AdminPermissionAuth(common.PermissionOverviewRead), controller.GetAdminOverview)
 			adminBalanceRoute.GET("/topups", middleware.AdminPermissionAuth(common.PermissionFinanceRead), controller.GetAdminTopUps)
+			adminBalanceRoute.GET("/payment/watched-addresses", middleware.AdminPermissionAuth(common.PermissionFinanceRead), controller.GetZTAPIWatchedReceivingAddresses)
+			adminBalanceRoute.POST("/payment/watched-addresses", middleware.AdminPermissionAuth(common.PermissionPaymentAddressWrite), controller.CreateZTAPIWatchedReceivingAddress)
+			adminBalanceRoute.PUT("/payment/watched-addresses/:id", middleware.AdminPermissionAuth(common.PermissionPaymentAddressWrite), controller.UpdateZTAPIWatchedReceivingAddress)
 			adminBalanceRoute.GET("/topups/export", middleware.AdminPermissionAuth(common.PermissionFinanceRead), controller.ExportAdminTopUps)
 			adminBalanceRoute.POST("/topups/:id/complete", middleware.AdminPermissionAuth(common.PermissionFinanceWrite), controller.CompleteAdminTopUp)
 			adminBalanceRoute.POST("/topups/:id/reject", middleware.AdminPermissionAuth(common.PermissionFinanceWrite), controller.RejectAdminTopUp)

@@ -230,6 +230,7 @@ func setupUSDTWatcherTest(t *testing.T) (*gorm.DB, setting.USDTTopUpConfig) {
 	require.NoError(t, db.AutoMigrate(
 		&model.User{}, &model.BalanceLedger{}, &model.TopUp{}, &model.USDTTopUpOrder{},
 		&model.USDTTopUpAmountLock{}, &model.USDTWatcherLease{},
+		&model.USDTWatchedReceivingAddress{},
 	))
 	previousDB := model.DB
 	previousSQLite := common.UsingSQLite
@@ -269,4 +270,74 @@ func watcherTransfer(order *model.USDTTopUpOrder, txID string, timestamp time.Ti
 		TxID: txID, From: "TSender1111111111111111111111111111", To: order.ReceivingAddress,
 		ContractAddress: order.ContractAddress, AmountMicros: order.PayAmountMicros, BlockTimestampMS: timestamp.UnixMilli(),
 	}
+}
+
+type addressAwareUSDTTransferClient struct {
+	mu        sync.Mutex
+	requested []string
+	byAddress map[string][]model.TRC20Transfer
+}
+
+func (client *addressAwareUSDTTransferClient) ListConfirmedIncomingUSDT(_ context.Context, address string, _ string, _ int64) ([]model.TRC20Transfer, error) {
+	client.mu.Lock()
+	defer client.mu.Unlock()
+	client.requested = append(client.requested, address)
+	return append([]model.TRC20Transfer(nil), client.byAddress[address]...), nil
+}
+
+// A customer given the old deposit address before the site moved to a new one
+// still gets credited, because the administration site keeps the old address
+// watched.
+func TestUSDTWatcherCreditsPaymentToAnAdministrationWatchedAddress(t *testing.T) {
+	db, config := setupUSDTWatcherTest(t)
+	createdAt := time.Date(2026, time.September, 19, 10, 0, 0, 0, time.UTC)
+	user := createUSDTWatcherUser(t, db, "watch-retired-address")
+	order, err := model.CreateUSDTTopUpOrder(user.Id, 10, createdAt, config)
+	require.NoError(t, err)
+
+	retired := "TTn3KVXkxSi9eHnpdLBFL1PpncMZmm6Tpu"
+	require.NoError(t, db.Model(&model.USDTTopUpOrder{}).
+		Where("trade_no = ?", order.TradeNo).Update("receiving_address", retired).Error)
+	order.ReceivingAddress = retired
+	_, err = model.CreateUSDTWatchedReceivingAddress(retired, "retired deposit address", 7, createdAt)
+	require.NoError(t, err)
+
+	client := &addressAwareUSDTTransferClient{byAddress: map[string][]model.TRC20Transfer{
+		retired: {watcherTransfer(order, "watcher-tx-retired-address", createdAt.Add(time.Minute))},
+	}}
+	watcher := NewUSDTWatcher(config, client, "retired-address-watcher")
+
+	snapshot, err := watcher.pollOnce(context.Background(), createdAt.Add(2*time.Minute))
+
+	require.NoError(t, err)
+	require.Equal(t, []string{config.ReceivingAddress, retired}, client.requested)
+	require.Equal(t, int64(1), snapshot.SettledTotal)
+	stored, err := model.GetUserUSDTTopUpOrder(user.Id, order.TradeNo)
+	require.NoError(t, err)
+	require.Equal(t, model.USDTTopUpStatusSettled, stored.Status)
+	var reloaded model.User
+	require.NoError(t, db.First(&reloaded, user.Id).Error)
+	require.Greater(t, reloaded.Quota, 0)
+}
+
+func TestUSDTWatcherStopsPollingADisabledWatchedAddress(t *testing.T) {
+	db, config := setupUSDTWatcherTest(t)
+	createdAt := time.Date(2026, time.September, 19, 10, 0, 0, 0, time.UTC)
+	user := createUSDTWatcherUser(t, db, "watch-disabled-address")
+	_, err := model.CreateUSDTTopUpOrder(user.Id, 10, createdAt, config)
+	require.NoError(t, err)
+
+	retired := "TTn3KVXkxSi9eHnpdLBFL1PpncMZmm6Tpu"
+	record, err := model.CreateUSDTWatchedReceivingAddress(retired, "retired deposit address", 7, createdAt)
+	require.NoError(t, err)
+	_, err = model.SetUSDTWatchedReceivingAddressEnabled(record.ID, false, 7, createdAt)
+	require.NoError(t, err)
+
+	client := &addressAwareUSDTTransferClient{byAddress: map[string][]model.TRC20Transfer{}}
+	watcher := NewUSDTWatcher(config, client, "disabled-address-watcher")
+
+	_, err = watcher.pollOnce(context.Background(), createdAt.Add(time.Minute))
+
+	require.NoError(t, err)
+	require.Equal(t, []string{config.ReceivingAddress}, client.requested)
 }
