@@ -2696,13 +2696,22 @@ jobs:
           health_unavailable_models=$(mktemp /tmp/ztapi-health-unavailable.XXXXXX)
           user_catalog_models=$(mktemp /tmp/ztapi-user-catalog.XXXXXX)
           openai_catalog_models=$(mktemp /tmp/ztapi-openai-catalog.XXXXXX)
+          # Published after the pricing baseline was frozen. The list is counted
+          # rather than restated as a number, because a release that adds a
+          # model here otherwise has to remember to change the arithmetic too.
+          published_since_baseline=$(mktemp /tmp/ztapi-published-since-baseline.XXXXXX)
+          cat > "$published_since_baseline" <<'PUBLISHED_SINCE_BASELINE'
+          zt-gp-image-2
+          zt-gemini-2.5-flash-image
+          zt-seedance-2.0
+          zt-seedance-2.0-fast
+          zt-seedance-2.0-mini
+          zt-claude-fable-5
+          zt-claude-opus-5
+          PUBLISHED_SINCE_BASELINE
           {
             jq -r '.[].model_name' "$pricing_baseline"
-            echo 'zt-gp-image-2'
-            echo 'zt-gemini-2.5-flash-image'
-            echo 'zt-seedance-2.0'
-            echo 'zt-seedance-2.0-fast'
-            echo 'zt-seedance-2.0-mini'
+            cat "$published_since_baseline"
             # Models this release listed from the A/B workbook belong in the
             # catalog an ordinary user sees, exactly like the frozen ones.
             for quoted_published_name in $quoted_rollout_published; do
@@ -2710,8 +2719,9 @@ jobs:
             done
           } | LC_ALL=C sort -u > "$expected_published_models"
           expected_pricing_model_count=$(jq -er 'length' "$pricing_baseline")
+          published_since_baseline_count=$(grep -c . "$published_since_baseline")
           quoted_rollout_count=$(set -- $quoted_rollout_published; echo $#)
-          expected_public_model_count=$((expected_pricing_model_count + 5 + quoted_rollout_count))
+          expected_public_model_count=$((expected_pricing_model_count + published_since_baseline_count + quoted_rollout_count))
           test "$(wc -l < "$expected_published_models" | tr -d ' ')" = "$expected_public_model_count"
           jq -r '[.entries[] | select(.status == "mapping_pending" and .public_name != "") | .public_name] | unique[]' \
             "$quotation" | LC_ALL=C sort > "$expected_unpublished_models"
@@ -2743,7 +2753,8 @@ jobs:
           test ! -s <(comm -12 "$expected_unpublished_models" "$openai_catalog_models")
           rm -f "$expected_published_models" "$expected_available_models" \
             "$expected_unpublished_models" "$health_open_models_raw" "$health_open_models" \
-            "$health_unavailable_models" "$user_catalog_models" "$openai_catalog_models"
+            "$health_unavailable_models" "$user_catalog_models" "$openai_catalog_models" \
+            "$published_since_baseline"
 
           test "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
             "$acceptance_origin/wallet")" = 200

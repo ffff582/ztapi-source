@@ -844,3 +844,35 @@ test('every session that changes the server keeps itself alive', () => {
     assert.match(options, /-o TCPKeepAlive=yes/);
   }
 });
+
+test('the expected catalog counts the models it lists instead of restating a number', () => {
+  const source = readText(workflowPath);
+  const start = source.indexOf("cat > \"$published_since_baseline\" <<'PUBLISHED_SINCE_BASELINE'");
+  const end = source.indexOf('expected_public_model_count=', start);
+
+  assert.ok(start >= 0 && end > start, 'the models published since the baseline must be listed');
+  const block = source.slice(start, end);
+
+  // Every model published after the baseline was frozen belongs here, or an
+  // ordinary user's catalog no longer matches what the release expects.
+  for (const modelName of [
+    'zt-gp-image-2',
+    'zt-gemini-2.5-flash-image',
+    'zt-seedance-2.0',
+    'zt-seedance-2.0-fast',
+    'zt-seedance-2.0-mini',
+    'zt-claude-fable-5',
+    'zt-claude-opus-5',
+  ]) {
+    assert.ok(block.includes(`\n          ${modelName}\n`), `${modelName} must be expected`);
+  }
+
+  // Counting the list is what keeps adding a model from also requiring the
+  // arithmetic to be corrected by hand.
+  assert.ok(source.includes('published_since_baseline_count=$(grep -c . "$published_since_baseline")'));
+  assert.ok(
+    source.includes(
+      'expected_public_model_count=$((expected_pricing_model_count + published_since_baseline_count + quoted_rollout_count))',
+    ),
+  );
+});
