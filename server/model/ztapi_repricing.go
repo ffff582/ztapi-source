@@ -289,3 +289,152 @@ func ApplyZTAPICommercialPricingV2(operatorID int) (ZTAPICommercialRepricingResu
 	invalidateZTAPICatalogCaches()
 	return result, nil
 }
+
+// ApplyZTAPISaleMultiplier republishes every active model with one uniform
+// selling-price multiplier. Cost evidence and historical publications remain
+// immutable; passing "1" restores the undiscounted policy price.
+func ApplyZTAPISaleMultiplier(operatorID int, rawMultiplier string) (ZTAPICommercialRepricingResult, error) {
+	result := ZTAPICommercialRepricingResult{}
+	if operatorID <= 0 {
+		return result, errors.New("sale multiplier repricing requires an operator")
+	}
+	multiplier, err := ztapiNormalizedSaleMultiplier(rawMultiplier)
+	if err != nil {
+		return result, err
+	}
+	if DB == nil {
+		return result, errors.New("ZTAPI database is not initialized")
+	}
+	targetMultiplier := multiplier.StringFixed(10)
+	err = withZTAPICatalogWrite(func(tx *gorm.DB) error {
+		var configs []ZTAPIModelConfig
+		if err := tx.Where("published = ?", true).Order("source_model ASC").Find(&configs).Error; err != nil {
+			return err
+		}
+		publications, err := loadZTAPIQuotedPublications(tx)
+		if err != nil {
+			return err
+		}
+		publicationByModel := make(map[int]ZTAPIRuntimePublication, len(publications))
+		for _, publication := range publications {
+			publicationByModel[publication.ModelConfigID] = publication
+		}
+		if len(publicationByModel) != len(configs) {
+			return errors.New("sale multiplier repricing requires every published model to have a valid frozen publication")
+		}
+
+		for i := range configs {
+			config := configs[i]
+			publication, ok := publicationByModel[config.ID]
+			if !ok || publication.SnapshotID != config.PublicationSnapshotID || publication.Version != config.Version {
+				return fmt.Errorf("published evidence is not active for %s", config.SourceModel)
+			}
+			var currentSource ZTAPIModelPriceSource
+			if err := tx.First(&currentSource, publication.PriceSourceID).Error; err != nil {
+				return fmt.Errorf("load bound price source for %s: %w", config.SourceModel, err)
+			}
+			currentMultiplier, err := ztapiNormalizedSaleMultiplier(currentSource.SaleMultiplier)
+			if err != nil {
+				return fmt.Errorf("load sale multiplier for %s: %w", config.SourceModel, err)
+			}
+			if currentMultiplier.Equal(multiplier) {
+				result.Unchanged++
+				continue
+			}
+
+			var previousSnapshot ZTAPIModelPublicationSnapshot
+			if err := tx.First(&previousSnapshot, publication.SnapshotID).Error; err != nil {
+				return err
+			}
+			var verificationIDs []int64
+			if err := json.Unmarshal([]byte(previousSnapshot.VerificationIDs), &verificationIDs); err != nil {
+				return errors.New("published verification evidence is invalid")
+			}
+
+			target := currentSource
+			target.ID = 0
+			target.Version = 0
+			target.CreatedAt = 0
+			target.SaleMultiplier = targetMultiplier
+			preview, err := BuildZTAPIModelPricePreview(&target)
+			if err != nil {
+				return fmt.Errorf("build discounted price for %s: %w", config.SourceModel, err)
+			}
+			var latestVersion uint64
+			if err := tx.Model(&ZTAPIModelPriceSource{}).Where("model_config_id = ?", config.ID).
+				Select("COALESCE(MAX(version), 0)").Scan(&latestVersion).Error; err != nil {
+				return err
+			}
+			now := common.GetTimestamp()
+			target.ModelConfigID = config.ID
+			target.SourceModel = config.SourceModel
+			target.OperatorID = operatorID
+			target.Version = latestVersion + 1
+			target.CreatedAt = now
+			if err := tx.Create(&target).Error; err != nil {
+				return err
+			}
+
+			config.CacheReadRatio = previousSnapshot.CacheReadRatio
+			config.CacheCreationRatio = previousSnapshot.CacheCreationRatio
+			config.CacheCreation5mRatio = previousSnapshot.CacheCreation5mRatio
+			config.CacheCreation1hRatio = previousSnapshot.CacheCreation1hRatio
+			config.ImageRatio = previousSnapshot.ImageRatio
+			config.AudioRatio = previousSnapshot.AudioRatio
+			config.AudioCompletionRatio = previousSnapshot.AudioCompletionRatio
+			if err := applyZTAPICommercialPreview(&config, preview); err != nil {
+				return err
+			}
+			evidence := ztapiPublicationEvidence{
+				AllowedChannelIDs:         previousSnapshot.ChannelIDs(),
+				VerificationIDs:           verificationIDs,
+				PriceSourceID:             target.ID,
+				IdentityUpdatedAt:         previousSnapshot.IdentityUpdatedAt,
+				ImageProtocolContractJSON: previousSnapshot.ImageProtocolContractJSON,
+				VideoProtocolContractJSON: previousSnapshot.VideoProtocolContractJSON,
+			}
+			nextVersion := config.Version + 1
+			snapshot, err := createZTAPIModelPublicationSnapshotTx(tx, &config, nextVersion, evidence)
+			if err != nil {
+				return fmt.Errorf("create discounted snapshot for %s: %w", config.SourceModel, err)
+			}
+			updates := map[string]any{
+				"input_cost_per_million": config.InputCostPerMillion, "output_cost_per_million": config.OutputCostPerMillion,
+				"input_price_per_million": config.InputPricePerMillion, "output_price_per_million": config.OutputPricePerMillion,
+				"cache_read_ratio": config.CacheReadRatio, "cache_creation_ratio": config.CacheCreationRatio,
+				"cache_creation_5m_ratio": config.CacheCreation5mRatio, "cache_creation_1h_ratio": config.CacheCreation1hRatio,
+				"image_ratio": config.ImageRatio, "audio_ratio": config.AudioRatio,
+				"audio_completion_ratio":  config.AudioCompletionRatio,
+				"publication_snapshot_id": snapshot.ID, "version": nextVersion, "updated_at": now,
+			}
+			updated := tx.Model(&ZTAPIModelConfig{}).Where("id = ? AND version = ?", config.ID, config.Version).Updates(updates)
+			if updated.Error != nil {
+				return updated.Error
+			}
+			if updated.RowsAffected != 1 {
+				return ErrZTAPIModelVersionConflict
+			}
+			payload := common.MapToJsonStr(map[string]any{
+				"previous_price_source_id": currentSource.ID, "price_source_id": target.ID,
+				"previous_sale_multiplier": currentMultiplier.StringFixed(10), "sale_multiplier": targetMultiplier,
+				"price_source_version": target.Version, "reason": "apply approved uniform sale multiplier",
+			})
+			if err := tx.Create(&ZTAPIAuditEvent{
+				Action: "model.sale_multiplier_published", ModelConfigID: config.ID,
+				PublicName: config.PublicNameValue(), Version: nextVersion, OperatorID: operatorID,
+				Payload: payload, CreatedAt: now,
+			}).Error; err != nil {
+				return err
+			}
+			result.Imported++
+			result.Republished++
+			result.Models = append(result.Models, config.PublicNameValue())
+		}
+		return nil
+	})
+	if err != nil {
+		return ZTAPICommercialRepricingResult{}, err
+	}
+	invalidateZTAPICatalogCaches()
+	return result, nil
+}

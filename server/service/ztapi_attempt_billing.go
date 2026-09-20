@@ -198,11 +198,11 @@ func priceZTAPIImageAttemptBilling(parent model.ZTAPIRequestSettlement, submissi
 		frozen.PublicationID <= 0 || frozen.Version == 0 || frozen.PriceSourceID <= 0 || frozen.PriceSourceVersion == 0 {
 		return invalid, model.ErrZTAPIAttemptBillingInvalid
 	}
-	canonical, err := types.CanonicalizeZTAPIMediaPriceContract(frozen.MediaPriceContractJSON)
-	if err != nil || canonical != frozen.MediaPriceContractJSON {
+	effectiveContractJSON, err := types.WithZTAPIMediaSaleMultiplier(frozen.MediaPriceContractJSON, frozen.SaleMultiplier)
+	if err != nil {
 		return invalid, model.ErrZTAPIAttemptBillingInvalid
 	}
-	contract, err := types.ParseZTAPIMediaPriceContract(frozen.MediaPriceContractJSON)
+	contract, err := types.ParseZTAPIMediaPriceContract(effectiveContractJSON)
 	if err != nil || contract.Modality != model.ZTAPIModalityImage {
 		return invalid, model.ErrZTAPIAttemptBillingInvalid
 	}
@@ -232,7 +232,7 @@ func priceZTAPIImageAttemptBilling(parent model.ZTAPIRequestSettlement, submissi
 	if err != nil || submission.SelectedRuleID != selectedRuleID || !equalZTAPIStringMaps(submission.PriceRuleIDs, ruleIDs) {
 		return invalid, model.ErrZTAPIAttemptBillingInvalid
 	}
-	quota, chargeDimensions, logDimensions, err := calculateZTAPIImageChargeDimensions(frozen.MediaPriceContractJSON, frozen.QuotaPerUnit, selectedRuleID, dimensions, ruleIDs)
+	quota, chargeDimensions, logDimensions, err := calculateZTAPIImageChargeDimensions(effectiveContractJSON, frozen.QuotaPerUnit, selectedRuleID, dimensions, ruleIDs)
 	if err != nil {
 		return invalid, model.ErrZTAPIAttemptBillingInvalid
 	}

@@ -9,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/glebarez/sqlite"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
@@ -103,6 +104,31 @@ func TestZTAPIPublicCatalogMediaExposesOnlyPublicCapabilitiesAndSalePricing(t *t
 	require.NotContains(t, string(encoded), "cost_usd")
 	require.NotContains(t, string(encoded), "source_cells")
 	require.NotContains(t, string(encoded), "provider-video-exact")
+}
+
+func TestZTAPIPublicCatalogAppliesSaleMultiplierToTokenTiersAndMediaRules(t *testing.T) {
+	tokenRules, err := ztapiDiscountTokenPriceRules(
+		`[{"conditions":["prompt_tokens<=200000"],"sale":{"input_tokens":"2.5","output_tokens":"10"}}]`,
+		decimal.RequireFromString("0.9"),
+	)
+	require.NoError(t, err)
+	require.JSONEq(t,
+		`[{"conditions":["prompt_tokens<=200000"],"sale":{"input_tokens":"2.25","output_tokens":"9"}}]`,
+		tokenRules,
+	)
+
+	protocol, _, err := types.ParseZTAPIImageProtocolContract(syntheticVerifiedImageProtocolJSON(t, "gp-image-2"))
+	require.NoError(t, err)
+	mediaContract, err := types.WithZTAPIMediaSaleMultiplier(
+		mustCanonicalZTAPIMediaPriceContract(t, gpImage2ContractForTest(t)), "0.9",
+	)
+	require.NoError(t, err)
+	_, rules, _ := ztapiPublicMediaMetadata(ZTAPIRuntimePublication{
+		Modality: ZTAPIModalityImage, SourceModel: "gp-image-2",
+		MediaPriceContractJSON: mediaContract, ImageProtocolContract: &protocol,
+	})
+	require.Len(t, rules, 5)
+	require.Equal(t, map[string]string{"image_output": "21.6"}, rules[2].SaleUSD)
 }
 
 func TestZTAPIPublicPricingPreservesMediaCapabilityAndConditionalSaleContract(t *testing.T) {

@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -46,6 +47,19 @@ func TestBuildZTAPIModelPricePreviewConvertsCNYWithThreePercentFXBuffer(t *testi
 	require.Equal(t, "3.4333333333", preview.OutputSaleUSDPerMillion)
 	require.Equal(t, "7.2000000000", preview.CNYPerUSD)
 	require.Equal(t, string(ZTAPIPricePolicyEnterprise40Margin), preview.PricePolicy)
+}
+
+func TestBuildZTAPIModelPricePreviewAppliesSerializedSaleMultiplier(t *testing.T) {
+	source := validZTAPIPriceSourceForTest()
+	source.PricePolicy = string(ZTAPIPricePolicyEnterprise20Margin)
+	require.NoError(t, json.Unmarshal([]byte(`{"sale_multiplier":"0.9"}`), &source))
+
+	preview, err := BuildZTAPIModelPricePreview(&source)
+	require.NoError(t, err)
+	require.Equal(t, "1.0000000000", preview.InputCostUSDPerMillion)
+	require.Equal(t, "2.0000000000", preview.OutputCostUSDPerMillion)
+	require.Equal(t, "1.1250000000", preview.InputSaleUSDPerMillion)
+	require.Equal(t, "2.2500000000", preview.OutputSaleUSDPerMillion)
 }
 
 func TestHighestZTAPICostUsesConservativeFallback(t *testing.T) {

@@ -370,6 +370,11 @@ func maximumZTAPIImageCharge(contract types.ZTAPIMediaPriceContract, maximum map
 		best := decimal.Zero
 		found := false
 		for _, rule := range contract.Rules {
+			effectiveRule, effectiveErr := types.EffectiveZTAPIMediaPriceRule(rule, contract.SaleMultiplier)
+			if effectiveErr != nil {
+				return decimal.Zero, model.ErrZTAPISettlementInvalid
+			}
+			rule = effectiveRule
 			tier := rule.Conditions["prompt_tokens_tier"]
 			if tier == "gt_200k" && maximumInput <= 200000 {
 				continue
@@ -396,6 +401,11 @@ func maximumZTAPIImageCharge(contract types.ZTAPIMediaPriceContract, maximum map
 	total := decimal.Zero
 	matched := 0
 	for _, rule := range contract.Rules {
+		effectiveRule, effectiveErr := types.EffectiveZTAPIMediaPriceRule(rule, contract.SaleMultiplier)
+		if effectiveErr != nil {
+			return decimal.Zero, model.ErrZTAPISettlementInvalid
+		}
+		rule = effectiveRule
 		if len(rule.SaleUSD) != 1 {
 			return decimal.Zero, model.ErrZTAPISettlementInvalid
 		}
@@ -481,7 +491,11 @@ func calculateZTAPIImageChargeDimensions(contractJSON, quotaPerUnitRaw, selected
 	}
 	rules := make(map[string]types.ZTAPIMediaPriceRule, len(contract.Rules))
 	for _, rule := range contract.Rules {
-		rules[rule.ID] = rule
+		effectiveRule, effectiveErr := types.EffectiveZTAPIMediaPriceRule(rule, contract.SaleMultiplier)
+		if effectiveErr != nil {
+			return 0, nil, nil, model.ErrZTAPISettlementInvalid
+		}
+		rules[rule.ID] = effectiveRule
 	}
 	if err := validateZTAPIImageEvidenceRuleIdentity(contract, selectedRuleID, dimensions, ruleIDs); err != nil {
 		return 0, nil, nil, err

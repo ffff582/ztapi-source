@@ -143,3 +143,52 @@ func TestApplyZTAPICommercialPricingV2RollsBackEveryModelOnLateFailure(t *testin
 	require.NoError(t, db.Model(&ZTAPIModelPriceSource{}).Count(&sourceCountAfter).Error)
 	require.Equal(t, sourceCountBefore, sourceCountAfter)
 }
+
+func TestApplyZTAPISaleMultiplierPublishesImmutableSnapshotsAndIsIdempotent(t *testing.T) {
+	db := setupZTAPIPublicCatalogTestDB(t)
+	require.NoError(t, db.AutoMigrate(&ZTAPIAuditEvent{}, &ZTAPICatalogLock{}))
+	config := seedZTAPIPublicCatalogRecord(t, db, "glm-5.2", "zt-glm-5.2", ZTAPIProviderGLM,
+		ZTAPIProtocolOpenAICompatible, []string{ZTAPIBillingDimensionInputTokens, ZTAPIBillingDimensionOutputTokens})
+	var previousSnapshot ZTAPIModelPublicationSnapshot
+	require.NoError(t, db.First(&previousSnapshot, config.PublicationSnapshotID).Error)
+	var previousSource ZTAPIModelPriceSource
+	require.NoError(t, db.First(&previousSource, previousSnapshot.PriceSourceID).Error)
+
+	result, err := ApplyZTAPISaleMultiplier(7, "0.9")
+	require.NoError(t, err)
+	require.Equal(t, 1, result.Imported)
+	require.Equal(t, 1, result.Republished)
+	require.Equal(t, []string{"zt-glm-5.2"}, result.Models)
+
+	var committed ZTAPIModelConfig
+	require.NoError(t, db.First(&committed, config.ID).Error)
+	require.Equal(t, config.Version+1, committed.Version)
+	require.NotEqual(t, previousSnapshot.ID, committed.PublicationSnapshotID)
+
+	var currentSnapshot ZTAPIModelPublicationSnapshot
+	require.NoError(t, db.First(&currentSnapshot, committed.PublicationSnapshotID).Error)
+	require.Equal(t, decimal.RequireFromString("0.9"), decimal.RequireFromString(currentSnapshot.SaleMultiplier))
+	require.Equal(t, previousSnapshot.AllowedChannelIDs, currentSnapshot.AllowedChannelIDs)
+	require.Equal(t, previousSnapshot.VerificationIDs, currentSnapshot.VerificationIDs)
+
+	var currentSource ZTAPIModelPriceSource
+	require.NoError(t, db.First(&currentSource, currentSnapshot.PriceSourceID).Error)
+	require.Equal(t, decimal.RequireFromString("0.9"), decimal.RequireFromString(currentSource.SaleMultiplier))
+	require.Equal(t, previousSource.InputPerMillion, currentSource.InputPerMillion)
+	require.Equal(t, previousSource.OutputPerMillion, currentSource.OutputPerMillion)
+	require.InDelta(t, previousSnapshot.InputPricePerMillion*0.9, currentSnapshot.InputPricePerMillion, 0.0000000001)
+	require.InDelta(t, previousSnapshot.OutputPricePerMillion*0.9, currentSnapshot.OutputPricePerMillion, 0.0000000001)
+
+	var unchangedOldSource ZTAPIModelPriceSource
+	require.NoError(t, db.First(&unchangedOldSource, previousSource.ID).Error)
+	require.Equal(t, previousSource.SaleMultiplier, unchangedOldSource.SaleMultiplier)
+	var unchangedOldSnapshot ZTAPIModelPublicationSnapshot
+	require.NoError(t, db.First(&unchangedOldSnapshot, previousSnapshot.ID).Error)
+	require.Equal(t, previousSnapshot.SaleMultiplier, unchangedOldSnapshot.SaleMultiplier)
+
+	second, err := ApplyZTAPISaleMultiplier(7, "0.9")
+	require.NoError(t, err)
+	require.Equal(t, 1, second.Unchanged)
+	require.Zero(t, second.Imported)
+	require.Zero(t, second.Republished)
+}

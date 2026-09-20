@@ -67,6 +67,7 @@ type ZTAPIModelPriceSource struct {
 	SourceModel            string `json:"source_model" gorm:"size:255;not null;index"`
 	ResourceType           string `json:"resource_type" gorm:"size:32;not null;index"`
 	PricePolicy            string `json:"price_policy" gorm:"size:32;not null;default:enterprise_40_margin"`
+	SaleMultiplier         string `json:"sale_multiplier" gorm:"type:decimal(12,10);not null;default:1"`
 	TokenPriceRulesJSON    string `json:"token_price_rules,omitempty" gorm:"column:token_price_rules_json;type:text"`
 	MediaPriceContractJSON string `json:"media_price_contract,omitempty" gorm:"column:media_price_contract_json;type:text"`
 	SpendTier              string `json:"spend_tier" gorm:"size:32;not null"`
@@ -226,6 +227,9 @@ func ValidateZTAPIModelPriceSource(source *ZTAPIModelPriceSource) error {
 	if err := ValidateZTAPIPricePolicy(source.ResourceType, ZTAPIPricePolicy(source.PricePolicy)); err != nil {
 		return err
 	}
+	if _, err := ztapiNormalizedSaleMultiplier(source.SaleMultiplier); err != nil {
+		return err
+	}
 	if source.MediaPriceContractJSON != "" {
 		canonical, err := canonicalizeZTAPIMediaPriceContract(source.MediaPriceContractJSON)
 		if err != nil {
@@ -314,6 +318,7 @@ func BuildZTAPIModelPricePreview(source *ZTAPIModelPriceSource) (*ZTAPIModelPric
 		CostUSD: make(map[string]string, len(dimensions)), SaleUSD: make(map[string]string, len(dimensions)),
 	}
 	rate := decimal.NewFromInt(1)
+	saleMultiplier, _ := ztapiNormalizedSaleMultiplier(source.SaleMultiplier)
 	if source.Currency == "CNY" {
 		rate = decimal.RequireFromString(strings.TrimSpace(source.CNYPerUSD))
 		preview.CNYPerUSD = rate.StringFixed(10)
@@ -344,7 +349,7 @@ func BuildZTAPIModelPricePreview(source *ZTAPIModelPriceSource) (*ZTAPIModelPric
 		} else {
 			sale, _ = CalculateZTAPISalePriceForPolicy(cost, ZTAPIPricePolicy(source.PricePolicy))
 		}
-		preview.SaleUSD[dimension] = sale.StringFixed(10)
+		preview.SaleUSD[dimension] = sale.Mul(saleMultiplier).Round(10).StringFixed(10)
 	}
 	preview.InputCostUSDPerMillion = preview.CostUSD[ZTAPIBillingDimensionInputTokens]
 	preview.OutputCostUSDPerMillion = preview.CostUSD[ZTAPIBillingDimensionOutputTokens]
@@ -807,6 +812,7 @@ type ZTAPIModelPublicationSnapshot struct {
 	AllowedChannelIDs         string  `json:"-" gorm:"type:text;not null"`
 	PriceSourceID             int64   `json:"price_source_id" gorm:"not null;index"`
 	PricePolicy               string  `json:"price_policy" gorm:"size:32;not null;default:enterprise_40_margin"`
+	SaleMultiplier            string  `json:"sale_multiplier" gorm:"type:decimal(12,10);not null;default:1"`
 	TokenPriceRulesJSON       string  `json:"token_price_rules,omitempty" gorm:"column:token_price_rules_json;type:text"`
 	MediaPriceContractJSON    string  `json:"media_price_contract,omitempty" gorm:"column:media_price_contract_json;type:text"`
 	ImageProtocolContractJSON string  `json:"image_protocol_contract,omitempty" gorm:"column:image_protocol_contract_json;type:text"`
@@ -839,11 +845,26 @@ func (snapshot *ZTAPIModelPublicationSnapshot) BeforeCreate(tx *gorm.DB) error {
 		return nil
 	}
 	var source ZTAPIModelPriceSource
-	if err := tx.Select("model_config_id", "source_model", "resource_type", "price_policy", "token_price_rules_json", "media_price_contract_json").First(&source, snapshot.PriceSourceID).Error; err != nil {
+	if err := tx.Select("model_config_id", "source_model", "resource_type", "price_policy", "sale_multiplier", "token_price_rules_json", "media_price_contract_json").First(&source, snapshot.PriceSourceID).Error; err != nil {
 		return err
 	}
 	if err := ValidateZTAPIPricePolicy(source.ResourceType, ZTAPIPricePolicy(source.PricePolicy)); err != nil {
 		return err
+	}
+	sourceMultiplier, err := ztapiNormalizedSaleMultiplier(source.SaleMultiplier)
+	if err != nil {
+		return err
+	}
+	snapshotMultiplier, err := ztapiNormalizedSaleMultiplier(snapshot.SaleMultiplier)
+	if err != nil {
+		return err
+	}
+	if snapshot.SaleMultiplier == "" {
+		snapshot.SaleMultiplier = sourceMultiplier.StringFixed(10)
+		snapshotMultiplier = sourceMultiplier
+	}
+	if !snapshotMultiplier.Equal(sourceMultiplier) {
+		return errors.New("publication snapshot sale multiplier does not match price source")
 	}
 	if snapshot.PricePolicy != "" && snapshot.PricePolicy != source.PricePolicy {
 		return errors.New("publication snapshot price policy does not match price source")

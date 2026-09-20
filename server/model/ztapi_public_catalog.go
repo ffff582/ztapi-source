@@ -83,12 +83,43 @@ func ztapiPublicTokenPriceRules(raw string, dimensions []string) ([]ZTAPIPublicT
 	return rules, nil
 }
 
+func ztapiDiscountTokenPriceRules(raw string, multiplier decimal.Decimal) (string, error) {
+	if strings.TrimSpace(raw) == "" || multiplier.Equal(decimal.NewFromInt(1)) {
+		return raw, nil
+	}
+	var rules []struct {
+		Conditions []string          `json:"conditions"`
+		Sale       map[string]string `json:"sale"`
+	}
+	if err := common.UnmarshalJsonStr(raw, &rules); err != nil || len(rules) == 0 {
+		return "", errors.New("frozen token pricing rules are invalid")
+	}
+	for index := range rules {
+		if len(rules[index].Sale) == 0 {
+			return "", errors.New("frozen token pricing rule has no sale prices")
+		}
+		for dimension, rawPrice := range rules[index].Sale {
+			price, err := decimal.NewFromString(rawPrice)
+			if err != nil || price.IsNegative() {
+				return "", fmt.Errorf("frozen token pricing rule has invalid %s", dimension)
+			}
+			rules[index].Sale[dimension] = price.Mul(multiplier).Round(10).String()
+		}
+	}
+	encoded, err := common.Marshal(rules)
+	if err != nil {
+		return "", err
+	}
+	return string(encoded), nil
+}
+
 type ZTAPIRuntimePublication struct {
 	Modality               string
 	ModelConfigID          int
 	SnapshotID             int64
 	PriceSourceID          int64
 	PriceSourceVersion     uint64
+	SaleMultiplier         string
 	Version                uint64
 	SourceModel            string
 	PublicName             string
@@ -189,6 +220,11 @@ func ztapiPublicMediaMetadata(publication ZTAPIRuntimePublication) (*ZTAPIPublic
 		}
 	}
 	for _, rule := range contract.Rules {
+		effectiveRule, effectiveErr := types.EffectiveZTAPIMediaPriceRule(rule, contract.SaleMultiplier)
+		if effectiveErr != nil {
+			return nil, nil, ""
+		}
+		rule = effectiveRule
 		if reportedImageDimensions != nil {
 			if len(rule.SaleUSD) != 1 {
 				continue
@@ -318,6 +354,11 @@ func loadZTAPIActivePublications(db *gorm.DB) ([]ZTAPIRuntimePublication, error)
 		if source.ModelConfigID != snapshot.ModelConfigID || source.SourceModel != snapshot.SourceModel {
 			continue
 		}
+		sourceMultiplier, multiplierErr := ztapiNormalizedSaleMultiplier(source.SaleMultiplier)
+		snapshotMultiplier, snapshotMultiplierErr := ztapiNormalizedSaleMultiplier(snapshot.SaleMultiplier)
+		if multiplierErr != nil || snapshotMultiplierErr != nil || !sourceMultiplier.Equal(snapshotMultiplier) {
+			continue
+		}
 		if snapshot.TokenPriceRulesJSON != source.TokenPriceRulesJSON {
 			continue
 		}
@@ -326,8 +367,17 @@ func loadZTAPIActivePublications(db *gorm.DB) ([]ZTAPIRuntimePublication, error)
 			continue
 		}
 		modality := ZTAPIModelModality(snapshot.SourceModel)
+		runtimeTokenRules, err := ztapiDiscountTokenPriceRules(snapshot.TokenPriceRulesJSON, sourceMultiplier)
+		if err != nil {
+			continue
+		}
+		runtimeMediaContract := snapshot.MediaPriceContractJSON
 		if modality == ZTAPIModalityImage || modality == ZTAPIModalityVideo {
 			if snapshot.MediaPriceContractJSON == "" || snapshot.MediaPriceContractJSON != source.MediaPriceContractJSON {
+				continue
+			}
+			runtimeMediaContract, err = types.WithZTAPIMediaSaleMultiplier(snapshot.MediaPriceContractJSON, sourceMultiplier.StringFixed(10))
+			if err != nil {
 				continue
 			}
 		} else if !ztapiStoredPriceMatchesPreview(snapshot.InputPricePerMillion, preview.InputSaleUSDPerMillion) ||
@@ -361,7 +411,7 @@ func loadZTAPIActivePublications(db *gorm.DB) ([]ZTAPIRuntimePublication, error)
 		}
 		result = append(result, ZTAPIRuntimePublication{
 			ModelConfigID: configs[i].ID, SnapshotID: snapshot.ID, Version: snapshot.ModelVersion,
-			PriceSourceID: source.ID, PriceSourceVersion: source.Version,
+			PriceSourceID: source.ID, PriceSourceVersion: source.Version, SaleMultiplier: sourceMultiplier.StringFixed(10),
 			Modality:    ZTAPIModelModality(snapshot.SourceModel),
 			SourceModel: snapshot.SourceModel, PublicName: snapshot.PublicName,
 			ProviderFamily: snapshot.ProviderFamily, Protocol: snapshot.Protocol,
@@ -373,8 +423,8 @@ func loadZTAPIActivePublications(db *gorm.DB) ([]ZTAPIRuntimePublication, error)
 			AudioCompletionRatio:   snapshot.AudioCompletionRatio,
 			BillingDimensions:      append([]string(nil), preview.BillingDimensions...),
 			SaleUSD:                copyZTAPIStringMap(preview.SaleUSD),
-			TokenPriceRulesJSON:    snapshot.TokenPriceRulesJSON,
-			MediaPriceContractJSON: snapshot.MediaPriceContractJSON,
+			TokenPriceRulesJSON:    runtimeTokenRules,
+			MediaPriceContractJSON: runtimeMediaContract,
 			InputPriceDisplay:      preview.InputSaleUSDPerMillion, OutputPriceDisplay: preview.OutputSaleUSDPerMillion,
 			ImageProtocolContract: imageProtocol,
 			VideoProtocolContract: videoProtocol,
@@ -401,8 +451,9 @@ func runtimePublicationFromCache(publication ztapiPublishedModel) ZTAPIRuntimePu
 	return ZTAPIRuntimePublication{
 		ModelConfigID: publication.ModelConfigID, SnapshotID: publication.SnapshotID, Version: publication.Version,
 		PriceSourceID: publication.PriceSourceID, PriceSourceVersion: publication.PriceSourceVersion,
-		Modality:    publication.Modality,
-		SourceModel: publication.SourceModel, PublicName: publication.PublicName,
+		SaleMultiplier: publication.SaleMultiplier,
+		Modality:       publication.Modality,
+		SourceModel:    publication.SourceModel, PublicName: publication.PublicName,
 		ProviderFamily: publication.ProviderFamily, Protocol: publication.Protocol,
 		Groups:                append([]string(nil), publication.Groups...),
 		AllowedChannelIDs:     append([]int(nil), publication.AllowedChannelIDs...),

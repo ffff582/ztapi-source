@@ -54,6 +54,7 @@ type ztapiModelUpdateRequest struct {
 }
 
 var ztapiCommercialRepricer = model.ApplyZTAPICommercialPricingV2
+var ztapiSaleMultiplierRepricer = model.ApplyZTAPISaleMultiplier
 
 func RepriceZTAPICommercialCatalog(c *gin.Context) {
 	var request struct {
@@ -66,6 +67,23 @@ func RepriceZTAPICommercialCatalog(c *gin.Context) {
 	result, err := ztapiCommercialRepricer(c.GetInt("id"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "商业价格迁移未完成。", "detail": err.Error()})
+		return
+	}
+	common.ApiSuccess(c, result)
+}
+
+func RepriceZTAPISaleMultiplier(c *gin.Context) {
+	var request struct {
+		Confirm        bool   `json:"confirm"`
+		SaleMultiplier string `json:"sale_multiplier"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil || !request.Confirm || strings.TrimSpace(request.SaleMultiplier) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "请确认并提供售价倍率。"})
+		return
+	}
+	result, err := ztapiSaleMultiplierRepricer(c.GetInt("id"), request.SaleMultiplier)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "售价倍率发布未完成。", "detail": err.Error()})
 		return
 	}
 	common.ApiSuccess(c, result)

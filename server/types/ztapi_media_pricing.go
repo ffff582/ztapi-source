@@ -29,9 +29,10 @@ var ztapiSupportedMediaSaleCostShares = []decimal.Decimal{
 }
 
 type ZTAPIMediaPriceContract struct {
-	Version  uint64                `json:"version"`
-	Modality string                `json:"modality"`
-	Rules    []ZTAPIMediaPriceRule `json:"rules"`
+	Version        uint64                `json:"version"`
+	Modality       string                `json:"modality"`
+	SaleMultiplier string                `json:"sale_multiplier,omitempty"`
+	Rules          []ZTAPIMediaPriceRule `json:"rules"`
 }
 
 type ZTAPIMediaPriceRule struct {
@@ -85,10 +86,52 @@ func SelectZTAPIMediaPriceRule(raw string, request ZTAPIMediaPriceSelector) (ZTA
 	}
 	for _, rule := range contract.Rules {
 		if equalZTAPIStringMap(rule.Conditions, request.Conditions) {
-			return cloneZTAPIMediaPriceRule(rule), nil
+			return EffectiveZTAPIMediaPriceRule(rule, contract.SaleMultiplier)
 		}
 	}
 	return ZTAPIMediaPriceRule{}, errors.New("no media price rule matches the selector")
+}
+
+func EffectiveZTAPIMediaPriceRule(rule ZTAPIMediaPriceRule, rawMultiplier string) (ZTAPIMediaPriceRule, error) {
+	effective := cloneZTAPIMediaPriceRule(rule)
+	multiplier := decimal.NewFromInt(1)
+	if strings.TrimSpace(rawMultiplier) != "" {
+		parsed, err := decimal.NewFromString(strings.TrimSpace(rawMultiplier))
+		if err != nil || !parsed.IsPositive() || parsed.GreaterThan(decimal.NewFromInt(1)) {
+			return ZTAPIMediaPriceRule{}, errors.New("media sale multiplier must be greater than zero and at most one")
+		}
+		multiplier = parsed
+	}
+	if multiplier.Equal(decimal.NewFromInt(1)) {
+		return effective, nil
+	}
+	for dimension, raw := range effective.SaleUSD {
+		price, err := decimal.NewFromString(raw)
+		if err != nil || price.IsNegative() {
+			return ZTAPIMediaPriceRule{}, fmt.Errorf("invalid media sale price for %s", dimension)
+		}
+		effective.SaleUSD[dimension] = price.Mul(multiplier).Round(10).String()
+	}
+	return effective, nil
+}
+
+func WithZTAPIMediaSaleMultiplier(raw, rawMultiplier string) (string, error) {
+	contract, err := ParseZTAPIMediaPriceContract(raw)
+	if err != nil {
+		return "", err
+	}
+	if _, err := EffectiveZTAPIMediaPriceRule(contract.Rules[0], rawMultiplier); err != nil {
+		return "", err
+	}
+	contract.SaleMultiplier = strings.TrimSpace(rawMultiplier)
+	if contract.SaleMultiplier == "1" || contract.SaleMultiplier == "1.0" || contract.SaleMultiplier == "1.0000000000" {
+		contract.SaleMultiplier = ""
+	}
+	encoded, err := common.Marshal(contract)
+	if err != nil {
+		return "", err
+	}
+	return CanonicalizeZTAPIMediaPriceContract(string(encoded))
 }
 
 func CanonicalizeZTAPIMediaPriceContract(raw string) (string, error) {
@@ -120,6 +163,9 @@ func ParseZTAPIMediaPriceContract(raw string) (ZTAPIMediaPriceContract, error) {
 	}
 	if contract.Version != 1 || (contract.Modality != ztapiMediaModalityImage && contract.Modality != ztapiMediaModalityVideo) || len(contract.Rules) == 0 {
 		return contract, errors.New("unsupported media price contract version or modality")
+	}
+	if _, err := EffectiveZTAPIMediaPriceRule(contract.Rules[0], contract.SaleMultiplier); err != nil {
+		return contract, err
 	}
 
 	ids := make(map[string]bool, len(contract.Rules))
@@ -389,7 +435,7 @@ func SelectZTAPIMediaPriceRuleFromContract(contract ZTAPIMediaPriceContract, req
 	}
 	for _, rule := range contract.Rules {
 		if equalZTAPIStringMap(rule.Conditions, request.Conditions) {
-			return cloneZTAPIMediaPriceRule(rule), nil
+			return EffectiveZTAPIMediaPriceRule(rule, contract.SaleMultiplier)
 		}
 	}
 	return ZTAPIMediaPriceRule{}, errors.New("no media price rule matches the selector")
@@ -412,7 +458,7 @@ func validateZTAPIMediaJSONFields(raw []byte) error {
 	if err := common.Unmarshal(raw, &object); err != nil {
 		return errors.New("media price contract must be a JSON object")
 	}
-	if err := exactZTAPIJSONFields(object, "version", "modality", "rules"); err != nil {
+	if err := requiredZTAPIJSONFieldsWithOptional(object, []string{"version", "modality", "rules"}, "sale_multiplier"); err != nil {
 		return err
 	}
 	var rules []json.RawMessage
@@ -426,6 +472,27 @@ func validateZTAPIMediaJSONFields(raw []byte) error {
 		}
 		if err := exactZTAPIJSONFields(rule, "id", "conditions", "billing_unit", "cost_usd", "sale_usd", "source_cells"); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func requiredZTAPIJSONFieldsWithOptional(object map[string]json.RawMessage, required []string, optional ...string) error {
+	allowed := make(map[string]bool, len(required)+len(optional))
+	for _, field := range required {
+		allowed[field] = true
+	}
+	for _, field := range optional {
+		allowed[field] = true
+	}
+	for field := range object {
+		if !allowed[field] {
+			return fmt.Errorf("unknown media price contract field %q", field)
+		}
+	}
+	for _, field := range required {
+		if _, ok := object[field]; !ok {
+			return fmt.Errorf("missing media price contract field %q", field)
 		}
 	}
 	return nil

@@ -62,6 +62,7 @@ func ztapiPublicationSnapshotFromRuntime(publication model.ZTAPIRuntimePublicati
 		Modality:               publication.Modality,
 		PriceSourceID:          publication.PriceSourceID,
 		PriceSourceVersion:     publication.PriceSourceVersion,
+		SaleMultiplier:         publication.SaleMultiplier,
 		BillingDimensions:      publication.BillingDimensions,
 		SaleUSD:                publication.SaleUSD,
 		TokenPriceRulesJSON:    publication.TokenPriceRulesJSON,

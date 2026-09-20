@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"strings"
@@ -184,6 +185,33 @@ func TestZTAPIAttemptBillingPricesGPTImageFiveBucketsFromFrozenMediaContract(t *
 	require.NoError(t, err)
 	require.Equal(t, 10, priced.ConsumeLog.Quota)
 	require.Len(t, priced.Dimensions, 5)
+}
+
+func TestZTAPIAttemptBillingAppliesFrozenSaleMultiplierToMedia(t *testing.T) {
+	prices := map[string]string{"text_input": "1", "text_cached_input": "0.2", "image_input": "2", "image_cached_input": "0.4", "image_output": "4"}
+	costs := map[string]string{"text_input": "0.6", "text_cached_input": "0.12", "image_input": "1.2", "image_cached_input": "0.24", "image_output": "2.4"}
+	rules := make([]types.ZTAPIMediaPriceRule, 0, len(prices))
+	for index, dimension := range []string{"text_input", "text_cached_input", "image_input", "image_cached_input", "image_output"} {
+		rules = append(rules, types.ZTAPIMediaPriceRule{
+			ID: dimension, Conditions: map[string]string{"token_bucket": dimension}, BillingUnit: types.ZTAPIMediaBillingUnitUSDPerMillionTokens,
+			CostUSD: map[string]string{dimension: costs[dimension]}, SaleUSD: map[string]string{dimension: prices[dimension]},
+			SourceCells: map[string]string{dimension: fmt.Sprintf("A%d", index+1)},
+		})
+	}
+	parent, submission := imageAttemptBillingPriceFixture(t, types.ZTAPIMediaPriceContract{Version: 1, Modality: "image", Rules: rules}, []model.ZTAPIAttemptBillingQuantity{
+		{Dimension: "text_input", Quantity: 2}, {Dimension: "text_cached_input", Quantity: 10},
+		{Dimension: "image_input", Quantity: 3}, {Dimension: "image_cached_input", Quantity: 5}, {Dimension: "image_output", Quantity: 2},
+	})
+	var frozen map[string]any
+	require.NoError(t, json.Unmarshal([]byte(parent.PriceSnapshotJSON), &frozen))
+	frozen["sale_multiplier"] = "0.9"
+	raw, err := json.Marshal(frozen)
+	require.NoError(t, err)
+	parent.PriceSnapshotJSON = string(raw)
+
+	priced, err := PriceZTAPIAttemptBilling(parent, submission)
+	require.NoError(t, err)
+	require.Equal(t, 9, priced.ConsumeLog.Quota)
 }
 
 func TestZTAPIAttemptBillingFreezesGeminiImageTierBoundary(t *testing.T) {

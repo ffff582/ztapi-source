@@ -25,6 +25,17 @@ var (
 	ztapiPoolOfficialSaleShare   = decimal.RequireFromString("0.80")
 )
 
+func ztapiNormalizedSaleMultiplier(raw string) (decimal.Decimal, error) {
+	if strings.TrimSpace(raw) == "" {
+		return decimal.NewFromInt(1), nil
+	}
+	multiplier, err := decimal.NewFromString(strings.TrimSpace(raw))
+	if err != nil || !multiplier.IsPositive() || multiplier.GreaterThan(decimal.NewFromInt(1)) {
+		return decimal.Zero, errors.New("ZTAPI sale multiplier must be greater than zero and at most one")
+	}
+	return multiplier.Round(10), nil
+}
+
 func CalculateZTAPISalePriceForPolicy(cost decimal.Decimal, policy ZTAPIPricePolicy) (decimal.Decimal, error) {
 	switch policy {
 	case ZTAPIPricePolicyEnterprise40Margin:

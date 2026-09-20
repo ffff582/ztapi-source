@@ -36,6 +36,7 @@ type ZTAPIPublicationSnapshot struct {
 	Modality               string
 	PriceSourceID          int64
 	PriceSourceVersion     uint64
+	SaleMultiplier         string `json:"sale_multiplier,omitempty"`
 	BillingDimensions      []string
 	SaleUSD                map[string]string
 	TokenPriceRulesJSON    string

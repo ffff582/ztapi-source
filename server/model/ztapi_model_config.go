@@ -775,6 +775,7 @@ type ztapiPublishedModel struct {
 	SnapshotID             int64
 	PriceSourceID          int64
 	PriceSourceVersion     uint64
+	SaleMultiplier         string
 	Modality               string
 	SourceModel            string
 	PublicName             string
@@ -866,8 +867,9 @@ func refreshZTAPIAliasCache() error {
 		publication := ztapiPublishedModel{
 			ModelConfigID: publications[i].ModelConfigID, SnapshotID: publications[i].SnapshotID,
 			PriceSourceID: publications[i].PriceSourceID, PriceSourceVersion: publications[i].PriceSourceVersion,
-			Modality:    publications[i].Modality,
-			SourceModel: publications[i].SourceModel, PublicName: publications[i].PublicName,
+			SaleMultiplier: publications[i].SaleMultiplier,
+			Modality:       publications[i].Modality,
+			SourceModel:    publications[i].SourceModel, PublicName: publications[i].PublicName,
 			Family: publications[i].ProviderFamily, ProviderFamily: publications[i].ProviderFamily,
 			Protocol: publications[i].Protocol, Groups: append([]string(nil), publications[i].Groups...),
 			AllowedChannelIDs:     append([]int(nil), publications[i].AllowedChannelIDs...),
