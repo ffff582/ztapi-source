@@ -355,7 +355,11 @@ func BuildZTAPIModelPricePreview(source *ZTAPIModelPriceSource) (*ZTAPIModelPric
 	preview.OutputCostUSDPerMillion = preview.CostUSD[ZTAPIBillingDimensionOutputTokens]
 	preview.InputSaleUSDPerMillion = preview.SaleUSD[ZTAPIBillingDimensionInputTokens]
 	preview.OutputSaleUSDPerMillion = preview.SaleUSD[ZTAPIBillingDimensionOutputTokens]
-	if ZTAPIModelModality(source.SourceModel) == ZTAPIModalityEmbedding {
+	if preview.InputCostUSDPerMillion == "" {
+		preview.InputCostUSDPerMillion = "0.0000000000"
+		preview.InputSaleUSDPerMillion = "0.0000000000"
+	}
+	if preview.OutputCostUSDPerMillion == "" {
 		preview.OutputCostUSDPerMillion = "0.0000000000"
 		preview.OutputSaleUSDPerMillion = "0.0000000000"
 	}

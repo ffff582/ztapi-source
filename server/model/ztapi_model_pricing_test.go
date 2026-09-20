@@ -62,6 +62,23 @@ func TestBuildZTAPIModelPricePreviewAppliesSerializedSaleMultiplier(t *testing.T
 	require.Equal(t, "2.2500000000", preview.OutputSaleUSDPerMillion)
 }
 
+func TestBuildZTAPIModelPricePreviewZerosUnbilledTokenDimensions(t *testing.T) {
+	source := validZTAPIPriceSourceForTest()
+	source.SourceModel = "doubao-seedance-2.0"
+	source.BillingDimensions = `["input_tokens"]`
+	source.OutputPerMillion = "0"
+
+	preview, err := BuildZTAPIModelPricePreview(&source)
+	require.NoError(t, err)
+	require.Equal(t, "0.0000000000", preview.OutputCostUSDPerMillion)
+	require.Equal(t, "0.0000000000", preview.OutputSaleUSDPerMillion)
+
+	config := ZTAPIModelConfig{OutputCostPerMillion: 99, OutputPricePerMillion: 99}
+	require.NoError(t, applyZTAPICommercialPreview(&config, preview))
+	require.Zero(t, config.OutputCostPerMillion)
+	require.Zero(t, config.OutputPricePerMillion)
+}
+
 func TestHighestZTAPICostUsesConservativeFallback(t *testing.T) {
 	got, err := HighestZTAPICost(
 		decimal.RequireFromString("1.0000000000"),
