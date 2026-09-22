@@ -281,6 +281,11 @@ export function SupportedModelsPage() {
           <UsageBillingNote />
         </div>
 
+        <aside className="model-support-offer" aria-label={t('综合优惠约 20%')}>
+          <strong>{t('综合优惠约 20%')}</strong>
+          <span>{t('模型价格对比官方更优惠，充值再额外赠送 5% 使用额度。')}</span>
+        </aside>
+
         {status === 'loading' && (
           <div className="console-state" aria-live="polite" aria-busy="true">
             {t('正在加载模型目录...')}

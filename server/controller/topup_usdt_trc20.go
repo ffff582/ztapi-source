@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 )
 
 type createUSDTTopUpOrderRequest struct {
@@ -23,6 +24,8 @@ type usdtTopUpOrderResponse struct {
 	ID               int64  `json:"id"`
 	TradeNo          string `json:"trade_no"`
 	CreditUnits      int64  `json:"credit_units"`
+	BonusCreditUnits string `json:"bonus_credit_units"`
+	TotalCreditUnits string `json:"total_credit_units"`
 	PayAmount        string `json:"pay_amount"`
 	ReceivingAddress string `json:"receiving_address"`
 	Network          string `json:"network"`
@@ -108,10 +111,14 @@ func projectUSDTTopUpOrder(order *model.USDTTopUpOrder) usdtTopUpOrderResponse {
 	if order == nil {
 		return usdtTopUpOrderResponse{}
 	}
+	creditUnits := decimal.NewFromInt(order.CreditUnits)
+	bonusCreditUnits := creditUnits.Div(decimal.NewFromInt(20))
 	response := usdtTopUpOrderResponse{
 		ID:               order.ID,
 		TradeNo:          order.TradeNo,
 		CreditUnits:      order.CreditUnits,
+		BonusCreditUnits: bonusCreditUnits.StringFixed(2),
+		TotalCreditUnits: creditUnits.Add(bonusCreditUnits).StringFixed(2),
 		PayAmount:        order.ExactPayAmountString(),
 		ReceivingAddress: order.ReceivingAddress,
 		Network:          order.Network,

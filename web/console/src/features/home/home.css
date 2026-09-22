@@ -556,6 +556,47 @@
 
 .model-proof__families span:first-child { border-left: 0; }
 
+.model-proof__offer {
+  display: flex;
+  min-height: 104px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 28px;
+  margin-top: 24px;
+  padding: 22px 24px;
+  border: 1px solid #a9c9bd;
+  border-left: 4px solid #087f6f;
+  background: #eff8f4;
+}
+
+.model-proof__offer > div {
+  display: grid;
+  gap: 7px;
+}
+
+.model-proof__offer strong {
+  color: #075f54;
+  font-size: 28px;
+  line-height: 1.1;
+}
+
+.model-proof__offer span {
+  color: #3f5c54;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.model-proof__offer > a {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 6px;
+  align-items: center;
+  color: #075f54;
+  font-size: 14px;
+  font-weight: 760;
+  text-decoration: none;
+}
+
 .model-proof__count {
   margin: 30px 0 0;
   color: var(--text-muted-light);
@@ -1000,6 +1041,12 @@
 
   .model-proof__families { margin-top: 40px; }
   .model-proof__families span { padding: 18px 8px; font-size: 20px; }
+  .model-proof__offer {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .model-proof__offer strong { font-size: 24px; }
   .integration-band__inner { gap: 36px; }
   .integration-workbench__models { padding: 20px; }
   .integration-workbench__code pre { min-height: 320px; padding: 22px; font-size: 12px; }

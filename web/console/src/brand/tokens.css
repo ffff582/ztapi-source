@@ -949,6 +949,21 @@ textarea {
   padding-bottom: 72px;
 }
 
+.catalog-offer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 20px 22px;
+  border: 1px solid #a8d8cf;
+  border-left: 4px solid #087f6f;
+  color: #075d50;
+  background: #f0faf7;
+}
+
+.catalog-offer strong { font-size: 24px; }
+.catalog-offer span { color: #426d66; font-size: 14px; }
+
 .catalog-family {
   min-width: 0;
 }
@@ -958,8 +973,45 @@ textarea {
 }
 
 .catalog-table {
-  min-width: 760px;
+  min-width: 1080px;
 }
+
+.catalog-table .model-price-cell { min-width: 540px; }
+
+.catalog-price-columns,
+.catalog-price-list li {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(130px, 1fr) minmax(130px, 1fr) minmax(78px, 0.65fr);
+  gap: 12px;
+  align-items: baseline;
+}
+
+.catalog-price-columns {
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 720;
+}
+
+.catalog-price-list li > del {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.catalog-price-list li > em {
+  color: #087f6f;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 760;
+}
+
+.catalog-price-list--simple li {
+  grid-template-columns: minmax(150px, 1fr) minmax(160px, 1fr);
+}
+
+.catalog-price-missing { color: var(--muted); }
 
 .model-support-toolbar {
   display: grid;
@@ -1087,7 +1139,7 @@ textarea {
 }
 
 .model-support-table {
-  min-width: 1080px;
+  min-width: 1380px;
 }
 
 .model-support-table th:last-child,
@@ -1103,7 +1155,46 @@ textarea {
 }
 
 .model-price-cell {
-  min-width: 252px;
+  min-width: 520px;
+}
+
+.model-support-offer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 14px;
+  padding: 16px 18px;
+  border: 1px solid #a8d8cf;
+  background: #f0faf7;
+  color: #075d50;
+}
+
+.model-support-offer strong { font-size: 18px; }
+.model-support-offer span { color: #426d66; font-size: 13px; }
+
+.model-price-columns,
+.model-price-list li,
+.model-token-tier-price {
+  display: grid;
+  grid-template-columns: minmax(92px, 1fr) minmax(128px, 1.25fr) minmax(128px, 1.25fr) minmax(68px, 0.7fr);
+  gap: 10px;
+  align-items: baseline;
+}
+
+.model-price-columns {
+  margin: 7px 0 5px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.model-price-list--simple,
+.model-price-list--simple li,
+.model-token-tier-price.model-price-list--simple {
+  grid-template-columns: minmax(72px, 1fr) auto;
 }
 
 .model-price-list {
@@ -1112,13 +1203,6 @@ textarea {
   margin: 0;
   padding: 0;
   list-style: none;
-}
-
-.model-price-list li {
-  display: grid;
-  grid-template-columns: minmax(72px, 1fr) auto;
-  gap: 10px;
-  align-items: baseline;
 }
 
 .model-price-list span {
@@ -1151,6 +1235,23 @@ textarea {
   padding: 0;
 }
 
+.model-price-list del {
+  color: var(--muted);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.model-price-list em {
+  color: #087b69;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 760;
+  white-space: nowrap;
+}
+
+.model-price-missing { color: var(--muted); }
+
 .model-token-tier-list {
   gap: 12px;
 }
@@ -1172,10 +1273,7 @@ textarea {
 }
 
 .model-token-tier-price {
-  display: grid;
-  grid-template-columns: minmax(72px, 1fr) auto;
-  gap: 10px;
-  align-items: baseline;
+  margin-top: 4px;
 }
 
 .model-support-actions {
@@ -1666,6 +1764,27 @@ textarea {
 .wallet-receipt dd { margin: 0; overflow-wrap: anywhere; }
 .wallet-receipt div:first-child dd { font-weight: 700; color: #197240; }
 
+.wallet-bonus {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 20px;
+  padding: 18px 20px;
+  border: 1px solid #9bd8c9;
+  background: #effaf7;
+  color: #075d50;
+}
+
+.wallet-bonus strong { font-size: 18px; }
+.wallet-bonus span { color: #3c6f67; }
+
+.wallet-bonus-preview {
+  margin: 10px 0 0;
+  color: #087b69;
+  font-weight: 700;
+}
+
 .wallet-workbench {
   display: grid;
   grid-template-columns: minmax(300px, 0.8fr) minmax(420px, 1.2fr);
@@ -2137,9 +2256,9 @@ textarea {
   }
 
   .model-support-categories {
-    margin-right: -12px;
-    margin-left: -12px;
-    padding: 0 12px;
+    margin-right: 0;
+    margin-left: 0;
+    padding: 0;
   }
 
   .model-support-provider {
@@ -2232,14 +2351,54 @@ textarea {
     white-space: normal;
   }
 
-  .model-price-list li {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 1px;
+  .model-support-offer,
+  .wallet-bonus {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
   }
 
+  .model-price-columns { display: none; }
+
+  .model-price-list li,
   .model-token-tier-price {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 1px;
+    grid-template-areas:
+      "spec saving"
+      "sale official";
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 4px 12px;
+  }
+
+  .model-price-list li > span:first-child,
+  .model-token-tier-price > span:first-child { grid-area: spec; }
+  .model-price-list li > strong,
+  .model-token-tier-price > strong { grid-area: sale; }
+  .model-price-list li > del,
+  .model-token-tier-price > del { grid-area: official; }
+  .model-price-list li > em,
+  .model-token-tier-price > em,
+  .model-price-list li > .model-price-missing,
+  .model-token-tier-price > .model-price-missing { grid-area: saving; text-align: right; }
+
+  .model-price-list li > strong::before,
+  .model-token-tier-price > strong::before {
+    display: block;
+    color: var(--muted);
+    content: "本站";
+    font: 600 10px/1.4 Inter, sans-serif;
+  }
+
+  .model-price-list li > del::before,
+  .model-token-tier-price > del::before {
+    display: block;
+    content: "官方";
+    font: 600 10px/1.4 Inter, sans-serif;
+  }
+
+  .model-price-list--simple li,
+  .model-token-tier-price.model-price-list--simple {
+    grid-template-areas: none;
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .model-token-tier-price strong {
@@ -2409,6 +2568,14 @@ textarea {
     padding-bottom: 56px;
   }
 
+  .catalog-offer {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .catalog-offer strong { font-size: 21px; }
+
   .wallet-payment-grid {
     grid-template-columns: 1fr;
   }
@@ -2447,6 +2614,15 @@ textarea {
 
   .console-nav__link svg {
     display: none;
+  }
+
+  .model-support-categories {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+
+  .model-support-categories button {
+    flex: 1 1 auto;
   }
 
   .wallet-qr {

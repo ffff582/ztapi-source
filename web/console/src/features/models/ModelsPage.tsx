@@ -78,6 +78,10 @@ export function ModelsPage() {
           </div>
         </section>
         <section className="models-catalog public-shell" aria-label={t('公开模型目录')}>
+          <aside className="catalog-offer" aria-label={t('综合优惠约 20%')}>
+            <strong>{t('综合优惠约 20%')}</strong>
+            <span>{t('模型价格对比官方更优惠，充值再额外赠送 5% 使用额度。')}</span>
+          </aside>
           {status === 'ready' && <p>{t('{{count}} 个公开模型', { count: publicModelCount })}</p>}
           {status === 'loading' && (
             <div className="catalog-state" aria-live="polite" aria-busy="true">
