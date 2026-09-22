@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "32b0658ac722e63af4feb79ad87fcc83207c8cda",
+  "release_commit": "2eb1123b922ebbede771759a92d00145418d146b",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-32b0658ac722e63af4feb79ad87fcc83207c8cda",
+  "source_tag": "production-2eb1123b922ebbede771759a92d00145418d146b",
   "files": [
     {
       "path": ".dockerignore",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "411cb0ba6b5a4a8545922969abb223897e12a5893b0d21dd427fc3e528d6607c",
+      "sha256": "0f86a2066b06fa0f0a9db9e214067e7aceae45c5928b3f255440491f773aa588",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "70021229dafda7bfd096bc75a6681746e35e28899cd2b665b5fc94703d2da176",
+      "sha256": "3f13ad25e2fbd0322614813de7bb8e833360ee011912d812e378fe79b2c98478",
       "size": 942
     },
     {
@@ -9826,8 +9826,8 @@
     },
     {
       "path": "web/console/src/features/models/models.test.tsx",
-      "sha256": "c110f20a41e9fee1b8e904c0c7685d825e5f36f1e4cfe84e076b375e99e17d52",
-      "size": 11464
+      "sha256": "e2b9c80dadaca9154a6e21487bd2123286a7e032f5aa4b278625136356218b56",
+      "size": 11472
     },
     {
       "path": "web/console/src/features/models/pricing.ts",

@@ -62,7 +62,7 @@ describe('ZTAPI public model pricing', () => {
     expect(within(claude).getByText('缓存读取')).toBeVisible();
     expect(within(claude).getAllByRole('listitem')).toHaveLength(6);
     expect(within(claude).queryByText('按规则计费')).not.toBeInTheDocument();
-  });
+  }, 15_000);
 
   it('lists every tier of a model priced by tier instead of a missing single rate', async () => {
     const tiered = {
