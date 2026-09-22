@@ -83,15 +83,6 @@ afterEach(() => {
 });
 
 describe('public homepage model proof', () => {
-  it('promotes the combined saving and top-up bonus prominently', async () => {
-    renderProof(vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/api/status')
-      ? statusResponse() : jsonResponse(managedPublicPricing)));
-
-    expect(await screen.findByText('综合优惠约 20%')).toBeVisible();
-    expect(screen.getByText('模型价格对比官方更优惠，充值再额外赠送 5% 使用额度。')).toBeVisible();
-    expect(screen.getByRole('link', { name: '查看价格对比' })).toHaveAttribute('href', '/models');
-  });
-
   it('shows published token tiers instead of a blank or reservation price for a featured model', async () => {
     const first = managedPublicPricing.data.find((item) => item.model_name === 'zt-gpt-5.6-sol');
     expect(first).toBeDefined();

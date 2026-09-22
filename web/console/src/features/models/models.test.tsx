@@ -45,64 +45,6 @@ afterEach(() => {
 });
 
 describe('ZTAPI public model pricing', () => {
-  it('shows the promotional offer and verifiable official-price comparison', async () => {
-    const item = {
-      ...managedPublicPricing.data[0],
-      input_price_per_million: '8',
-      output_price_per_million: '16',
-      sale_usd: { input_tokens: '8', output_tokens: '16' },
-      official_usd: { input_tokens: '10', output_tokens: '20' },
-      billing_dimensions: ['input_tokens', 'output_tokens'],
-      billing_rule: 'token',
-    };
-    renderModels(vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/api/status')
-      ? statusResponse() : jsonResponse({ ...managedPublicPricing, data: [item] })));
-
-    expect(await screen.findByText('综合优惠约 20%')).toBeVisible();
-    expect(screen.getByText('模型价格对比官方更优惠，充值再额外赠送 5% 使用额度。')).toBeVisible();
-    const row = screen.getByText(item.model_name).closest('tr') as HTMLElement;
-    expect(within(row).getByText('我们的价格')).toBeVisible();
-    expect(within(row).getByText('官方价格')).toBeVisible();
-    expect(within(row).getAllByText('节省 20%')).toHaveLength(2);
-    expect(within(row).getByText('8 U / 1M tokens')).toBeVisible();
-    expect(within(row).getByText('10 U / 1M tokens')).toBeVisible();
-  });
-
-  it('translates media pricing buckets into customer-facing descriptions', async () => {
-    const item = {
-      ...managedPublicPricing.data[0],
-      model_name: 'zt-image-readable-tiers',
-      modality: 'image',
-      supported_endpoint_types: ['images'],
-      input_price_per_million: '',
-      output_price_per_million: '',
-      billing_rule: 'multi_dimension',
-      billing_dimensions: [],
-      sale_usd: {},
-      billing_unit: 'usd_per_million_tokens',
-      supported_options: {
-        sizes: ['1024x1024'],
-        qualities: ['standard'],
-        response_formats: ['url'],
-        min_count: 1,
-        max_count: 1,
-      },
-      pricing_rules: [{
-        id: 'gt_200k',
-        conditions: { prompt_tokens_tier: 'gt_200k' },
-        billing_unit: 'usd_per_million_tokens',
-        sale_usd: { input_tokens: '8' },
-        official_usd: { input_tokens: '10' },
-      }],
-    };
-    renderModels(vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/api/status')
-      ? statusResponse() : jsonResponse({ ...managedPublicPricing, data: [item] })));
-
-    const row = (await screen.findByText(item.model_name)).closest('tr') as HTMLElement;
-    expect(within(row).getByText('输入超过 200K')).toBeVisible();
-    expect(row).not.toHaveTextContent('gt_200k');
-  });
-
   it.each([managedPublicPricing, publicPricingWithEmbeddings])('renders every managed public model across all API providers ($data.length rows)', async (fixture) => {
     renderModels(vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/api/status')
       ? statusResponse() : jsonResponse(fixture)));
@@ -120,7 +62,7 @@ describe('ZTAPI public model pricing', () => {
     expect(within(claude).getByText('缓存读取')).toBeVisible();
     expect(within(claude).getAllByRole('listitem')).toHaveLength(6);
     expect(within(claude).queryByText('按规则计费')).not.toBeInTheDocument();
-  }, 15_000);
+  });
 
   it('lists every tier of a model priced by tier instead of a missing single rate', async () => {
     const tiered = {
@@ -348,3 +290,4 @@ describe('public model catalog ordering', () => {
     ]);
   });
 });
+

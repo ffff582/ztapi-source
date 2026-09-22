@@ -78,10 +78,6 @@ export function ModelsPage() {
           </div>
         </section>
         <section className="models-catalog public-shell" aria-label={t('公开模型目录')}>
-          <aside className="catalog-offer" aria-label={t('综合优惠约 20%')}>
-            <strong>{t('综合优惠约 20%')}</strong>
-            <span>{t('模型价格对比官方更优惠，充值再额外赠送 5% 使用额度。')}</span>
-          </aside>
           {status === 'ready' && <p>{t('{{count}} 个公开模型', { count: publicModelCount })}</p>}
           {status === 'loading' && (
             <div className="catalog-state" aria-live="polite" aria-busy="true">
@@ -114,7 +110,7 @@ export function ModelsPage() {
                         <tr>
                           <th scope="col">{t('公开模型')}</th>
                           <th scope="col">{t('说明')}</th>
-                          <th scope="col">{t('价格对比')}</th>
+                          <th scope="col">{t('售价明细')}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -124,7 +120,6 @@ export function ModelsPage() {
                             pricing,
                             quotaPerUnit,
                           );
-                          const hasComparison = prices.some((price) => price.officialPrice !== undefined);
                           return (
                             <tr key={model.model_name}>
                               <td>
@@ -132,25 +127,11 @@ export function ModelsPage() {
                               </td>
                               <td>{model.description || '—'}</td>
                               <td className="model-price-cell">
-                                {hasComparison && (
-                                  <div className="catalog-price-columns" aria-hidden="true">
-                                    <span>{t('规格')}</span>
-                                    <span>{t('我们的价格')}</span>
-                                    <span>{t('官方价格')}</span>
-                                    <span>{t('节省')}</span>
-                                  </div>
-                                )}
-                                <ul className={`model-price-list catalog-price-list${hasComparison ? '' : ' catalog-price-list--simple'}`} aria-label={t('{{name}} 售价', { name: model.model_name })}>
+                                <ul className="model-price-list" aria-label={t('{{name}} 售价', { name: model.model_name })}>
                                   {prices.map((price) => (
                                     <li key={price.key}>
                                       <span>{t(price.label)}</span>
                                       <strong>{t(price.price)}</strong>
-                                      {hasComparison && <del>{price.officialPrice ? t(price.officialPrice) : '—'}</del>}
-                                      {hasComparison && (
-                                        price.savingsPercent === undefined
-                                          ? <span className="catalog-price-missing">—</span>
-                                          : <em>{t('节省 {{percent}}%', { percent: price.savingsPercent })}</em>
-                                      )}
                                     </li>
                                   ))}
                                 </ul>

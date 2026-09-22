@@ -20,12 +20,7 @@ func TestUSDTSettlementCreditsBalanceAndLedgerExactlyOnce(t *testing.T) {
 	require.True(t, result.Applied)
 	require.Equal(t, order.ID, result.Order.ID)
 	require.Equal(t, transfer.TxID, dereferenceString(result.Order.TxID))
-	baseQuota := adminTopUpQuota(&TopUp{Amount: order.CreditUnits, PaymentProvider: PaymentProviderUSDTTRC20})
-	bonusQuota := baseQuota / 20
-	require.Equal(t, baseQuota, result.PaidQuota)
-	require.Equal(t, bonusQuota, result.BonusQuota)
-	require.Equal(t, baseQuota+bonusQuota, result.QuotaAdded)
-	require.NotNil(t, result.BonusLedger)
+	require.Equal(t, adminTopUpQuota(&TopUp{Amount: order.CreditUnits, PaymentProvider: PaymentProviderUSDTTRC20}), result.QuotaAdded)
 
 	assertUSDTSettlementPersisted(t, db, user, order, transfer, result.QuotaAdded)
 
@@ -33,9 +28,6 @@ func TestUSDTSettlementCreditsBalanceAndLedgerExactlyOnce(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, replayed.Applied)
 	require.Equal(t, result.Ledger.ID, replayed.Ledger.ID)
-	require.Equal(t, result.BonusLedger.ID, replayed.BonusLedger.ID)
-	require.Equal(t, result.PaidQuota, replayed.PaidQuota)
-	require.Equal(t, result.BonusQuota, replayed.BonusQuota)
 	assertUSDTSettlementPersisted(t, db, user, order, transfer, result.QuotaAdded)
 }
 
@@ -59,55 +51,6 @@ func TestUSDTSettlementRollsBackEveryMutationWhenLedgerInsertFails(t *testing.T)
 	var ledgerCount int64
 	require.NoError(t, db.Model(&BalanceLedger{}).Count(&ledgerCount).Error)
 	require.Zero(t, ledgerCount)
-}
-
-func TestUSDTSettlementRollsBackPaidCreditWhenBonusLedgerInsertFails(t *testing.T) {
-	db, user, order, transfer, settledAt := setupUSDTSettlementTest(t, "usdt-bonus-rollback")
-	require.NoError(t, db.Exec(`CREATE TRIGGER reject_usdt_bonus BEFORE INSERT ON balance_ledgers WHEN NEW.source_type = 'usdt_topup_bonus' BEGIN SELECT RAISE(ABORT, 'forced bonus ledger failure'); END`).Error)
-
-	_, err := SettleUSDTTopUp(transfer, settledAt)
-
-	require.Error(t, err)
-	var reloadedUser User
-	require.NoError(t, db.First(&reloadedUser, user.Id).Error)
-	require.Zero(t, reloadedUser.Quota)
-	var reloadedOrder USDTTopUpOrder
-	require.NoError(t, db.First(&reloadedOrder, order.ID).Error)
-	require.Equal(t, USDTTopUpStatusPending, reloadedOrder.Status)
-	var ledgerCount int64
-	require.NoError(t, db.Model(&BalanceLedger{}).Count(&ledgerCount).Error)
-	require.Zero(t, ledgerCount)
-}
-
-func TestUSDTSettlementReplaysLegacyPaidOnlySettlementWithoutGrantingBonus(t *testing.T) {
-	db, user, order, transfer, settledAt := setupUSDTSettlementTest(t, "usdt-legacy-replay")
-	paidQuota := adminTopUpQuota(&TopUp{Amount: order.CreditUnits, PaymentProvider: PaymentProviderUSDTTRC20})
-	ledger := BalanceLedger{
-		UserID: user.Id, Delta: paidQuota, BalanceBefore: 0, BalanceAfter: paidQuota,
-		Reason: "legacy USDT topup", IdempotencyKey: "usdt-trc20:" + transfer.TxID,
-		RequestID: order.TradeNo, SourceType: BalanceLedgerSourceUSDTTopUp, CreatedAt: settledAt,
-	}
-	require.NoError(t, db.Create(&ledger).Error)
-	require.NoError(t, db.Model(&User{}).Where("id = ?", user.Id).Update("quota", paidQuota).Error)
-	require.NoError(t, db.Model(&TopUp{}).Where("id = ?", order.TopUpID).Updates(map[string]any{
-		"status": common.TopUpStatusSuccess, "complete_time": settledAt.Unix(),
-	}).Error)
-	require.NoError(t, db.Model(&USDTTopUpOrder{}).Where("id = ?", order.ID).Updates(map[string]any{
-		"status": USDTTopUpStatusSettled, "tx_id": transfer.TxID, "tx_from": transfer.From,
-		"block_timestamp_ms": transfer.BlockTimestampMS, "settled_at": settledAt.Unix(),
-	}).Error)
-
-	result, err := SettleUSDTTopUp(transfer, settledAt.Add(time.Second))
-
-	require.NoError(t, err)
-	require.False(t, result.Applied)
-	require.Nil(t, result.BonusLedger)
-	require.Equal(t, paidQuota, result.PaidQuota)
-	require.Zero(t, result.BonusQuota)
-	require.Equal(t, paidQuota, result.QuotaAdded)
-	var ledgers []BalanceLedger
-	require.NoError(t, db.Find(&ledgers).Error)
-	require.Len(t, ledgers, 1)
 }
 
 func TestUSDTSettlementRejectsTransferOutsideOrderEvidence(t *testing.T) {
@@ -189,15 +132,9 @@ func assertUSDTSettlementPersisted(t *testing.T, db *gorm.DB, user User, order *
 	require.Equal(t, common.TopUpStatusSuccess, topUp.Status)
 	var ledgers []BalanceLedger
 	require.NoError(t, db.Find(&ledgers).Error)
-	require.Len(t, ledgers, 2)
+	require.Len(t, ledgers, 1)
 	require.Equal(t, "usdt-trc20:"+transfer.TxID, ledgers[0].IdempotencyKey)
-	require.Equal(t, quotaAdded*20/21, ledgers[0].Delta)
-	require.Equal(t, BalanceLedgerSourceUSDTTopUp, ledgers[0].SourceType)
-	require.Equal(t, fmt.Sprintf("usdt-trc20-bonus:%d", order.ID), ledgers[1].IdempotencyKey)
-	require.Equal(t, quotaAdded/21, ledgers[1].Delta)
-	require.Equal(t, BalanceLedgerSourceUSDTTopUpBonus, ledgers[1].SourceType)
-	require.Equal(t, ledgers[0].BalanceAfter, ledgers[1].BalanceBefore)
-	require.Equal(t, int64(reloadedUser.Quota), ledgers[1].BalanceAfter)
+	require.Equal(t, quotaAdded, ledgers[0].Delta)
 }
 
 func dereferenceString(value *string) string {

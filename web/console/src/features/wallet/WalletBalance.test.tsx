@@ -43,7 +43,7 @@ function mockAccount(initialQuota = 5_000_000, divisor = 500_000) {
             account.settled = true;
           }
           return success({
-            id: 16, trade_no: tradeNo, credit_units: 10, bonus_credit_units: '0.50', total_credit_units: '10.50', pay_amount: '10.57',
+            id: 16, trade_no: tradeNo, credit_units: 10, pay_amount: '10.57',
             receiving_address: 'T111111111111111111111111111111111',
             network: 'tron-mainnet', asset: 'USDT', expires_at: Math.floor(Date.now() / 1000) + 600,
             status: account.settled ? 'settled' : 'pending',

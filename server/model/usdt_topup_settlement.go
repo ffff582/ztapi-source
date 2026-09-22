@@ -11,11 +11,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-const (
-	BalanceLedgerSourceUSDTTopUp      = "usdt_topup_settlement"
-	BalanceLedgerSourceUSDTTopUpBonus = "usdt_topup_bonus"
-	usdtTopUpBonusDivisor             = int64(20) // 5%
-)
+const BalanceLedgerSourceUSDTTopUp = "usdt_topup_settlement"
 
 var (
 	ErrUSDTTopUpTransferMismatch  = errors.New("TRC-20 transfer does not match an open USDT topup")
@@ -33,14 +29,11 @@ type TRC20Transfer struct {
 }
 
 type USDTSettlementResult struct {
-	Order       *USDTTopUpOrder
-	TopUp       *TopUp
-	Ledger      *BalanceLedger
-	BonusLedger *BalanceLedger
-	PaidQuota   int64
-	BonusQuota  int64
-	QuotaAdded  int64
-	Applied     bool
+	Order      *USDTTopUpOrder
+	TopUp      *TopUp
+	Ledger     *BalanceLedger
+	QuotaAdded int64
+	Applied    bool
 }
 
 func SettleUSDTTopUp(transfer TRC20Transfer, settledAt time.Time) (*USDTSettlementResult, error) {
@@ -116,27 +109,19 @@ func SettleUSDTTopUp(transfer TRC20Transfer, settledAt time.Time) (*USDTSettleme
 		if err := userQuery.First(&user).Error; err != nil {
 			return err
 		}
-		paidQuota := adminTopUpQuota(&topUp)
-		if paidQuota <= 0 {
+		quotaAdded := adminTopUpQuota(&topUp)
+		if quotaAdded <= 0 {
 			return ErrUSDTTopUpInvalidAmount
 		}
-		bonusQuota := paidQuota / usdtTopUpBonusDivisor
-		if bonusQuota <= 0 {
-			return ErrUSDTTopUpInvalidAmount
-		}
-		paidBalance, err := checkedBalanceLedgerSum(int64(user.Quota), paidQuota)
-		if err != nil {
-			return err
-		}
-		nextBalance, err := checkedBalanceLedgerSum(paidBalance, bonusQuota)
+		nextBalance, err := checkedBalanceLedgerSum(int64(user.Quota), quotaAdded)
 		if err != nil {
 			return err
 		}
 		ledger := BalanceLedger{
 			UserID:         user.Id,
-			Delta:          paidQuota,
+			Delta:          quotaAdded,
 			BalanceBefore:  int64(user.Quota),
-			BalanceAfter:   paidBalance,
+			BalanceAfter:   nextBalance,
 			Reason:         "confirmed USDT TRC-20 service-credit topup",
 			IdempotencyKey: "usdt-trc20:" + transfer.TxID,
 			RequestID:      order.TradeNo,
@@ -147,20 +132,6 @@ func SettleUSDTTopUp(transfer TRC20Transfer, settledAt time.Time) (*USDTSettleme
 			return ErrBalanceLedgerIdempotencyKeyTooLong
 		}
 		if err := tx.Create(&ledger).Error; err != nil {
-			return err
-		}
-		bonusLedger := BalanceLedger{
-			UserID:         user.Id,
-			Delta:          bonusQuota,
-			BalanceBefore:  paidBalance,
-			BalanceAfter:   nextBalance,
-			Reason:         "5% USDT topup promotional bonus",
-			IdempotencyKey: fmt.Sprintf("usdt-trc20-bonus:%d", order.ID),
-			RequestID:      order.TradeNo,
-			SourceType:     BalanceLedgerSourceUSDTTopUpBonus,
-			CreatedAt:      settledAt,
-		}
-		if err := tx.Create(&bonusLedger).Error; err != nil {
 			return err
 		}
 		if err := tx.Model(&User{}).Where("id = ?", user.Id).Updates(balanceLedgerUserUpdates(user, nextBalance, false)).Error; err != nil {
@@ -208,10 +179,7 @@ func SettleUSDTTopUp(transfer TRC20Transfer, settledAt time.Time) (*USDTSettleme
 		order.UpdatedAt = completeTime
 		topUp.Status = common.TopUpStatusSuccess
 		topUp.CompleteTime = completeTime
-		result = &USDTSettlementResult{
-			Order: &order, TopUp: &topUp, Ledger: &ledger, BonusLedger: &bonusLedger,
-			PaidQuota: paidQuota, BonusQuota: bonusQuota, QuotaAdded: paidQuota + bonusQuota, Applied: true,
-		}
+		result = &USDTSettlementResult{Order: &order, TopUp: &topUp, Ledger: &ledger, QuotaAdded: quotaAdded, Applied: true}
 		return nil
 	})
 	if err != nil {
@@ -246,22 +214,8 @@ func loadUSDTSettlementByTx(db *gorm.DB, txID string) (*USDTSettlementResult, er
 	if err := db.Where("idempotency_key = ?", "usdt-trc20:"+txID).First(&ledger).Error; err != nil {
 		return nil, err
 	}
-	var bonusLedger BalanceLedger
-	if err := db.Where("idempotency_key = ?", fmt.Sprintf("usdt-trc20-bonus:%d", order.ID)).First(&bonusLedger).Error; err != nil {
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, err
-		}
-		// Settlements created before the bonus campaign have only the paid ledger.
-		// Replays must remain read-only and must never grant a retroactive bonus.
-		return &USDTSettlementResult{
-			Order: &order, TopUp: &topUp, Ledger: &ledger,
-			PaidQuota: ledger.Delta, QuotaAdded: ledger.Delta, Applied: false,
-		}, nil
-	}
 	return &USDTSettlementResult{
-		Order: &order, TopUp: &topUp, Ledger: &ledger, BonusLedger: &bonusLedger,
-		PaidQuota: ledger.Delta, BonusQuota: bonusLedger.Delta,
-		QuotaAdded: ledger.Delta + bonusLedger.Delta, Applied: false,
+		Order: &order, TopUp: &topUp, Ledger: &ledger, QuotaAdded: ledger.Delta, Applied: false,
 	}, nil
 }
 

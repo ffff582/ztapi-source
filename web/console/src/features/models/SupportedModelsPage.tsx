@@ -137,35 +137,6 @@ function formatPrice(value: string, unit: string) {
   return formatUnitPrice(value, unit);
 }
 
-function savingsPercent(saleRaw: string | undefined, officialRaw: string | undefined) {
-  const sale = Number(saleRaw);
-  const official = Number(officialRaw);
-  if (!Number.isFinite(sale) || !Number.isFinite(official) || sale < 0 || official <= sale) return null;
-  return Math.round((1 - sale / official) * 100);
-}
-
-function PriceComparisonHeader({ t }: { t: (key: string) => string }) {
-  return (
-    <div className="model-price-columns" aria-hidden="true">
-      <span>{t('规格')}</span>
-      <span>{t('我们的价格')}</span>
-      <span>{t('官方价格')}</span>
-      <span>{t('节省')}</span>
-    </div>
-  );
-}
-
-function SavingsValue({ sale, official, t }: { sale?: string; official?: string; t: (key: string, values?: Record<string, string | number>) => string }) {
-  const percent = savingsPercent(sale, official);
-  return percent === null ? <span className="model-price-missing">--</span> : <em>{t('节省 {{percent}}%', { percent })}</em>;
-}
-
-function hasOfficialPricing(item: UserModelCatalogItem) {
-  return Object.keys(item.official_usd ?? {}).length > 0 ||
-    item.token_price_rules?.some((rule) => Object.keys(rule.official_usd ?? {}).length > 0) === true ||
-    item.pricing_rules?.some((rule) => Object.keys(rule.official_usd ?? {}).length > 0) === true;
-}
-
 const conditionLabels: Record<string, Record<string, string>> = {
   token_bucket: {
     text_input: '文本输入', text_cached_input: '文本缓存输入', image_input: '图片输入',
@@ -310,11 +281,6 @@ export function SupportedModelsPage() {
           <UsageBillingNote />
         </div>
 
-        <aside className="model-support-offer">
-          <strong>{t('综合优惠约 20%')}</strong>
-          <span>{t('模型价格对比官方更优惠，充值再额外赠送 5% 使用额度。')}</span>
-        </aside>
-
         {status === 'loading' && (
           <div className="console-state" aria-live="polite" aria-busy="true">
             {t('正在加载模型目录...')}
@@ -377,7 +343,7 @@ export function SupportedModelsPage() {
                       <th role="columnheader" scope="col">{t('厂商')}</th>
                       <th role="columnheader" scope="col">{t('接口协议')}</th>
                       <th role="columnheader" scope="col">{t('调用地址')}</th>
-                      <th role="columnheader" scope="col">{t('价格对比')}</th>
+                      <th role="columnheader" scope="col">{t('售价明细')}</th>
                       <th role="columnheader" scope="col">{t('操作')}</th>
                     </tr>
                   </thead>
@@ -385,7 +351,6 @@ export function SupportedModelsPage() {
                     {visibleModels.map((item) => {
                       const details = item.supported_endpoint_types.map((endpoint) => endpointDetails[endpoint]);
                       const media = item.modality === 'image' || item.modality === 'video';
-                      const comparison = hasOfficialPricing(item);
                       return (
                         <tr key={item.model_name} role="row">
                           <td role="cell">
@@ -409,67 +374,54 @@ export function SupportedModelsPage() {
                             </div>
                           </td>
                           <td className="model-price-cell" role="cell">
-                            <span aria-hidden="true" className="model-cell-label">{t('价格对比')}</span>
+                            <span aria-hidden="true" className="model-cell-label">{t('售价明细')}</span>
                             {media ? (
                               <div className="model-media-pricing">
                                 <small>{supportedOptionsLabel(item, t)}</small>
-                                {comparison && <PriceComparisonHeader t={t} />}
-                                <ul aria-label={t('{{name}} 条件售价', { name: item.model_name })} className={`model-price-list${comparison ? '' : ' model-price-list--simple'}`}>
+                                <ul aria-label={t('{{name}} 条件售价', { name: item.model_name })} className="model-price-list">
                                   {item.pricing_rules?.map((rule) => (
                                     <li key={rule.id}>
                                       <span>{pricingRuleLabel(rule.conditions, t)}</span>
-                                      <strong>{Object.values(rule.sale_usd).map((value) =>
+                                      <strong>
+                                        {Object.values(rule.sale_usd).map((value) =>
                                           formatPrice(value, mediaBillingUnit(rule.billing_unit)),
-                                        ).join(' / ')}</strong>
-                                      {comparison && <del>{Object.values(rule.official_usd ?? {}).length > 0
-                                        ? Object.values(rule.official_usd ?? {}).map((value) => formatPrice(value, mediaBillingUnit(rule.billing_unit))).join(' / ')
-                                        : '--'}</del>}
-                                      {comparison && <SavingsValue sale={Object.values(rule.sale_usd)[0]} official={Object.values(rule.official_usd ?? {})[0]} t={t} />}
+                                        ).join(' / ')}
+                                      </strong>
                                     </li>
                                   ))}
                                 </ul>
                               </div>
                             ) : item.token_price_rules ? (
-                              <div>
-                                {comparison && <PriceComparisonHeader t={t} />}
-                                <ul aria-label={t('{{name}} 分档售价', { name: item.model_name })} className="model-price-list model-token-tier-list">
-                                  {item.token_price_rules.map((rule, index) => (
-                                    <li key={`${item.model_name}-tier-${index}`}>
-                                      <span className="model-token-tier-condition">
-                                        {rule.conditions.length === 0 ? t('默认价格') : rule.conditions.map((condition) => t(condition)).join(' · ')}
-                                      </span>
-                                      {orderedBillingDimensions(item.billing_dimensions).map((dimension) => {
-                                        const price = billingDimensionDetail(dimension);
-                                        return (
-                                          <div className={`model-token-tier-price${comparison ? '' : ' model-price-list--simple'}`} key={dimension}>
-                                            <span>{t(price.label)}</span>
-                                            <strong>{formatPrice(rule.sale_usd[dimension], t(price.unit))}</strong>
-                                            {comparison && <del>{rule.official_usd?.[dimension] ? formatPrice(rule.official_usd[dimension], t(price.unit)) : '--'}</del>}
-                                            {comparison && <SavingsValue sale={rule.sale_usd[dimension]} official={rule.official_usd?.[dimension]} t={t} />}
-                                          </div>
-                                        );
-                                      })}
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
+                              <ul aria-label={t('{{name}} 分档售价', { name: item.model_name })} className="model-price-list model-token-tier-list">
+                                {item.token_price_rules.map((rule, index) => (
+                                  <li key={`${item.model_name}-tier-${index}`}>
+                                    <span className="model-token-tier-condition">
+                                      {rule.conditions.length === 0 ? t('默认价格') : rule.conditions.map((condition) => t(condition)).join(' · ')}
+                                    </span>
+                                    {orderedBillingDimensions(item.billing_dimensions).map((dimension) => {
+                                      const price = billingDimensionDetail(dimension);
+                                      return (
+                                        <div className="model-token-tier-price" key={dimension}>
+                                          <span>{t(price.label)}</span>
+                                          <strong>{formatPrice(rule.sale_usd[dimension], t(price.unit))}</strong>
+                                        </div>
+                                      );
+                                    })}
+                                  </li>
+                                ))}
+                              </ul>
                             ) : (
-                              <div>
-                                {comparison && <PriceComparisonHeader t={t} />}
-                                <ul aria-label={t('{{name}} 售价', { name: item.model_name })} className={`model-price-list${comparison ? '' : ' model-price-list--simple'}`}>
-                                  {orderedBillingDimensions(item.billing_dimensions).map((dimension) => {
-                                    const price = billingDimensionDetail(dimension);
-                                    return (
-                                      <li key={dimension}>
-                                        <span>{t(price.label)}</span>
-                                        <strong>{formatPrice(item.sale_usd[dimension], t(price.unit))}</strong>
-                                        {comparison && <del>{item.official_usd?.[dimension] ? formatPrice(item.official_usd[dimension], t(price.unit)) : '--'}</del>}
-                                        {comparison && <SavingsValue sale={item.sale_usd[dimension]} official={item.official_usd?.[dimension]} t={t} />}
-                                      </li>
-                                    );
-                                  })}
-                                </ul>
-                              </div>
+                              <ul aria-label={t('{{name}} 售价', { name: item.model_name })} className="model-price-list">
+                                {orderedBillingDimensions(item.billing_dimensions).map((dimension) => {
+                                  const price = billingDimensionDetail(dimension);
+                                  return (
+                                    <li key={dimension}>
+                                      <span>{t(price.label)}</span>
+                                      <strong>{formatPrice(item.sale_usd[dimension], t(price.unit))}</strong>
+                                    </li>
+                                  );
+                                })}
+                              </ul>
                             )}
                           </td>
                           <td className="model-support-actions" role="cell">

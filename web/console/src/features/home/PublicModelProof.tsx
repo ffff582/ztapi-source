@@ -93,17 +93,6 @@ export function PublicModelProof() {
           ))}
         </div>
 
-        <aside className="model-proof__offer" aria-label={t('综合优惠约 20%')}>
-          <div>
-            <strong>{t('综合优惠约 20%')}</strong>
-            <span>{t('模型价格对比官方更优惠，充值再额外赠送 5% 使用额度。')}</span>
-          </div>
-          <Link to="/models">
-            {t('查看价格对比')}
-            <ArrowUpRight aria-hidden="true" size={18} />
-          </Link>
-        </aside>
-
         {status === 'loading' && (
           <>
             <div className="model-proof__state" aria-live="polite" aria-busy="true">

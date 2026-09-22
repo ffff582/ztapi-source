@@ -31,8 +31,6 @@ function order(status = 'pending') {
     id: 41,
     trade_no: 'USDT-TEST-41',
     credit_units: 10,
-    bonus_credit_units: '0.50',
-    total_credit_units: '10.50',
     pay_amount: '10.37',
     receiving_address: address,
     network: 'tron-mainnet',
@@ -94,8 +92,6 @@ describe('WalletPage', () => {
 
     render(<WalletPage />);
     const amount = await screen.findByLabelText('充值数量');
-		expect(screen.getByText('充值额外赠送 5%')).toBeVisible();
-		expect(screen.getByText('充值 10 U，实际到账 10.50 U')).toBeVisible();
     fireEvent.change(amount, { target: { value: '10' } });
     fireEvent.click(screen.getByRole('button', { name: '创建支付订单' }));
 
@@ -165,8 +161,6 @@ describe('WalletPage', () => {
     expect(statusRequests).toBe(0);
     await act(async () => vi.advanceTimersByTimeAsync(1));
     expect(screen.getByText('充值已到账')).toBeInTheDocument();
-		expect(screen.getByText('10.50 U')).toBeInTheDocument();
-		expect(screen.getByText('其中赠送 0.50 U')).toBeInTheDocument();
     expect(statusRequests).toBe(1);
     expect(sessionStorage.getItem('ztapi.usdt.pending_trade_no')).toBeNull();
 

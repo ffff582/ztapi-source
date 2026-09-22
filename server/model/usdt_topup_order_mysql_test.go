@@ -169,12 +169,11 @@ func TestUSDTConcurrentSettlementMySQL(t *testing.T) {
 	require.Equal(t, 1, applied)
 	var reloaded User
 	require.NoError(t, db.First(&reloaded, user.Id).Error)
-	paidQuota := adminTopUpQuota(&TopUp{Amount: 10, PaymentProvider: PaymentProviderUSDTTRC20})
-	expectedQuota := paidQuota + paidQuota/usdtTopUpBonusDivisor
+	expectedQuota := adminTopUpQuota(&TopUp{Amount: 10, PaymentProvider: PaymentProviderUSDTTRC20})
 	require.Equal(t, int(expectedQuota), reloaded.Quota)
 	var ledgerCount int64
 	require.NoError(t, db.Model(&BalanceLedger{}).Where("user_id = ?", user.Id).Count(&ledgerCount).Error)
-	require.Equal(t, int64(2), ledgerCount)
+	require.Equal(t, int64(1), ledgerCount)
 }
 
 func TestUSDTConfirmationGraceSettlementRaceMySQL(t *testing.T) {
@@ -257,7 +256,7 @@ func TestUSDTConfirmationGraceSettlementRaceMySQL(t *testing.T) {
 	require.Equal(t, USDTTopUpStatusSettled, settled.Status)
 	var ledgerCount int64
 	require.NoError(t, db.Model(&BalanceLedger{}).Where("user_id = ?", user.Id).Count(&ledgerCount).Error)
-	require.Equal(t, int64(2), ledgerCount)
+	require.Equal(t, int64(1), ledgerCount)
 
 	expiringOrder, err := CreateUSDTTopUpOrder(user.Id, 11, createdAt, testUSDTTopUpConfig())
 	require.NoError(t, err)

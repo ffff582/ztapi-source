@@ -201,53 +201,13 @@ func TestZTAPIPublicCatalogTextJSONDoesNotGainMediaFields(t *testing.T) {
 		Groups: []string{"default"}, SnapshotID: 103,
 		BillingDimensions: []string{ZTAPIBillingDimensionInputTokens, ZTAPIBillingDimensionOutputTokens},
 		SaleUSD:           map[string]string{ZTAPIBillingDimensionInputTokens: "1", ZTAPIBillingDimensionOutputTokens: "2"},
-		OfficialUSD:       map[string]string{ZTAPIBillingDimensionInputTokens: "1.25", ZTAPIBillingDimensionOutputTokens: "2.5"},
 	}})
 	require.Len(t, items, 1)
-	require.Equal(t, map[string]string{"input_tokens": "1.25", "output_tokens": "2.5"}, items[0].OfficialUSD)
 	encoded, err := json.Marshal(items[0])
 	require.NoError(t, err)
 	require.NotContains(t, string(encoded), "supported_options")
 	require.NotContains(t, string(encoded), "pricing_rules")
 	require.NotContains(t, string(encoded), "billing_unit")
-}
-
-func TestZTAPIPublicPricingProjectsOfficialComparisonWithoutCostEvidence(t *testing.T) {
-	pricing := projectZTAPIPublicPricing([]ZTAPIRuntimePublication{{
-		Modality: ZTAPIModalityText, SourceModel: "gpt-5.5", PublicName: "zt-gpt-5.5",
-		ProviderFamily: ZTAPIProviderOpenAI, Protocol: ZTAPIProtocolOpenAICompatible,
-		Groups: []string{"default"}, SnapshotID: 103,
-		InputPricePerMillion: 1, OutputPricePerMillion: 2,
-		BillingDimensions: []string{ZTAPIBillingDimensionInputTokens, ZTAPIBillingDimensionOutputTokens},
-		SaleUSD:           map[string]string{ZTAPIBillingDimensionInputTokens: "1", ZTAPIBillingDimensionOutputTokens: "2"},
-		OfficialUSD:       map[string]string{ZTAPIBillingDimensionInputTokens: "1.25", ZTAPIBillingDimensionOutputTokens: "2.5"},
-	}})
-	require.Len(t, pricing, 1)
-	require.Equal(t, map[string]string{"input_tokens": "1.25", "output_tokens": "2.5"}, pricing[0].OfficialUSD)
-
-	encoded, err := json.Marshal(pricing[0])
-	require.NoError(t, err)
-	require.Contains(t, string(encoded), `"official_usd"`)
-	require.NotContains(t, string(encoded), "cost_usd")
-	require.NotContains(t, string(encoded), "source_cells")
-}
-
-func TestZTAPIPublicOfficialPricingComesFromFrozenQuotationEvidence(t *testing.T) {
-	quote, err := ZTAPIQuotationABEntries()
-	require.NoError(t, err)
-	source, err := BuildZTAPIABTextPriceSource(quote, "GPT 4.1", 1, 1, 1)
-	require.NoError(t, err)
-
-	official, tiered, media := ztapiPublicOfficialPriceEvidence(&source)
-	require.Empty(t, media)
-	require.NotEmpty(t, tiered)
-	require.Empty(t, official)
-	for _, rule := range tiered {
-		for dimension, rawOfficial := range rule.OfficialUSD {
-			officialPrice := decimal.RequireFromString(rawOfficial)
-			require.True(t, officialPrice.IsPositive(), dimension)
-		}
-	}
 }
 
 func TestZTAPIPublicCatalogRejectsIncompleteMediaMetadata(t *testing.T) {
