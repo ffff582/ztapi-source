@@ -58,6 +58,10 @@ describe('UsageGuidePage', () => {
       'href',
       '/console/models',
     );
+    expect(screen.getByRole('link', { name: '公开文档中心' })).toHaveAttribute(
+      'href',
+      '/docs/integration',
+    );
     expect(
       screen.getByText('不要在浏览器前端、移动端安装包或公开仓库中暴露 API Key。'),
     ).toBeVisible();

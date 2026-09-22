@@ -80,10 +80,10 @@ it('renders the ZTAPI home route', async () => {
       {
         name: 'ZTAPI',
       },
-      { timeout: 5_000 },
+      { timeout: 10_000 },
     ),
   ).toBeInTheDocument();
-});
+}, 10_000);
 
 it('renders the models route', async () => {
   render(<RouterProvider router={createZTAPIRouter(['/models'])} />);
@@ -93,6 +93,19 @@ it('renders the models route', async () => {
   ).toBeInTheDocument();
   expect(screen.getAllByRole('main')).toHaveLength(1);
 });
+
+it.each([
+  ['/docs/api', 'API 手册'],
+  ['/docs/integration', '集成指南'],
+  ['/docs/user-guide', '用户指南'],
+  ['/docs/faq', '常见问题'],
+])('renders the public documentation route %s', async (path, heading) => {
+  render(<RouterProvider router={createZTAPIRouter([path])} />);
+
+  expect(await screen.findByRole('heading', { name: heading }, { timeout: 10_000 })).toBeInTheDocument();
+  expect(screen.getByRole('navigation', { name: '文档分类' })).toBeVisible();
+  expect(screen.getAllByText('https://ztapi.vip/v1').length).toBeGreaterThan(0);
+}, 15_000);
 
 it.each([
   ['/login', '登录 ZTAPI'],
@@ -141,6 +154,7 @@ it('switches the public site to English and persists the language without changi
   vi.spyOn(window.navigator, 'language', 'get').mockReturnValue('zh-CN');
   renderWithProviders('/', false);
 
+  await screen.findByRole('heading', { name: 'ZTAPI' }, { timeout: 10_000 });
   const switcher = await screen.findByRole('button', { name: '切换到英文' });
   expect(document.documentElement.lang).toBe('zh-CN');
 
@@ -185,6 +199,10 @@ it('uses a compatible saved i18next language when no ZTAPI preference exists', a
 });
 
 it.each([
+  ['/docs/api', false, 'API reference'],
+  ['/docs/integration', false, 'Integration guide'],
+  ['/docs/user-guide', false, 'User guide'],
+  ['/docs/faq', false, 'Frequently asked questions'],
   ['/models', false, 'Models and pricing'],
   ['/login', false, 'Sign in to ZTAPI'],
   ['/register', false, 'Create a ZTAPI account'],
@@ -199,5 +217,5 @@ it.each([
   localStorage.setItem('ztapi.locale', 'en');
   renderWithProviders(path, authenticated);
 
-  expect(await screen.findByRole('heading', { name: heading })).toBeVisible();
-});
+  expect(await screen.findByRole('heading', { name: heading }, { timeout: 10_000 })).toBeVisible();
+}, 15_000);

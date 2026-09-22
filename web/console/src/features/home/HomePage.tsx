@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowRight, CircleDollarSign, ListTree, Route } from 'lucide-react';
+import { ArrowRight, CircleDollarSign, Gift, ListTree, Route, Send } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import '../../brand/tokens.css';
 import { PublicHeader } from '../../components/layout/PublicHeader';
@@ -15,9 +15,6 @@ export function HomePage() {
   const { t } = useLocale();
   const [selectedFamily, setSelectedFamily] = useState<ModelFamily>('openai');
   const { hash } = useLocation();
-  const sourceUrl =
-    import.meta.env.VITE_ZTAPI_SOURCE_URL || '/.well-known/source';
-
   useEffect(() => {
     if (!hash) {
       return;
@@ -61,6 +58,31 @@ export function HomePage() {
           </div>
         </section>
         <GatewayStatusRail />
+        <section className="topup-promotion" aria-label={t('充值福利')}>
+          <div className="topup-promotion__inner public-shell">
+            <Gift aria-hidden="true" size={28} />
+            <div>
+              <p className="section-kicker">{t('充值福利')}</p>
+              <h2>{t('充值即赠 5% 使用额度')}</h2>
+              <p>{t('充值 100 U，到账可用 105 U')}</p>
+            </div>
+            <div className="topup-promotion__actions">
+              <Link className="button-link button-link--primary" to="/register">
+                {t('立即开始')}
+                <ArrowRight aria-hidden="true" size={18} />
+              </Link>
+              <a
+                className="button-link button-link--support"
+                href="https://t.me/gan66"
+                target="_blank"
+                rel="noreferrer"
+              >
+                <Send aria-hidden="true" size={17} />
+                {t('联系 Telegram 客服')}
+              </a>
+            </div>
+          </div>
+        </section>
         <PublicModelProof />
         <IntegrationWorkbench
           selectedFamily={selectedFamily}
@@ -113,22 +135,6 @@ export function HomePage() {
         <div className="public-footer__inner public-shell">
           <span className="public-footer__brand">ZTAPI</span>
           <span>{t('统一模型 API')}</span>
-          <a
-            className="footer-link"
-            href={sourceUrl}
-            target="_blank"
-            rel="noreferrer"
-          >
-            {t('ZTAPI 对应源码')}
-          </a>
-          <a
-            className="footer-link"
-            href="https://github.com/QuantumNous/new-api"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Frontend design and development by New API contributors.
-          </a>
         </div>
       </footer>
     </div>

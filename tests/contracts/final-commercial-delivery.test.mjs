@@ -277,7 +277,7 @@ test('first-unlock external rollback restores registration before stopping the s
   assert.ok(down > restore, 'registration options must be restored while MySQL is still available');
 });
 
-test('runtime source metadata and UI use the immutable public commit URL', () => {
+test('runtime source metadata keeps the immutable URL off the marketing homepage', () => {
   const metadata = read('server/common/ztapi_source.go');
   const backendTest = read('server/controller/ztapi_source_test.go');
   const home = read('web/console/src/features/home/HomePage.tsx');
@@ -292,7 +292,7 @@ test('runtime source metadata and UI use the immutable public commit URL', () =>
   assert.match(metadata, /\/tree\//);
   assert.match(backendTest, /source_commit/);
   assert.match(backendTest, /source_url/);
-  assert.match(home, /VITE_ZTAPI_SOURCE_URL/);
+  assert.doesNotMatch(home, /VITE_ZTAPI_SOURCE_URL/);
   assert.match(admin, /VITE_ZTAPI_SOURCE_URL/);
   assert.doesNotMatch(home, /href="https:\/\/github\.com\/ffff582\/ztapi-source"/);
   assert.doesNotMatch(admin, /href='https:\/\/github\.com\/ffff582\/ztapi-source'/);

@@ -7,6 +7,7 @@ import './public-header.css';
 
 const links = [
   { label: '模型价格', to: '/models' },
+  { label: '文档中心', to: '/docs/integration' },
   { label: '快速接入', to: '/#quickstart' },
   { label: '网关能力', to: '/#capabilities' },
   { label: '登录', to: '/login' },

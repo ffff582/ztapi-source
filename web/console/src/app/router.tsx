@@ -1,6 +1,7 @@
 import {
   createBrowserRouter,
   createMemoryRouter,
+  Navigate,
   type RouteObject,
 } from 'react-router-dom';
 import { ProtectedRoute, PublicOnlyRoute } from '../auth/session';
@@ -32,6 +33,18 @@ const routes: RouteObject[] = [
   {
     path: '/models',
     element: <ModelsPage />,
+  },
+  {
+    path: '/docs',
+    element: <Navigate replace to="/docs/integration" />,
+  },
+  {
+    path: '/docs/:section',
+    lazy: async () => {
+      const { PublicDocsPage } = await import('../features/docs/PublicDocsPage');
+
+      return { Component: PublicDocsPage };
+    },
   },
   {
     path: '/login',

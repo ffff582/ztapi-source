@@ -361,6 +361,10 @@ export function UsageGuidePage() {
             {t('查看可用模型')}
             <ArrowRight aria-hidden="true" size={16} />
           </Link>
+          <Link className="console-button console-button--secondary" to="/docs/integration">
+            {t('公开文档中心')}
+            <ArrowRight aria-hidden="true" size={16} />
+          </Link>
         </div>
       </section>
 

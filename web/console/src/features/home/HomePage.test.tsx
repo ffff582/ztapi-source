@@ -117,22 +117,22 @@ describe('ZTAPI public homepage', () => {
     expect(document.querySelectorAll('.card .card')).toHaveLength(0);
   });
 
-  it('preserves the required upstream attribution', async () => {
+  it('keeps repository attribution off the marketing homepage', async () => {
     renderHomePage();
-    const attribution = await screen.findByText(
-      'Frontend design and development by New API contributors.',
-    );
-    expect(attribution).toHaveAttribute('href', 'https://github.com/QuantumNous/new-api');
-    expect(attribution).toHaveAttribute('target', '_blank');
-    expect(attribution).toHaveAttribute('rel', 'noreferrer');
+
+    expect(screen.queryByText('Frontend design and development by New API contributors.')).toBeNull();
+    expect(screen.queryByRole('link', { name: 'ZTAPI 对应源码' })).toBeNull();
   });
 
-  it('links network users to the corresponding ZTAPI source', () => {
+  it('makes the top-up promotion and Telegram support visible before the model catalog', () => {
     renderHomePage();
 
-    expect(screen.getByRole('link', { name: 'ZTAPI 对应源码' })).toHaveAttribute(
+    const promotion = screen.getByRole('region', { name: '充值福利' });
+    expect(within(promotion).getByText('充值即赠 5% 使用额度')).toBeVisible();
+    expect(within(promotion).getByText('充值 100 U，到账可用 105 U')).toBeVisible();
+    expect(within(promotion).getByRole('link', { name: '联系 Telegram 客服' })).toHaveAttribute(
       'href',
-      '/.well-known/source',
+      'https://t.me/gan66',
     );
   });
 
@@ -141,6 +141,7 @@ describe('ZTAPI public homepage', () => {
     const navigation = await screen.findByRole('navigation', { name: '公共导航' });
     const expected = [
       ['模型价格', '/models'],
+      ['文档中心', '/docs/integration'],
       ['快速接入', '/#quickstart'],
       ['网关能力', '/#capabilities'],
       ['登录', '/login'],
@@ -205,6 +206,8 @@ describe('ZTAPI public homepage', () => {
     expect(lastDeclaration(narrow, '.gateway-hero h1', 'font-size')).toBe('72px');
     expect(lastDeclaration(narrow, '.gateway-hero__actions', 'flex-direction')).toBe('column');
     expect(lastDeclaration(narrow, '.gateway-hero__title-models', 'display')).toBe('block');
+    expect(lastDeclaration(homeStyles, '.principles-band__heading h2', 'white-space')).toBe('nowrap');
+    expect(lastDeclaration(mobile, '.principles-band__heading h2', 'white-space')).toBe('normal');
     expect(lastDeclaration(reduced, '.gateway-motion__packet', 'animation')).toBe('none');
     expect(lastDeclaration(reduced, '.gateway-motion__pulse', 'animation')).toBe('none');
   });
