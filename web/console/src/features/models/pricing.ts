@@ -18,6 +18,8 @@ export interface ModelPriceDetail {
   dimension: string;
   label: string;
   price: string;
+  officialPrice?: string;
+  savingsPercent?: number;
 }
 
 function rankDimension(dimension: string) {
@@ -52,11 +54,68 @@ function formatSalePrice(value: string | undefined, unit: string) {
   return formatUnitPrice(value, unit);
 }
 
+function comparisonFields(saleRaw: string | undefined, officialRaw: string | undefined, unit: string) {
+  if (typeof officialRaw !== 'string' || officialRaw === '') return {};
+  const sale = Number(saleRaw);
+  const official = Number(officialRaw);
+  const savingsPercent = Number.isFinite(sale) && Number.isFinite(official) && official > sale
+    ? Math.round((1 - sale / official) * 100)
+    : undefined;
+  return {
+    officialPrice: formatUnitPrice(officialRaw, unit),
+    ...(savingsPercent === undefined ? {} : { savingsPercent }),
+  };
+}
+
+const mediaConditionLabels: Record<string, Record<string, string>> = {
+  token_bucket: {
+    text_input: '文本输入',
+    text_cached_input: '文本缓存输入',
+    image_input: '图片输入',
+    image_cached_input: '图片缓存输入',
+    image_output: '图片输出',
+  },
+  contains_video_input: {
+    true: '含视频输入',
+    false: '无视频输入',
+  },
+  prompt_tokens_tier: {
+    lte_200k: '输入不超过 200K',
+    gt_200k: '输入超过 200K',
+  },
+};
+
+function mediaRuleLabel(conditions: Record<string, string>, fallback: string) {
+  const condition = Object.entries(conditions)
+    .map(([key, value]) => mediaConditionLabels[key]?.[value] ?? value)
+    .filter(Boolean)
+    .join(' · ');
+  return condition || fallback;
+}
+
 export function modelPriceDetails(
   model: PricingModel,
   pricing: PricingEnvelope,
   quotaPerUnit: number,
 ): ModelPriceDetail[] {
+  if (model.pricing_rules && model.pricing_rules.length > 0) {
+    return model.pricing_rules.flatMap((rule) =>
+      orderedDimensions(Object.keys(rule.sale_usd)).flatMap((dimension) => {
+        const detail = dimensionDetails[dimension] ?? { label: dimension, unit: '计费单位' };
+        const unit = rule.billing_unit === 'usd_per_million_tokens' ? '1M tokens' : rule.billing_unit;
+        const price = formatSalePrice(rule.sale_usd[dimension], unit);
+        if (price === null) return [];
+        return [{
+          key: `${rule.id}-${dimension}`,
+          dimension,
+          label: mediaRuleLabel(rule.conditions, detail.label),
+          price,
+          ...comparisonFields(rule.sale_usd[dimension], rule.official_usd?.[dimension], unit),
+        }];
+      }),
+    );
+  }
+
   // A model priced by tier publishes one set of prices per tier instead of a
   // single rate, so every tier is listed with the condition it applies under.
   if (model.token_price_rules && model.token_price_rules.length > 0) {
@@ -71,6 +130,7 @@ export function modelPriceDetails(
           dimension,
           label: condition ? `${detail.label}（${condition}）` : detail.label,
           price,
+          ...comparisonFields(rule.sale_usd[dimension], rule.official_usd?.[dimension], detail.unit),
         }];
       }),
     );
@@ -88,7 +148,13 @@ export function modelPriceDetails(
     const detail = dimensionDetails[dimension] ?? { label: dimension, unit: '计费单位' };
     const price = formatSalePrice(saleUSD[dimension], detail.unit);
     if (price === null) return [];
-    return [{ key: dimension, dimension, label: detail.label, price }];
+    return [{
+      key: dimension,
+      dimension,
+      label: detail.label,
+      price,
+      ...comparisonFields(saleUSD[dimension], model.official_usd?.[dimension], detail.unit),
+    }];
   });
 }
 

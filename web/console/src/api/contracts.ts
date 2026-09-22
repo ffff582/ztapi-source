@@ -52,6 +52,7 @@ export interface PricingModel {
   output_price_per_million?: string;
   billing_dimensions?: string[];
   sale_usd?: Record<string, string>;
+  official_usd?: Record<string, string>;
   billing_rule?: UserModelCatalogItem['billing_rule'];
   supported_endpoint_types?: UserModelEndpointType[];
   supported_options?: UserModelSupportedOptions;
@@ -132,11 +133,13 @@ export interface UserModelPricingRule {
   conditions: Record<string, string>;
   billing_unit: string;
   sale_usd: Record<string, string>;
+  official_usd?: Record<string, string>;
 }
 
 export interface UserModelTokenPriceRule {
   conditions: string[];
   sale_usd: Record<string, string>;
+  official_usd?: Record<string, string>;
 }
 
 export interface UserModelCatalogItem {
@@ -151,6 +154,7 @@ export interface UserModelCatalogItem {
   output_price_per_million: string;
   billing_dimensions: string[];
   sale_usd: Record<string, string>;
+  official_usd?: Record<string, string>;
   billing_rule: 'token' | 'multi_dimension' | 'input_only';
   pricing_version: string;
   supported_options?: UserModelSupportedOptions;
@@ -222,6 +226,8 @@ export interface USDTTopUpOrder {
   id: number;
   trade_no: string;
   credit_units: number;
+  bonus_credit_units: string;
+  total_credit_units: string;
   pay_amount: string;
   receiving_address: string;
   network: 'tron-mainnet';
@@ -349,6 +355,7 @@ function parseUserModelCatalogItem(value: unknown): UserModelCatalogItem {
     ? parseStringArray(value.billing_dimensions)
     : parseRequiredStringArray(value.billing_dimensions);
   const saleUSD = parseDecimalStringRecord(value.sale_usd);
+  const officialUSD = value.official_usd === undefined ? {} : parseDecimalStringRecord(value.official_usd);
   const hasTokenTiers = value.token_price_rules !== undefined;
   const inputPrice = value.input_price_per_million;
   const outputPrice = value.output_price_per_million;
@@ -428,14 +435,17 @@ function parseUserModelCatalogItem(value: unknown): UserModelCatalogItem {
       }
       const conditions = parseRequiredStringRecord(rule.conditions);
       const ruleSaleUSD = parseDecimalStringRecord(rule.sale_usd);
+      const ruleOfficialUSD = rule.official_usd === undefined ? {} : parseDecimalStringRecord(rule.official_usd);
       if (
         Object.keys(conditions).length === 0 ||
         Object.keys(ruleSaleUSD).length === 0 ||
+        Object.keys(ruleOfficialUSD).some((dimension) => !(dimension in ruleSaleUSD)) ||
         (value.billing_unit !== 'mixed' && rule.billing_unit !== value.billing_unit)
       ) {
         throw new DataContractError();
       }
-      return { id: rule.id, conditions, billing_unit: rule.billing_unit, sale_usd: ruleSaleUSD };
+      return { id: rule.id, conditions, billing_unit: rule.billing_unit, sale_usd: ruleSaleUSD,
+        ...(rule.official_usd !== undefined ? { official_usd: ruleOfficialUSD } : {}) };
     });
     return {
       modality: modality as UserModelModality,
@@ -449,6 +459,7 @@ function parseUserModelCatalogItem(value: unknown): UserModelCatalogItem {
       output_price_per_million: outputPrice,
       billing_dimensions: billingDimensions,
       sale_usd: saleUSD,
+      ...(value.official_usd !== undefined ? { official_usd: officialUSD } : {}),
       billing_rule: billingRule as UserModelCatalogItem['billing_rule'],
       pricing_version: value.pricing_version,
       supported_options: supportedOptions,
@@ -459,26 +470,31 @@ function parseUserModelCatalogItem(value: unknown): UserModelCatalogItem {
 
   const dimensionSet = new Set(billingDimensions);
   const saleDimensions = Object.keys(saleUSD);
+  const officialDimensions = Object.keys(officialUSD);
   if (hasTokenTiers && (isEmbedding || !Array.isArray(value.token_price_rules) || value.token_price_rules.length === 0)) {
     throw new DataContractError();
   }
   const tokenPriceRules: UserModelTokenPriceRule[] | undefined = hasTokenTiers
     ? (value.token_price_rules as unknown[]).map((rule) => {
-      if (!isRecord(rule) || Object.keys(rule).length !== 2 ||
+      if (!isRecord(rule) || ![2, 3].includes(Object.keys(rule).length) ||
+        Object.keys(rule).some((key) => !['conditions', 'sale_usd', 'official_usd'].includes(key)) ||
         !Object.prototype.hasOwnProperty.call(rule, 'conditions') ||
         !Object.prototype.hasOwnProperty.call(rule, 'sale_usd')) {
         throw new DataContractError();
       }
       const conditions = parseStringArray(rule.conditions);
       const ruleSaleUSD = parseDecimalStringRecord(rule.sale_usd);
+      const ruleOfficialUSD = rule.official_usd === undefined ? {} : parseDecimalStringRecord(rule.official_usd);
       if (
         new Set(conditions).size !== conditions.length ||
         Object.keys(ruleSaleUSD).length !== dimensionSet.size ||
-        Object.keys(ruleSaleUSD).some((dimension) => !dimensionSet.has(dimension))
+        Object.keys(ruleSaleUSD).some((dimension) => !dimensionSet.has(dimension)) ||
+        Object.keys(ruleOfficialUSD).some((dimension) => !dimensionSet.has(dimension))
       ) {
         throw new DataContractError();
       }
-      return { conditions, sale_usd: ruleSaleUSD };
+      return { conditions, sale_usd: ruleSaleUSD,
+        ...(rule.official_usd !== undefined ? { official_usd: ruleOfficialUSD } : {}) };
     })
     : undefined;
   if (tokenPriceRules && new Set(tokenPriceRules.map((rule) => JSON.stringify([...rule.conditions].sort()))).size !== tokenPriceRules.length) {
@@ -493,6 +509,7 @@ function parseUserModelCatalogItem(value: unknown): UserModelCatalogItem {
   if (
     (isEmbedding && (billingDimensions.length !== 1 || billingDimensions[0] !== 'input_tokens')) ||
     dimensionSet.size !== billingDimensions.length ||
+    officialDimensions.some((dimension) => !dimensionSet.has(dimension)) ||
     (hasTokenTiers ? saleDimensions.length !== 0 :
       saleDimensions.length !== dimensionSet.size ||
       saleDimensions.some((dimension) => !dimensionSet.has(dimension)) ||
@@ -517,6 +534,7 @@ function parseUserModelCatalogItem(value: unknown): UserModelCatalogItem {
     output_price_per_million: outputPrice,
     billing_dimensions: billingDimensions,
     sale_usd: saleUSD,
+    ...(value.official_usd !== undefined ? { official_usd: officialUSD } : {}),
     billing_rule: billingRule as UserModelCatalogItem['billing_rule'],
     pricing_version: value.pricing_version,
     token_price_rules: tokenPriceRules,
@@ -613,6 +631,10 @@ export function parseUSDTTopUpOrder(value: unknown): USDTTopUpOrder {
     !requiredString(value.trade_no) ||
     !integer(value.credit_units) ||
     value.credit_units < 1 ||
+    typeof value.bonus_credit_units !== 'string' ||
+    !/^\d+\.\d{2}$/.test(value.bonus_credit_units) ||
+    typeof value.total_credit_units !== 'string' ||
+    !/^\d+\.\d{2}$/.test(value.total_credit_units) ||
     typeof value.pay_amount !== 'string' ||
     !/^\d+\.\d{2}$/.test(value.pay_amount) ||
     !requiredString(value.receiving_address) ||
@@ -632,6 +654,8 @@ export function parseUSDTTopUpOrder(value: unknown): USDTTopUpOrder {
     id: value.id,
     trade_no: value.trade_no,
     credit_units: value.credit_units,
+    bonus_credit_units: value.bonus_credit_units,
+    total_credit_units: value.total_credit_units,
     pay_amount: value.pay_amount,
     receiving_address: value.receiving_address,
     network: value.network,
@@ -719,6 +743,7 @@ export function parsePricingModels(value: unknown): PricingModel[] {
         output_price_per_million: catalog.output_price_per_million,
         billing_dimensions: catalog.billing_dimensions,
         sale_usd: catalog.sale_usd,
+        ...(catalog.official_usd ? { official_usd: catalog.official_usd } : {}),
         billing_rule: catalog.billing_rule,
         supported_endpoint_types: catalog.supported_endpoint_types,
         modality: catalog.modality,

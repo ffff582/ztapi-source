@@ -795,6 +795,9 @@ type ztapiPublishedModel struct {
 	AudioCompletionRatio   float64
 	BillingDimensions      []string
 	SaleUSD                map[string]string
+	OfficialUSD            map[string]string
+	TokenOfficialRules     []ZTAPIPublicTokenPriceRule
+	MediaOfficialUSD       map[string]map[string]string
 	TokenPriceRulesJSON    string
 	MediaPriceContractJSON string
 	InputPriceDisplay      string
@@ -883,6 +886,9 @@ func refreshZTAPIAliasCache() error {
 			AudioCompletionRatio: publications[i].AudioCompletionRatio, Version: publications[i].Version,
 			BillingDimensions:      append([]string(nil), publications[i].BillingDimensions...),
 			SaleUSD:                copyZTAPIStringMap(publications[i].SaleUSD),
+			OfficialUSD:            copyZTAPIStringMap(publications[i].OfficialUSD),
+			TokenOfficialRules:     cloneZTAPIPublicTokenPriceRules(publications[i].TokenOfficialRules),
+			MediaOfficialUSD:       copyZTAPINestedStringMap(publications[i].MediaOfficialUSD),
 			TokenPriceRulesJSON:    publications[i].TokenPriceRulesJSON,
 			MediaPriceContractJSON: publications[i].MediaPriceContractJSON,
 			InputPriceDisplay:      publications[i].InputPriceDisplay, OutputPriceDisplay: publications[i].OutputPriceDisplay,
@@ -1126,11 +1132,18 @@ func projectZTAPIPublicPricing(publications []ZTAPIRuntimePublication) []Pricing
 		item.OutputPricePerMillion = public.OutputPricePerMillion
 		item.BillingDimensions = append([]string{}, public.BillingDimensions...)
 		item.SaleUSD = copyZTAPIStringMap(public.SaleUSD)
+		if len(public.OfficialUSD) > 0 {
+			item.OfficialUSD = copyZTAPIStringMap(public.OfficialUSD)
+		}
 		for _, rule := range public.TokenPriceRules {
-			item.TokenPriceRules = append(item.TokenPriceRules, ZTAPIPublicTokenPriceRule{
+			projectedRule := ZTAPIPublicTokenPriceRule{
 				Conditions: append([]string{}, rule.Conditions...),
 				SaleUSD:    copyZTAPIStringMap(rule.SaleUSD),
-			})
+			}
+			if len(rule.OfficialUSD) > 0 {
+				projectedRule.OfficialUSD = copyZTAPIStringMap(rule.OfficialUSD)
+			}
+			item.TokenPriceRules = append(item.TokenPriceRules, projectedRule)
 		}
 		item.BillingRule = public.BillingRule
 		item.SupportedEndpointTypes = append([]constant.EndpointType(nil), public.SupportedEndpointTypes...)

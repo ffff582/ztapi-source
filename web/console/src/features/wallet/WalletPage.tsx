@@ -237,6 +237,11 @@ export function WalletPage() {
       <AccountBalance refreshKey={`${order?.trade_no ?? ''}:${order?.status ?? ''}`} />
       <PendingSettlements />
 
+      <section className="wallet-bonus" aria-label={t('充值优惠')}>
+        <strong>{t('充值额外赠送 5%')}</strong>
+        <span>{t('赠送额度自动到账，可用于调用全部已上架模型。')}</span>
+      </section>
+
       {pageState === 'loading' && (
         <div className="console-state" aria-live="polite" aria-busy="true">
           {t('正在加载充值配置...')}
@@ -282,6 +287,14 @@ export function WalletPage() {
               <p className="console-field__help">
                 {t('最低 {{amount}} USDT，只计入整数额度。', { amount: configuration.minimum_top_up })}
               </p>
+              {amountIsValid && (
+                <p className="wallet-bonus-preview">
+                  {t('充值 {{amount}} U，实际到账 {{total}} U', {
+                    amount: parsedAmount,
+                    total: (parsedAmount * 1.05).toFixed(2),
+                  })}
+                </p>
+              )}
             </div>
 
             {error !== '' && <div className="console-alert" role="alert">{error}</div>}
@@ -334,7 +347,8 @@ export function WalletPage() {
 
               {order.status === 'settled' && (
                 <dl className="wallet-receipt">
-                  <div><dt>{t('本次入账')}</dt><dd>{formatAccountUnits(order.credit_units)}</dd></div>
+                  <div><dt>{t('本次入账')}</dt><dd>{formatAccountUnits(Number(order.total_credit_units))}</dd></div>
+                  <div><dt>{t('充值赠送')}</dt><dd>{t('其中赠送 {{amount}} U', { amount: order.bonus_credit_units })}</dd></div>
                   <div><dt>{t('实际支付')}</dt><dd>{order.pay_amount} USDT</dd></div>
                   <div><dt>{t('到账时间')}</dt><dd>{formatTopUpTime(order.settled_at ?? 0, locale)} </dd></div>
                   <div><dt>{t('订单号')}</dt><dd><code>{order.trade_no}</code></dd></div>

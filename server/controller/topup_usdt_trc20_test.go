@@ -50,6 +50,8 @@ func TestUSDTTopUpOrderHandlersCreateProjectIsolateAndCancel(t *testing.T) {
 	require.NoError(t, json.Unmarshal(created.Body.Bytes(), &envelope))
 	require.True(t, envelope.Success)
 	require.Equal(t, int64(10), envelope.Data.CreditUnits)
+	require.Equal(t, "0.50", envelope.Data.BonusCreditUnits)
+	require.Equal(t, "10.50", envelope.Data.TotalCreditUnits)
 	require.Regexp(t, `^10\.[0-9]{2}$`, envelope.Data.PayAmount)
 	require.Equal(t, model.USDTTopUpNetworkTronMainnet, envelope.Data.Network)
 	require.Equal(t, model.USDTTopUpAssetUSDT, envelope.Data.Asset)

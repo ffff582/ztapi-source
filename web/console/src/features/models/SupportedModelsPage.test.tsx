@@ -40,7 +40,9 @@ function catalogItem(overrides: Record<string, unknown> = {}) {
 
 function successfulCatalog() {
   const catalog = [
-    catalogItem(),
+    catalogItem({ official_usd: {
+      input_tokens: '1.5625000000', output_tokens: '6.2500000000',
+    } }),
     catalogItem({
       model_name: 'zt-claude-sonnet-4.6',
       provider_family: 'claude',
@@ -162,6 +164,10 @@ describe('SupportedModelsPage', () => {
     expect(within(row as HTMLElement).getByText('/v1/chat/completions')).toBeVisible();
     expect(within(row as HTMLElement).getByText('1.25 U / 1M tokens')).toBeVisible();
     expect(within(row as HTMLElement).getByText('5 U / 1M tokens')).toBeVisible();
+		expect(screen.getByText('综合优惠约 20%')).toBeVisible();
+		expect(within(row as HTMLElement).getByText('我们的价格')).toBeVisible();
+		expect(within(row as HTMLElement).getByText('官方价格')).toBeVisible();
+		expect(within(row as HTMLElement).getAllByText('节省 20%')).toHaveLength(2);
     const claudeRow = screen.getByText('zt-claude-sonnet-4.6').closest('tr');
     expect(claudeRow).not.toBeNull();
     expect(within(claudeRow as HTMLElement).getByText('缓存读取')).toBeVisible();
