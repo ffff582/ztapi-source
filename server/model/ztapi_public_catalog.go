@@ -219,6 +219,32 @@ func ztapiPublicTokenPriceRules(raw string, dimensions []string) ([]ZTAPIPublicT
 	return rules, nil
 }
 
+func ztapiPublicVerifiedOfficialTokenPrices(sourceModel string, rules []ZTAPIPublicTokenPriceRule) []ZTAPIPublicTokenPriceRule {
+	verified, found := ztapiOfficialTextPrices20260929[sourceModel]
+	if !found || len(rules) == 0 || len(verified.Tiers) != len(rules) {
+		return nil
+	}
+	result := cloneZTAPIPublicTokenPriceRules(rules)
+	for index := range result {
+		if len(result[index].SaleUSD) == 0 {
+			return nil
+		}
+		result[index].OfficialUSD = make(map[string]string, len(result[index].SaleUSD))
+		for dimension := range result[index].SaleUSD {
+			raw, ok := verified.Tiers[index][dimension]
+			if !ok {
+				return nil
+			}
+			price, err := decimal.NewFromString(raw)
+			if err != nil || !price.IsPositive() {
+				return nil
+			}
+			result[index].OfficialUSD[dimension] = price.String()
+		}
+	}
+	return result
+}
+
 func ztapiDiscountTokenPriceRules(raw string, multiplier decimal.Decimal) (string, error) {
 	if strings.TrimSpace(raw) == "" || multiplier.Equal(decimal.NewFromInt(1)) {
 		return raw, nil
@@ -694,6 +720,8 @@ func buildZTAPIPublicCatalog(publications []ZTAPIRuntimePublication) []ZTAPIPubl
 				for index := range item.TokenPriceRules {
 					item.TokenPriceRules[index].OfficialUSD = copyZTAPIStringMap(publication.TokenOfficialRules[index].OfficialUSD)
 				}
+			} else if verified := ztapiPublicVerifiedOfficialTokenPrices(publication.SourceModel, item.TokenPriceRules); len(verified) > 0 {
+				item.TokenPriceRules = verified
 			}
 			item.InputPricePerMillion = ""
 			item.OutputPricePerMillion = ""

@@ -250,6 +250,36 @@ func TestZTAPIPublicOfficialPricingComesFromFrozenQuotationEvidence(t *testing.T
 	}
 }
 
+func TestZTAPIPublicVerifiedOfficialTokenPricesRequireMatchingTiersAndDimensions(t *testing.T) {
+	rules := []ZTAPIPublicTokenPriceRule{
+		{Conditions: []string{"输入长度≤272K"}, SaleUSD: map[string]string{"input_tokens": "7.8", "cache_read": "0.78", "cache_write": "9.75", "output_tokens": "39"}},
+		{Conditions: []string{"输入长度>272K"}, SaleUSD: map[string]string{"input_tokens": "15.6", "cache_read": "1.56", "cache_write": "19.5", "output_tokens": "58.5"}},
+	}
+	verified := ztapiPublicVerifiedOfficialTokenPrices("gpt-6-astra", rules)
+	require.Len(t, verified, 2)
+	require.Equal(t, "10", verified[0].OfficialUSD["input_tokens"])
+	require.Equal(t, "75", verified[1].OfficialUSD["output_tokens"])
+	require.Empty(t, ztapiPublicVerifiedOfficialTokenPrices("gpt-6-astra", rules[:1]))
+	require.Empty(t, ztapiPublicVerifiedOfficialTokenPrices("gpt-6-astra", []ZTAPIPublicTokenPriceRule{{SaleUSD: map[string]string{"unknown_dimension": "1"}}, rules[1]}))
+	require.Empty(t, ztapiPublicVerifiedOfficialTokenPrices("unknown-model", rules))
+}
+
+func TestZTAPIPublicCatalogProjectsVerifiedOfficialPricesWithoutChangingSale(t *testing.T) {
+	publication := ZTAPIRuntimePublication{
+		SourceModel: "gpt-5.6-sol", PublicName: "zt-gpt-5.6-sol",
+		ProviderFamily: ZTAPIProviderOpenAI, Protocol: ZTAPIProtocolOpenAICompatible,
+		Groups: []string{"default"}, SnapshotID: 101,
+		BillingDimensions: []string{"input_tokens", "output_tokens"},
+		TokenPriceRulesJSON: `[{"conditions":["输入长度≤272K"],"sale":{"input_tokens":"3.12","output_tokens":"15.6"}},{"conditions":["输入长度>272K"],"sale":{"input_tokens":"6.24","output_tokens":"23.4"}}]`,
+	}
+	items := buildZTAPIPublicCatalog([]ZTAPIRuntimePublication{publication})
+	require.Len(t, items, 1)
+	require.Equal(t, "4", items[0].TokenPriceRules[0].OfficialUSD["input_tokens"])
+	require.Equal(t, "20", items[0].TokenPriceRules[0].OfficialUSD["output_tokens"])
+	require.Equal(t, "3.12", items[0].TokenPriceRules[0].SaleUSD["input_tokens"])
+	require.Equal(t, "30", items[0].TokenPriceRules[1].OfficialUSD["output_tokens"])
+}
+
 func TestZTAPIPublicCatalogRejectsIncompleteMediaMetadata(t *testing.T) {
 	items := buildZTAPIPublicCatalog([]ZTAPIRuntimePublication{{
 		Modality: ZTAPIModalityImage, SourceModel: "candidate-image", PublicName: "zt-image",

@@ -20,6 +20,7 @@ export interface ModelPriceDetail {
   price: string;
   officialPrice?: string;
   savingsPercent?: number;
+  officialDiscount?: number;
 }
 
 function rankDimension(dimension: string) {
@@ -58,13 +59,23 @@ function comparisonFields(saleRaw: string | undefined, officialRaw: string | und
   if (typeof officialRaw !== 'string' || officialRaw === '') return {};
   const sale = Number(saleRaw);
   const official = Number(officialRaw);
+  if (!Number.isFinite(sale) || !Number.isFinite(official) || sale <= 0 || official <= 0) return {};
   const savingsPercent = Number.isFinite(sale) && Number.isFinite(official) && official > sale
     ? Math.round((1 - sale / official) * 100)
     : undefined;
   return {
     officialPrice: formatUnitPrice(officialRaw, unit),
     ...(savingsPercent === undefined ? {} : { savingsPercent }),
+    ...(official > sale ? { officialDiscount: Math.ceil((sale / official) * 100 - 1e-8) / 10 } : {}),
   };
+}
+
+export function modelOfficialDiscount(prices: ModelPriceDetail[]) {
+  if (prices.length === 0 || prices.some((price) => price.officialDiscount === undefined)) return null;
+  const discounts = prices.map((price) => price.officialDiscount as number);
+  const lowest = Math.min(...discounts);
+  const highest = Math.max(...discounts);
+  return lowest === highest ? `${lowest}` : `${lowest}–${highest}`;
 }
 
 const mediaConditionLabels: Record<string, Record<string, string>> = {

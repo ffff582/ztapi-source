@@ -1,10 +1,11 @@
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { RouterProvider } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { clearAuthSession } from '../../api/client';
 import { createZTAPIRouter } from '../../app/router';
 import { managedPublicPricing } from '../home/public-pricing.fixture';
 import { publicPricingWithEmbeddings } from './public-models.fixture';
+import { modelOfficialDiscount, type ModelPriceDetail } from './pricing';
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -37,6 +38,20 @@ function renderModels(fetchMock: ReturnType<typeof vi.fn>) {
   );
 }
 
+function modelArticle(name: string) {
+  return screen.getByRole('article', { name });
+}
+
+function expandModel(name: string) {
+  const article = modelArticle(name);
+  fireEvent.click(within(article).getByText('查看完整价格'));
+  return article;
+}
+
+function priceList(article: HTMLElement) {
+  return within(article.querySelector('.catalog-model__price-list') as HTMLElement);
+}
+
 afterEach(() => {
   cleanup();
   clearAuthSession();
@@ -45,7 +60,7 @@ afterEach(() => {
 });
 
 describe('ZTAPI public model pricing', () => {
-  it('shows the promotional offer without per-model official-price comparisons', async () => {
+  it('shows an exact comparable official discount and keeps full prices in model details', async () => {
     const item = {
       ...managedPublicPricing.data[0],
       input_price_per_million: '8',
@@ -60,11 +75,42 @@ describe('ZTAPI public model pricing', () => {
 
     expect(await screen.findByText('综合优惠约 20%')).toBeVisible();
     expect(screen.getByText('模型价格对比官方更优惠，充值再额外赠送 5% 使用额度。')).toBeVisible();
-    const row = screen.getByText(item.model_name).closest('tr') as HTMLElement;
-    expect(within(row).queryByText('官方价格')).not.toBeInTheDocument();
-    expect(within(row).queryByText(/节省 \d+%/)).not.toBeInTheDocument();
-    expect(within(row).getByText('8 U / 1M tokens')).toBeVisible();
-    expect(within(row).queryByText('10 U / 1M tokens')).not.toBeInTheDocument();
+    const model = screen.getByRole('article', { name: item.model_name });
+    expect(within(model).getByText('官方 8 折')).toBeVisible();
+    fireEvent.click(within(model).getByText('查看完整价格'));
+    expect(within(model).getAllByText('8 U / 1M tokens')[0]).toBeVisible();
+    expect(within(model).getByText('10 U / 1M tokens')).toBeVisible();
+    expect(within(model).queryByText(/节省 \d+%/)).not.toBeInTheDocument();
+  });
+
+  it('does not claim an official discount without a comparable reference', async () => {
+    const item = {
+      ...managedPublicPricing.data[0], model_name: 'zt-partial-price',
+      input_price_per_million: '8', output_price_per_million: '16',
+      sale_usd: { input_tokens: '8', output_tokens: '16' },
+      billing_dimensions: ['input_tokens', 'output_tokens'],
+      billing_rule: 'token',
+    };
+    renderModels(vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/api/status')
+      ? statusResponse() : jsonResponse({ ...managedPublicPricing, data: [item] })));
+    const model = await screen.findByRole('article', { name: item.model_name });
+    expect(within(model).queryByText(/官方 .* 折/)).not.toBeInTheDocument();
+    expect(within(model).getAllByText('8 U / 1M tokens')[0]).toBeVisible();
+  });
+
+  it('filters the public list by category and model ID without changing prices', async () => {
+    renderModels(vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/api/status')
+      ? statusResponse() : jsonResponse(publicPricingWithEmbeddings)));
+    await screen.findByText('zt-text-embedding-ada-002');
+    fireEvent.click(screen.getByRole('button', { name: '向量模型' }));
+    expect(screen.getByText('显示 2 / 37')).toBeVisible();
+    expect(document.querySelectorAll('.catalog-model')).toHaveLength(2);
+    expect(screen.queryByText('zt-claude-haiku-4.5')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole('searchbox', { name: '搜索模型' }), { target: { value: 'ada-002' } });
+    expect(screen.getByText('显示 1 / 37')).toBeVisible();
+    expect(modelArticle('zt-text-embedding-ada-002')).toHaveTextContent('0.13 U / 1M tokens');
+    fireEvent.change(screen.getByRole('searchbox', { name: '搜索模型' }), { target: { value: 'not-a-model' } });
+    expect(screen.getByText('没有符合筛选条件的模型。')).toBeVisible();
   });
 
   it('translates media pricing buckets into customer-facing descriptions', async () => {
@@ -97,26 +143,27 @@ describe('ZTAPI public model pricing', () => {
     renderModels(vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/api/status')
       ? statusResponse() : jsonResponse({ ...managedPublicPricing, data: [item] })));
 
-    const row = (await screen.findByText(item.model_name)).closest('tr') as HTMLElement;
-    expect(within(row).getByText('输入超过 200K')).toBeVisible();
+    await screen.findByText(item.model_name);
+    const row = expandModel(item.model_name);
+    expect(priceList(row).getByText('输入超过 200K')).toBeVisible();
     expect(row).not.toHaveTextContent('gt_200k');
   });
 
   it.each([managedPublicPricing, publicPricingWithEmbeddings])('renders every managed public model across all API providers ($data.length rows)', async (fixture) => {
     renderModels(vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/api/status')
       ? statusResponse() : jsonResponse(fixture)));
-    expect(await screen.findByText(`${fixture.data.length} 个公开模型`)).toBeVisible();
-    expect(document.querySelectorAll('.catalog-table tbody tr')).toHaveLength(fixture.data.length);
+    expect(await screen.findByText(`显示 ${fixture.data.length} / ${fixture.data.length}`)).toBeVisible();
+    expect(document.querySelectorAll('.catalog-model')).toHaveLength(fixture.data.length);
     for (const item of fixture.data) expect(screen.getByText(item.model_name, { exact: true })).toBeVisible();
     for (const vendor of new Set(fixture.data.map((item) => item.vendor_name))) {
       expect(screen.getByRole('heading', { name: vendor })).toBeVisible();
     }
     expect(screen.queryByText('当前没有可展示的公开模型。')).not.toBeInTheDocument();
-    const claude = screen.getByText('zt-claude-haiku-4.5').closest('tr') as HTMLElement;
-    expect(within(claude).getByText('1.3 U / 1M tokens')).toBeVisible();
-    expect(within(claude).getByText('6.5 U / 1M tokens')).toBeVisible();
-    expect(within(claude).getByText('0.13 U / 1M tokens')).toBeVisible();
-    expect(within(claude).getByText('缓存读取')).toBeVisible();
+    const claude = expandModel('zt-claude-haiku-4.5');
+    expect(within(claude).getAllByText('1.3 U / 1M tokens')[0]).toBeVisible();
+    expect(within(claude).getAllByText('6.5 U / 1M tokens')[0]).toBeVisible();
+    expect(priceList(claude).getByText('0.13 U / 1M tokens')).toBeVisible();
+    expect(priceList(claude).getByText('缓存读取')).toBeVisible();
     expect(within(claude).getAllByRole('listitem')).toHaveLength(6);
     expect(within(claude).queryByText('按规则计费')).not.toBeInTheDocument();
   }, 15_000);
@@ -141,11 +188,12 @@ describe('ZTAPI public model pricing', () => {
     renderModels(vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/api/status')
       ? statusResponse() : jsonResponse(tiered)));
 
-    const row = (await screen.findByText('zt-gpt-5.6-sol')).closest('tr') as HTMLElement;
-    expect(within(row).getByText('输入（输入长度≤272K）')).toBeVisible();
-    expect(within(row).getByText('3.9 U / 1M tokens')).toBeVisible();
-    expect(within(row).getByText('输出（输入长度>272K）')).toBeVisible();
-    expect(within(row).getByText('29.25 U / 1M tokens')).toBeVisible();
+    await screen.findByText('zt-gpt-5.6-sol');
+    const row = expandModel('zt-gpt-5.6-sol');
+    expect(priceList(row).getByText('输入（输入长度≤272K）')).toBeVisible();
+    expect(priceList(row).getByText('3.9 U / 1M tokens')).toBeVisible();
+    expect(priceList(row).getByText('输出（输入长度>272K）')).toBeVisible();
+    expect(priceList(row).getByText('29.25 U / 1M tokens')).toBeVisible();
     expect(within(row).getAllByRole('listitem')).toHaveLength(4);
     expect(within(row).queryByText('按规则计费')).not.toBeInTheDocument();
   });
@@ -155,11 +203,11 @@ describe('ZTAPI public model pricing', () => {
       ? statusResponse() : jsonResponse(publicPricingWithEmbeddings)));
     await screen.findByText('zt-text-embedding-ada-002');
     for (const [name, price] of [['zt-text-embedding-ada-002', '0.13 U / 1M tokens'], ['zt-text-embedding-3-small', '0.026 U / 1M tokens']]) {
-      const row = screen.getByText(name).closest('tr') as HTMLElement;
-      expect(within(row).getByText(price)).toBeVisible();
+      const row = expandModel(name);
+      expect(within(row).getAllByText(price)[0]).toBeVisible();
       expect(within(row).getAllByRole('listitem')).toHaveLength(1);
-      expect(within(row).getByText('输入')).toBeVisible();
-      expect(within(row).queryByText('输出')).not.toBeInTheDocument();
+      expect(priceList(row).getByText('输入')).toBeVisible();
+      expect(priceList(row).queryByText('输出')).not.toBeInTheDocument();
       expect(row).not.toHaveTextContent('0 U /');
       expect(row).not.toHaveTextContent('按规则计费');
     }
@@ -235,28 +283,25 @@ describe('ZTAPI public model pricing', () => {
     });
     renderModels(fetchMock);
 
-    const staticRow = (await screen.findByText('gpt-static')).closest('tr');
-    expect(staticRow).not.toBeNull();
-    expect(within(staticRow as HTMLElement).getByText('7.5 U / 1M tokens')).toBeVisible();
-    expect(within(staticRow as HTMLElement).getByText('30 U / 1M tokens')).toBeVisible();
+    await screen.findByText('gpt-static');
+    const staticRow = modelArticle('gpt-static');
+    expect(within(staticRow).getAllByText('7.5 U / 1M tokens')[0]).toBeVisible();
+    expect(within(staticRow).getAllByText('30 U / 1M tokens')[0]).toBeVisible();
 
-    const fixedRow = screen.getByText('claude-fixed').closest('tr');
-    expect(fixedRow).not.toBeNull();
+    const fixedRow = expandModel('claude-fixed');
     expect(
-      within(fixedRow as HTMLElement).getAllByText('0.3 U / 次'),
+      priceList(fixedRow).getAllByText('0.3 U / 次'),
     ).toHaveLength(2);
 
-    const tieredRow = screen.getByText('gpt-tiered').closest('tr');
-    expect(tieredRow).not.toBeNull();
+    const tieredRow = expandModel('gpt-tiered');
     expect(
-      within(tieredRow as HTMLElement).getAllByText('按规则计费'),
+      priceList(tieredRow).getAllByText('按规则计费'),
     ).toHaveLength(2);
     expect(tieredRow).not.toHaveTextContent('198 U');
 
-    const multimodalRow = screen.getByText('gpt-multimodal').closest('tr');
-    expect(multimodalRow).not.toBeNull();
+    const multimodalRow = expandModel('gpt-multimodal');
     expect(
-      within(multimodalRow as HTMLElement).getAllByText('按规则计费'),
+      priceList(multimodalRow).getAllByText('按规则计费'),
     ).toHaveLength(2);
   });
 
@@ -333,8 +378,8 @@ describe('public model catalog ordering', () => {
       ? statusResponse() : jsonResponse(fixture)));
 
     await screen.findByText('zt-gpt-6-astra');
-    const rows = [...document.querySelectorAll('.catalog-table tbody tr')].map(
-      (row) => row.querySelector('td')?.textContent?.trim(),
+    const rows = [...document.querySelectorAll('.catalog-model')].map(
+      (row) => row.querySelector('.catalog-model__identity code')?.textContent?.trim(),
     );
     // OpenAI before GLM whatever order the API returned, and inside each
     // vendor the model that replaced the others comes first.
@@ -345,5 +390,15 @@ describe('public model catalog ordering', () => {
       'zt-glm-5.3',
       'zt-glm-5.2',
     ]);
+  });
+});
+
+describe('official discount display', () => {
+  it('requires every price dimension and uses a conservative tenth of a fold', () => {
+    const base: ModelPriceDetail = { key: 'input', dimension: 'input_tokens', label: '输入', price: '7.8 U', officialPrice: '10 U', officialDiscount: 7.8 };
+    expect(modelOfficialDiscount([base])).toBe('7.8');
+    expect(modelOfficialDiscount([base, { ...base, key: 'output', officialDiscount: 8.1 }])).toBe('7.8–8.1');
+    expect(modelOfficialDiscount([base, { ...base, key: 'output', officialDiscount: undefined }])).toBeNull();
+    expect(modelOfficialDiscount([])).toBeNull();
   });
 });
