@@ -20,31 +20,14 @@ jobs:
   media-commercial-gates:
     runs-on: [self-hosted, ztapi-local]
     timeout-minutes: 45
-    services:
-      mysql:
-        image: mysql:8.4
-        env:
-          MYSQL_ROOT_PASSWORD: ztapi_media_ci_only
-          MYSQL_DATABASE: ztapi_commercial_test
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pztapi_media_ci_only"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=20
-      redis:
-        image: redis:7.4-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd="redis-cli -a ztapi_media_ci_only ping || redis-cli ping"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=20
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+
+      - name: Start isolated cached MySQL and Redis
+        run: |
+          bash tools/ci-local-service.sh start mysql ztapi_media_ci_only ztapi_commercial_test
+          bash tools/ci-local-service.sh start redis ztapi_media_ci_only
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -80,11 +63,6 @@ jobs:
           mkdir -p web/default/dist web/classic/dist
           printf '<!doctype html><title>ZTAPI test</title>' > web/default/dist/index.html
           cp web/default/dist/index.html web/classic/dist/index.html
-
-      - name: Secure the isolated Redis service
-        run: |
-          docker exec "${{ job.services.redis.id }}" redis-cli CONFIG SET requirepass ztapi_media_ci_only
-          docker exec "${{ job.services.redis.id }}" redis-cli -a ztapi_media_ci_only ping
 
       - name: Run mandatory commercial media MySQL races
         working-directory: server
@@ -139,25 +117,21 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      - name: Stop isolated cached services
+        if: always()
+        run: |
+          bash tools/ci-local-service.sh stop redis
+          bash tools/ci-local-service.sh stop mysql
+
   commercial-finance:
     runs-on: [self-hosted, ztapi-local]
     timeout-minutes: 15
-    services:
-      mysql:
-        image: mysql:8.4
-        env:
-          MYSQL_ROOT_PASSWORD: ztapi_commercial_ci_only
-          MYSQL_DATABASE: ztapi_commercial_test
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pztapi_commercial_ci_only"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=20
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+
+      - name: Start isolated cached MySQL
+        run: bash tools/ci-local-service.sh start mysql ztapi_commercial_ci_only ztapi_commercial_test
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -172,25 +146,19 @@ jobs:
           ZTAPI_REQUIRE_COMMERCIAL_MYSQL: true
         run: go test ./model -run '^TestZTAPICommercialMySQL' -count=1 -v -timeout=3m
 
+      - name: Stop isolated cached MySQL
+        if: always()
+        run: bash tools/ci-local-service.sh stop mysql
+
   financial-integrity:
     runs-on: [self-hosted, ztapi-local]
     timeout-minutes: 15
-    services:
-      mysql:
-        image: mysql:8.4
-        env:
-          MYSQL_ROOT_PASSWORD: ztapi_test_root_2026
-          MYSQL_DATABASE: ztapi_test
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pztapi_test_root_2026"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=20
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+
+      - name: Start isolated cached MySQL
+        run: bash tools/ci-local-service.sh start mysql ztapi_test_root_2026 ztapi_test
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -208,25 +176,19 @@ jobs:
           go test ./model -run '^(TestBalanceLedgerMySQLIntegration|TestUSDT.*MySQL)$' -count=1 -v
           go test ./service -run '^TestWalletFundingLedgerMySQLIntegration$' -count=1 -v
 
+      - name: Stop isolated cached MySQL
+        if: always()
+        run: bash tools/ci-local-service.sh stop mysql
+
   usdt-settled-replay:
     runs-on: [self-hosted, ztapi-local]
     timeout-minutes: 15
-    services:
-      mysql:
-        image: mysql:8.4
-        env:
-          MYSQL_ROOT_PASSWORD: ztapi_replay_ci_only
-          MYSQL_DATABASE: ztapi_usdt_replay_test
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pztapi_replay_ci_only"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=20
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+
+      - name: Start isolated cached MySQL
+        run: bash tools/ci-local-service.sh start mysql ztapi_replay_ci_only ztapi_usdt_replay_test
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -245,25 +207,19 @@ jobs:
           ZTAPI_REQUIRE_USDT_REPLAY_TEST: true
         run: go test ./model -run '^TestUSDTAlreadySettledReplayMySQL$' -count=1 -v -timeout=2m
 
+      - name: Stop isolated cached MySQL
+        if: always()
+        run: bash tools/ci-local-service.sh stop mysql
+
   health-integrity:
     runs-on: [self-hosted, ztapi-local]
     timeout-minutes: 15
-    services:
-      mysql:
-        image: mysql:8.4
-        env:
-          MYSQL_ROOT_PASSWORD: ztapi_health_ci_only
-          MYSQL_DATABASE: ztapi_health_test
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pztapi_health_ci_only"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=20
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+
+      - name: Start isolated cached MySQL
+        run: bash tools/ci-local-service.sh start mysql ztapi_health_ci_only ztapi_health_test
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -284,3 +240,7 @@ jobs:
           go test ./model ./relay/common ./service ./controller
           -run 'TestZTAPI(RealTrafficCannotTripCircuit|CustomerExcludedOutcomesCreateNoVerificationOrCircuitChanges|RealTrafficSourceAwareClassification|RealCustomerExclusionReasonsOverrideFailureAndRetryAttempts|VerificationWorkerIdleDoesNoPaidPreparation|PoolFailureKeepsModelPublishedWhenEnterpriseRouteIsAvailable|AllEligibleRoutesVerifiedOpenCreatesOneModelIncident|AggregateIncludesTrustedOfficialRoute|AggregateExcludesDisabledAbility|VerifiedOpenRouteIsRejectedBeforeRealDispatchButProbeCanEnter|HealthTelegramDistinguishesRouteModelAndRecovery|HealthAdminReadAndRecovery)'
           -count=1 -v -timeout=5m
+
+      - name: Stop isolated cached MySQL
+        if: always()
+        run: bash tools/ci-local-service.sh stop mysql

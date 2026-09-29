@@ -12,15 +12,18 @@ function loadMediaGateJob() {
   return job;
 }
 
-test('media commercial CI uses isolated password-protected MySQL and Redis services', () => {
+test('media commercial CI uses isolated cached MySQL and password-protected Redis', () => {
   const job = loadMediaGateJob();
-  assert.equal(job.services.mysql.image, 'mysql:8.4');
-  assert.equal(job.services.mysql.env.MYSQL_DATABASE, 'ztapi_commercial_test');
-  assert.match(job.services.redis.image, /^redis:7(?:\.|-|$)/);
-  assert.match(job.services.redis.options, /redis-cli -a ztapi_media_ci_only ping/);
-  const secureStep = job.steps.find((step) => step.run?.includes('CONFIG SET requirepass ztapi_media_ci_only'));
-  assert.ok(secureStep, 'the real Redis service must require authentication before tests');
-  assert.match(secureStep.run, /redis-cli -a ztapi_media_ci_only ping/);
+  assert.deepEqual(job['runs-on'], ['self-hosted', 'ztapi-local']);
+  const start = job.steps.find((step) => step.run?.includes('start mysql ztapi_media_ci_only ztapi_commercial_test'));
+  assert.ok(start, 'the real MySQL service must use its isolated database');
+  assert.match(start.run, /start redis ztapi_media_ci_only/);
+  const helper = readFileSync('tools/ci-local-service.sh', 'utf8');
+  assert.match(helper, /image=mysql:8\.4/);
+  assert.match(helper, /image=redis:7\.4-alpine/);
+  assert.match(helper, /docker run --pull=never/);
+  assert.match(helper, /redis-server --requirepass/);
+  assert.ok(job.steps.some((step) => step.if === 'always()' && step.run?.includes('stop redis')));
   assert.notEqual(job['continue-on-error'], true);
 });
 

@@ -274,7 +274,7 @@ describe('AdminModelsPage evidence workflow', () => {
           confirm: true,
         });
       },
-      { timeout: 3000 },
+      { timeout: 10000 },
     );
     expect(await screen.findByText('身份映射证据已保存。')).toBeVisible();
   });

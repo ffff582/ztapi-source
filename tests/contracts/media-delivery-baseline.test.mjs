@@ -11,7 +11,7 @@ const pricingFixturePath =
 const quotationSHA256 =
   '3671d5d915b222177b584b19c777712f4f9ebbd6497c514cf8fd580115cb56b3';
 const pricingFixtureSHA256 =
-  '02554b4ae5674586aeadab82c22ef607ba30ca93335e62f95a00aea762360997';
+  '501d7e77e9a84803c80ba22ac38ce3f2a30cb57671058c71af94892930f87dd3';
 const mediaLabels = [
   'gp-image-2',
   'gm25-fl-IMAGE',

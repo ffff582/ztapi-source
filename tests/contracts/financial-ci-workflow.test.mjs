@@ -11,9 +11,9 @@ test('financial CI executes the MySQL balance and USDT integration suites explic
   const job = workflow.jobs['financial-integrity'];
 
   assert.equal(workflow.permissions.contents, 'read');
-  assert.equal(job.services.mysql.image, 'mysql:8.4');
-  assert.equal(job.services.mysql.env.MYSQL_DATABASE, 'ztapi_test');
-  assert.match(job.services.mysql.options, /mysqladmin ping/);
+  assert.deepEqual(job['runs-on'], ['self-hosted', 'ztapi-local']);
+  assert.ok(job.steps.some((step) => step.run?.includes('start mysql ztapi_test_root_2026 ztapi_test')));
+  assert.match(readFileSync('tools/ci-local-service.sh', 'utf8'), /mysqladmin ping/);
   assert.match(source, /ZTAPI_BALANCE_LEDGER_MYSQL_TEST_DSN/);
   assert.match(source, /ZTAPI_USDT_MYSQL_TEST_DSN/);
   assert.match(source, /ZTAPI_REQUIRE_MYSQL_INTEGRATION:\s*true/);

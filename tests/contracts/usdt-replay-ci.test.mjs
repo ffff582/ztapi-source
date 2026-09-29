@@ -7,9 +7,9 @@ test('settled replay CI owns an isolated MySQL database and cannot silently skip
   const workflow = YAML.parse(readFileSync('.github/workflows/ztapi-financial-ci.yml', 'utf8'));
   const job = workflow.jobs['usdt-settled-replay'];
   assert.ok(job, 'a dedicated replay job is required');
-  assert.equal(job.services.mysql.image, 'mysql:8.4');
-  assert.equal(job.services.mysql.env.MYSQL_DATABASE, 'ztapi_usdt_replay_test');
-  assert.match(job.services.mysql.options, /mysqladmin ping/);
+  assert.deepEqual(job['runs-on'], ['self-hosted', 'ztapi-local']);
+  assert.ok(job.steps.some((step) => step.run?.includes('start mysql ztapi_replay_ci_only ztapi_usdt_replay_test')));
+  assert.ok(job.steps.some((step) => step.if === 'always()' && step.run?.includes('stop mysql')));
   assert.notEqual(job['continue-on-error'], true);
   assert.ok(job.steps.some(step => step.run?.includes('TestUSDTSettledReplay(SyntheticFixture|ConfigurationGate)')),
     'CI must also exercise the fixture and required-configuration failure checks');

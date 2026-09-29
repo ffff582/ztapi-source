@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "de3bfaf339b85b5d46c8fe908e31a2d8f71909b0",
+  "release_commit": "e155863a44898a9f918d063b6d49d4c708e717a5",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-de3bfaf339b85b5d46c8fe908e31a2d8f71909b0",
+  "source_tag": "production-e155863a44898a9f918d063b6d49d4c708e717a5",
   "files": [
     {
       "path": ".dockerignore",
@@ -31,8 +31,8 @@
     },
     {
       "path": ".github/workflows/ztapi-financial-ci.yml",
-      "sha256": "55215df1eaa46fb9d65bba2ed2565e806c9646f4e358b0cf84e63b675c0e1146",
-      "size": 10085
+      "sha256": "f63cf1847b773b51acc7704471f26ed78f6a9bef2acce954cf76e08c01b24b06",
+      "size": 9024
     },
     {
       "path": ".github/workflows/ztapi-production-alert-acceptance.yml",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "565fa99b2a9c105dc93360bc320ae2a88c69e5d9fc6b68a17113019edf43e522",
+      "sha256": "18c885a3fa109d2b93757256656f6f6b493a523ec196605b79f7198546797e21",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "9187f982e923316e5700f8052e13697a80277594a443c542730587f9b50a237b",
+      "sha256": "11ecdfb6654767f21be4c38f4e973433eda0ed5af4638289118f366db62c65ca",
       "size": 942
     },
     {
@@ -7571,8 +7571,8 @@
     },
     {
       "path": "server/web/classic/src/ztapi/features/models/AdminModelsPage.test.jsx",
-      "sha256": "26d52a18200c89f132f352a58781b8d23f48953f431d943ce3ce1f4be58ddfb1",
-      "size": 15636
+      "sha256": "6fe4eb05ec49599c9cf3c7a5187909c5af5e71c6337a573e938d9ce7bbe77d1c",
+      "size": 15637
     },
     {
       "path": "server/web/classic/src/ztapi/features/models/MediaContractDialog.jsx",
@@ -9336,8 +9336,8 @@
     },
     {
       "path": "tests/contracts/commercial-finance-ci.test.mjs",
-      "sha256": "64ff14867258ad393989053629185b56e494a4e025fa2995d06334eac08bd471",
-      "size": 1830
+      "sha256": "98b06154c6789aea04fa2cf625fb984fecf0e37079c3b129f964e0532085e4c7",
+      "size": 1983
     },
     {
       "path": "tests/contracts/compose-config.test.mjs",
@@ -9361,22 +9361,22 @@
     },
     {
       "path": "tests/contracts/financial-ci-workflow.test.mjs",
-      "sha256": "d4121cc7190c24d1ce374857a202071c3300e27218a30f6ba6ef6a337a3c5529",
-      "size": 1223
+      "sha256": "55e010209f1f52406a19dd710942c135e3d192142ba59d5e79e4d617e4d364e7",
+      "size": 1296
     },
     {
       "path": "tests/contracts/health-deployment.test.mjs",
-      "sha256": "e12aba391e6d49801dad94f3af92b4236c2322efce1dd54d65ab9f1e70f0f486",
-      "size": 1836
+      "sha256": "97d26d42db21d91063759e1685cf55f2a7f892c9af45217d38c24c47b6f00d30",
+      "size": 1974
     },
     {
       "path": "tests/contracts/media-commercial-gate.test.mjs",
-      "sha256": "550f8502c2a7346241f0bc505606f6aa8a3fd44cc718fd3e49212f09ff0ce6a9",
-      "size": 3968
+      "sha256": "5f42b6abda4443fbcf5879c182c78d8b57f9dd2d1a77a498d865ea15b470b008",
+      "size": 4097
     },
     {
       "path": "tests/contracts/media-delivery-baseline.test.mjs",
-      "sha256": "775f1747ce2f2ac849a342a1305c4c8a21c3116644b475d87dbc9752bdfef32d",
+      "sha256": "186ac5640b1d23f2acacf2fedc4c92ba9278f6771b00125882442be7b4508b63",
       "size": 4543
     },
     {
@@ -9396,8 +9396,8 @@
     },
     {
       "path": "tests/contracts/usdt-replay-ci.test.mjs",
-      "sha256": "719eb0e4d2d7f90b972acfe9454841943009f81bea08e1a149f618cadf9993ff",
-      "size": 2720
+      "sha256": "c8394f71585a27ab5c1cd8d4fa64f940227c94a8a46c6370a14fc6d93400970d",
+      "size": 2806
     },
     {
       "path": "tests/e2e/media-models-and-guide.spec.ts",
@@ -9463,6 +9463,11 @@
       "path": "tests/runtime/production-edge.test.mjs",
       "sha256": "01e0d43d97f8fe580ef226fcf77fe192da072875b76a7dd38f0fd35aa2abcb33",
       "size": 15269
+    },
+    {
+      "path": "tools/ci-local-service.sh",
+      "sha256": "f1f0ceafe5b155a207dea7c4b3a4f5796a5e7771d5e503bb9fabe8af808516ab",
+      "size": 1919
     },
     {
       "path": "tools/generate_ztapi_quote_ab.py",

@@ -7,8 +7,9 @@ test('commercial finance CI runs mandatory isolated MySQL lifecycle coverage', (
   const workflow = YAML.parse(readFileSync('.github/workflows/ztapi-financial-ci.yml', 'utf8'));
   const job = workflow.jobs['commercial-finance'];
   assert.ok(job, 'commercial settlement, attempt billing and supplier refund need a dedicated MySQL job');
-  assert.equal(job.services.mysql.image, 'mysql:8.4');
-  assert.equal(job.services.mysql.env.MYSQL_DATABASE, 'ztapi_commercial_test');
+  assert.deepEqual(job['runs-on'], ['self-hosted', 'ztapi-local']);
+  assert.ok(job.steps.some((step) => step.run?.includes('start mysql ztapi_commercial_ci_only ztapi_commercial_test')));
+  assert.ok(job.steps.some((step) => step.if === 'always()' && step.run?.includes('stop mysql')));
   assert.notEqual(job['continue-on-error'], true);
   const step = job.steps.find((step) => step.run?.includes('TestZTAPICommercialMySQL'));
   assert.ok(step, 'select the actual commercial lifecycle suite');
