@@ -17,7 +17,7 @@ function responseWithEndpoints(endpoints: string[], protocol = 'openai_compatibl
 }
 
 describe('Responses catalog endpoint contract', () => {
-  it.each([['openai-response'], ['openai'], ['openai', 'openai-response']])(
+  it.each([['openai-response'], ['openai'], ['openai', 'openai-response'], ['openai', 'anthropic']])(
     'accepts published OpenAI endpoint types %j without guessing from the model name',
     (...endpoints) => {
       expect(parseUserModelCatalog(responseWithEndpoints(endpoints)).catalog[0].supported_endpoint_types).toEqual(endpoints);
@@ -28,7 +28,7 @@ describe('Responses catalog endpoint contract', () => {
     { endpoints: [], protocol: 'openai_compatible' },
     { endpoints: ['openai-response', 'openai-response'], protocol: 'openai_compatible' },
     { endpoints: ['unknown'], protocol: 'openai_compatible' },
-    { endpoints: ['openai', 'anthropic'], protocol: 'openai_compatible' },
+    { endpoints: ['anthropic'], protocol: 'openai_compatible' },
     { endpoints: ['openai-response'], protocol: 'anthropic' },
     { endpoints: ['gemini', 'openai-response'], protocol: 'gemini' },
   ])('rejects incompatible or malformed endpoint types: $protocol $endpoints', ({ endpoints, protocol }) => {

@@ -366,14 +366,16 @@ function parseUserModelCatalogItem(value: unknown): UserModelCatalogItem {
     anthropic: ['anthropic'],
     gemini: ['gemini'],
   };
+  const allowedForModality = modality === 'text' && protocol === 'openai_compatible'
+    ? ['openai', 'openai-response', 'anthropic']
+    : allowedEndpoints[protocol as UserModelProtocol];
   if (
     !requiredString(value.model_name) ||
     !requiredString(value.provider_family) ||
     !requiredString(value.provider_name) ||
     !['openai_compatible', 'anthropic', 'gemini'].includes(String(protocol)) ||
-    endpointTypes.some(
-      (endpoint) => !allowedEndpoints[protocol as UserModelProtocol].includes(endpoint as UserModelEndpointType),
-    ) ||
+    endpointTypes.some((endpoint) => !allowedForModality.includes(endpoint as UserModelEndpointType)) ||
+    (modality === 'text' && protocol === 'openai_compatible' && endpointTypes.includes('anthropic') && !endpointTypes.includes('openai')) ||
     new Set(endpointTypes).size !== endpointTypes.length ||
     !['text', 'embedding', 'image', 'video'].includes(String(modality)) ||
     (endpointTypes.includes('embeddings') !== isEmbedding) ||

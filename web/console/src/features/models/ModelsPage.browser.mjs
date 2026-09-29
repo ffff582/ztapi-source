@@ -18,7 +18,7 @@ const fixtureSource = await readFile(new URL('../home/public-pricing.fixture.ts'
 const fixtureCode = ts.transpileModule(fixtureSource, { compilerOptions: { module: ts.ModuleKind.ESNext } }).outputText;
 const { managedPublicPricing } = await import(`data:text/javascript;base64,${Buffer.from(fixtureCode).toString('base64')}`);
 const pricedFixtureModels = managedPublicPricing.data.map((model) => model.model_name === 'zt-gpt-4.1'
-  ? { ...model, official_usd: Object.fromEntries(Object.entries(model.sale_usd).map(([key, value]) => [key, (Number(value) / 0.8).toFixed(10)])) }
+  ? { ...model, supported_endpoint_types: ['openai', 'anthropic'], official_usd: Object.fromEntries(Object.entries(model.sale_usd).map(([key, value]) => [key, (Number(value) / 0.8).toFixed(10)])) }
   : model);
 const embeddings = [['zt-text-embedding-ada-002', '0.1300000000'], ['zt-text-embedding-3-small', '0.0260000000']].map(([name, price]) => ({
   ...managedPublicPricing.data[0], model_name: name, provider_family: 'openai', vendor_name: 'OpenAI',

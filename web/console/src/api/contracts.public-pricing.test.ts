@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getPublicModelFamily, parsePricingEnvelope } from './contracts';
+import { getPublicModelFamily, parsePricingEnvelope, parseUserModelCatalog } from './contracts';
 import { managedPublicPricing } from '../features/home/public-pricing.fixture';
 
 describe('managed anonymous pricing projection', () => {
@@ -38,5 +38,27 @@ describe('managed anonymous pricing projection', () => {
     expect(parsePricingEnvelope({ ...managedPublicPricing, data: [row] }).models[0]).toMatchObject({
       provider_family: 'openai', billing_dimensions: ['input_tokens'], sale_usd: { input_tokens: '0.0260000000' },
     });
+  });
+
+  it('accepts a published text model with both OpenAI and Anthropic endpoints', () => {
+    const row = {
+      ...managedPublicPricing.data[0],
+      supported_endpoint_types: ['openai', 'anthropic'],
+    };
+    const publicModel = parsePricingEnvelope({ ...managedPublicPricing, data: [row] }).models[0];
+    expect(publicModel.supported_endpoint_types).toEqual(['openai', 'anthropic']);
+
+    const accountModel = {
+      ...row, provider_name: row.vendor_name, protocol: 'openai_compatible', modality: 'text',
+    };
+    expect(parseUserModelCatalog({ success: true, data: [row.model_name], catalog: [accountModel] }).catalog[0].supported_endpoint_types)
+      .toEqual(['openai', 'anthropic']);
+  });
+
+  it('still rejects unknown or media endpoints on text models', () => {
+    for (const endpoint of ['unknown', 'images', 'video-tasks', 'embeddings']) {
+      const row = { ...managedPublicPricing.data[0], supported_endpoint_types: ['openai', endpoint] };
+      expect(() => parsePricingEnvelope({ ...managedPublicPricing, data: [row] })).toThrow();
+    }
   });
 });

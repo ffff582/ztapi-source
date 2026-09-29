@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "6d4ffafb9b20d315f38b42d4d6a856a83a4c09f5",
+  "release_commit": "aa771c8de744d0db20d735604ef7e5a799a4844e",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-6d4ffafb9b20d315f38b42d4d6a856a83a4c09f5",
+  "source_tag": "production-aa771c8de744d0db20d735604ef7e5a799a4844e",
   "files": [
     {
       "path": ".dockerignore",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "4c89f6c85a16f685eb89cd362d8bfa8e7e65b72e6899d40a6f5c9898cfe3cf70",
+      "sha256": "59bdc7bea0ca8c08bf4fe1356099c79d6cc86ea041e043e1d0a3ad4bdeb616d4",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "b92d0a28dee0d6209e15840835bb2927f3e4124176fdb2549d0ed69cde262d00",
+      "sha256": "72ef2ee3c48e1afd6a077eabe37ed81769b7446b3464bba5b999461d0d7290e5",
       "size": 942
     },
     {
@@ -9561,13 +9561,13 @@
     },
     {
       "path": "web/console/src/api/contracts.public-pricing.test.ts",
-      "sha256": "78a20d2ae1332456556c6201adaa9dfc51041f34e2633b54fd529f1341967e23",
-      "size": 2496
+      "sha256": "b04c86e2b7f07d9252e8744bb7ed5e2ed1b6e38c2bb9d374687069bab063a96c",
+      "size": 3588
     },
     {
       "path": "web/console/src/api/contracts.responses.test.ts",
-      "sha256": "f872d6915a3469e970576f7fd5cd2eff51691eaa54bef4b4ff7cf6bcee671ff7",
-      "size": 1717
+      "sha256": "d61145f43b9b740d4e5054fd3902657c4c9782bea151e02baeb8a2a81b99da28",
+      "size": 1732
     },
     {
       "path": "web/console/src/api/contracts.token-pricing.test.ts",
@@ -9576,8 +9576,8 @@
     },
     {
       "path": "web/console/src/api/contracts.ts",
-      "sha256": "a88ea26057eb317db16c6d19f9ace57196956b8fe4237cb1c2b6c17f2872dbff",
-      "size": 33927
+      "sha256": "8cdcfda1ac9b5775c414649bd1fbb6aa518098660004e4e6e6eb70109bf5676a",
+      "size": 34215
     },
     {
       "path": "web/console/src/api/playground.test.ts",
@@ -9826,8 +9826,8 @@
     },
     {
       "path": "web/console/src/features/models/ModelsPage.browser.mjs",
-      "sha256": "125300e3e84afaf1e3e176a835ab3ed55c6a3388f38c6670899481ff62927155",
-      "size": 8624
+      "sha256": "55494d858ff86b2f2d0c02ba3b11d1391794f301152c88cc6f8a116457b05e64",
+      "size": 8675
     },
     {
       "path": "web/console/src/features/models/ModelsPage.tsx",
