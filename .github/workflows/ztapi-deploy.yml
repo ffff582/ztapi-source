@@ -2823,6 +2823,27 @@ jobs:
           [[ "$chat_request_id" =~ ^[A-Za-z0-9_-]{8,64}$ ]]
           rm -f "$chat_headers" "$chat_body"
 
+          # The catalog tells customers a text model answers the Anthropic
+          # messages endpoint, which is what Claude Code speaks. Proving it on
+          # the real customer path is what makes that claim true.
+          messages_headers=$(mktemp /tmp/ztapi-messages-headers.XXXXXX)
+          messages_body=$(mktemp /tmp/ztapi-messages-body.XXXXXX)
+          messages_http_status=$(jq -cn '{
+              model:"zt-gpt-4.1-nano",
+              system:"You are a concise assistant.",
+              messages:[{role:"user",content:"What is 11 plus 7?"}],
+              max_tokens:16,
+              stream:false
+            }' |
+            curl --silent --show-error --max-time 120               --dump-header "$messages_headers"               --output "$messages_body" --write-out '%{http_code}'               --header 'Content-Type: application/json'               --header 'anthropic-version: 2023-06-01'               --header "Authorization: Bearer $acceptance_api_key"               --data-binary @-               "$acceptance_origin/v1/messages")
+          test "$messages_http_status" = 200
+          jq -e '
+            .type == "message"
+            and .role == "assistant"
+            and ((.content | map(select(.type == "text") | .text) | join("")) | length) > 0
+            and (.usage.input_tokens | numbers) > 0' "$messages_body" >/dev/null
+          rm -f "$messages_headers" "$messages_body"
+
           playground_headers=$(mktemp /tmp/ztapi-playground-headers.XXXXXX)
           playground_body=$(mktemp /tmp/ztapi-playground-body.XXXXXX)
           playground_http_status=$(jq -cn '{

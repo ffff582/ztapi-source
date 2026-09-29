@@ -178,10 +178,11 @@ def main():
         entry["pricing_basis"] = entry["active"] and (entry["grade"] == "A" or name.casefold() not in active_enterprise)
         entry["token_price_rules"] = []
         entry["pricing_blocker"] = ""
-        if not entry["pricing_basis"]:
+        if not entry["active"]:
             continue
         if entry["modality"] != "text":
-            entry["pricing_blocker"] = "media quotation requires a verified media billing contract"
+            if entry["pricing_basis"]:
+                entry["pricing_blocker"] = "media quotation requires a verified media billing contract"
             continue
         share = Decimal("0.8") if entry["grade"] == "A" else Decimal("0.7")
         try:

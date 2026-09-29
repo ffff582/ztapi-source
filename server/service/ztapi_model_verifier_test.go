@@ -66,6 +66,21 @@ func setupZTAPIModelVerifierTestDB(t *testing.T) (model.Channel, model.ZTAPIMode
 	return channel, config
 }
 
+func TestZTAPIVerificationUsesManagedChannelModelMapping(t *testing.T) {
+	mapping := `{"gpt-5.6-sol":"gpt-5.6-sol-hc","gpt-5.6-sol-hc":"provider-sol"}`
+	channel := model.Channel{ModelMapping: &mapping}
+	got, err := ztapiVerificationUpstreamModel(&channel, "gpt-5.6-sol")
+	require.NoError(t, err)
+	require.Equal(t, "provider-sol", got)
+	got, err = ztapiVerificationUpstreamModel(&channel, "gpt-5.5")
+	require.NoError(t, err)
+	require.Equal(t, "gpt-5.5", got)
+	cycle := `{"gpt-5.6-sol":"gpt-5.6-sol-hc","gpt-5.6-sol-hc":"gpt-5.6-sol"}`
+	channel.ModelMapping = &cycle
+	_, err = ztapiVerificationUpstreamModel(&channel, "gpt-5.6-sol")
+	require.Error(t, err)
+}
+
 func TestVerifyZTAPIModelPersistsOnlyBoundedOperationalEvidence(t *testing.T) {
 	channel, config := setupZTAPIModelVerifierTestDB(t)
 	previousRunner := ztapiModelVerificationProbeRunner

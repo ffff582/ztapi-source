@@ -15,7 +15,8 @@
       "default"
     ],
     "supported_endpoint_types": [
-      "openai"
+      "openai",
+      "anthropic"
     ],
     "billing_mode": "ratio",
     "pricing_version": "ztapi-snapshot-98",
@@ -57,7 +58,8 @@
       "default"
     ],
     "supported_endpoint_types": [
-      "openai"
+      "openai",
+      "anthropic"
     ],
     "billing_mode": "ratio",
     "pricing_version": "ztapi-snapshot-134",
@@ -99,7 +101,8 @@
       "default"
     ],
     "supported_endpoint_types": [
-      "openai"
+      "openai",
+      "anthropic"
     ],
     "billing_mode": "ratio",
     "pricing_version": "ztapi-snapshot-135",
@@ -141,7 +144,8 @@
       "default"
     ],
     "supported_endpoint_types": [
-      "openai"
+      "openai",
+      "anthropic"
     ],
     "billing_mode": "ratio",
     "pricing_version": "ztapi-snapshot-136",
@@ -183,7 +187,8 @@
       "default"
     ],
     "supported_endpoint_types": [
-      "openai"
+      "openai",
+      "anthropic"
     ],
     "billing_mode": "ratio",
     "pricing_version": "ztapi-snapshot-102",
@@ -225,7 +230,8 @@
       "default"
     ],
     "supported_endpoint_types": [
-      "openai"
+      "openai",
+      "anthropic"
     ],
     "billing_mode": "ratio",
     "pricing_version": "ztapi-snapshot-137",
@@ -267,7 +273,8 @@
       "default"
     ],
     "supported_endpoint_types": [
-      "openai"
+      "openai",
+      "anthropic"
     ],
     "billing_mode": "ratio",
     "pricing_version": "ztapi-snapshot-124",
@@ -303,7 +310,8 @@
       "default"
     ],
     "supported_endpoint_types": [
-      "openai"
+      "openai",
+      "anthropic"
     ],
     "billing_mode": "ratio",
     "pricing_version": "ztapi-snapshot-125",
@@ -339,7 +347,8 @@
       "default"
     ],
     "supported_endpoint_types": [
-      "openai"
+      "openai",
+      "anthropic"
     ],
     "billing_mode": "ratio",
     "pricing_version": "ztapi-snapshot-126",
@@ -375,7 +384,8 @@
       "default"
     ],
     "supported_endpoint_types": [
-      "openai"
+      "openai",
+      "anthropic"
     ],
     "billing_mode": "ratio",
     "pricing_version": "ztapi-snapshot-127",
@@ -411,7 +421,8 @@
       "default"
     ],
     "supported_endpoint_types": [
-      "openai"
+      "openai",
+      "anthropic"
     ],
     "billing_mode": "ratio",
     "pricing_version": "ztapi-snapshot-128",
@@ -447,7 +458,8 @@
       "default"
     ],
     "supported_endpoint_types": [
-      "openai"
+      "openai",
+      "anthropic"
     ],
     "billing_mode": "ratio",
     "pricing_version": "ztapi-snapshot-171",
@@ -483,7 +495,8 @@
       "default"
     ],
     "supported_endpoint_types": [
-      "openai"
+      "openai",
+      "anthropic"
     ],
     "billing_mode": "ratio",
     "pricing_version": "ztapi-snapshot-152",
@@ -521,7 +534,8 @@
       "default"
     ],
     "supported_endpoint_types": [
-      "openai"
+      "openai",
+      "anthropic"
     ],
     "billing_mode": "ratio",
     "pricing_version": "ztapi-snapshot-153",
@@ -559,7 +573,8 @@
       "default"
     ],
     "supported_endpoint_types": [
-      "openai"
+      "openai",
+      "anthropic"
     ],
     "billing_mode": "ratio",
     "pricing_version": "ztapi-snapshot-154",
@@ -595,7 +610,8 @@
       "default"
     ],
     "supported_endpoint_types": [
-      "openai"
+      "openai",
+      "anthropic"
     ],
     "billing_mode": "ratio",
     "pricing_version": "ztapi-snapshot-155",
@@ -631,7 +647,8 @@
       "default"
     ],
     "supported_endpoint_types": [
-      "openai"
+      "openai",
+      "anthropic"
     ],
     "billing_mode": "ratio",
     "pricing_version": "ztapi-snapshot-130",
@@ -667,7 +684,8 @@
       "default"
     ],
     "supported_endpoint_types": [
-      "openai"
+      "openai",
+      "anthropic"
     ],
     "billing_mode": "ratio",
     "pricing_version": "ztapi-snapshot-90",
@@ -703,7 +721,8 @@
       "default"
     ],
     "supported_endpoint_types": [
-      "openai"
+      "openai",
+      "anthropic"
     ],
     "billing_mode": "ratio",
     "pricing_version": "ztapi-snapshot-149",
@@ -739,7 +758,8 @@
       "default"
     ],
     "supported_endpoint_types": [
-      "openai"
+      "openai",
+      "anthropic"
     ],
     "billing_mode": "ratio",
     "pricing_version": "ztapi-snapshot-138",
@@ -775,7 +795,8 @@
       "default"
     ],
     "supported_endpoint_types": [
-      "openai"
+      "openai",
+      "anthropic"
     ],
     "billing_mode": "ratio",
     "pricing_version": "ztapi-snapshot-139",
@@ -811,7 +832,8 @@
       "default"
     ],
     "supported_endpoint_types": [
-      "openai"
+      "openai",
+      "anthropic"
     ],
     "billing_mode": "ratio",
     "pricing_version": "ztapi-snapshot-140",
@@ -847,7 +869,8 @@
       "default"
     ],
     "supported_endpoint_types": [
-      "openai"
+      "openai",
+      "anthropic"
     ],
     "billing_mode": "ratio",
     "pricing_version": "ztapi-snapshot-141",
@@ -883,7 +906,8 @@
       "default"
     ],
     "supported_endpoint_types": [
-      "openai"
+      "openai",
+      "anthropic"
     ],
     "billing_mode": "ratio",
     "pricing_version": "ztapi-snapshot-111",
@@ -919,7 +943,8 @@
       "default"
     ],
     "supported_endpoint_types": [
-      "openai"
+      "openai",
+      "anthropic"
     ],
     "billing_mode": "ratio",
     "pricing_version": "ztapi-snapshot-142",
@@ -955,7 +980,8 @@
       "default"
     ],
     "supported_endpoint_types": [
-      "openai"
+      "openai",
+      "anthropic"
     ],
     "billing_mode": "ratio",
     "pricing_version": "ztapi-snapshot-113",
@@ -991,7 +1017,8 @@
       "default"
     ],
     "supported_endpoint_types": [
-      "openai"
+      "openai",
+      "anthropic"
     ],
     "billing_mode": "ratio",
     "pricing_version": "ztapi-snapshot-143",
@@ -1027,7 +1054,8 @@
       "default"
     ],
     "supported_endpoint_types": [
-      "openai"
+      "openai",
+      "anthropic"
     ],
     "billing_mode": "ratio",
     "pricing_version": "ztapi-snapshot-144",
@@ -1099,7 +1127,8 @@
       "default"
     ],
     "supported_endpoint_types": [
-      "openai"
+      "openai",
+      "anthropic"
     ],
     "billing_mode": "ratio",
     "pricing_version": "ztapi-snapshot-159",
@@ -1135,7 +1164,8 @@
       "default"
     ],
     "supported_endpoint_types": [
-      "openai"
+      "openai",
+      "anthropic"
     ],
     "billing_mode": "ratio",
     "pricing_version": "ztapi-snapshot-118",
@@ -1175,7 +1205,8 @@
       "default"
     ],
     "supported_endpoint_types": [
-      "openai"
+      "openai",
+      "anthropic"
     ],
     "billing_mode": "ratio",
     "pricing_version": "ztapi-snapshot-157",
@@ -1215,7 +1246,8 @@
       "default"
     ],
     "supported_endpoint_types": [
-      "openai"
+      "openai",
+      "anthropic"
     ],
     "billing_mode": "ratio",
     "pricing_version": "ztapi-snapshot-172",
@@ -1319,7 +1351,8 @@
       "default"
     ],
     "supported_endpoint_types": [
-      "openai"
+      "openai",
+      "anthropic"
     ],
     "billing_mode": "ratio",
     "pricing_version": "ztapi-snapshot-150",
@@ -1359,7 +1392,8 @@
       "default"
     ],
     "supported_endpoint_types": [
-      "openai"
+      "openai",
+      "anthropic"
     ],
     "billing_mode": "ratio",
     "pricing_version": "ztapi-snapshot-131",
@@ -1399,7 +1433,8 @@
       "default"
     ],
     "supported_endpoint_types": [
-      "openai"
+      "openai",
+      "anthropic"
     ],
     "billing_mode": "ratio",
     "pricing_version": "ztapi-snapshot-132",
@@ -1439,7 +1474,8 @@
       "default"
     ],
     "supported_endpoint_types": [
-      "openai"
+      "openai",
+      "anthropic"
     ],
     "billing_mode": "ratio",
     "pricing_version": "ztapi-snapshot-133",

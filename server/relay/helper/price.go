@@ -245,6 +245,15 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (types.PriceData, error) {
 	groupRatioInfo := HandleGroupRatio(c, info)
 
+	// A ZTAPI video model is priced by its frozen media contract. The durable
+	// reservation replaces this quota before anything is pre-consumed, and
+	// these models are deliberately absent from the legacy ratio table, so
+	// falling through to it refused every customer's video as unpriced.
+	if snapshot := info.ZTAPIPublicationSnapshot; snapshot != nil && !info.IsChannelTest &&
+		snapshot.Modality == model.ZTAPIModalityVideo {
+		return types.PriceData{UsePrice: true, GroupRatioInfo: groupRatioInfo}, nil
+	}
+
 	modelPrice, success := ratio_setting.GetModelPrice(info.OriginModelName, true)
 	usePrice := success
 	var modelRatio float64

@@ -10,19 +10,21 @@ import (
 func TestZTAPIResponsesCatalogUsesPublishedSource(t *testing.T) {
 	for _, tt := range []struct {
 		source, alias, protocol string
-		endpoint                constant.EndpointType
+		endpoints               []constant.EndpointType
 	}{
-		{"gpt-5.4-pro", "zt-gpt-5.4-pro", ZTAPIProtocolOpenAICompatible, constant.EndpointTypeOpenAIResponse},
-		{"gpt-5.4-pro", "customer-friendly-name", ZTAPIProtocolOpenAICompatible, constant.EndpointTypeOpenAIResponse},
-		{"o3-pro", "research", ZTAPIProtocolOpenAICompatible, constant.EndpointTypeOpenAIResponse},
-		{"gpt-5.5", "zt-gpt-5.4-pro", ZTAPIProtocolOpenAICompatible, constant.EndpointTypeOpenAI},
-		{"claude-opus-4-6", "claude", ZTAPIProtocolAnthropic, constant.EndpointTypeAnthropic},
-		{"gemini-2.5-pro", "gemini", ZTAPIProtocolGemini, constant.EndpointTypeGemini},
+		{"gpt-5.4-pro", "zt-gpt-5.4-pro", ZTAPIProtocolOpenAICompatible, []constant.EndpointType{constant.EndpointTypeOpenAIResponse}},
+		{"gpt-5.4-pro", "customer-friendly-name", ZTAPIProtocolOpenAICompatible, []constant.EndpointType{constant.EndpointTypeOpenAIResponse}},
+		{"o3-pro", "research", ZTAPIProtocolOpenAICompatible, []constant.EndpointType{constant.EndpointTypeOpenAIResponse}},
+		// A text model also answers the Anthropic messages endpoint, which is
+		// what Claude Code and the Anthropic SDKs speak.
+		{"gpt-5.5", "zt-gpt-5.4-pro", ZTAPIProtocolOpenAICompatible, []constant.EndpointType{constant.EndpointTypeOpenAI, constant.EndpointTypeAnthropic}},
+		{"claude-opus-4-6", "claude", ZTAPIProtocolAnthropic, []constant.EndpointType{constant.EndpointTypeAnthropic}},
+		{"gemini-2.5-pro", "gemini", ZTAPIProtocolGemini, []constant.EndpointType{constant.EndpointTypeGemini}},
 	} {
 		t.Run(tt.source+"/"+tt.alias, func(t *testing.T) {
 			items := buildZTAPIPublicCatalog([]ZTAPIRuntimePublication{{SourceModel: tt.source, PublicName: tt.alias, Protocol: tt.protocol}})
 			require.Len(t, items, 1)
-			require.Equal(t, []constant.EndpointType{tt.endpoint}, items[0].SupportedEndpointTypes)
+			require.Equal(t, tt.endpoints, items[0].SupportedEndpointTypes)
 		})
 	}
 }

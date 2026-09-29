@@ -51,13 +51,40 @@ func BuildZTAPIABTextPriceSource(quote ZTAPIABQuotationManifest, modelName strin
 // at the upstream settlement rate), then converted to the billing unit at the
 // platform rate frozen on the source, without the legacy 3% buffer.
 func BuildZTAPIABTextPriceSourceWithFX(quote ZTAPIABQuotationManifest, modelName string, modelConfigID, operatorID int, effectiveAt int64, fxParams ZTAPIABFXParams) (ZTAPIModelPriceSource, error) {
+	return buildZTAPIABTextPriceSourceWithFX(quote, modelName, modelConfigID, operatorID, effectiveAt, fxParams, false)
+}
+
+func BuildZTAPIABPoolOfficial78TextPriceSource(quote ZTAPIABQuotationManifest, modelName string, modelConfigID, operatorID int, effectiveAt int64) (ZTAPIModelPriceSource, error) {
+	return buildZTAPIABTextPriceSourceWithFX(quote, modelName, modelConfigID, operatorID, effectiveAt, ZTAPIABFXParams{}, true)
+}
+
+func BuildZTAPIABPoolOfficial78TextPriceSourceWithFX(quote ZTAPIABQuotationManifest, modelName string, modelConfigID, operatorID int, effectiveAt int64, fxParams ZTAPIABFXParams) (ZTAPIModelPriceSource, error) {
+	return buildZTAPIABTextPriceSourceWithFX(quote, modelName, modelConfigID, operatorID, effectiveAt, fxParams, true)
+}
+
+func buildZTAPIABTextPriceSourceWithFX(quote ZTAPIABQuotationManifest, modelName string, modelConfigID, operatorID int, effectiveAt int64, fxParams ZTAPIABFXParams, official78 bool) (ZTAPIModelPriceSource, error) {
 	var source ZTAPIModelPriceSource
 	if modelConfigID <= 0 || operatorID <= 0 || effectiveAt <= 0 {
 		return source, errors.New("quotation source requires model, operator and effective time")
 	}
-	rows, policy, err := quote.PublishablePricingBasis(modelName)
-	if err != nil {
-		return source, fmt.Errorf("text quotation lacks a complete price basis for %q: %w", modelName, err)
+	var rows []ZTAPIABQuotationEntry
+	policy := ZTAPIPricePolicyPoolOfficial78Sep2026
+	if official78 {
+		for _, entry := range quote.Entries {
+			if entry.ModelName == modelName && entry.Grade == "B" && entry.ResourceType == "号池" && entry.Active &&
+				entry.Modality == "text" && entry.PricingBlocker == "" && len(entry.TokenPriceRules) > 0 {
+				rows = append(rows, entry)
+			}
+		}
+		if len(rows) != 1 {
+			return source, fmt.Errorf("%q requires one active quoted pool text row", modelName)
+		}
+	} else {
+		var err error
+		rows, policy, err = quote.PublishablePricingBasis(modelName)
+		if err != nil {
+			return source, fmt.Errorf("text quotation lacks a complete price basis for %q: %w", modelName, err)
+		}
 	}
 	if len(rows) != 1 {
 		return source, fmt.Errorf("text quotation requires exactly one price basis for %q", modelName)
@@ -81,6 +108,14 @@ func BuildZTAPIABTextPriceSourceWithFX(quote ZTAPIABQuotationManifest, modelName
 		return source, fmt.Errorf("quotation model %q has no exact frozen public/source identity", modelName)
 	}
 	row := rows[0]
+	quotedPolicy := policy
+	if official78 {
+		quotedPolicy = ZTAPIPricePolicyPool30Margin
+		price, ok := ztapiOfficialTextPrices20260929[identity.SourceModel]
+		if !ok || len(price.Tiers) != len(row.TokenPriceRules) {
+			return source, fmt.Errorf("%s lacks a matching first-party tier snapshot", identity.SourceModel)
+		}
+	}
 	resource := "pool"
 	if row.Grade == "A" {
 		resource = "enterprise"
@@ -128,7 +163,7 @@ func BuildZTAPIABTextPriceSourceWithFX(quote ZTAPIABQuotationManifest, modelName
 	}
 	maxCost := map[string]decimal.Decimal{}
 	frozen := make([]ztapiABFrozenSaleRule, 0, len(row.TokenPriceRules))
-	for _, rule := range row.TokenPriceRules {
+	for tier, rule := range row.TokenPriceRules {
 		if rule.Currency != quoteCurrency {
 			return ZTAPIModelPriceSource{}, errors.New("text quotation mixes currencies across tiers")
 		}
@@ -143,7 +178,7 @@ func BuildZTAPIABTextPriceSourceWithFX(quote ZTAPIABQuotationManifest, modelName
 			if err != nil || !cost.IsPositive() {
 				return ZTAPIModelPriceSource{}, fmt.Errorf("invalid quoted cost for %s", dimension)
 			}
-			wantQuotedSale, err := CalculateZTAPISalePriceForPolicy(cost, policy)
+			wantQuotedSale, err := CalculateZTAPISalePriceForPolicy(cost, quotedPolicy)
 			quotedSale, saleErr := decimal.NewFromString(rule.Sale[dimension])
 			if err != nil || saleErr != nil || !wantQuotedSale.Equal(quotedSale) {
 				return ZTAPIModelPriceSource{}, fmt.Errorf("quoted sale does not derive from %s cost", dimension)
@@ -162,7 +197,12 @@ func BuildZTAPIABTextPriceSourceWithFX(quote ZTAPIABQuotationManifest, modelName
 					return ZTAPIModelPriceSource{}, err
 				}
 			}
-			final, err := CalculateZTAPISalePriceForPolicy(cost, policy)
+			var final decimal.Decimal
+			if official78 {
+				final, err = ztapiOfficial78Sale(identity.SourceModel, tier, dimension)
+			} else {
+				final, err = CalculateZTAPISalePriceForPolicy(cost, policy)
+			}
 			if err != nil {
 				return ZTAPIModelPriceSource{}, err
 			}
@@ -239,7 +279,12 @@ func validateZTAPIABPriceSource(source *ZTAPIModelPriceSource) error {
 	if err != nil {
 		return err
 	}
-	expected, err := BuildZTAPIABTextPriceSourceWithFX(quote, modelName, source.ModelConfigID, source.OperatorID, source.QuotationEffectiveAt, fxParams)
+	var expected ZTAPIModelPriceSource
+	if source.PricePolicy == string(ZTAPIPricePolicyPoolOfficial78Sep2026) {
+		expected, err = BuildZTAPIABPoolOfficial78TextPriceSourceWithFX(quote, modelName, source.ModelConfigID, source.OperatorID, source.QuotationEffectiveAt, fxParams)
+	} else {
+		expected, err = BuildZTAPIABTextPriceSourceWithFX(quote, modelName, source.ModelConfigID, source.OperatorID, source.QuotationEffectiveAt, fxParams)
+	}
 	if err != nil {
 		return err
 	}

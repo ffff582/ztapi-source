@@ -325,6 +325,25 @@ func BuildZTAPIModelPricePreview(source *ZTAPIModelPriceSource) (*ZTAPIModelPric
 	}
 	values := ztapiPriceSourceValues(source)
 	poolOfficial, _, poolOfficialOK := ztapiPoolOfficialPriceContractFromManifest(ztapiQuotation, source.SourceModel)
+	var firstParty78 map[string]decimal.Decimal
+	if ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicyPoolOfficial78Sep2026 {
+		firstParty78 = map[string]decimal.Decimal{}
+		price, ok := ztapiOfficialTextPrices20260929[source.SourceModel]
+		if !ok {
+			return nil, errors.New("frozen first-party price contract is unavailable")
+		}
+		for tier := range price.Tiers {
+			for dimension := range price.Tiers[tier] {
+				sale, err := ztapiOfficial78Sale(source.SourceModel, tier, dimension)
+				if err != nil {
+					return nil, err
+				}
+				if sale.GreaterThan(firstParty78[dimension]) {
+					firstParty78[dimension] = sale
+				}
+			}
+		}
+	}
 	for _, dimension := range dimensions {
 		cost := decimal.RequireFromString(strings.TrimSpace(values[dimension]))
 		if source.Currency == "CNY" && source.FXMode == ZTAPIFXModePlatformV1 {
@@ -337,7 +356,13 @@ func BuildZTAPIModelPricePreview(source *ZTAPIModelPriceSource) (*ZTAPIModelPric
 		}
 		preview.CostUSD[dimension] = cost.StringFixed(10)
 		var sale decimal.Decimal
-		if ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicyPoolOfficial80 {
+		if ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicyPoolOfficial78Sep2026 {
+			var ok bool
+			sale, ok = firstParty78[dimension]
+			if !ok {
+				return nil, fmt.Errorf("first-party price is missing for billing dimension %s", dimension)
+			}
+		} else if ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicyPoolOfficial80 {
 			if !poolOfficialOK {
 				return nil, errors.New("pool official price contract is unavailable")
 			}

@@ -10,11 +10,12 @@ import (
 type ZTAPIPricePolicy string
 
 const (
-	ZTAPIPricePolicyEnterprise40Margin ZTAPIPricePolicy = "enterprise_40_margin"
-	ZTAPIPricePolicyPool60Margin       ZTAPIPricePolicy = "pool_60_margin"
-	ZTAPIPricePolicyEnterprise20Margin ZTAPIPricePolicy = "enterprise_20_margin"
-	ZTAPIPricePolicyPool30Margin       ZTAPIPricePolicy = "pool_30_margin"
-	ZTAPIPricePolicyPoolOfficial80     ZTAPIPricePolicy = "pool_official_80"
+	ZTAPIPricePolicyEnterprise40Margin    ZTAPIPricePolicy = "enterprise_40_margin"
+	ZTAPIPricePolicyPool60Margin          ZTAPIPricePolicy = "pool_60_margin"
+	ZTAPIPricePolicyEnterprise20Margin    ZTAPIPricePolicy = "enterprise_20_margin"
+	ZTAPIPricePolicyPool30Margin          ZTAPIPricePolicy = "pool_30_margin"
+	ZTAPIPricePolicyPoolOfficial80        ZTAPIPricePolicy = "pool_official_80"
+	ZTAPIPricePolicyPoolOfficial78Sep2026 ZTAPIPricePolicy = "pool_official_78_20260929"
 )
 
 var (
@@ -78,6 +79,10 @@ func ValidateZTAPIPricePolicy(resourceType string, policy ZTAPIPricePolicy) erro
 			return nil
 		}
 	case ZTAPIPricePolicyPoolOfficial80:
+		if resourceType == "pool" {
+			return nil
+		}
+	case ZTAPIPricePolicyPoolOfficial78Sep2026:
 		if resourceType == "pool" {
 			return nil
 		}

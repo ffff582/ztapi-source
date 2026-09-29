@@ -9,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/types"
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
 
@@ -34,6 +35,81 @@ type ZTAPIABQuotePricingPreview struct {
 	QuotedModels   int                          `json:"quoted_models"`
 	PricingReady   []ZTAPIABQuotePricingReady   `json:"pricing_ready"`
 	Blocked        []ZTAPIABQuotePricingBlocked `json:"blocked"`
+}
+
+func ztapiPool78KeepsOldPriceAndBonusMargin(oldSource, target *ZTAPIModelPriceSource, preview *ZTAPIModelPricePreview) error {
+	if err := ztapiRepriceDoesNotRaise(oldSource, target); err != nil {
+		return err
+	}
+	for dimension, costRaw := range preview.CostUSD {
+		cost, costErr := decimal.NewFromString(costRaw)
+		sale, saleErr := decimal.NewFromString(preview.SaleUSD[dimension])
+		if costErr != nil || saleErr != nil || !sale.GreaterThan(cost.Mul(decimal.RequireFromString("1.05"))) {
+			return fmt.Errorf("%s would not cover the 5%% recharge bonus", dimension)
+		}
+	}
+	return nil
+}
+
+func ztapiRepriceDoesNotRaise(oldSource, target *ZTAPIModelPriceSource) error {
+	if oldSource == nil || target == nil {
+		return errors.New("pool price comparison lacks evidence")
+	}
+	var oldRules, newRules []ztapiABFrozenSaleRule
+	if oldSource.TokenPriceRulesJSON != "" {
+		if err := json.Unmarshal([]byte(oldSource.TokenPriceRulesJSON), &oldRules); err != nil {
+			return fmt.Errorf("old price rules are unavailable: %w", err)
+		}
+	}
+	if target.TokenPriceRulesJSON != "" {
+		if err := json.Unmarshal([]byte(target.TokenPriceRulesJSON), &newRules); err != nil {
+			return fmt.Errorf("new price rules are unavailable: %w", err)
+		}
+	}
+	if len(oldRules) == 0 && len(newRules) == 0 {
+		oldPreview, oldErr := BuildZTAPIModelPricePreview(oldSource)
+		newPreview, newErr := BuildZTAPIModelPricePreview(target)
+		if oldErr != nil || newErr != nil {
+			return errors.New("unstructured price comparison is unavailable")
+		}
+		for dimension, raw := range newPreview.SaleUSD {
+			old, oldErr := decimal.NewFromString(oldPreview.SaleUSD[dimension])
+			newPrice, newErr := decimal.NewFromString(raw)
+			if oldErr != nil || newErr != nil || newPrice.GreaterThan(old) {
+				return fmt.Errorf("%s would increase the customer price", dimension)
+			}
+		}
+		return nil
+	}
+	if len(oldRules) != len(newRules) || len(newRules) == 0 {
+		return errors.New("old and new price tiers do not match")
+	}
+	oldMultiplier, err := ztapiNormalizedSaleMultiplier(oldSource.SaleMultiplier)
+	if err != nil {
+		return err
+	}
+	newMultiplier, err := ztapiNormalizedSaleMultiplier(target.SaleMultiplier)
+	if err != nil {
+		return err
+	}
+	for tier, rule := range newRules {
+		if len(rule.Conditions) != len(oldRules[tier].Conditions) {
+			return errors.New("old and new tier conditions do not match")
+		}
+		for i, condition := range rule.Conditions {
+			if condition != oldRules[tier].Conditions[i] {
+				return errors.New("old and new tier conditions do not match")
+			}
+		}
+		for dimension, saleRaw := range rule.Sale {
+			sale, saleErr := decimal.NewFromString(saleRaw)
+			old, oldErr := decimal.NewFromString(oldRules[tier].Sale[dimension])
+			if saleErr != nil || oldErr != nil || sale.Mul(newMultiplier).GreaterThan(old.Mul(oldMultiplier)) {
+				return fmt.Errorf("%s tier %d would increase the customer price", dimension, tier)
+			}
+		}
+	}
+	return nil
 }
 
 // This is quotation readiness only. Live key balance and provider routes are separate gates.
@@ -173,10 +249,64 @@ func ApplyZTAPIABCommercialPricing(operatorID int, workbookSHA string, modelName
 	return result, nil
 }
 
+// ApplyZTAPIABPoolOfficial78Pricing publishes only verified pool routes. A
+// failure rolls back the source and snapshot together; callers should submit
+// independent models separately so one unavailable route does not stall others.
+func ApplyZTAPIABPoolOfficial78Pricing(operatorID int, workbookSHA string, modelNames []string) (ZTAPICommercialRepricingResult, error) {
+	result := ZTAPICommercialRepricingResult{}
+	quote, err := ZTAPIQuotationABEntries()
+	if err != nil {
+		return result, err
+	}
+	if operatorID <= 0 || workbookSHA != quote.WorkbookSHA256 || len(modelNames) == 0 || DB == nil {
+		return result, errors.New("pool repricing requires an operator, exact workbook checksum, models and database")
+	}
+	err = withZTAPICatalogWrite(func(tx *gorm.DB) error {
+		fxParams, fxErr := currentZTAPIABFXParams(tx)
+		if fxErr != nil {
+			return fxErr
+		}
+		return applyZTAPIABCommercialPricingTxMode(tx, quote, operatorID, modelNames, fxParams, &result, true, false)
+	})
+	if err != nil {
+		return ZTAPICommercialRepricingResult{}, err
+	}
+	invalidateZTAPICatalogCaches()
+	return result, nil
+}
+
+func ApplyZTAPIABEnterprise15Pricing(operatorID int, workbookSHA string, modelNames []string) (ZTAPICommercialRepricingResult, error) {
+	result := ZTAPICommercialRepricingResult{}
+	quote, err := ZTAPIQuotationABEntries()
+	if err != nil {
+		return result, err
+	}
+	if operatorID <= 0 || workbookSHA != quote.WorkbookSHA256 || len(modelNames) == 0 || DB == nil {
+		return result, errors.New("enterprise repricing requires an operator, exact workbook checksum, models and database")
+	}
+	err = withZTAPICatalogWrite(func(tx *gorm.DB) error {
+		fxParams, fxErr := currentZTAPIABFXParams(tx)
+		if fxErr != nil {
+			return fxErr
+		}
+		return applyZTAPIABCommercialPricingTxMode(tx, quote, operatorID, modelNames, fxParams, &result, false, true)
+	})
+	if err != nil {
+		return ZTAPICommercialRepricingResult{}, err
+	}
+	invalidateZTAPICatalogCaches()
+	return result, nil
+}
+
 // applyZTAPIABCommercialPricingTx re-prices the named models inside an open
 // catalog write, so callers can combine it with other catalog changes.
 func applyZTAPIABCommercialPricingTx(tx *gorm.DB, quote ZTAPIABQuotationManifest, operatorID int,
 	modelNames []string, fxParams ZTAPIABFXParams, result *ZTAPICommercialRepricingResult) error {
+	return applyZTAPIABCommercialPricingTxMode(tx, quote, operatorID, modelNames, fxParams, result, false, false)
+}
+
+func applyZTAPIABCommercialPricingTxMode(tx *gorm.DB, quote ZTAPIABQuotationManifest, operatorID int,
+	modelNames []string, fxParams ZTAPIABFXParams, result *ZTAPICommercialRepricingResult, pool78, enterprise15 bool) error {
 	frozen, err := ZTAPIQuotationEntries()
 	if err != nil {
 		return err
@@ -191,6 +321,20 @@ func applyZTAPIABCommercialPricingTx(tx *gorm.DB, quote ZTAPIABQuotationManifest
 	}
 	selected := make(map[string]ZTAPIABModelIdentity, len(modelNames))
 	for _, name := range modelNames {
+		if enterprise15 {
+			if name == "GPT 5.4 Mini" {
+				return errors.New("GPT 5.4 Mini keeps its current enterprise price")
+			}
+			rows, err := quote.EnterpriseBasis(name)
+			if err != nil || len(rows) != 1 || rows[0].Modality != "text" {
+				return fmt.Errorf("%s is not an enterprise-only text model", name)
+			}
+			for _, row := range quote.Entries {
+				if row.ModelName == name && row.Grade == "B" && row.Active {
+					return fmt.Errorf("%s also has an active B quotation", name)
+				}
+			}
+		}
 		identity, ok := byName[name]
 		if !ok || identity.SourceModel == "" {
 			return fmt.Errorf("A/B quotation model %q has no verified existing identity", name)
@@ -241,6 +385,8 @@ func applyZTAPIABCommercialPricingTx(tx *gorm.DB, quote ZTAPIABQuotationManifest
 		if err := tx.First(&oldSource, publication.PriceSourceID).Error; err != nil {
 			return err
 		}
+		effectivePool78 := pool78 || oldSource.PricePolicy == string(ZTAPIPricePolicyPoolOfficial78Sep2026)
+		firstPoolSwitch := effectivePool78 && oldSource.PricePolicy != string(ZTAPIPricePolicyPoolOfficial78Sep2026)
 		// Media quotes keep the legacy USD contract until media FX is supported.
 		targetFX := fxParams
 		if name == ztapiImage2QuotationModel {
@@ -272,6 +418,8 @@ func applyZTAPIABCommercialPricingTx(tx *gorm.DB, quote ZTAPIABQuotationManifest
 				return fmt.Errorf("%s frozen image pricing does not match protocol", name)
 			}
 			target, err = BuildZTAPIABImage2PriceSource(quote, oldSource, &image, operatorID, effectiveAt)
+		} else if effectivePool78 {
+			target, err = BuildZTAPIABPoolOfficial78TextPriceSourceWithFX(quote, name, config.ID, operatorID, effectiveAt, targetFX)
 		} else {
 			target, err = BuildZTAPIABTextPriceSourceWithFX(quote, name, config.ID, operatorID, effectiveAt, targetFX)
 		}
@@ -282,9 +430,29 @@ func applyZTAPIABCommercialPricingTx(tx *gorm.DB, quote ZTAPIABQuotationManifest
 		if err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}
+		if !firstPoolSwitch {
+			target.SaleMultiplier = oldSource.SaleMultiplier
+		}
+		if enterprise15 {
+			oldMultiplier, multiplierErr := ztapiNormalizedSaleMultiplier(oldSource.SaleMultiplier)
+			if multiplierErr != nil {
+				return multiplierErr
+			}
+			ceiling := decimal.RequireFromString("0.92")
+			if oldMultiplier.LessThan(ceiling) {
+				ceiling = oldMultiplier
+			}
+			target.SaleMultiplier = ceiling.StringFixed(10)
+		}
 		// Nothing to publish when the rebuilt price matches what customers pay.
+		oldMultiplier, oldMultiplierErr := ztapiNormalizedSaleMultiplier(oldSource.SaleMultiplier)
+		targetMultiplier, targetMultiplierErr := ztapiNormalizedSaleMultiplier(target.SaleMultiplier)
+		if oldMultiplierErr != nil || targetMultiplierErr != nil {
+			return fmt.Errorf("%s has an invalid sale multiplier", name)
+		}
 		if oldSource.SourceDocumentChecksum == quote.WorkbookSHA256 &&
 			oldSource.MediaPriceContractJSON == target.MediaPriceContractJSON &&
+			oldMultiplier.Equal(targetMultiplier) &&
 			ztapiABPriceSourceEvidenceMismatch(&oldSource, &target) == "" &&
 			validateZTAPIABPriceSource(&oldSource) == nil {
 			result.Unchanged++
@@ -296,6 +464,16 @@ func applyZTAPIABCommercialPricingTx(tx *gorm.DB, quote ZTAPIABQuotationManifest
 		}
 		if err := ztapiPreviewKeepsMinimumMargin(preview); err != nil {
 			return fmt.Errorf("%s: %w", name, err)
+		}
+		if effectivePool78 {
+			if err := ztapiPool78KeepsOldPriceAndBonusMargin(&oldSource, &target, preview); err != nil {
+				return fmt.Errorf("%s: %w", name, err)
+			}
+		} else if enterprise15 {
+			if err := ztapiRepriceDoesNotRaise(&oldSource, &target); err != nil {
+				result.Unchanged++
+				continue
+			}
 		}
 		var latest uint64
 		if err := tx.Model(&ZTAPIModelPriceSource{}).Where("model_config_id = ?", config.ID).
@@ -319,11 +497,60 @@ func applyZTAPIABCommercialPricingTx(tx *gorm.DB, quote ZTAPIABQuotationManifest
 			return err
 		}
 		var verificationIDs []int64
-		if err := json.Unmarshal([]byte(previous.VerificationIDs), &verificationIDs); err != nil {
+		allowedChannels := previous.ChannelIDs()
+		if firstPoolSwitch {
+			blocks, fresh, gateErr := ztapiPublicationBlockersTx(tx, &config)
+			if gateErr != nil || len(blocks) != 0 {
+				return fmt.Errorf("%s pool publication gate: %v %v", name, blocks, gateErr)
+			}
+			foundPool := false
+			for _, channelID := range fresh.AllowedChannelIDs {
+				if channelID == 2 {
+					foundPool = true
+				}
+			}
+			if !foundPool {
+				return fmt.Errorf("%s pool channel 2 is not a verified route", name)
+			}
+			var latest ZTAPIModelVerification
+			if err := tx.Where("model_config_id = ? AND channel_id = ?", config.ID, 2).
+				Order("verified_at DESC, id DESC").First(&latest).Error; err != nil {
+				return fmt.Errorf("%s lacks pool verification: %w", name, err)
+			}
+			if !latest.NonStreamingPassed || !latest.StreamingPassed || !latest.UsageReconciled || !latest.InvalidKeyClassified {
+				return fmt.Errorf("%s latest pool verification did not pass", name)
+			}
+			allowedChannels = []int{2}
+			verificationIDs = []int64{latest.ID}
+		} else if err := json.Unmarshal([]byte(previous.VerificationIDs), &verificationIDs); err != nil {
 			return fmt.Errorf("%s has invalid frozen verification evidence", name)
 		}
+		if enterprise15 {
+			var enterpriseVerificationIDs []int64
+			for _, id := range verificationIDs {
+				var verification ZTAPIModelVerification
+				if err := tx.First(&verification, id).Error; err != nil {
+					return err
+				}
+				if verification.ChannelID == 1 {
+					enterpriseVerificationIDs = append(enterpriseVerificationIDs, id)
+				}
+			}
+			foundEnterprise := false
+			for _, channelID := range allowedChannels {
+				foundEnterprise = foundEnterprise || channelID == 1
+			}
+			if !foundEnterprise || len(enterpriseVerificationIDs) == 0 {
+				return fmt.Errorf("%s lacks a verified enterprise route", name)
+			}
+			allowedChannels = []int{1}
+			verificationIDs = enterpriseVerificationIDs
+		}
+		if effectivePool78 && (len(allowedChannels) != 1 || allowedChannels[0] != 2) {
+			return fmt.Errorf("%s pool pricing cannot retain an enterprise route", name)
+		}
 		evidence := ztapiPublicationEvidence{
-			AllowedChannelIDs: previous.ChannelIDs(), VerificationIDs: verificationIDs,
+			AllowedChannelIDs: allowedChannels, VerificationIDs: verificationIDs,
 			PriceSourceID: target.ID, IdentityUpdatedAt: previous.IdentityUpdatedAt,
 			ImageProtocolContractJSON: previous.ImageProtocolContractJSON,
 			VideoProtocolContractJSON: previous.VideoProtocolContractJSON,
@@ -354,8 +581,14 @@ func applyZTAPIABCommercialPricingTx(tx *gorm.DB, quote ZTAPIABQuotationManifest
 			"fx_mode": target.FXMode, "platform_cny_per_unit": target.PlatformCNYPerUnit,
 			"upstream_cny_per_usd": target.UpstreamCNYPerUSD,
 		})
+		action := "model.ab_quote_published"
+		if effectivePool78 {
+			action = "model.pool_official_78_published"
+		} else if enterprise15 {
+			action = "model.enterprise_cost_plus_15_published"
+		}
 		if err := tx.Create(&ZTAPIAuditEvent{
-			Action: "model.ab_quote_published", ModelConfigID: config.ID,
+			Action: action, ModelConfigID: config.ID,
 			PublicName: config.PublicNameValue(), Version: nextVersion,
 			OperatorID: operatorID, Payload: payload, CreatedAt: now,
 		}).Error; err != nil {

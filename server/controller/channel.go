@@ -209,6 +209,79 @@ func FetchZTAPIUpstreamModels(c *gin.Context) {
 	common.ApiSuccess(c, ids)
 }
 
+func ztapiQuotedDiscoveryModelIDs(channel *model.Channel, visible []string) ([]string, error) {
+	if channel == nil || channel.Id != 2 || !channel.ZTAPIManaged {
+		return nil, fmt.Errorf("quoted pool discovery requires managed pool channel 2")
+	}
+	quote, err := model.ZTAPIQuotationABEntries()
+	if err != nil {
+		return nil, err
+	}
+	identities, err := model.ZTAPIQuotationEntries()
+	if err != nil {
+		return nil, err
+	}
+	bridge, err := model.BuildZTAPIABQuotationIdentityBridge(quote, identities)
+	if err != nil {
+		return nil, err
+	}
+	quoted := make(map[string]bool)
+	for _, claim := range bridge.Mapped {
+		for _, row := range quote.Entries {
+			if row.ModelName == claim.ModelName && row.Grade == "B" && row.Active {
+				quoted[claim.SourceModel] = true
+			}
+		}
+	}
+	visibleSet := make(map[string]bool, len(visible))
+	for _, id := range visible {
+		visibleSet[id] = true
+	}
+	configured := strings.Split(channel.Models, ",")
+	result := make([]string, 0, len(configured))
+	seen := make(map[string]bool)
+	for _, raw := range configured {
+		source := strings.TrimSpace(raw)
+		if source == "" || seen[source] || !quoted[source] {
+			return nil, fmt.Errorf("pool channel has an unquoted or duplicate configured model %q", source)
+		}
+		seen[source] = true
+		upstream, err := service.ResolveZTAPIManagedUpstreamModel(channel, source)
+		if err != nil || !visibleSet[upstream] {
+			return nil, fmt.Errorf("quoted pool model %q is not visible upstream", source)
+		}
+		result = append(result, source)
+	}
+	if len(result) == 0 {
+		return nil, fmt.Errorf("pool channel has no quoted configured models")
+	}
+	return result, nil
+}
+
+func RefreshZTAPIQuotedPoolDiscovery(c *gin.Context) {
+	channel, err := model.GetChannelById(2, true)
+	if err != nil || !channel.ZTAPIManaged {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "号池渠道不可用。"})
+		return
+	}
+	visible, err := fetchZTAPIChannelUpstreamModelIDs(channel)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"success": false, "message": "上游模型列表读取失败。"})
+		return
+	}
+	ids, err := ztapiQuotedDiscoveryModelIDs(channel, visible)
+	if err != nil {
+		c.JSON(http.StatusConflict, gin.H{"success": false, "message": "上游可见模型与报价目录不一致，未更新发现证据。", "detail": err.Error()})
+		return
+	}
+	result, err := model.ImportZTAPIDiscovery(channel.Id, ids, time.Now().UTC())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "无法保存报价模型发现证据。"})
+		return
+	}
+	common.ApiSuccess(c, result)
+}
+
 func isZTAPISupportedChannelType(channelType int) bool {
 	for _, supportedType := range ztapiSupportedChannelTypes {
 		if channelType == supportedType {

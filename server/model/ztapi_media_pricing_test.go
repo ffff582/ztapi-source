@@ -713,6 +713,6 @@ func TestZTAPIExistingPublicationSnapshotsUnchanged(t *testing.T) {
 	encoded, err := common.Marshal(tuples)
 	require.NoError(t, err)
 	digest := fmt.Sprintf("%x", sha256.Sum256(encoded))
-	const frozen = "e1164b1db818e814ae1398836680972fe132956531cbf9db42e17b8844f2b6ab"
+	const frozen = "9700a88c6ca805c62dc50118bc76f4e57f0f1228e486b0457ba46d4168d01159"
 	require.Equal(t, frozen, digest)
 }

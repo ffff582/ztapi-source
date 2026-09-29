@@ -339,7 +339,10 @@ func ztapiEndpointTypesForModality(protocol, sourceModel, modality string) []con
 		if common.IsOpenAIResponseOnlyModel(sourceModel) {
 			return []constant.EndpointType{constant.EndpointTypeOpenAIResponse}
 		}
-		return []constant.EndpointType{constant.EndpointTypeOpenAI}
+		// A text model also answers the Anthropic messages endpoint, which is
+		// what Claude Code and the Anthropic SDKs speak. The catalog said only
+		// OpenAI, so customers had no way to know the endpoint was there.
+		return []constant.EndpointType{constant.EndpointTypeOpenAI, constant.EndpointTypeAnthropic}
 	}
 }
 

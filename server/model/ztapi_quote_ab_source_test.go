@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 )
 
@@ -27,6 +28,145 @@ func TestZTAPIABTextPriceSourceUsesEnterpriseLongTierAndFrozenCells(t *testing.T
 	require.Equal(t, "3.9000000000", rules[0].Sale[ZTAPIBillingDimensionInputTokens])
 	require.Equal(t, "7.8000000000", rules[1].Sale[ZTAPIBillingDimensionInputTokens])
 	require.Equal(t, "29.2500000000", rules[1].Sale[ZTAPIBillingDimensionOutputTokens])
+}
+
+func TestZTAPIABPoolOfficial78UsesCurrentFirstPartySolPrice(t *testing.T) {
+	quote, err := ZTAPIQuotationABEntries()
+	require.NoError(t, err)
+	source, err := BuildZTAPIABPoolOfficial78TextPriceSource(quote, "GPT 5.6 Sol", 11, 7, 1_790_640_000)
+	require.NoError(t, err)
+	require.Equal(t, "pool", source.ResourceType)
+	require.Equal(t, "B", source.QuotationGrade)
+	require.Equal(t, "D77", source.QuotationCell)
+	var rules []struct {
+		Sale map[string]string `json:"sale"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(source.TokenPriceRulesJSON), &rules))
+	require.Len(t, rules, 2)
+	require.Equal(t, "3.1200000000", rules[0].Sale[ZTAPIBillingDimensionInputTokens])
+	require.Equal(t, "15.6000000000", rules[0].Sale[ZTAPIBillingDimensionOutputTokens])
+	require.Equal(t, "6.2400000000", rules[1].Sale[ZTAPIBillingDimensionInputTokens])
+	require.Equal(t, "23.4000000000", rules[1].Sale[ZTAPIBillingDimensionOutputTokens])
+	preview, err := BuildZTAPIModelPricePreview(&source)
+	require.NoError(t, err)
+	require.Equal(t, "3.3000000000", preview.CostUSD[ZTAPIBillingDimensionInputTokens])
+	require.Equal(t, "14.8500000000", preview.CostUSD[ZTAPIBillingDimensionOutputTokens])
+	require.Equal(t, "23.4000000000", preview.SaleUSD[ZTAPIBillingDimensionOutputTokens])
+	require.NoError(t, validateZTAPIABPriceSource(&source))
+	source.QuotationCell = "D84"
+	require.Error(t, validateZTAPIABPriceSource(&source))
+}
+
+func TestZTAPIABPoolOfficial78RejectsNonPoolAndInactiveRows(t *testing.T) {
+	quote, err := ZTAPIQuotationABEntries()
+	require.NoError(t, err)
+	_, err = BuildZTAPIABPoolOfficial78TextPriceSource(quote, "GLM 5.2", 11, 7, 1_790_640_000)
+	require.Error(t, err)
+	_, err = BuildZTAPIABPoolOfficial78TextPriceSource(quote, "GPT 5.4 Mini", 11, 7, 1_790_640_000)
+	require.Error(t, err)
+}
+
+func TestZTAPIABPoolOfficial78CoversEveryActiveQuotedTextPoolDimension(t *testing.T) {
+	quote, err := ZTAPIQuotationABEntries()
+	require.NoError(t, err)
+	count := 0
+	for _, row := range quote.Entries {
+		if !row.Active || row.Grade != "B" || row.ResourceType != "号池" || row.Modality != "text" {
+			continue
+		}
+		count++
+		t.Run(row.ModelName, func(t *testing.T) {
+			source, err := BuildZTAPIABPoolOfficial78TextPriceSource(quote, row.ModelName, 11, 7, 1_790_640_000)
+			require.NoError(t, err)
+			require.NoError(t, validateZTAPIABPriceSource(&source))
+			var frozen []ztapiABFrozenSaleRule
+			require.NoError(t, json.Unmarshal([]byte(source.TokenPriceRulesJSON), &frozen))
+			require.Len(t, frozen, len(row.TokenPriceRules))
+			for tier, quoted := range row.TokenPriceRules {
+				for dimension := range quoted.Cost {
+					want, err := ztapiOfficial78Sale(source.SourceModel, tier, dimension)
+					require.NoError(t, err)
+					require.Equal(t, want.StringFixed(10), frozen[tier].Sale[dimension])
+				}
+			}
+		})
+	}
+	require.Equal(t, 14, count)
+}
+
+func TestZTAPIABPoolOfficial78CurrentFXAndRechargeBonusRemainProfitable(t *testing.T) {
+	quote, err := ZTAPIQuotationABEntries()
+	require.NoError(t, err)
+	platform := decimal.RequireFromString("6.63")
+	upstream := decimal.RequireFromString("6.7411")
+	fx := ZTAPIABFXParams{Mode: ZTAPIFXModePlatformV1, PlatformRate: platform, UpstreamUSDRate: upstream}
+	bonus := decimal.RequireFromString("1.05")
+	for _, row := range quote.Entries {
+		if !row.Active || row.Grade != "B" || row.ResourceType != "号池" || row.Modality != "text" {
+			continue
+		}
+		t.Run(row.ModelName, func(t *testing.T) {
+			source, err := BuildZTAPIABPoolOfficial78TextPriceSourceWithFX(quote, row.ModelName, 11, 7, 1_790_640_000, fx)
+			require.NoError(t, err)
+			var frozen []ztapiABFrozenSaleRule
+			require.NoError(t, json.Unmarshal([]byte(source.TokenPriceRulesJSON), &frozen))
+			for tier, quoted := range row.TokenPriceRules {
+				for dimension, raw := range quoted.Cost {
+					cost := decimal.RequireFromString(raw).Mul(upstream).Div(platform)
+					cashSale := decimal.RequireFromString(frozen[tier].Sale[dimension]).Div(bonus)
+					require.True(t, cashSale.GreaterThan(cost), "%s tier %d %s does not cover upstream cost", row.ModelName, tier, dimension)
+				}
+			}
+			t.Logf("source=%s standard_input=%s standard_output=%s", source.SourceModel,
+				frozen[0].Sale[ZTAPIBillingDimensionInputTokens], frozen[0].Sale[ZTAPIBillingDimensionOutputTokens])
+		})
+	}
+}
+
+func TestZTAPIABPoolOfficial78DoesNotRaisePriceOrEraseRechargeBonusMargin(t *testing.T) {
+	quote, err := ZTAPIQuotationABEntries()
+	require.NoError(t, err)
+	old, err := BuildZTAPIABTextPriceSource(quote, "GPT 5.6 Sol", 11, 7, 1_790_640_000)
+	require.NoError(t, err)
+	old.SaleMultiplier = "0.90"
+	target, err := BuildZTAPIABPoolOfficial78TextPriceSource(quote, "GPT 5.6 Sol", 11, 7, 1_790_640_000)
+	require.NoError(t, err)
+	preview, err := BuildZTAPIModelPricePreview(&target)
+	require.NoError(t, err)
+	require.NoError(t, ztapiPool78KeepsOldPriceAndBonusMargin(&old, &target, preview))
+	old.SaleMultiplier = "0.70"
+	require.ErrorContains(t, ztapiPool78KeepsOldPriceAndBonusMargin(&old, &target, preview), "increase")
+	old.SaleMultiplier = "0.90"
+	preview.SaleUSD[ZTAPIBillingDimensionOutputTokens] = preview.CostUSD[ZTAPIBillingDimensionOutputTokens]
+	require.ErrorContains(t, ztapiPool78KeepsOldPriceAndBonusMargin(&old, &target, preview), "bonus")
+}
+
+func TestZTAPIABEnterprise15DiscountUsesCostAndNeverRaisesExistingPrice(t *testing.T) {
+	quote, err := ZTAPIQuotationABEntries()
+	require.NoError(t, err)
+	old, err := BuildZTAPIABTextPriceSource(quote, "GLM 5.3", 11, 7, 1_790_640_000)
+	require.NoError(t, err)
+	target := old
+	target.SaleMultiplier = "0.92"
+	preview, err := BuildZTAPIModelPricePreview(&target)
+	require.NoError(t, err)
+	require.NoError(t, ztapiRepriceDoesNotRaise(&old, &target))
+	cost := decimal.RequireFromString(preview.CostUSD[ZTAPIBillingDimensionInputTokens])
+	sale := decimal.RequireFromString(preview.SaleUSD[ZTAPIBillingDimensionInputTokens])
+	require.True(t, sale.Sub(cost.Mul(decimal.RequireFromString("1.15"))).Abs().LessThan(decimal.RequireFromString("0.0000000002")))
+	old.SaleMultiplier = "0.90"
+	require.ErrorContains(t, ztapiRepriceDoesNotRaise(&old, &target), "increase")
+}
+
+func TestZTAPIABEnterprise15CoversEmbeddingWithoutTierRules(t *testing.T) {
+	quote, err := ZTAPIQuotationABEntries()
+	require.NoError(t, err)
+	old, err := BuildZTAPIABTextPriceSource(quote, "Text Embedding 3 Small", 11, 7, 1_790_640_000)
+	require.NoError(t, err)
+	require.Empty(t, old.TokenPriceRulesJSON)
+	target := old
+	target.SaleMultiplier = "0.92"
+	require.NoError(t, ztapiRepriceDoesNotRaise(&old, &target))
 }
 
 func TestZTAPIABTextPriceSourceConvertsCNYBeforeFrozenCharge(t *testing.T) {

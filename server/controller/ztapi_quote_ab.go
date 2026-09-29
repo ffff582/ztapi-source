@@ -10,6 +10,8 @@ import (
 
 var ztapiABPreviewer = model.PreviewZTAPIABCommercialPricing
 var ztapiABRepricer = model.ApplyZTAPIABCommercialPricing
+var ztapiABPool78Repricer = model.ApplyZTAPIABPoolOfficial78Pricing
+var ztapiABEnterprise15Repricer = model.ApplyZTAPIABEnterprise15Pricing
 
 func GetZTAPIABPricingPreview(c *gin.Context) {
 	preview, err := ztapiABPreviewer()
@@ -42,6 +44,52 @@ func RepriceZTAPIABCatalog(c *gin.Context) {
 	result, err := ztapiABRepricer(c.GetInt("id"), request.WorkbookSHA256, request.Models)
 	if err != nil {
 		c.JSON(http.StatusConflict, gin.H{"success": false, "message": "本次报价未发布，价格保持不变。", "detail": err.Error()})
+		return
+	}
+	common.ApiSuccess(c, result)
+}
+
+func RepriceZTAPIABPool78Catalog(c *gin.Context) {
+	var request struct {
+		Confirm        bool     `json:"confirm"`
+		WorkbookSHA256 string   `json:"workbook_sha256"`
+		Models         []string `json:"models"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil || !request.Confirm || len(request.Models) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "请确认本次号池改价模型和报价校验码。"})
+		return
+	}
+	preview, err := ztapiABPreviewer()
+	if err != nil || request.WorkbookSHA256 != preview.WorkbookSHA256 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "报价校验码不匹配，未修改价格。"})
+		return
+	}
+	result, err := ztapiABPool78Repricer(c.GetInt("id"), request.WorkbookSHA256, request.Models)
+	if err != nil {
+		c.JSON(http.StatusConflict, gin.H{"success": false, "message": "号池改价未发布，价格保持不变。", "detail": err.Error()})
+		return
+	}
+	common.ApiSuccess(c, result)
+}
+
+func RepriceZTAPIABEnterprise15Catalog(c *gin.Context) {
+	var request struct {
+		Confirm        bool     `json:"confirm"`
+		WorkbookSHA256 string   `json:"workbook_sha256"`
+		Models         []string `json:"models"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil || !request.Confirm || len(request.Models) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "请确认本次企业独有模型改价名单和报价校验码。"})
+		return
+	}
+	preview, err := ztapiABPreviewer()
+	if err != nil || request.WorkbookSHA256 != preview.WorkbookSHA256 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "报价校验码不匹配，未修改价格。"})
+		return
+	}
+	result, err := ztapiABEnterprise15Repricer(c.GetInt("id"), request.WorkbookSHA256, request.Models)
+	if err != nil {
+		c.JSON(http.StatusConflict, gin.H{"success": false, "message": "企业独有模型改价未发布，价格保持不变。", "detail": err.Error()})
 		return
 	}
 	common.ApiSuccess(c, result)

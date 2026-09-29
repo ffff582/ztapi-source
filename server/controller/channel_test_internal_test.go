@@ -434,3 +434,16 @@ func TestFetchZTAPIUpstreamModelsDoesNotPersistFailedDiscovery(t *testing.T) {
 	require.NoError(t, db.Model(&model.ZTAPIDiscoverySnapshot{}).Count(&count).Error)
 	require.Zero(t, count)
 }
+
+func TestZTAPIQuotedPoolDiscoveryKeepsOnlyConfiguredQuotedSourceIDs(t *testing.T) {
+	mapping := `{"gpt-5.6-sol":"gpt-5.6-sol-hc","claude-sonnet-5":"claude-sonnet-5-hc"}`
+	channel := &model.Channel{Id: 2, ZTAPIManaged: true, Models: "gpt-5.6-sol,claude-sonnet-5", ModelMapping: &mapping}
+	ids, err := ztapiQuotedDiscoveryModelIDs(channel, []string{"gpt-5.6-sol-hc", "claude-sonnet-5-hc", "unquoted-model"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"gpt-5.6-sol", "claude-sonnet-5"}, ids)
+	_, err = ztapiQuotedDiscoveryModelIDs(channel, []string{"gpt-5.6-sol-hc"})
+	require.ErrorContains(t, err, "not visible")
+	channel.Models = "gpt-5.6-sol,unquoted-model"
+	_, err = ztapiQuotedDiscoveryModelIDs(channel, []string{"gpt-5.6-sol-hc", "unquoted-model"})
+	require.ErrorContains(t, err, "unquoted")
+}

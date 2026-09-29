@@ -102,7 +102,7 @@ func setupZTAPIPricingController(t *testing.T) (*gorm.DB, *gin.Engine) {
 	if err := db.AutoMigrate(
 		&model.ZTAPICatalogLock{}, &model.ZTAPIDiscoverySnapshot{}, &model.ZTAPIDiscoveredModel{},
 		&model.ZTAPIModelIdentity{}, &model.ZTAPIModelPriceSource{}, &model.ZTAPIModelVerification{},
-		&model.ZTAPIModelPublicationSnapshot{},
+		&model.ZTAPIModelPublicationSnapshot{}, &model.ZTAPIHealthState{},
 	); err != nil {
 		t.Fatalf("migrate ZTAPI publication evidence: %v", err)
 	}
@@ -578,7 +578,8 @@ func TestZTAPIPublicPricingIsStrictProjectionAndNeverLeaksSources(t *testing.T) 
 	endpoints := model.ProjectZTAPIPublicSupportedEndpoints(projection, map[string]common.EndpointInfo{
 		"gpt-5.5": {Path: "https://upstream.invalid/private", Method: "POST"},
 	})
-	if len(endpoints) != 1 || endpoints["openai"].Path != "/v1/chat/completions" {
+	if len(endpoints) != 2 || endpoints["openai"].Path != "/v1/chat/completions" ||
+		endpoints["anthropic"].Path != "/v1/messages" {
 		t.Fatalf("public endpoints are not protocol-only defaults: %#v", endpoints)
 	}
 }

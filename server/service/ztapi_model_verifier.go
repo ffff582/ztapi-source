@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"image"
@@ -81,6 +82,39 @@ var ztapiModelVerificationProbeRunner = runZTAPIModelVerificationProbes
 
 func ztapiVerificationMaxTokens(_ string) int {
 	return ztapiVerificationDefaultTokens
+}
+
+func ztapiVerificationUpstreamModel(channel *model.Channel, sourceModel string) (string, error) {
+	if channel == nil {
+		return "", errors.New("verification channel is nil")
+	}
+	raw := strings.TrimSpace(channel.GetModelMapping())
+	if raw == "" || raw == "{}" {
+		return sourceModel, nil
+	}
+	var mapping map[string]string
+	if err := json.Unmarshal([]byte(raw), &mapping); err != nil {
+		return "", fmt.Errorf("invalid managed channel model mapping: %w", err)
+	}
+	current := sourceModel
+	visited := map[string]bool{current: true}
+	for {
+		next := mapping[current]
+		if next == "" || next == current {
+			return current, nil
+		}
+		if visited[next] {
+			return "", errors.New("managed channel model mapping contains a cycle")
+		}
+		visited[next] = true
+		current = next
+	}
+}
+
+// ResolveZTAPIManagedUpstreamModel mirrors relay model mapping for discovery
+// and verification; neither operation should probe a different model ID.
+func ResolveZTAPIManagedUpstreamModel(channel *model.Channel, sourceModel string) (string, error) {
+	return ztapiVerificationUpstreamModel(channel, sourceModel)
 }
 
 func ztapiVerificationUsesResponses(sourceModel string) bool {
@@ -776,6 +810,11 @@ func runZTAPIModelVerificationProbes(ctx context.Context, channel *model.Channel
 	if channel.Type != constant.ChannelTypeOpenAI && !(geminiImage && channel.Type == constant.ChannelTypeGemini) {
 		return result, errors.New("pilot verifier currently supports OpenAI-compatible text channels only")
 	}
+	upstreamModel, err := ztapiVerificationUpstreamModel(channel, sourceModel)
+	if err != nil {
+		result.StatusCategory = "configuration"
+		return result, err
+	}
 	endpoint, err := ztapiVerificationEndpoint(channel, sourceModel)
 	if err != nil {
 		result.StatusCategory = "configuration"
@@ -848,7 +887,7 @@ func runZTAPIModelVerificationProbes(ctx context.Context, channel *model.Channel
 		return result, nil
 	}
 	started := time.Now()
-	usage, status, err := performZTAPIOpenAIProbe(ctx, client, endpoint, key, sourceModel, false)
+	usage, status, err := performZTAPIOpenAIProbe(ctx, client, endpoint, key, upstreamModel, false)
 	result.LatencyMilliseconds = time.Since(started).Milliseconds()
 	if err != nil {
 		result.StatusCategory = classifyZTAPIVerificationFailure(status, err)
@@ -862,7 +901,7 @@ func runZTAPIModelVerificationProbes(ctx context.Context, channel *model.Channel
 	if embedding {
 		result.UsageReconciled = usage.PromptTokens > 0 && usage.TotalTokens == usage.PromptTokens && usage.CompletionTokens == 0
 	} else {
-		streamUsage, status, err := performZTAPIOpenAIProbe(ctx, client, endpoint, key, sourceModel, true)
+		streamUsage, status, err := performZTAPIOpenAIProbe(ctx, client, endpoint, key, upstreamModel, true)
 		if err != nil {
 			result.StatusCategory = classifyZTAPIVerificationFailure(status, err)
 			return result, fmt.Errorf("streaming verification failed: %s", result.StatusCategory)
@@ -872,7 +911,7 @@ func runZTAPIModelVerificationProbes(ctx context.Context, channel *model.Channel
 	}
 
 	_, invalidStatus, invalidErr := performZTAPIOpenAIProbe(
-		ctx, client, endpoint, "ztapi-deliberately-invalid-credential", sourceModel, false,
+		ctx, client, endpoint, "ztapi-deliberately-invalid-credential", upstreamModel, false,
 	)
 	result.InvalidKeyClassified = classifyZTAPIVerificationFailure(invalidStatus, invalidErr) == "invalid_key"
 	result.InsufficientBalanceClassified = classifyZTAPIVerificationFailure(http.StatusPaymentRequired, nil) == "insufficient_balance"

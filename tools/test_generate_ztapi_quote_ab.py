@@ -95,6 +95,21 @@ class TokenPriceRulesTest(unittest.TestCase):
         self.assertIn("paid cache storage", pro["pricing_blocker"])
         self.assertEqual([], pro["token_price_rules"])
 
+    def test_active_pool_quote_is_structured_even_when_enterprise_is_preferred(self):
+        source = Path(__file__).resolve().parent.parent / "server/model/ztapi_quotation_ab_20260915.json"
+        rows = json.loads(source.read_text(encoding="ascii"))["entries"]
+        pool = next(row for row in rows if row["model_name"] == "GPT 5.6 Sol" and row["grade"] == "B")
+        self.assertFalse(pool["pricing_basis"])
+        self.assertTrue(pool["active"])
+        self.assertEqual("0.33", pool["quoted_fraction"])
+        self.assertEqual("1.65", pool["token_price_rules"][0]["cost"]["input_tokens"])
+        self.assertEqual("9.9", pool["token_price_rules"][0]["cost"]["output_tokens"])
+        self.assertEqual("", pool["pricing_blocker"])
+
+        offline = next(row for row in rows if row["model_name"] == "GPT 5.4 Mini" and row["grade"] == "B")
+        self.assertFalse(offline["active"])
+        self.assertEqual([], offline["token_price_rules"])
+
 
 if __name__ == "__main__":
     unittest.main()
