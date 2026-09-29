@@ -11,6 +11,14 @@ function readText(path) {
   return readFileSync(path, 'utf8').replaceAll('\r\n', '\n');
 }
 
+test('ZTAPI only installs DNS tools when they are missing from the runner', () => {
+  const workflow = YAML.parse(readText(workflowPath));
+  const step = workflow.jobs.deploy.steps.find(({ name }) => name === 'Install SSH tooling');
+  assert.ok(step);
+  assert.match(step.run, /if command -v dig .*command -v nslookup/);
+  assert.match(step.run, /sudo apt-get install -y dnsutils/);
+});
+
 test('ZTAPI verifies exact anonymous corresponding source before SSH or mutation', () => {
   const source = readText(workflowPath);
   const gateStart = source.indexOf('- name: Verify corresponding public source');

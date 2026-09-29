@@ -98,7 +98,7 @@ jobs:
         run: node --test tests/production/ztapi-codex-protocol.test.mjs
 
       - name: Install Chromium
-        run: pnpm exec playwright install --with-deps chromium
+        run: pnpm exec playwright install chromium
 
       - name: Run responsive media browser acceptance
         run: pnpm exec playwright test tests/e2e/media-models-and-guide.spec.ts

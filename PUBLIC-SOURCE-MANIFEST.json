@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "e155863a44898a9f918d063b6d49d4c708e717a5",
+  "release_commit": "e35b7fc28dbf47886d4be46f176cf98d4c27b93e",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-e155863a44898a9f918d063b6d49d4c708e717a5",
+  "source_tag": "production-e35b7fc28dbf47886d4be46f176cf98d4c27b93e",
   "files": [
     {
       "path": ".dockerignore",
@@ -21,8 +21,8 @@
     },
     {
       "path": ".github/workflows/ztapi-deploy.yml",
-      "sha256": "9afc9c953347284f820a664eec7d49ae615816675e13dfc2e68cac5d9ddb9ce5",
-      "size": 199375
+      "sha256": "ffb4a562de2ddd7c2a8021537b4480f6565dedd486bde427346bc323e13eab6e",
+      "size": 199548
     },
     {
       "path": ".github/workflows/ztapi-edge-diagnostic.yml",
@@ -31,8 +31,8 @@
     },
     {
       "path": ".github/workflows/ztapi-financial-ci.yml",
-      "sha256": "f63cf1847b773b51acc7704471f26ed78f6a9bef2acce954cf76e08c01b24b06",
-      "size": 9024
+      "sha256": "a605fcee383304aefe05e1be0a86606009814ea2ee928215609c49631d04b5ba",
+      "size": 9012
     },
     {
       "path": ".github/workflows/ztapi-production-alert-acceptance.yml",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "18c885a3fa109d2b93757256656f6f6b493a523ec196605b79f7198546797e21",
+      "sha256": "e7e76fabc3fd1990f54cad420a6c64fd1aab7299f5fd35cce92d1b433f46e6aa",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "11ecdfb6654767f21be4c38f4e973433eda0ed5af4638289118f366db62c65ca",
+      "sha256": "115879e55c270595965ca580afaf7bec91d9c419146fa0c1d899df63133da79e",
       "size": 942
     },
     {
@@ -9346,8 +9346,8 @@
     },
     {
       "path": "tests/contracts/deployment-workflow.test.mjs",
-      "sha256": "4e6ec0e4430895017fb0b90d203e1d7b35ac02c41866141bdf6072f353f96720",
-      "size": 38549
+      "sha256": "10f7a6729318d1ca487c70f89a53cf0fb2e6735f170dceb1e92e84ba78749984",
+      "size": 38937
     },
     {
       "path": "tests/contracts/deployment.test.mjs",
@@ -9371,8 +9371,8 @@
     },
     {
       "path": "tests/contracts/media-commercial-gate.test.mjs",
-      "sha256": "5f42b6abda4443fbcf5879c182c78d8b57f9dd2d1a77a498d865ea15b470b008",
-      "size": 4097
+      "sha256": "74fa3376fc8a60f63555e1f0b8b537c824f952d64960fb38740ede4aba65ef00",
+      "size": 4161
     },
     {
       "path": "tests/contracts/media-delivery-baseline.test.mjs",
