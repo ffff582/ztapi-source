@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "7422e57d54c5703f014eaf806132e3c7e97374cf",
+  "release_commit": "6ae82e040b051e5e9d9ffdda62b13acc718af297",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-7422e57d54c5703f014eaf806132e3c7e97374cf",
+  "source_tag": "production-6ae82e040b051e5e9d9ffdda62b13acc718af297",
   "files": [
     {
       "path": ".dockerignore",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "2212670adfbd925fb6fc1e543f22a5857d9362a629b5b973664624e61b45e8ba",
+      "sha256": "7f6de021a69427d4516542a98b1258dba1054aa3605a2f47c2e2d846cca10941",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "a083de90ae4fd63e8e0c1d84fd73953eb3b5c13119228f395420f4605c61d641",
+      "sha256": "e46bd07b6a6aac14bb6d457e29d0dba8231c4a8ffc00c4e561acd8297f71bbc7",
       "size": 942
     },
     {
@@ -9461,8 +9461,8 @@
     },
     {
       "path": "tests/runtime/production-edge.test.mjs",
-      "sha256": "01e0d43d97f8fe580ef226fcf77fe192da072875b76a7dd38f0fd35aa2abcb33",
-      "size": 15269
+      "sha256": "169bc2d3adcaa7377075268a922cd93010feccd6f1c897b6ad950cc7cb782840",
+      "size": 15751
     },
     {
       "path": "tools/ci-local-service.sh",

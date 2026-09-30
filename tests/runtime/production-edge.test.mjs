@@ -461,20 +461,27 @@ test('production edge enforces TLS and keeps stateful ports private', { timeout:
       ['ps', '-q', 'server'],
       { env: environment },
     ).stdout.trim();
-    const egress = run(
-      'docker',
-      [
-        'exec',
-        serverContainer,
-        'wget',
-        '-q',
-        '-O',
-        '-',
-        'https://example.com/',
-      ],
-      { env: environment },
+    const egressTargets = [
+      'https://api.github.com/zen',
+      'https://example.com/',
+      'https://www.cloudflare.com/cdn-cgi/trace',
+    ];
+    const egressFailures = [];
+    let egressAvailable = false;
+    for (const url of egressTargets) {
+      const result = run('docker', [
+        'exec', serverContainer, 'wget', '-q', '-T', '15', '-O', '-', url,
+      ], { env: environment, allowFailure: true, timeout: 30_000 });
+      if (result.status === 0 && result.stdout.trim() !== '') {
+        egressAvailable = true;
+        break;
+      }
+      egressFailures.push(`${url}: ${result.output}`);
+    }
+    assert.ok(
+      egressAvailable,
+      `server container cannot reach any public HTTPS endpoint: ${egressFailures.join('; ')}`,
     );
-    assert.match(egress.stdout, /Example Domain/);
 
     const licenses = compose(
       project,
