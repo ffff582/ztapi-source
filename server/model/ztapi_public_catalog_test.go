@@ -33,6 +33,32 @@ func setupZTAPIPublicCatalogTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
+func TestZTAPIPublicTokenRuleCloneSerializesUnconditionalTierAsArray(t *testing.T) {
+	rules := cloneZTAPIPublicTokenPriceRules([]ZTAPIPublicTokenPriceRule{{
+		Conditions: []string{},
+		SaleUSD:    map[string]string{"input_tokens": "1"},
+	}})
+	encoded, err := json.Marshal(rules)
+	require.NoError(t, err)
+	require.JSONEq(t, `[{"conditions":[],"sale_usd":{"input_tokens":"1"}}]`, string(encoded))
+}
+
+func TestZTAPIPublicCatalogSerializesVerifiedUnconditionalTierAsArray(t *testing.T) {
+	publication := ZTAPIRuntimePublication{
+		SourceModel: "claude-sonnet-5", PublicName: "zt-claude-sonnet-5",
+		ProviderFamily: ZTAPIProviderAnthropic, Protocol: ZTAPIProtocolOpenAICompatible,
+		Groups: []string{"default"}, SnapshotID: 105,
+		BillingDimensions:   []string{"input_tokens", "cache_read", "cache_write_5m", "cache_write_1h", "output_tokens"},
+		TokenPriceRulesJSON: `[{"conditions":[],"sale":{"input_tokens":"2","cache_read":"0.2","cache_write_5m":"2.5","cache_write_1h":"4","output_tokens":"10"}}]`,
+	}
+	items := buildZTAPIPublicCatalog([]ZTAPIRuntimePublication{publication})
+	require.Len(t, items, 1)
+	require.NotEmpty(t, items[0].TokenPriceRules[0].OfficialUSD)
+	encoded, err := json.Marshal(items)
+	require.NoError(t, err)
+	require.Contains(t, string(encoded), `"conditions":[]`)
+}
+
 func TestZTAPIPublicCatalogMediaExposesOnlyPublicCapabilitiesAndSalePricing(t *testing.T) {
 	imageProtocol, _, err := types.ParseZTAPIImageProtocolContract(syntheticVerifiedImageProtocolJSON(t, "gp-image-2"))
 	require.NoError(t, err)
@@ -269,7 +295,7 @@ func TestZTAPIPublicCatalogProjectsVerifiedOfficialPricesWithoutChangingSale(t *
 		SourceModel: "gpt-5.6-sol", PublicName: "zt-gpt-5.6-sol",
 		ProviderFamily: ZTAPIProviderOpenAI, Protocol: ZTAPIProtocolOpenAICompatible,
 		Groups: []string{"default"}, SnapshotID: 101,
-		BillingDimensions: []string{"input_tokens", "output_tokens"},
+		BillingDimensions:   []string{"input_tokens", "output_tokens"},
 		TokenPriceRulesJSON: `[{"conditions":["输入长度≤272K"],"sale":{"input_tokens":"3.12","output_tokens":"15.6"}},{"conditions":["输入长度>272K"],"sale":{"input_tokens":"6.24","output_tokens":"23.4"}}]`,
 	}
 	items := buildZTAPIPublicCatalog([]ZTAPIRuntimePublication{publication})

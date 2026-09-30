@@ -67,7 +67,7 @@ func cloneZTAPIPublicTokenPriceRules(rules []ZTAPIPublicTokenPriceRule) []ZTAPIP
 	cloned := make([]ZTAPIPublicTokenPriceRule, len(rules))
 	for index := range rules {
 		cloned[index] = ZTAPIPublicTokenPriceRule{
-			Conditions:  append([]string(nil), rules[index].Conditions...),
+			Conditions:  append([]string{}, rules[index].Conditions...),
 			SaleUSD:     copyZTAPIStringMap(rules[index].SaleUSD),
 			OfficialUSD: copyZTAPIStringMap(rules[index].OfficialUSD),
 		}
