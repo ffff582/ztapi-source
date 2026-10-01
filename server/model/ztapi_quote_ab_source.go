@@ -244,6 +244,9 @@ func validateZTAPIABPriceSource(source *ZTAPIModelPriceSource) error {
 	if source == nil {
 		return errors.New("A/B quote source is nil")
 	}
+	if source.SourceDocumentChecksum == ZTAPIQuotation929SHA256 {
+		return validateZTAPI929PriceSource(source)
+	}
 	quote, err := ZTAPIQuotationABEntries()
 	if err != nil {
 		return err
@@ -435,6 +438,9 @@ func validateZTAPIABImage2PriceSource(quote ZTAPIABQuotationManifest, source *ZT
 func BuildZTAPIQuotedModelPriceSource(modelName string, modelConfigID, operatorID int, effectiveAt int64) (ZTAPIModelPriceSource, error) {
 	if DB == nil {
 		return ZTAPIModelPriceSource{}, errors.New("ZTAPI database is not initialized")
+	}
+	if modelName == "Claude Opus 5" {
+		return BuildZTAPI929QuotedModelPriceSource(modelName, modelConfigID, operatorID, effectiveAt)
 	}
 	quote, err := ZTAPIQuotationABEntries()
 	if err != nil {

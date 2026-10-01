@@ -69,17 +69,34 @@ jobs:
                 and .event == "workflow_dispatch"
               )] | length > 0' >/dev/null
 
+      - name: Resolve public source tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ZTAPI_RELEASE_VERSION: ${{ inputs.release_commit }}
+        run: |
+          set -euo pipefail
+          repository=$(curl --fail --silent --show-error --retry 3 --retry-delay 2 \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/ffff582/ztapi-source")
+          echo "$repository" | jq -e \
+            '.full_name == "ffff582/ztapi-source" and .private == false and .visibility == "public"' >/dev/null
+          tag_ref=$(curl --fail --silent --show-error --retry 3 --retry-delay 2 \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/ffff582/ztapi-source/git/ref/tags/production-$ZTAPI_RELEASE_VERSION")
+          public_source_commit=$(echo "$tag_ref" | jq -er \
+            'select(.object.type == "commit") | .object.sha')
+          [[ "$public_source_commit" =~ ^[0-9a-f]{40}$ ]]
+          echo "ZTAPI_SOURCE_RESOLVED_COMMIT=$public_source_commit" >> "$GITHUB_ENV"
+
       - name: Verify corresponding public source
         env:
           ZTAPI_RELEASE_VERSION: ${{ inputs.release_commit }}
+          ZTAPI_SOURCE_RESOLVED_COMMIT: ${{ env.ZTAPI_SOURCE_RESOLVED_COMMIT }}
         run: |
           set -euo pipefail
           source_tag="production-$ZTAPI_RELEASE_VERSION"
           source_repository="https://github.com/ffff582/ztapi-source"
-          tag_ref=$(curl --fail --silent --show-error \
-            "https://api.github.com/repos/ffff582/ztapi-source/git/ref/tags/production-$ZTAPI_RELEASE_VERSION")
-          public_source_commit=$(echo "$tag_ref" | jq -er \
-            'select(.object.type == "commit") | .object.sha')
+          public_source_commit="$ZTAPI_SOURCE_RESOLVED_COMMIT"
           [[ "$public_source_commit" =~ ^[0-9a-f]{40}$ ]]
           verification_root=$(mktemp -d)
           trap 'rm -rf "$verification_root"' EXIT

@@ -438,6 +438,14 @@ func ZTAPIQuotationEntries() ([]ZTAPIQuotationEntry, error) {
 // ValidateZTAPIQuotationIdentity uses exact audited identities, not provider
 // naming conventions, upstream discovery, mutable aliases or fuzzy matching.
 func ValidateZTAPIQuotationIdentity(sourceModel, publicName, protocol, providerFamily, checksum string) error {
+	if checksum == ZTAPIQuotation929SHA256 {
+		quote, ok := ztapi929TextQuotes["Claude Opus 5"]
+		if !ok || sourceModel != quote.SourceModel || publicName != quote.PublicName ||
+			protocol != ZTAPIProtocolOpenAICompatible || providerFamily != quote.ProviderFamily {
+			return ErrZTAPIQuotationIdentityMismatch
+		}
+		return nil
+	}
 	if quote, err := ZTAPIQuotationABEntries(); err == nil && checksum == quote.WorkbookSHA256 {
 		identities, identityErr := ZTAPIQuotationEntries()
 		if identityErr != nil {
@@ -547,7 +555,9 @@ func ztapiQuotationChecksumsAllowingStaleABPrice(db *gorm.DB, ids []int64, allow
 	for _, row := range evidence {
 		preview, err := BuildZTAPIModelPricePreview(&row.ZTAPIModelPriceSource)
 		basisPermitted := ztapiEnterprisePriceBasis(row.SourceModel, row.ResourceType)
-		if quote, quoteErr := ZTAPIQuotationABEntries(); quoteErr == nil && row.SourceDocumentChecksum == quote.WorkbookSHA256 {
+		if row.SourceDocumentChecksum == ZTAPIQuotation929SHA256 {
+			basisPermitted = validateZTAPI929PriceSource(&row.ZTAPIModelPriceSource) == nil
+		} else if quote, quoteErr := ZTAPIQuotationABEntries(); quoteErr == nil && row.SourceDocumentChecksum == quote.WorkbookSHA256 {
 			basisPermitted = allowStaleABPrice || validateZTAPIABPriceSource(&row.ZTAPIModelPriceSource) == nil
 		}
 		if err == nil && row.SnapshotPricePolicy == row.PricePolicy && row.SnapshotTokenPriceRulesJSON == row.TokenPriceRulesJSON && basisPermitted &&

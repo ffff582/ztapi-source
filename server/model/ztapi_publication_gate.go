@@ -464,6 +464,9 @@ func ztapiPublicationPriceBasisPermitted(source *ZTAPIModelPriceSource) bool {
 	if source == nil {
 		return false
 	}
+	if source.SourceDocumentChecksum == ZTAPIQuotation929SHA256 {
+		return validateZTAPI929PriceSource(source) == nil
+	}
 	if quote, err := ZTAPIQuotationABEntries(); err == nil && source.SourceDocumentChecksum == quote.WorkbookSHA256 {
 		return validateZTAPIABPriceSource(source) == nil
 	}

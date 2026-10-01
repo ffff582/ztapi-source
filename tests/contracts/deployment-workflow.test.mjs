@@ -11,6 +11,29 @@ function readText(path) {
   return readFileSync(path, 'utf8').replaceAll('\r\n', '\n');
 }
 
+test('public tag resolution uses authenticated metadata without weakening anonymous source verification', () => {
+  const workflow = YAML.parse(readText(workflowPath));
+  const steps = workflow.jobs.deploy.steps;
+  const resolver = steps.find(step => step.name === 'Resolve public source tag');
+  assert.ok(resolver, 'metadata resolution must not depend on anonymous API quota');
+  assert.equal(resolver.env.GH_TOKEN, '${{ github.token }}');
+  assert.match(resolver.run, /Authorization: Bearer \$GH_TOKEN/);
+  assert.match(resolver.run, /\.private == false/);
+  assert.match(resolver.run, /\.visibility == "public"/);
+  assert.match(resolver.run, /\.full_name == "ffff582\/ztapi-source"/);
+  assert.match(resolver.run, /select\(\.object.type == "commit"\)/);
+  assert.match(resolver.run, /public_source_commit" =~ \^\[0-9a-f\]\{40\}\$/);
+  assert.match(resolver.run, /ZTAPI_SOURCE_RESOLVED_COMMIT=\$public_source_commit/);
+  assert.ok(resolver.run.indexOf('.private == false') < resolver.run.indexOf('>> "$GITHUB_ENV"'));
+  const source = steps.find(step => step.name === 'Verify corresponding public source');
+  assert.equal(source.env.ZTAPI_SOURCE_RESOLVED_COMMIT, '${{ env.ZTAPI_SOURCE_RESOLVED_COMMIT }}');
+  assert.doesNotMatch(source.run, /Authorization:|GH_TOKEN|secrets\./);
+  assert.match(source.run, /codeload\.github\.com/);
+  assert.match(source.run, /sha256sum/);
+  assert.ok(steps.indexOf(resolver) > steps.findIndex(step => step.name === 'Verify mandatory CI for exact release'));
+  assert.ok(steps.indexOf(resolver) < steps.indexOf(source));
+});
+
 test('ZTAPI only installs DNS tools when they are missing from the runner', () => {
   const workflow = YAML.parse(readText(workflowPath));
   const step = workflow.jobs.deploy.steps.find(({ name }) => name === 'Install SSH tooling');
@@ -28,7 +51,7 @@ test('ZTAPI verifies exact anonymous corresponding source before SSH or mutation
   assert.ok(gateStart >= 0, 'public source verification step must exist');
   assert.ok(gateStart < sshStart && sshStart < deployStart);
   const gate = source.slice(gateStart, sshStart);
-  assert.match(gate, /https:\/\/api\.github\.com\/repos\/ffff582\/ztapi-source\/git\/ref\/tags\/production-\$ZTAPI_RELEASE_VERSION/);
+  assert.match(source, /https:\/\/api\.github\.com\/repos\/ffff582\/ztapi-source\/git\/ref\/tags\/production-\$ZTAPI_RELEASE_VERSION/);
   assert.match(gate, /https:\/\/codeload\.github\.com\/ffff582\/ztapi-source\/tar\.gz\/\$public_source_commit/);
   assert.match(gate, /\.release_commit == \$release_commit/);
   assert.match(gate, /\.source_tag == \$source_tag/);
