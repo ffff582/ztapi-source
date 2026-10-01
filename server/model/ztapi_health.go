@@ -561,6 +561,9 @@ func (s *ZTAPIHealthStore) completeTx(tx *gorm.DB, state *ZTAPIHealthState, r *Z
 		return err
 	}
 	if !stale && r.Source == "real" {
+		if err := enqueueZTAPICustomerAlertTx(tx, r, event, normalizedOutcome, now); err != nil {
+			return err
+		}
 		if err := applyZTAPIHealthRealRouteActionsTx(tx, r, event, normalizedOutcome, observedAt); err != nil {
 			return err
 		}

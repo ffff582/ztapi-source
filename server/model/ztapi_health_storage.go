@@ -129,6 +129,7 @@ type ZTAPIHealthOutbox struct {
 	CreatedAt          int64  `gorm:"not null"`
 	DeliveredAt        int64  `gorm:"not null"`
 	DeliveryReceipt    string `gorm:"type:text"`
+	Occurrences        int64  `gorm:"not null;default:0"`
 }
 
 func (ZTAPIHealthOutbox) TableName() string { return "ztapi_health_outbox" }

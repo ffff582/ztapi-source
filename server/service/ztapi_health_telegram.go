@@ -123,7 +123,15 @@ func ztapiHealthTelegramText(item ZTAPIHealthWorkItem, now time.Time) string {
 		rule = "管理员依据复验结果手动恢复"
 	}
 	if item.Test {
-		return fmt.Sprintf("【ZTAPI 测试通知】\n结果：告警通道测试成功，本次没有修改或下架任何模型。\n时间（北京时间）：%s\n建议处理：无需处理。", trigger)
+		sample := ZTAPIHealthWorkItem{Kind: "customer_alert", ID: item.ID, Alert: ZTAPIHealthAlertMetadata{
+			MetadataStatus: "available", Username: "TEST-USER", Model: "TEST-MODEL", ChannelName: "测试线路",
+			ErrorCode: "upstream_http_error", HTTPStatus: new(int), OpenedAt: d.OpenedAt, Occurrences: 1,
+		}}
+		*sample.Alert.HTTPStatus = 502
+		return fmt.Sprintf("【ZTAPI 测试通知】\n结果：告警通道测试成功，本次没有修改或下架任何模型。\n时间（北京时间）：%s\n建议处理：无需处理。\n以下是新提醒格式的模拟示例，不是真实客户故障：\n\n%s", trigger, ztapiCustomerAlertText(sample, now))
+	}
+	if item.Kind == "customer_alert" {
+		return ztapiCustomerAlertText(item, now)
 	}
 	status := "未提供"
 	if d.HTTPStatus != nil && *d.HTTPStatus >= 100 && *d.HTTPStatus <= 599 {

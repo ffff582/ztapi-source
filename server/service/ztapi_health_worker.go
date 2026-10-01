@@ -164,6 +164,10 @@ type ZTAPIHealthWorkItem struct {
 }
 
 type ZTAPIHealthAlertMetadata struct {
+	Username                 string   `json:"username,omitempty"`
+	UserID                   int      `json:"user_id,omitempty"`
+	ChannelName              string   `json:"channel_name,omitempty"`
+	Occurrences              int64    `json:"occurrences,omitempty"`
 	MetadataStatus           string   `json:"metadata_status"`
 	Model                    string   `json:"model"`
 	Rule                     string   `json:"rule"`
@@ -197,6 +201,8 @@ type ZTAPIHealthAlertMetadata struct {
 
 func ztapiHealthSafeAlertMetadata(item ZTAPIHealthWorkItem, now time.Time) ZTAPIHealthAlertMetadata {
 	d := item.Alert
+	d.Username = ztapiCustomerSafeLabel(d.Username)
+	d.ChannelName = ztapiCustomerSafeLabel(d.ChannelName)
 	d.UpstreamRequestID = ztapiHealthSafeRequestID(d.UpstreamRequestID)
 	d.TriggerUpstreamRequestID = ztapiHealthSafeRequestID(d.TriggerUpstreamRequestID)
 	d.ProbeRequestID = ztapiHealthSafeRequestID(d.ProbeRequestID)
@@ -432,6 +438,9 @@ func AttachZTAPIHealthStore(backend ZTAPIHealthWorkerBackend, store *model.ZTAPI
 			}
 			if kind == "alert" || kind == "route_alert" || kind == "recovery_alert" {
 				item.Alert = ztapiHealthLoadAlertMetadata(ctx, store, item)
+			}
+			if kind == "customer_alert" {
+				item.Alert = ztapiCustomerAlertMetadata(ctx, store, job)
 			}
 			items = append(items, item)
 		}
@@ -1316,7 +1325,7 @@ func (w *ZTAPIHealthWorker) RunOnce(ctx context.Context) (resultErr error) {
 		}
 		stop()
 	}
-	for _, kind := range []string{"unpublish", "route_alert", "alert", "recovery_alert", "alert_test", "coverage"} {
+	for _, kind := range []string{"unpublish", "customer_alert", "route_alert", "alert", "recovery_alert", "alert_test", "coverage"} {
 		outboxCtx, stop := context.WithTimeout(ctx, w.config.OutboxTimeout)
 		if err := w.runOutbox(outboxCtx, kind); err != nil {
 			failures = append(failures, err)
@@ -1652,7 +1661,7 @@ func validZTAPIHealthWebhook(raw string) bool {
 }
 
 func (w *ZTAPIHealthWorker) runOutbox(ctx context.Context, kind string) error {
-	if (kind == "alert" || kind == "route_alert" || kind == "recovery_alert" || kind == "alert_test") && !validZTAPIHealthAlertRecipient(w.config) {
+	if (kind == "alert" || kind == "route_alert" || kind == "recovery_alert" || kind == "alert_test" || kind == "customer_alert") && !validZTAPIHealthAlertRecipient(w.config) {
 		w.status(ctx, "alert_recipient_missing_or_invalid", "")
 		return nil
 	}
@@ -1707,10 +1716,10 @@ func (w *ZTAPIHealthWorker) runOutbox(ctx context.Context, kind string) error {
 		}
 		if !delivery.Accepted {
 			w.status(ctx, delivery.Code, strconv.FormatInt(item.ID, 10))
-			if kind == "alert" || kind == "route_alert" || kind == "recovery_alert" || kind == "alert_test" {
+			if kind == "alert" || kind == "route_alert" || kind == "recovery_alert" || kind == "alert_test" || kind == "customer_alert" {
 				common.SysError(fmt.Sprintf("ztapi health alert delivery pending: outbox=%d code=%s", item.ID, delivery.Code))
 			}
-		} else if kind == "alert" || kind == "route_alert" || kind == "recovery_alert" || kind == "alert_test" {
+		} else if kind == "alert" || kind == "route_alert" || kind == "recovery_alert" || kind == "alert_test" || kind == "customer_alert" {
 			w.status(ctx, delivery.Code, strconv.FormatInt(item.ID, 10))
 		}
 	}
@@ -1744,6 +1753,12 @@ func sendZTAPIHealthAlert(ctx context.Context, config ZTAPIHealthWorkerConfig, i
 }
 
 func deliverZTAPIHealthAlert(ctx context.Context, config ZTAPIHealthWorkerConfig, item ZTAPIHealthWorkItem) (bool, string, string) {
+	if item.Kind == "customer_alert" {
+		d := ztapiHealthSafeAlertMetadata(item, config.Now())
+		if d.MetadataStatus != "available" || d.UserID <= 0 || d.Model == "unknown" || d.ChannelID <= 0 {
+			return false, "customer_alert_metadata_unavailable", ""
+		}
+	}
 	if config.TelegramConfigured || config.TelegramBotToken != "" || config.TelegramChatID != "" {
 		return sendZTAPIHealthTelegram(ctx, config, item)
 	}
@@ -1767,6 +1782,8 @@ func sendZTAPIHealthWebhook(ctx context.Context, config ZTAPIHealthWorkerConfig,
 		Details    ZTAPIHealthAlertMetadata `json:"details"`
 	}{"ztapi.health.incident", item.ID, item.IncidentID, item.ModelID, item.Generation, item.EventID, ztapiHealthSafeAlertMetadata(item, config.Now())}
 	switch item.Kind {
+	case "customer_alert":
+		payload.Event = "ztapi.health.customer_request_failed"
 	case "route_alert":
 		payload.Event = "ztapi.health.route_degraded"
 	case "recovery_alert":

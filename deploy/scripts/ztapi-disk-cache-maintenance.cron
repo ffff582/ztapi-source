@@ -1,0 +1,2 @@
+MAILTO=root
+43 4 * * * root /usr/local/sbin/ztapi-disk-cache-maintenance

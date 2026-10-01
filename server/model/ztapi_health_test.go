@@ -122,7 +122,10 @@ func TestZTAPIRealTrafficCannotTripCircuit(t *testing.T) {
 	require.Zero(t, incidents)
 	var outbox int64
 	require.NoError(t, s.DB.Model(&ZTAPIHealthOutbox{}).Count(&outbox).Error)
-	require.Zero(t, outbox)
+	require.EqualValues(t, 2, outbox)
+	var nonCustomer int64
+	require.NoError(t, s.DB.Model(&ZTAPIHealthOutbox{}).Where("kind <> ?", "customer_alert").Count(&nonCustomer).Error)
+	require.Zero(t, nonCustomer)
 }
 
 func TestZTAPICustomerExcludedOutcomesCreateNoVerificationOrCircuitChanges(t *testing.T) {

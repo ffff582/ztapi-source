@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "6ae82e040b051e5e9d9ffdda62b13acc718af297",
+  "release_commit": "28dcc3fd4cfc14620b3fa68398819d2d0a61c769",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-6ae82e040b051e5e9d9ffdda62b13acc718af297",
+  "source_tag": "production-28dcc3fd4cfc14620b3fa68398819d2d0a61c769",
   "files": [
     {
       "path": ".dockerignore",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "7f6de021a69427d4516542a98b1258dba1054aa3605a2f47c2e2d846cca10941",
+      "sha256": "da3bd68b08120cead762a06293f47e62ad56800c187363c80353f5722479f9ec",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "e46bd07b6a6aac14bb6d457e29d0dba8231c4a8ffc00c4e561acd8297f71bbc7",
+      "sha256": "4311aa66d9fa726eaabb48e645cb0eee8f5505b293b5ef15b22b595849532a8c",
       "size": 942
     },
     {
@@ -133,6 +133,16 @@
       "path": "deploy/nginx/ztapi.conf",
       "sha256": "d4a80eaa9f9b5ba8aa3cb670c42a0a0cc20187b1b619e5565d76a0605a6631a2",
       "size": 16132
+    },
+    {
+      "path": "deploy/scripts/ztapi-disk-cache-maintenance.cron",
+      "sha256": "a7e5d7058bce84e587099cdefae1e7a687f0b5838e3cbc94339c524a8994253c",
+      "size": 73
+    },
+    {
+      "path": "deploy/scripts/ztapi-disk-cache-maintenance.sh",
+      "sha256": "22ebf1e2bbf2bb0cff97b063c5ae4632b5241d3a626b6674130054ced50698b6",
+      "size": 637
     },
     {
       "path": "deploy/scripts/ztapi-image-acceptance-fingerprint.sh",
@@ -2425,6 +2435,16 @@
       "size": 74910
     },
     {
+      "path": "server/model/ztapi_customer_alert.go",
+      "sha256": "3b0939796340b6bd0f432adfd6b685bdeaf6ebb03773d64c5bef95595f5ca678",
+      "size": 1254
+    },
+    {
+      "path": "server/model/ztapi_customer_alert_test.go",
+      "sha256": "d82009d26d15a627fb8c612f39911a3636a40a0641fe4773944c5fd1a95f2bd9",
+      "size": 3397
+    },
+    {
       "path": "server/model/ztapi_embedding_contract_test.go",
       "sha256": "7f2e30f60c493b50c6114990e89f70f3158cb30192061643e148df56c408d8af",
       "size": 8531
@@ -2476,8 +2496,8 @@
     },
     {
       "path": "server/model/ztapi_health.go",
-      "sha256": "a767dc6e8d1717d7a0752b02e9dc5932165eab7632371aab17fdb853b2bf0c40",
-      "size": 25041
+      "sha256": "0735292e8da07fb1636eb76920dab1776023365856fd7114fd24e7f0e3e59c17",
+      "size": 25151
     },
     {
       "path": "server/model/ztapi_health_admission_cache_regression_test.go",
@@ -2506,8 +2526,8 @@
     },
     {
       "path": "server/model/ztapi_health_outbox.go",
-      "sha256": "2b3a47e0883f5df33b7541ec4523c4fc1adf4c26000bf27203d96b55150eac15",
-      "size": 19057
+      "sha256": "c0c2370d037d966df19a2f8b2a41c4352ba7a29a644536e9e62e807451b2721d",
+      "size": 19085
     },
     {
       "path": "server/model/ztapi_health_recovery_regression_test.go",
@@ -2516,13 +2536,13 @@
     },
     {
       "path": "server/model/ztapi_health_storage.go",
-      "sha256": "86883710c16096a30df55cb7cf6ef4f1bcae942bd07954de65fe33384073bb15",
-      "size": 12575
+      "sha256": "b250d5fab61648ce5d3c6baca0af88fd9de37f88c888d6c71bbff58ef602bf11",
+      "size": 12630
     },
     {
       "path": "server/model/ztapi_health_test.go",
-      "sha256": "9a8525195ff2640665aad6e1476bc3e476483c11791c89a646f0c2084e6fc664",
-      "size": 46436
+      "sha256": "9a6867f2652e54cce74b87acd4d723ede63fdc690cd55e2c0f37d882fbb84ec7",
+      "size": 46616
     },
     {
       "path": "server/model/ztapi_health_test_alert_test.go",
@@ -4780,6 +4800,16 @@
       "size": 2414
     },
     {
+      "path": "server/service/ztapi_customer_alert.go",
+      "sha256": "310eed39f726adf6f60e37382ea5987b38b352d89454ac9068baacb9e166fc0f",
+      "size": 4765
+    },
+    {
+      "path": "server/service/ztapi_customer_alert_test.go",
+      "sha256": "c231420886170cdc70a80c2363c960629449e27907868d68a48b0e652d8ecc9d",
+      "size": 4672
+    },
+    {
       "path": "server/service/ztapi_durable_billing.go",
       "sha256": "5e1a8d00a755de08d81347e0e31d486a3608a9cb59224eb633f128c7bb1b570c",
       "size": 11978
@@ -4816,8 +4846,8 @@
     },
     {
       "path": "server/service/ztapi_health_telegram.go",
-      "sha256": "acbfafecdfb52c352c175f7fce2e10647d729343a974cdcce40ded4eeea29ec8",
-      "size": 9064
+      "sha256": "fe98652809263a9c8c9d0963d6e4c9fc9db04fd3976377f983abd27ff23f31de",
+      "size": 9602
     },
     {
       "path": "server/service/ztapi_health_telegram_test.go",
@@ -4831,8 +4861,8 @@
     },
     {
       "path": "server/service/ztapi_health_worker.go",
-      "sha256": "5299fa8e7ec5ac91c64e665cdc0939f1cbe44b1256ab70d95d5eef6e0244af71",
-      "size": 97755
+      "sha256": "c49bcc8826fbd77d8a9215a7b531d18fbcb868d362dd1bb8fceb833624b144da",
+      "size": 98657
     },
     {
       "path": "server/service/ztapi_health_worker_test.go",
@@ -9465,6 +9495,11 @@
       "size": 15751
     },
     {
+      "path": "tools/audit_ztapi_routes.ps1",
+      "sha256": "caee0823b861cfdadd4f51f48eb9ac2e1f0714361dd6fef2e8df132c106cc0d8",
+      "size": 4750
+    },
+    {
       "path": "tools/ci-local-service.sh",
       "sha256": "f1f0ceafe5b155a207dea7c4b3a4f5796a5e7771d5e503bb9fabe8af808516ab",
       "size": 1919
@@ -9498,6 +9533,11 @@
       "path": "tools/public-source/templates/SOURCE-OFFER.md",
       "sha256": "fae9342999ee4e484d47fd16b399d47fa9c39b0b574dc3faf2cec380ed79dabf",
       "size": 871
+    },
+    {
+      "path": "tools/report_ztapi_routes.py",
+      "sha256": "c616df7f478e6dd170ca23eaa286c731a316d5983b9a6f98539f7597b3a3553a",
+      "size": 9285
     },
     {
       "path": "tools/test_generate_ztapi_quote_ab.py",

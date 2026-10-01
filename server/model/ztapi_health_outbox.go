@@ -75,7 +75,7 @@ func (s *ZTAPIHealthStore) GetTestAlert(ctx context.Context, operationID string)
 // ClaimOutbox leases at most 100 durable jobs. Delivery is at-least-once;
 // receivers should deduplicate using DedupKey, not LeaseToken.
 func (s *ZTAPIHealthStore) ClaimOutbox(ctx context.Context, kind string, limit int, leaseSeconds int64) ([]ZTAPIHealthOutbox, error) {
-	if kind != "alert" && kind != "route_alert" && kind != "recovery_alert" && kind != "alert_test" && kind != "unpublish" && kind != "coverage" {
+	if kind != "alert" && kind != "route_alert" && kind != "recovery_alert" && kind != "alert_test" && kind != "customer_alert" && kind != "unpublish" && kind != "coverage" {
 		return nil, errors.New("invalid ztapi health outbox kind")
 	}
 	if leaseSeconds <= 0 || leaseSeconds > 3600 {
