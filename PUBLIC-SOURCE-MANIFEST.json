@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "be91a2cc8617ba1c70164f741bb8539b16cd306f",
+  "release_commit": "05471559504877f12a3cf080c535e85dff33822a",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-be91a2cc8617ba1c70164f741bb8539b16cd306f",
+  "source_tag": "production-05471559504877f12a3cf080c535e85dff33822a",
   "files": [
     {
       "path": ".dockerignore",
@@ -31,8 +31,8 @@
     },
     {
       "path": ".github/workflows/ztapi-financial-ci.yml",
-      "sha256": "9cfbe2c7059e0be8393fe605ace88cb6f1ec6b1759d9b40418bb0ec54c4e29a6",
-      "size": 9599
+      "sha256": "e7d61d55c0d77ac01ccbcec268de472666b68b6fec16d887cc212939e55603ac",
+      "size": 9934
     },
     {
       "path": ".github/workflows/ztapi-production-alert-acceptance.yml",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "eb5b5bd069a90bcb1bff2f68b8bd149f54009aa0c86784510529b28e20346f86",
+      "sha256": "f6fb07324a57481408540059edae120fd28cbe68e136828279926a68dca8f854",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "ad639411cc7e1573d31b515378ccdd2beacb00df4952eb72d5be390f189efc9c",
+      "sha256": "ee5468c4c42eca870eafb1317e00fc4183a5eed4f3a0dbfaa6d15a1414855f4c",
       "size": 942
     },
     {
@@ -2716,13 +2716,18 @@
     },
     {
       "path": "server/model/ztapi_quotation_ab.go",
-      "sha256": "fb94c4ed46daa58929a355fd7e616815db6332ee0b6e98877ebb3631df6d9168",
-      "size": 4418
+      "sha256": "dff1eb3bc2e8bea1ba166572086815badc214ef7fa9e0f8ba31bd19a403e5562",
+      "size": 5323
     },
     {
       "path": "server/model/ztapi_quotation_ab_20260915.json",
       "sha256": "289f88b29336f4c8a198c2ace935ff205fbaff19fbbd19fb257e93a34b7ea7e2",
       "size": 65736
+    },
+    {
+      "path": "server/model/ztapi_quotation_ab_cache_test.go",
+      "sha256": "82f6ca44a0f410112c88e2a44aa89f4bd534cb68ab00da9d94cb0193bf8f6ee3",
+      "size": 2237
     },
     {
       "path": "server/model/ztapi_quotation_ab_identity.go",

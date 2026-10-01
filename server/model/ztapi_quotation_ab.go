@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
+	"sync"
 
 	"github.com/shopspring/decimal"
 )
@@ -87,7 +90,29 @@ func (quote ZTAPIABQuotationManifest) PublishablePricingBasis(modelName string) 
 	return rows, policy, nil
 }
 
+var cachedZTAPIQuotationAB = sync.OnceValues(parseZTAPIQuotationAB)
+
+// Only the embedded quotation is cached; runtime publication and price-source
+// authority still comes from the database. Callers receive independent data.
 func ZTAPIQuotationABEntries() (ZTAPIABQuotationManifest, error) {
+	quote, err := cachedZTAPIQuotationAB()
+	quote.Entries = slices.Clone(quote.Entries)
+	for entryIndex := range quote.Entries {
+		entry := &quote.Entries[entryIndex]
+		entry.TokenPriceRules = slices.Clone(entry.TokenPriceRules)
+		for ruleIndex := range entry.TokenPriceRules {
+			rule := &entry.TokenPriceRules[ruleIndex]
+			rule.Conditions = slices.Clone(rule.Conditions)
+			rule.NotApplicable = slices.Clone(rule.NotApplicable)
+			rule.TemporaryFree = slices.Clone(rule.TemporaryFree)
+			rule.Cost = maps.Clone(rule.Cost)
+			rule.Sale = maps.Clone(rule.Sale)
+		}
+	}
+	return quote, err
+}
+
+func parseZTAPIQuotationAB() (ZTAPIABQuotationManifest, error) {
 	var quote ZTAPIABQuotationManifest
 	if err := json.Unmarshal(ztapiQuotationABJSON, &quote); err != nil {
 		return quote, err

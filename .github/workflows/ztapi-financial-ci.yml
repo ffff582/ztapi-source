@@ -252,6 +252,15 @@ jobs:
           -run '^(TestZTAPIPublicationCache.*|TestZTAPIHealthCache.*|TestDistributeQuotationLookupFailureCannotSkipSnapshot|TestZTAPIHealthDistributeCircuitBeforeUnpublishedAndPrecharge)$'
           -count=1 -v -timeout=3m
 
+      - name: Run immutable quotation performance and isolation gates
+        working-directory: server
+        env:
+          CGO_ENABLED: "1"
+        run: >-
+          go test -race ./model
+          -run '^TestZTAPIQuotationAB(WarmReadAvoidsRepeatedParsing|CachedReadsKeepIndependentNestedData)$'
+          -count=1 -v -timeout=3m
+
       - name: Stop isolated cached MySQL
         if: always()
         run: bash tools/ci-local-service.sh stop mysql
