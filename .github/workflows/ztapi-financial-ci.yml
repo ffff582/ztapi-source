@@ -84,7 +84,13 @@ jobs:
 
       - name: Run offline managed Chat Completions stream compatibility
         working-directory: server
-        run: go test ./relay/channel/openai -run '^TestZTAPI(Stream|NonStream)Metadata' -count=1 -timeout=2m
+        run: go test ./relay/channel/openai -run '^TestZTAPI((Stream|NonStream)Metadata|ClaudeToolPolicy)' -count=1 -timeout=2m
+
+      - name: Run streamed long-task shutdown race regression
+        working-directory: server
+        run: |
+          go test -race ./relay/helper -run '^TestZTAPIStreamShutdown' -count=1 -timeout=2m
+          go test -race ./relay/helper -run '^TestZTAPIStreamShutdown(Cancellation|Handler|Drains|Ping)' -count=10 -timeout=2m
 
       - name: Run offline UI suites
         run: |

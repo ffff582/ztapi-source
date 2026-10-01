@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "d4e2710ca254d8726292026846adfcbdda994e59",
+  "release_commit": "fc4913d2158a99f150ce8a1338a785ccfecd565d",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-d4e2710ca254d8726292026846adfcbdda994e59",
+  "source_tag": "production-fc4913d2158a99f150ce8a1338a785ccfecd565d",
   "files": [
     {
       "path": ".dockerignore",
@@ -31,8 +31,8 @@
     },
     {
       "path": ".github/workflows/ztapi-financial-ci.yml",
-      "sha256": "02e9fd94c67929d01c3a2af0febd9ffd6ccc2cb9c06868c54f4029a9d5c74db5",
-      "size": 9946
+      "sha256": "b8cddb494f6dd6b688ec496d5c8f139662e5711101937e14cbb56712ee402a7d",
+      "size": 10296
     },
     {
       "path": ".github/workflows/ztapi-production-alert-acceptance.yml",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "55dd208b64051922ea3c85ee606b3717ce307a499266ecc8bbf104ae61c05dcc",
+      "sha256": "da777d9b2a02c665246340f58a1775c76e6606e1f0f649c6f7e591f6bed6fbd6",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "d1d9d1793a9187fecf35ba94abb5d177ca8643220605ee73adeef1048a567985",
+      "sha256": "5c4333f28053b90f30f66681098929e2adb108d45c4c51d8ddeddc49fa14823f",
       "size": 942
     },
     {
@@ -3466,8 +3466,8 @@
     },
     {
       "path": "server/relay/channel/openai/adaptor.go",
-      "sha256": "a9af108277b78f7e5f34756223dfb13b1f4288da4df036f807550f93c9726f22",
-      "size": 23320
+      "sha256": "70b6201faf76ca64c4257c025e4fdebd9d97b2c47c326dd4570461a63dd4b499",
+      "size": 23834
     },
     {
       "path": "server/relay/channel/openai/audio.go",
@@ -3533,6 +3533,11 @@
       "path": "server/relay/channel/openai/usage.go",
       "sha256": "8b2fefa8908f86074a600ef6900414847377b1c769c2526f8e48a2cc2286d075",
       "size": 4192
+    },
+    {
+      "path": "server/relay/channel/openai/ztapi_claude_tool_policy_test.go",
+      "sha256": "3643dd28f4982494edba7f498aa04387b4bc190693546dff42782d725e156f0a",
+      "size": 3403
     },
     {
       "path": "server/relay/channel/openai/ztapi_image_response_gate_test.go",
@@ -4166,8 +4171,13 @@
     },
     {
       "path": "server/relay/helper/stream_scanner.go",
-      "sha256": "43b1395a46982768f4f3ef24c600a85503e15568d8e024972a94aec1900af4cd",
-      "size": 8135
+      "sha256": "3e796fe5c2eaf0bee8ddf0c344ed9ae27f290675f9e563cbf502affdc9c6693d",
+      "size": 8410
+    },
+    {
+      "path": "server/relay/helper/stream_scanner_shutdown_test.go",
+      "sha256": "7fc1370d6ef4a2d092a11a0f04a06ccf491f10f4db028c66fefcf24339c7e422",
+      "size": 5987
     },
     {
       "path": "server/relay/helper/stream_scanner_test.go",

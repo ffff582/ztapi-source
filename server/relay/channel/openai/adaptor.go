@@ -231,6 +231,13 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 	if request == nil {
 		return nil, errors.New("request is nil")
 	}
+	// Pool Claude routes may expose provider-side agent tools unless explicitly
+	// disabled. Never invent tools for a client that did not supply any.
+	if info.ZTAPIPublicationSnapshot != nil && info.RelayMode == relayconstant.RelayModeChatCompletions &&
+		info.RelayFormat == types.RelayFormatOpenAI && strings.HasPrefix(info.OriginModelName, "zt-claude-") &&
+		len(request.Tools) == 0 && len(request.Functions) == 0 && request.ToolChoice == nil && len(request.FunctionCall) == 0 {
+		request.ToolChoice = "none"
+	}
 	if info.ChannelType != constant.ChannelTypeOpenAI && info.ChannelType != constant.ChannelTypeAzure {
 		request.StreamOptions = nil
 	}

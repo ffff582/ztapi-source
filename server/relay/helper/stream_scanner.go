@@ -57,13 +57,6 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	// 无条件新建 StreamStatus
 	info.StreamStatus = relaycommon.NewStreamStatus()
 
-	// 确保响应体总是被关闭
-	defer func() {
-		if resp.Body != nil {
-			resp.Body.Close()
-		}
-	}()
-
 	streamingTimeout := streamingTimeoutDuration(constant.StreamingTimeout)
 
 	var (
@@ -74,6 +67,14 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 		writeMutex sync.Mutex     // Mutex to protect concurrent writes
 		wg         sync.WaitGroup // 用于等待所有 goroutine 退出
 	)
+	notifyStop := func() {
+		select {
+		case stopChan <- true:
+		default:
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	ctx = context.WithValue(ctx, "stop_chan", stopChan)
 
 	generalSettings := operation_setting.GetGeneralSetting()
 	pingEnabled := generalSettings.PingIntervalEnabled && !info.DisablePing
@@ -94,12 +95,14 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 
 	// 改进资源清理，确保所有 goroutine 正确退出
 	defer func() {
-		// 通知所有 goroutine 停止
-		common.SafeSendBool(stopChan, true)
-
+		cancel()
 		ticker.Stop()
 		if pingTicker != nil {
 			pingTicker.Stop()
+		}
+		// Closing before joining interrupts a scanner blocked in upstream Read.
+		if resp.Body != nil {
+			resp.Body.Close()
 		}
 
 		// 等待所有 goroutine 退出，最多等待5秒
@@ -111,31 +114,31 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 
 		select {
 		case <-done:
+			if info.StreamStatus.IsNormalEnd() && !info.StreamStatus.HasErrors() {
+				logger.LogInfo(c, fmt.Sprintf("stream ended: %s", info.StreamStatus.Summary()))
+			} else {
+				logger.LogError(c, fmt.Sprintf("stream ended: %s, received=%d", info.StreamStatus.Summary(), info.ReceivedResponseCount))
+			}
 		case <-time.After(5 * time.Second):
 			logger.LogError(c, "timeout waiting for goroutines to exit")
 		}
-
-		close(stopChan)
+		// Multiple workers can notify stop; cancellation, not channel closure,
+		// broadcasts shutdown without racing a worker's deferred send.
 	}()
 
 	scanner.Split(bufio.ScanLines)
 	SetEventStreamHeaders(c)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	ctx = context.WithValue(ctx, "stop_chan", stopChan)
-
 	// Handle ping data sending with improved error handling
 	if pingEnabled && pingTicker != nil {
 		wg.Add(1)
 		gopool.Go(func() {
+			defer wg.Done()
 			defer func() {
-				wg.Done()
 				if r := recover(); r != nil {
 					logger.LogError(c, fmt.Sprintf("ping goroutine panic: %v", r))
 					info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonPanic, fmt.Errorf("ping panic: %v", r))
-					common.SafeSendBool(stopChan, true)
+					notifyStop()
 				}
 				logger.LogDebug(c, "ping goroutine exited")
 			}()
@@ -150,7 +153,14 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 				case <-pingTicker.C:
 					// 使用超时机制防止写操作阻塞
 					done := make(chan error, 1)
+					wg.Add(1)
 					gopool.Go(func() {
+						defer wg.Done()
+						defer func() {
+							if r := recover(); r != nil {
+								done <- fmt.Errorf("ping write panic: %v", r)
+							}
+						}()
 						writeMutex.Lock()
 						defer writeMutex.Unlock()
 						done <- PingData(c)
@@ -170,12 +180,8 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 						return
 					case <-ctx.Done():
 						return
-					case <-stopChan:
-						return
 					}
 				case <-ctx.Done():
-					return
-				case <-stopChan:
 					return
 				case <-c.Request.Context().Done():
 					// 监听客户端断开连接
@@ -192,20 +198,22 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 
 	wg.Add(1)
 	gopool.Go(func() {
+		defer wg.Done()
 		defer func() {
-			wg.Done()
 			if r := recover(); r != nil {
 				logger.LogError(c, fmt.Sprintf("data handler goroutine panic: %v", r))
 				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonPanic, fmt.Errorf("handler panic: %v", r))
 			}
-			common.SafeSendBool(stopChan, true)
+			notifyStop()
 		}()
 		sr := newStreamResult(info.StreamStatus)
 		for data := range dataChan {
 			sr.reset()
-			writeMutex.Lock()
-			dataHandler(data, sr)
-			writeMutex.Unlock()
+			func() {
+				writeMutex.Lock()
+				defer writeMutex.Unlock()
+				dataHandler(data, sr)
+			}()
 			if sr.IsStopped() {
 				return
 			}
@@ -215,22 +223,21 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	// Scanner goroutine with improved error handling
 	wg.Add(1)
 	common.RelayCtxGo(ctx, func() {
+		defer wg.Done()
 		defer func() {
 			close(dataChan)
-			wg.Done()
 			if r := recover(); r != nil {
 				logger.LogError(c, fmt.Sprintf("scanner goroutine panic: %v", r))
 				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonPanic, fmt.Errorf("scanner panic: %v", r))
 			}
-			common.SafeSendBool(stopChan, true)
+			// Closing dataChan lets the handler drain before it wakes the main
+			// goroutine. Upstream EOF is not client delivery completion.
 			logger.LogDebug(c, "scanner goroutine exited")
 		}()
 
 		for scanner.Scan() {
 			// 检查是否需要停止
 			select {
-			case <-stopChan:
-				return
 			case <-ctx.Done():
 				return
 			case <-c.Request.Context().Done():
@@ -262,8 +269,6 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 				case dataChan <- data:
 				case <-ctx.Done():
 					return
-				case <-stopChan:
-					return
 				}
 			} else {
 				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonDone, nil)
@@ -289,11 +294,5 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 		// EndReason already set by the goroutine that triggered stopChan
 	case <-c.Request.Context().Done():
 		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, c.Request.Context().Err())
-	}
-
-	if info.StreamStatus.IsNormalEnd() && !info.StreamStatus.HasErrors() {
-		logger.LogInfo(c, fmt.Sprintf("stream ended: %s", info.StreamStatus.Summary()))
-	} else {
-		logger.LogError(c, fmt.Sprintf("stream ended: %s, received=%d", info.StreamStatus.Summary(), info.ReceivedResponseCount))
 	}
 }
