@@ -138,6 +138,7 @@ func Distribute() func(c *gin.Context) {
 		// token errors for both public and official aliases.
 		if identityRequestedModel != "" {
 			if healthErr := model.CheckZTAPIHealthModelAvailable(identityRequestedModel); healthErr != nil {
+				logZTAPIPublicationLookupFailure(c, identityRequestedModel, healthErr)
 				err := relaycommon.ZTAPIHealthAdmissionError(c.Request.Context(), healthErr, errors.Is(healthErr, model.ErrZTAPIHealthCircuitOpen))
 				abortWithOpenAiMessage(c, err.StatusCode, err.Error(), err.GetErrorCode())
 				return
@@ -151,6 +152,7 @@ func Distribute() func(c *gin.Context) {
 		if identityRequestedModel != "" {
 			canonical, _, canonicalErr := model.ResolveZTAPICanonicalPublicName(identityRequestedModel)
 			if canonicalErr != nil {
+				logZTAPIPublicationLookupFailure(c, identityRequestedModel, canonicalErr)
 				abortWithOpenAiMessage(c, http.StatusServiceUnavailable, "模型发布状态暂时不可用", types.ErrorCodeModelNotFound)
 				return
 			}
@@ -168,6 +170,7 @@ func Distribute() func(c *gin.Context) {
 				return
 			}
 			if resolveErr != nil {
+				logZTAPIPublicationLookupFailure(c, identityRequestedModel, resolveErr)
 				healthErr := relaycommon.ZTAPIHealthAdmissionError(c.Request.Context(), resolveErr, errors.Is(resolveErr, model.ErrZTAPIHealthCircuitOpen))
 				abortWithOpenAiMessage(c, healthErr.StatusCode, healthErr.Error(), healthErr.GetErrorCode())
 				return
@@ -182,6 +185,7 @@ func Distribute() func(c *gin.Context) {
 				return
 			}
 			if resolveErr != nil {
+				logZTAPIPublicationLookupFailure(c, identityRequestedModel, resolveErr)
 				abortWithOpenAiMessage(c, http.StatusServiceUnavailable, "model publication changed during authorization", types.ErrorCodeModelNotFound)
 				return
 			}

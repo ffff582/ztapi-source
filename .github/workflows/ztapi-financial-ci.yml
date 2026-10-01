@@ -245,6 +245,13 @@ jobs:
           -run 'TestZTAPI(RealTrafficCannotTripCircuit|CustomerExcludedOutcomesCreateNoVerificationOrCircuitChanges|RealTrafficSourceAwareClassification|RealCustomerExclusionReasonsOverrideFailureAndRetryAttempts|VerificationWorkerIdleDoesNoPaidPreparation|PoolFailureKeepsModelPublishedWhenEnterpriseRouteIsAvailable|AllEligibleRoutesVerifiedOpenCreatesOneModelIncident|AggregateIncludesTrustedOfficialRoute|AggregateExcludesDisabledAbility|VerifiedOpenRouteIsRejectedBeforeRealDispatchButProbeCanEnter|HealthTelegramDistinguishesRouteModelAndRecovery|HealthAdminReadAndRecovery)'
           -count=1 -v -timeout=5m
 
+      - name: Run publication cache concurrency and fail-closed gates
+        working-directory: server
+        run: >-
+          go test ./model ./middleware
+          -run '^(TestZTAPIPublicationCache.*|TestZTAPIHealthCache.*|TestDistributeQuotationLookupFailureCannotSkipSnapshot|TestZTAPIHealthDistributeCircuitBeforeUnpublishedAndPrecharge)$'
+          -count=1 -v -timeout=3m
+
       - name: Stop isolated cached MySQL
         if: always()
         run: bash tools/ci-local-service.sh stop mysql

@@ -31,13 +31,25 @@ func TestDistributeQuotationLookupFailureCannotSkipSnapshot(t *testing.T) {
 		}
 		reads++
 		if reads >= 2 {
-			tx.AddError(errors.New("test publication authority unavailable"))
+			tx.AddError(errors.New("test publication authority unavailable Bearer sk-test-must-not-be-logged"))
 		}
 	}))
 	t.Cleanup(func() { _ = f.db.Callback().Row().Remove(callback) })
+	var diagnostics bytes.Buffer
+	common.LogWriterMu.Lock()
+	oldWriter := gin.DefaultErrorWriter
+	gin.DefaultErrorWriter = &diagnostics
+	common.LogWriterMu.Unlock()
+	t.Cleanup(func() {
+		common.LogWriterMu.Lock()
+		gin.DefaultErrorWriter = oldWriter
+		common.LogWriterMu.Unlock()
+	})
 	called := false
 	router := gin.New()
 	router.POST("/v1/chat/completions", func(c *gin.Context) {
+		c.Set("id", 154)
+		c.Set(common.RequestIdKey, "catalog-failure-request")
 		common.SetContextKey(c, constant.ContextKeyUsingGroup, "default")
 		common.SetContextKey(c, constant.ContextKeyUserGroup, "default")
 	}, Distribute(), func(c *gin.Context) {
@@ -51,4 +63,11 @@ func TestDistributeQuotationLookupFailureCannotSkipSnapshot(t *testing.T) {
 	require.GreaterOrEqual(t, reads, 2, "fault must occur after initial model resolution")
 	require.False(t, called, "failed revalidation must never enter relay without an approved snapshot")
 	require.Equal(t, http.StatusServiceUnavailable, w.Code)
+	require.Contains(t, diagnostics.String(), `"event":"ztapi_publication_lookup_failed"`)
+	require.Contains(t, diagnostics.String(), `"requested_model":"zt-gpt-5.5"`)
+	require.Contains(t, diagnostics.String(), `"request_id":"catalog-failure-request"`)
+	require.Contains(t, diagnostics.String(), `"user_id":154`)
+	require.Contains(t, diagnostics.String(), `"cause":"lookup_error"`)
+	require.NotContains(t, diagnostics.String(), "sk-test-must-not-be-logged")
+	require.NotContains(t, w.Body.String(), "publication authority unavailable")
 }

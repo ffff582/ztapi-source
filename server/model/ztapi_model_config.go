@@ -809,6 +809,8 @@ type ztapiPublishedModel struct {
 
 var ztapiPublicationCacheTTL = 5 * time.Second
 
+var ztapiAliasRefreshMu sync.Mutex
+
 var ztapiAliasCache = struct {
 	sync.RWMutex
 	epoch           uint64
@@ -930,13 +932,28 @@ func isZTAPITableMissingError(err error) bool {
 }
 
 func ensureZTAPIAliasCache() error {
+	for attempt := 0; attempt < 3; attempt++ {
+		err := ensureZTAPIAliasCacheOnce()
+		if !errors.Is(err, ErrZTAPIModelVersionConflict) {
+			return err
+		}
+	}
+	return ErrZTAPIModelVersionConflict
+}
+
+func ensureZTAPIAliasCacheOnce() error {
+	// Recheck freshness after waiting, so a cold burst shares one reload.
+	ztapiAliasRefreshMu.Lock()
 	ztapiAliasCache.RLock()
 	fresh := ztapiAliasCache.loaded && time.Since(ztapiAliasCache.loadedAt) < ztapiPublicationCacheTTL
 	ztapiAliasCache.RUnlock()
+	var refreshErr error
 	if !fresh {
-		if err := refreshZTAPIAliasCache(); err != nil {
-			return err
-		}
+		refreshErr = refreshZTAPIAliasCache()
+	}
+	ztapiAliasRefreshMu.Unlock()
+	if refreshErr != nil {
+		return refreshErr
 	}
 	if err := filterZTAPIHealthAliasCache(); err != nil {
 		return err

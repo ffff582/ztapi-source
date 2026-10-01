@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "ded598532760479a6582a3bfe8ddc6bc6883bb95",
+  "release_commit": "be91a2cc8617ba1c70164f741bb8539b16cd306f",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-ded598532760479a6582a3bfe8ddc6bc6883bb95",
+  "source_tag": "production-be91a2cc8617ba1c70164f741bb8539b16cd306f",
   "files": [
     {
       "path": ".dockerignore",
@@ -31,8 +31,8 @@
     },
     {
       "path": ".github/workflows/ztapi-financial-ci.yml",
-      "sha256": "1a03fe7ad03a949157805c2e9e488d75276004e58893730cd3fb0aa66a7ab81d",
-      "size": 9216
+      "sha256": "9cfbe2c7059e0be8393fe605ace88cb6f1ec6b1759d9b40418bb0ec54c4e29a6",
+      "size": 9599
     },
     {
       "path": ".github/workflows/ztapi-production-alert-acceptance.yml",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "9a19743b0adbab95c2292a219c384bdf8be4cc60c95270883ab3681ba05f21d8",
+      "sha256": "eb5b5bd069a90bcb1bff2f68b8bd149f54009aa0c86784510529b28e20346f86",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "bfa6004cb26aba18cf07a0011b8c24350d996daf9100f5b99ac9426392467ea4",
+      "sha256": "ad639411cc7e1573d31b515378ccdd2beacb00df4952eb72d5be390f189efc9c",
       "size": 942
     },
     {
@@ -1881,13 +1881,13 @@
     },
     {
       "path": "server/middleware/distributor.go",
-      "sha256": "f1a23d5d9b0c3b83c8b2898613f8832f0d2091d04d1f5042db9eae191f3cef9f",
-      "size": 28289
+      "sha256": "818babdfe553f5981eab644baf672f58bcdddd40ffcee179b24a45db29f66d3d",
+      "size": 28594
     },
     {
       "path": "server/middleware/distributor_quotation_race_test.go",
-      "sha256": "2af67021953404592a4ca1d3615bfa2e00a3d524730ce220628367c32ee59c8e",
-      "size": 1919
+      "sha256": "dd2636fb2382c6b2b4a718e0c09ce7b712edece7291ceb27f34d9664b148a259",
+      "size": 2842
     },
     {
       "path": "server/middleware/distributor_ztapi_health_test.go",
@@ -2038,6 +2038,11 @@
       "path": "server/middleware/ztapi_health_probe_pin_test.go",
       "sha256": "25b0ca310422300b547e2b6864183f5c83d923d38e2f0bcfa3d7b4577bc3ca3d",
       "size": 7394
+    },
+    {
+      "path": "server/middleware/ztapi_publication_diagnostic.go",
+      "sha256": "ad80e09ac1e22b6378cdb057a8d1323f7f61364bc1e063e2a28144a6174adaf3",
+      "size": 1372
     },
     {
       "path": "server/middleware/ztapi_request_protocol.go",
@@ -2606,8 +2611,8 @@
     },
     {
       "path": "server/model/ztapi_model_config.go",
-      "sha256": "f20290ca87299b32f43f4e71f2e11f684c55c659258b9cc4a1bd211a857067d2",
-      "size": 44721
+      "sha256": "d27fc1554b8ba36eab41ff73e93fd019c22bfe628a0b8bb7443ba3d1b50d3005",
+      "size": 45163
     },
     {
       "path": "server/model/ztapi_model_config_test.go",
@@ -2688,6 +2693,11 @@
       "path": "server/model/ztapi_public_catalog_test.go",
       "sha256": "1c32740fe05a5c6b39ca5954dd7a2941e06b5c416c4b070a53e556880753b054",
       "size": 26857
+    },
+    {
+      "path": "server/model/ztapi_publication_cache_concurrency_test.go",
+      "sha256": "7119a32e225ab089fa0bfb3c387ee2ef12df2337b34c14eabbfb399a21bee1b2",
+      "size": 4604
     },
     {
       "path": "server/model/ztapi_publication_gate.go",
