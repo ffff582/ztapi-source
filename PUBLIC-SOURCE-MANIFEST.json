@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "05471559504877f12a3cf080c535e85dff33822a",
+  "release_commit": "d4e2710ca254d8726292026846adfcbdda994e59",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-05471559504877f12a3cf080c535e85dff33822a",
+  "source_tag": "production-d4e2710ca254d8726292026846adfcbdda994e59",
   "files": [
     {
       "path": ".dockerignore",
@@ -31,8 +31,8 @@
     },
     {
       "path": ".github/workflows/ztapi-financial-ci.yml",
-      "sha256": "e7d61d55c0d77ac01ccbcec268de472666b68b6fec16d887cc212939e55603ac",
-      "size": 9934
+      "sha256": "02e9fd94c67929d01c3a2af0febd9ffd6ccc2cb9c06868c54f4029a9d5c74db5",
+      "size": 9946
     },
     {
       "path": ".github/workflows/ztapi-production-alert-acceptance.yml",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "f6fb07324a57481408540059edae120fd28cbe68e136828279926a68dca8f854",
+      "sha256": "55dd208b64051922ea3c85ee606b3717ce307a499266ecc8bbf104ae61c05dcc",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "ee5468c4c42eca870eafb1317e00fc4183a5eed4f3a0dbfaa6d15a1414855f4c",
+      "sha256": "d1d9d1793a9187fecf35ba94abb5d177ca8643220605ee73adeef1048a567985",
       "size": 942
     },
     {
@@ -3506,8 +3506,8 @@
     },
     {
       "path": "server/relay/channel/openai/relay-openai.go",
-      "sha256": "dfb118215e1208c3c77d701945e6db4203b18d940cdf7b5d458ba1efb2ded154",
-      "size": 10555
+      "sha256": "42c3ec266249b5c1d5e92cd4a11f44fc23533df3b17da104aad7fc2283c77a50",
+      "size": 10836
     },
     {
       "path": "server/relay/channel/openai/relay_image.go",
@@ -3538,6 +3538,11 @@
       "path": "server/relay/channel/openai/ztapi_image_response_gate_test.go",
       "sha256": "39ff94a4f6a201bfaab40278f6218a35d4e8aabe61f7934f3bb82c20dd53ea6f",
       "size": 21849
+    },
+    {
+      "path": "server/relay/channel/openai/ztapi_nonstream_metadata_test.go",
+      "sha256": "7e3b054a8762e5f7d6db6aefa85f70fd9fc3c34c0a55b7ef6b9bc2227e5bdc87",
+      "size": 4178
     },
     {
       "path": "server/relay/channel/openai/ztapi_stream_metadata.go",

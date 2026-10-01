@@ -293,6 +293,13 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 		responseBody = geminiRespStr
 	}
 
+	if metadata := newZTAPIStreamMetadata(info); metadata != nil {
+		normalized, normalizeErr := metadata.normalize(string(responseBody))
+		if normalizeErr != nil {
+			return nil, types.NewError(normalizeErr, types.ErrorCodeBadResponseBody)
+		}
+		responseBody = []byte(normalized)
+	}
 	service.IOCopyBytesGracefully(c, resp, responseBody)
 
 	return &simpleResponse.Usage, nil
