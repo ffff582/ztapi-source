@@ -82,6 +82,10 @@ jobs:
         working-directory: server
         run: go test ./... -run 'ZTAPI.*(Media|Image|Video)' -count=1 -timeout=8m
 
+      - name: Run offline managed Chat Completions stream compatibility
+        working-directory: server
+        run: go test ./relay/channel/openai -run '^TestZTAPIStreamMetadata' -count=1 -timeout=2m
+
       - name: Run offline UI suites
         run: |
           pnpm --filter @ztapi/console test -- --run
