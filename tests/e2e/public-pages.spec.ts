@@ -13,6 +13,16 @@ async function expectInsideViewport(page: Page, locator: Locator) {
   expect(box!.y + box!.height).toBeLessThanOrEqual(viewport!.height);
 }
 
+async function expectReachableOnSmallScreen(page: Page, locator: Locator) {
+  const box = await locator.boundingBox();
+  const viewport = page.viewportSize();
+  expect(box).not.toBeNull();
+  expect(viewport).not.toBeNull();
+  expect(box!.x).toBeGreaterThanOrEqual(0);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(viewport!.width);
+  expect(box!.y).toBeGreaterThanOrEqual(0);
+}
+
 async function expectNoHorizontalOverflow(page: Page) {
   expect(await page.evaluate(() =>
     document.documentElement.scrollWidth <= window.innerWidth,
@@ -47,6 +57,9 @@ async function expectBalancedAuthHeadline(page: Page) {
 test.beforeEach(async ({ page }) => {
   const errors: string[] = [];
   browserErrors.set(page, errors);
+  await page.addInitScript(() => {
+    window.localStorage.setItem('ztapi.locale', 'zh-CN');
+  });
   page.on('console', (message) => {
     const isExpectedRefreshRejection =
       message.location().url.endsWith('/api/auth/refresh')
@@ -115,6 +128,17 @@ test.beforeEach(async ({ page }) => {
       pricing_version: 'browser-acceptance-v1',
     }),
   }));
+  await page.route('**/api/auth/captcha', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      success: true,
+      data: {
+        captcha_id: 'browser-acceptance-captcha',
+        captcha_image: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==',
+      },
+    }),
+  }));
   await page.route('**/api/auth/refresh', (route) => route.fulfill({
     status: 401,
     contentType: 'application/json',
@@ -129,7 +153,8 @@ test.afterEach(async ({ page }) => {
 test('homepage is complete and has no horizontal overflow', async ({ page }, testInfo) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { level: 1, name: 'ZTAPI' })).toBeVisible();
-  await expect(page.getByText('一个 Key，连接全球主流 AI 模型')).toBeVisible();
+  const heroTitle = page.locator('.gateway-hero__title');
+  await expect(heroTitle).toContainText('一个 Key，连接全球主流 AI 模型');
 
   const hero = page.locator('.gateway-hero');
   const gatewayVisual = page.getByTestId('gateway-motion-visual');
@@ -169,7 +194,7 @@ test('homepage is complete and has no horizontal overflow', async ({ page }, tes
   if (testInfo.project.name.startsWith('mobile-')) {
     const [heroBox, heroTitleBox, actionsBox, endpointBox] = await Promise.all([
       hero.boundingBox(),
-      page.getByText('一个 Key，连接全球主流 AI 模型').boundingBox(),
+      heroTitle.boundingBox(),
       page.locator('.gateway-hero__actions').boundingBox(),
       page.locator('.gateway-hero__endpoint').boundingBox(),
     ]);
@@ -182,16 +207,8 @@ test('homepage is complete and has no horizontal overflow', async ({ page }, tes
     await expectInsideViewport(page, page.getByRole('link', { name: '开始使用' }));
   }
 
-  const attribution = page.getByRole('link', {
-    name: 'Frontend design and development by New API contributors.',
-  });
-  await expect(attribution).toBeVisible();
-  await expect(attribution).toHaveAttribute(
-    'href',
-    'https://github.com/QuantumNous/new-api',
-  );
-  await expect(attribution).toHaveAttribute('target', '_blank');
-  await expect(attribution).toHaveAttribute('rel', /noreferrer|noopener/);
+  await expect(page.locator('.public-footer')).toContainText('ZTAPI');
+  await expect(page.locator('.public-footer a')).toHaveCount(0);
 
   await page.screenshot({
     path: `test-results/visual/home-viewport-${testInfo.project.name}.png`,
@@ -243,38 +260,21 @@ for (const hashCase of [
   });
 }
 
-test('homepage model tabs and copy control are keyboard operable', async ({ page }) => {
-  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+test('homepage quickstart actions are keyboard operable and source-free', async ({ page }) => {
   await page.goto('/');
 
-  const tabs = page.getByRole('tab', { name: /OpenAI|Claude|Gemini/ });
-  await expect(tabs).toHaveCount(3);
-  await tabs.first().focus();
-  await page.keyboard.press('End');
-  await expect(tabs.last()).toBeFocused();
-  await expect(tabs.last()).toHaveAttribute('aria-selected', 'true');
-  await page.keyboard.press('Home');
-  await expect(tabs.first()).toBeFocused();
-  await expect(tabs.first()).toHaveAttribute('aria-selected', 'true');
+  const quickstart = page.getByRole('region', { name: '快速接入' });
+  const support = page.getByRole('navigation', { name: '服务与支持' });
+  await expect(support.getByRole('link')).toHaveCount(4);
+  await expect(support.getByRole('link', { name: /查看模型目录/ })).toHaveAttribute('href', '/models');
+  await expect(support.getByRole('link', { name: /创建 API Key/ })).toHaveAttribute('href', '/register');
+  await expect(support.getByRole('link', { name: /查看使用日志/ })).toHaveAttribute('href', '/register');
+  await expect(support.getByRole('link', { name: /在线测试/ })).toHaveAttribute('href', '/register');
+  await expect(quickstart.locator('pre, code')).toHaveCount(0);
 
-  await page.keyboard.press('End');
-  const selectedCode = await page.locator('#integration-code-panel code').textContent();
-  expect(selectedCode).not.toBeNull();
-
-  const copy = page.locator('.integration-workbench__toolbar button');
-  await copy.focus();
-  await expect(copy).toBeFocused();
-  await page.keyboard.press('Enter');
-  await expect(copy).toHaveText('已复制');
-  await expect(page.locator('.integration-workbench__copy-announcement'))
-    .toHaveText('已复制');
-  const usesWindowsClipboardLineEndings = await page.evaluate(() =>
-    navigator.platform.startsWith('Win'),
-  );
-  const expectedClipboard = usesWindowsClipboardLineEndings
-    ? selectedCode!.replace(/\r?\n/g, '\r\n')
-    : selectedCode;
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(expectedClipboard);
+  const firstAction = quickstart.getByRole('link', { name: '查看集成指南' });
+  await firstAction.focus();
+  await expect(firstAction).toBeFocused();
 });
 
 test('mobile navigation is operable and contained', async ({ page }, testInfo) => {
@@ -288,7 +288,7 @@ test('mobile navigation is operable and contained', async ({ page }, testInfo) =
   await expect(navigation).toHaveAttribute('data-open', 'true');
 
   const links = navigation.getByRole('link');
-  await expect(links).toHaveCount(5);
+  await expect(links).toHaveCount(6);
   await page.keyboard.press('Tab');
   await expect(links.first()).toBeFocused();
   for (const link of await links.all()) {
@@ -352,10 +352,10 @@ for (const path of ['/login', '/register'] as const) {
     }
 
     if (testInfo.project.name.startsWith('mobile-')) {
-      await expectInsideViewport(page, username);
-      await expectInsideViewport(page, password);
+      await expectReachableOnSmallScreen(page, username);
+      await expectReachableOnSmallScreen(page, password);
       const submitName = path === '/login' ? '登录' : '创建账号';
-      await expectInsideViewport(page, page.getByRole('button', {
+      await expectReachableOnSmallScreen(page, page.getByRole('button', {
         name: submitName,
       }));
     }

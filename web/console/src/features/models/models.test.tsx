@@ -113,6 +113,18 @@ describe('ZTAPI public model pricing', () => {
     expect(screen.getByText('没有符合筛选条件的模型。')).toBeVisible();
   });
 
+  it('shows live counts beside category tabs before the user filters', async () => {
+    renderModels(vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/api/status')
+      ? statusResponse() : jsonResponse(publicPricingWithEmbeddings)));
+
+    await screen.findByText('zt-text-embedding-ada-002');
+    expect(screen.getByRole('button', { name: '全部模型' })).toHaveTextContent('37');
+    expect(screen.getByRole('button', { name: '文本模型' })).toHaveTextContent('35');
+    expect(screen.getByRole('button', { name: '向量模型' })).toHaveTextContent('2');
+    expect(screen.getByRole('button', { name: '图片生成' })).toHaveTextContent('0');
+    expect(screen.getByRole('button', { name: '视频生成' })).toHaveTextContent('0');
+  });
+
   it('translates media pricing buckets into customer-facing descriptions', async () => {
     const item = {
       ...managedPublicPricing.data[0],

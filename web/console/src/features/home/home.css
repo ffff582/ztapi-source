@@ -776,6 +776,191 @@
   background: #eaf1f6;
 }
 
+.getting-started__heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(300px, 0.92fr);
+  gap: 48px;
+  align-items: end;
+}
+
+.getting-started__heading h2 {
+  max-width: 690px;
+  margin: 12px 0 0;
+  color: var(--surface-ink);
+  font-size: 52px;
+  line-height: 1.08;
+}
+
+.getting-started__heading > p {
+  max-width: 440px;
+  margin: 0;
+  color: var(--text-muted-light);
+  font-size: 16px;
+  line-height: 1.7;
+}
+
+.getting-started__layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+  gap: 1px;
+  margin-top: 52px;
+  overflow: hidden;
+  border: 1px solid var(--rule-light);
+  background: var(--rule-light);
+}
+
+.getting-started__featured,
+.getting-started__list {
+  background: var(--surface-paper);
+}
+
+.getting-started__featured {
+  display: grid;
+  min-height: 430px;
+  align-content: start;
+  padding: 34px;
+}
+
+.getting-started__featured-top {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.getting-started__step {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  flex: 0 0 auto;
+  color: var(--surface-paper);
+  background: var(--surface-ink);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.getting-started__eyebrow {
+  margin: 0;
+  color: var(--action-blue);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.getting-started__featured h3 {
+  margin: 8px 0 0;
+  color: var(--surface-ink);
+  font-size: 30px;
+  line-height: 1.1;
+}
+
+.getting-started__featured > p {
+  max-width: 520px;
+  margin: 32px 0 0;
+  color: var(--text-muted-light);
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.getting-started__primary-link {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 46px;
+  gap: 10px;
+  align-items: center;
+  margin-top: 24px;
+  padding-inline: 18px;
+  color: var(--text-on-ink);
+  background: var(--action-blue);
+  text-decoration: none;
+  font-weight: 760;
+  transition: background-color 180ms ease, transform 180ms ease;
+}
+
+.getting-started__primary-link:hover {
+  background: var(--action-blue-strong);
+  transform: translateY(-2px);
+}
+
+.getting-started__sequence {
+  display: grid;
+  margin: auto 0 0;
+  padding: 28px 0 0;
+  border-top: 1px solid var(--rule-light);
+  list-style: none;
+}
+
+.getting-started__sequence li {
+  display: grid;
+  grid-template-columns: 36px 120px minmax(0, 1fr);
+  gap: 12px;
+  min-height: 40px;
+  align-items: center;
+  border-bottom: 1px solid var(--rule-light);
+}
+
+.getting-started__sequence li:last-child { border-bottom: 0; }
+
+.getting-started__sequence span,
+.getting-started__sequence small {
+  color: var(--text-muted-light);
+  font-size: 11px;
+}
+
+.getting-started__sequence strong {
+  color: var(--surface-ink);
+  font-size: 12px;
+}
+
+.getting-started__list {
+  display: grid;
+  align-content: stretch;
+}
+
+.getting-started__item {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) 18px;
+  gap: 14px;
+  align-items: center;
+  min-height: 120px;
+  padding: 22px 26px;
+  border-bottom: 1px solid var(--rule-light);
+  color: var(--surface-ink);
+  text-decoration: none;
+  transition: background-color 180ms ease, padding-left 180ms ease;
+}
+
+.getting-started__item:last-child { border-bottom: 0; }
+
+.getting-started__item:hover {
+  padding-left: 32px;
+  background: var(--surface-white);
+}
+
+.getting-started__item > svg:first-child { color: var(--action-blue); }
+
+.getting-started__item > svg:last-child { color: var(--text-muted-light); }
+
+.getting-started__item span {
+  display: grid;
+  gap: 6px;
+}
+
+.getting-started__item strong { font-size: 16px; }
+
+.getting-started__item small {
+  color: var(--text-muted-light);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.getting-started__primary-link:focus-visible,
+.getting-started__item:focus-visible {
+  outline: 2px solid var(--state-cyan);
+  outline-offset: -3px;
+}
+
 .integration-band__inner {
   display: grid;
   gap: 52px;
@@ -1024,7 +1209,8 @@
   }
 
   .model-proof__heading,
-  .integration-band__heading {
+  .integration-band__heading,
+  .getting-started__heading {
     grid-template-columns: 1fr;
     gap: 24px;
   }
@@ -1032,6 +1218,7 @@
   .model-proof__heading > a { justify-self: start; }
   .model-proof__grid { grid-template-columns: 1fr; }
   .integration-workbench { grid-template-columns: 1fr; }
+  .getting-started__layout { grid-template-columns: 1fr; }
   .integration-workbench__models {
     border-right: 0;
     border-bottom: 1px solid var(--rule-light);
@@ -1091,6 +1278,8 @@
   .integration-band,
   .principles-band { padding-block: 72px; }
 
+  .getting-started__heading h2 { font-size: 38px; }
+
   .model-proof__families { margin-top: 40px; }
   .model-proof__families span { padding: 18px 8px; font-size: 20px; }
   .model-proof__offer {
@@ -1100,8 +1289,12 @@
   }
   .model-proof__offer strong { font-size: 24px; }
   .integration-band__inner { gap: 36px; }
+  .getting-started__layout { margin-top: 36px; }
   .integration-workbench__models { padding: 20px; }
   .integration-workbench__code pre { min-height: 320px; padding: 22px; font-size: 12px; }
+  .getting-started__featured { min-height: 0; padding: 26px 22px; }
+  .getting-started__item { min-height: 96px; padding-inline: 22px; }
+  .getting-started__item:hover { padding-left: 26px; }
   .principles-grid { grid-template-columns: 1fr; margin-top: 40px; }
   .principles-band__heading h2 { white-space: normal; }
   .topup-promotion__inner {
@@ -1150,6 +1343,9 @@
   .integration-workbench__toolbar { padding-inline: 16px; }
   .integration-workbench__toolbar button { min-width: 104px; }
   .integration-workbench__code pre { min-height: 280px; padding: 18px; }
+  .getting-started__heading h2 { font-size: 32px; }
+  .getting-started__sequence li { grid-template-columns: 30px minmax(100px, 0.6fr) minmax(0, 1fr); gap: 8px; }
+  .getting-started__sequence small { font-size: 10px; }
 }
 
 @media (max-width: 360px) and (max-height: 700px) {

@@ -16,52 +16,22 @@ import { useLocale } from '../../i18n/locale';
 
 const consoleNavigation = [
   {
-    to: '/console',
-    label: '概览',
-    icon: LayoutDashboard,
-    end: true,
+    label: '调用与测试',
+    items: [
+      { to: '/console', label: '概览', icon: LayoutDashboard, end: true },
+      { to: '/console/models', label: '模型支持', icon: Boxes, end: false },
+      { to: '/console/test', label: '在线测试', icon: PlayCircle, end: false },
+      { to: '/console/guide', label: '使用说明', icon: BookOpenText, end: false },
+    ],
   },
   {
-    to: '/console/keys',
-    label: 'API 密钥',
-    icon: KeyRound,
-    end: false,
-  },
-  {
-    to: '/console/models',
-    label: '模型支持',
-    icon: Boxes,
-    end: false,
-  },
-  {
-    to: '/console/test',
-    label: '在线测试',
-    icon: PlayCircle,
-    end: false,
-  },
-  {
-    to: '/console/guide',
-    label: '使用说明',
-    icon: BookOpenText,
-    end: false,
-  },
-  {
-    to: '/console/logs',
-    label: '使用日志',
-    icon: ScrollText,
-    end: false,
-  },
-  {
-    to: '/console/wallet',
-    label: '余额充值',
-    icon: WalletCards,
-    end: false,
-  },
-  {
-    to: '/console/account',
-    label: '账号设置',
-    icon: UserRound,
-    end: false,
+    label: '账户与数据',
+    items: [
+      { to: '/console/keys', label: 'API 密钥', icon: KeyRound, end: false },
+      { to: '/console/logs', label: '使用日志', icon: ScrollText, end: false },
+      { to: '/console/wallet', label: '余额充值', icon: WalletCards, end: false },
+      { to: '/console/account', label: '账号设置', icon: UserRound, end: false },
+    ],
   },
 ];
 
@@ -84,18 +54,23 @@ export function ConsoleShell() {
         </Link>
 
         <nav className="console-nav" aria-label={t('控制台导航')}>
-          {consoleNavigation.map(({ to, label, icon: Icon, end }) => (
-            <NavLink
-              className={({ isActive }) =>
-                `console-nav__link${isActive ? ' console-nav__link--active' : ''}`
-              }
-              end={end}
-              key={to}
-              to={to}
-            >
-              <Icon size={18} aria-hidden="true" />
-              <span>{t(label)}</span>
-            </NavLink>
+          {consoleNavigation.map(({ label, items }) => (
+            <div className="console-nav-group" key={label} role="group" aria-label={t(label)}>
+              <p className="console-nav-group__label">{t(label)}</p>
+              {items.map(({ to, label: itemLabel, icon: Icon, end }) => (
+                <NavLink
+                  className={({ isActive }) =>
+                    `console-nav__link${isActive ? ' console-nav__link--active' : ''}`
+                  }
+                  end={end}
+                  key={to}
+                  to={to}
+                >
+                  <Icon size={18} aria-hidden="true" />
+                  <span>{t(itemLabel)}</span>
+                </NavLink>
+              ))}
+            </div>
           ))}
         </nav>
       </aside>

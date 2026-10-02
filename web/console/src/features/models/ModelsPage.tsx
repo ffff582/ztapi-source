@@ -72,6 +72,18 @@ export function ModelsPage() {
         .some((value) => value?.toLocaleLowerCase().includes(needle))));
   }, [pricing, category, query]);
 
+  const categoryCounts = useMemo(() => {
+    const counts = categories.reduce<Record<ModelCategory, number>>((result, item) => {
+      result[item.id] = 0;
+      return result;
+    }, { all: 0, text: 0, image: 0, video: 0, embedding: 0 });
+    for (const model of pricing?.models ?? []) {
+      counts.all += 1;
+      counts[modelCategory(model)] += 1;
+    }
+    return counts;
+  }, [pricing]);
+
   const grouped = useMemo(() => {
     const result = new Map<string, { key: string; label: string; models: PricingModel[] }>();
     for (const model of visibleModels) {
@@ -121,6 +133,7 @@ export function ModelsPage() {
                   <button key={item.id} type="button" className={category === item.id ? 'is-active' : undefined}
                     aria-pressed={category === item.id} onClick={() => setCategory(item.id)}>
                     {t(item.label)}
+                    {status === 'ready' && <span className="catalog-categories__count" aria-hidden="true">{categoryCounts[item.id]}</span>}
                   </button>
                 ))}
               </div>

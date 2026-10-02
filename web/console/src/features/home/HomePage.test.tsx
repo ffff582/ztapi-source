@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import postcss, { type AtRule, type Declaration, type Root, type Rule } from 'postcss';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -42,13 +42,6 @@ function renderHomePage(initialEntry = '/') {
       <HomePage />
     </MemoryRouter>,
   );
-}
-
-function setClipboard(clipboard: Pick<Clipboard, 'writeText'> | undefined) {
-  Object.defineProperty(navigator, 'clipboard', {
-    configurable: true,
-    value: clipboard,
-  });
 }
 
 function mediaRule(params: string): AtRule {
@@ -173,27 +166,22 @@ describe('ZTAPI public homepage', () => {
     expect(header).toHaveAttribute('data-scrolled', 'true');
   });
 
-  it('keeps model tabs and code copy keyboard operable', async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    setClipboard({ writeText });
+  it('keeps the homepage focused on next actions and moves code examples to docs', () => {
     renderHomePage();
 
-    const tabs = screen.getAllByRole('tab');
-    tabs[0].focus();
-    fireEvent.keyDown(tabs[0], { key: 'End' });
-    expect(tabs[2]).toHaveFocus();
-    expect(tabs[2]).toHaveAttribute('aria-selected', 'true');
-
-    fireEvent.click(screen.getByRole('button', { name: '复制代码' }));
-    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
-    expect(screen.getByRole('status')).toHaveTextContent('已复制');
-  });
-
-  it('reports copy failure without blocking manual copying', async () => {
-    setClipboard(undefined);
-    renderHomePage();
-    fireEvent.click(screen.getByRole('button', { name: '复制代码' }));
-    expect(await screen.findByRole('status')).toHaveTextContent('复制失败，请手动复制');
+    const quickstart = screen.getByRole('region', { name: '快速接入' });
+    expect(within(quickstart).getByRole('heading', { name: '一个接口，快速接入你需要的模型' })).toBeVisible();
+    expect(within(quickstart).getByRole('heading', { name: '注册、改一行配置、开始调用' })).toBeVisible();
+    expect(within(quickstart).getByRole('link', { name: '查看集成指南' })).toHaveAttribute(
+      'href',
+      '/docs/integration',
+    );
+    expect(within(quickstart).getByRole('link', { name: /查看模型目录/ })).toHaveAttribute('href', '/models');
+    expect(within(quickstart).getByRole('link', { name: /创建 API Key/ })).toHaveAttribute('href', '/register');
+    expect(within(quickstart).getByRole('link', { name: /查看使用日志/ })).toHaveAttribute('href', '/register');
+    expect(within(quickstart).getByRole('link', { name: /在线测试/ })).toHaveAttribute('href', '/register');
+    expect(screen.queryByRole('button', { name: '复制代码' })).toBeNull();
+    expect(screen.queryByText(/import OpenAI/)).toBeNull();
   });
 
   it('has explicit mobile and reduced-motion contracts', () => {

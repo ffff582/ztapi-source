@@ -161,7 +161,13 @@ test('ZTAPI no-paid update mode stops before paid model verification', () => {
   assert.match(branch, /systemd-run/);
   assert.match(branch, /return 0/);
   assert.doesNotMatch(branch, /\/verify|\/v1\/chat\/completions|\/v1\/embeddings|\/v1\/images\/generations|\/v1\/videos/);
-  assert.match(readText('deploy/scripts/ztapi-release-control.sh'), /external_acceptance=no_paid/);
+  const releaseControl = readText('deploy/scripts/ztapi-release-control.sh');
+  assert.match(releaseControl, /external_acceptance=no_paid/);
+  assert.match(
+    releaseControl,
+    /unset ZTAPI_RELEASE_VERSION ZTAPI_SOURCE_COMMIT ZTAPI_SOURCE_TAG ZTAPI_SERVER_IMAGE ZTAPI_NGINX_IMAGE/,
+    'watchdog rollback must not inherit release metadata over the backed-up environment file',
+  );
 });
 
 test('ZTAPI release runbook orders every guarded phase and receipt', {
@@ -300,6 +306,11 @@ test('ZTAPI rollback reuses the exact active Compose layers and protects unrelat
   assert.match(source, /com\.docker\.compose\.project\.environment_file/);
   assert.match(source, /com\.docker\.compose\.project\.working_dir/);
   assert.match(source, /IFS=',' read -r -a old_compose_paths/);
+  assert.match(
+    source,
+    /old_compose_args=\(env[\s\S]{0,240}ZTAPI_NGINX_IMAGE[\s\S]{0,80}docker compose --env-file/,
+    'rollback Compose must not inherit release variables over the backed-up environment file',
+  );
   assert.match(source, /old_compose_args\+=\(-f "\$compose_file"\)/);
   assert.match(source, /"\$\{old_compose_args\[@\]\}" up -d mysql redis server/);
   assert.match(source, /"\$\{old_compose_args\[@\]\}" up -d nginx/);
@@ -447,6 +458,41 @@ test('public endpoint verification tolerates bounded connection failures', () =>
     'the external release gate must prove the loopback acceptance port is unreachable',
   );
   assert.match(publicStep, /acceptance port 18081 is externally reachable/);
+});
+
+test('internal cutover acceptance captures complete landing responses before grep', () => {
+  const source = readText(workflowPath);
+  const cutoverStart = source.indexOf('capture_media_publication_state\n');
+  const noPaidStart = source.indexOf('          if [ "$ZTAPI_NO_PAID_ACCEPTANCE" = true ];', cutoverStart);
+  assert.ok(cutoverStart >= 0, 'internal cutover acceptance must exist');
+  assert.ok(noPaidStart > cutoverStart, 'internal cutover acceptance must precede no-paid checks');
+
+  const acceptance = source.slice(cutoverStart, noPaidStart);
+  assert.match(
+    acceptance,
+    /public_landing_internal=/,
+    'public landing response must be captured before content checks',
+  );
+  assert.match(
+    acceptance,
+    /admin_landing_internal=/,
+    'admin landing response must be captured before content checks',
+  );
+  assert.match(
+    acceptance,
+    /admin_headers_internal=/,
+    'admin headers must be captured before content checks',
+  );
+  assert.doesNotMatch(
+    acceptance,
+    /https:\/\/ztapi\.vip\/\s*\|[\s\S]{0,80}grep\s+-[^\n]*q/,
+    'public landing content must not be checked through a live curl pipe',
+  );
+  assert.doesNotMatch(
+    acceptance,
+    /https:\/\/admin\.ztapi\.vip\/\s*\|[\s\S]{0,80}grep\s+-[^\n]*q/,
+    'pipefail acceptance must not let grep close a curl response early',
+  );
 });
 
 test('public endpoint verification reads real DNS records and pins the server address', () => {

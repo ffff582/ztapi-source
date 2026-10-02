@@ -1,19 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { ArrowRight, CircleDollarSign, Gift, ListTree, Route, Send } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import '../../brand/tokens.css';
 import { PublicHeader } from '../../components/layout/PublicHeader';
 import { GatewayMotionVisual } from './GatewayMotionVisual';
 import { GatewayStatusRail } from './GatewayStatusRail';
-import { IntegrationWorkbench } from './IntegrationWorkbench';
 import { PublicModelProof } from './PublicModelProof';
-import type { ModelFamily } from './homeContent';
 import { useLocale } from '../../i18n/locale';
+import { GettingStartedPaths } from './GettingStartedPaths';
 import './home.css';
 
 export function HomePage() {
   const { t } = useLocale();
-  const [selectedFamily, setSelectedFamily] = useState<ModelFamily>('openai');
   const { hash } = useLocation();
   useEffect(() => {
     if (!hash) {
@@ -84,10 +82,7 @@ export function HomePage() {
           </div>
         </section>
         <PublicModelProof />
-        <IntegrationWorkbench
-          selectedFamily={selectedFamily}
-          onSelectFamily={setSelectedFamily}
-        />
+        <GettingStartedPaths />
         <section className="principles-band" aria-labelledby="principles-title">
           <div className="public-shell">
             <div className="principles-band__heading">

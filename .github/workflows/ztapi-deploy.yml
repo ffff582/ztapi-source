@@ -446,7 +446,16 @@ jobs:
             test -d "$old_compose_working_dir"
             IFS=',' read -r -a old_compose_paths <<< "$old_compose_csv"
             test "${#old_compose_paths[@]}" -gt 0
-            old_compose_args=(docker compose --env-file "$old_compose_environment_file")
+            # Compose gives the calling shell precedence over --env-file. Clear
+            # release-scoped variables so rollback restores the backed-up
+            # runtime metadata together with the old image layers.
+            old_compose_args=(env \
+              -u ZTAPI_RELEASE_VERSION \
+              -u ZTAPI_SOURCE_COMMIT \
+              -u ZTAPI_SOURCE_TAG \
+              -u ZTAPI_SERVER_IMAGE \
+              -u ZTAPI_NGINX_IMAGE \
+              docker compose --env-file "$old_compose_environment_file")
             for compose_file in "${old_compose_paths[@]}"; do
               test -s "$compose_file"
               test "$(stat -c '%U' "$compose_file")" = root
@@ -1335,18 +1344,18 @@ jobs:
               https://admin.ztapi.vip/api/auth/login)
           echo "$admin_login_result" |
             jq -e '.success == true and .data.user.role == 100' >/dev/null
-          curl --fail --silent --show-error \
+          public_landing_internal=$(curl --fail --silent --show-error \
             --resolve ztapi.vip:443:127.0.0.1 \
-            https://ztapi.vip/ |
-            grep -q 'ZTAPI'
-          curl --fail --silent --show-error \
+            https://ztapi.vip/)
+          grep -q 'ZTAPI' <<< "$public_landing_internal"
+          admin_landing_internal=$(curl --fail --silent --show-error \
             --resolve admin.ztapi.vip:443:127.0.0.1 \
-            https://admin.ztapi.vip/ |
-            grep -Fq 'ZTAPI 管理后台'
-          curl --fail --silent --show-error --head \
+            https://admin.ztapi.vip/)
+          grep -Fq 'ZTAPI 管理后台' <<< "$admin_landing_internal"
+          admin_headers_internal=$(curl --fail --silent --show-error --head \
             --resolve admin.ztapi.vip:443:127.0.0.1 \
-            https://admin.ztapi.vip/ |
-            grep -qi 'X-Robots-Tag: noindex'
+            https://admin.ztapi.vip/)
+          grep -qi 'X-Robots-Tag: noindex' <<< "$admin_headers_internal"
           # Field name must match ztAPIAuthData in server/controller/auth.go,
           # which serialises the session token as access_token.
           admin_access_token=$(echo "$admin_login_result" | jq -er '.data.access_token')

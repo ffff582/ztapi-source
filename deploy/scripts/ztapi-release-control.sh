@@ -45,6 +45,10 @@ fi
 . "$state_file"
 test "$ZTAPI_RELEASE_VERSION" = "$release_commit"
 test "$ZTAPI_RELEASE_EXECUTION_ID" = "$release_execution_id"
+# Docker Compose gives the calling environment precedence over --env-file.
+# The state file is only used for identity checks above; rollback must use the
+# backed-up runtime environment without inheriting the failed release metadata.
+unset ZTAPI_RELEASE_VERSION ZTAPI_SOURCE_COMMIT ZTAPI_SOURCE_TAG ZTAPI_SERVER_IMAGE ZTAPI_NGINX_IMAGE
 
 write_receipt() {
   phase=$1

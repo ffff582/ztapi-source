@@ -162,7 +162,8 @@ it('switches the public site to English and persists the language without changi
 
   expect(await screen.findByText('One key connects leading')).toBeVisible();
   expect(screen.getByText('AI models worldwide')).toBeVisible();
-  expect(screen.getByText('JavaScript')).toBeVisible();
+  expect(screen.getByText('One interface for the models you need')).toBeVisible();
+  expect(screen.queryByText('JavaScript')).toBeNull();
   expect(screen.getAllByText('https://ztapi.vip/v1').length).toBeGreaterThan(0);
   expect(localStorage.getItem('ztapi.locale')).toBe('en');
   expect(document.documentElement.lang).toBe('en');

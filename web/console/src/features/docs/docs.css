@@ -65,6 +65,7 @@
 .docs-support svg { color: var(--action-blue); }
 .docs-support span { display: grid; gap: 3px; }
 .docs-support small { color: #607080; }
+.docs-model-link { display: flex; align-items: center; gap: 10px; padding: 14px 12px; margin-top: 14px; color: var(--action-blue-strong); text-decoration: none; border-top: 1px solid var(--rule-light); }
 
 .docs-article {
   min-width: 0;
@@ -146,6 +147,10 @@
 
 .docs-code { overflow: hidden; border: 1px solid #203242; background: #071018; color: #d8e4ec; }
 .docs-code > div { padding: 10px 16px; border-bottom: 1px solid #203242; color: #8ca4b5; font-size: 12px; }
+.docs-code__toolbar { display: flex; align-items: center; gap: 12px; min-height: 46px; }
+.docs-code__toolbar > span[role='status'] { margin-left: auto; font-size: 11px; color: #b3d8c8; }
+.docs-code__toolbar button { display: grid; place-items: center; flex: 0 0 28px; height: 28px; border: 1px solid #42525e; border-radius: 4px; background: transparent; color: #d8e4ec; cursor: pointer; }
+.docs-code__toolbar button:focus-visible { outline: 2px solid var(--state-cyan); outline-offset: 3px; }
 .docs-code pre { margin: 0; overflow: auto; padding: 22px; font-size: 13px; line-height: 1.7; }
 
 .docs-steps,

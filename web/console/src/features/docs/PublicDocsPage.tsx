@@ -3,41 +3,30 @@ import {
   Cable,
   CircleHelp,
   Code2,
+  Check,
+  Copy,
+  Boxes,
   KeyRound,
   Send,
   UserRound,
 } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import type { ReactNode } from 'react';
+import { useState } from 'react';
 import { PublicHeader } from '../../components/layout/PublicHeader';
 import { useLocale } from '../../i18n/locale';
+import manifest from './docs-manifest.json';
 import './docs.css';
 
 type DocSection = 'api' | 'integration' | 'user-guide' | 'faq';
 
-const BASE_URL = 'https://ztapi.vip/v1';
+const BASE_URL = manifest.baseUrl;
 
-const sections: ReadonlyArray<{
-  id: DocSection;
-  label: string;
-  path: string;
-  icon: typeof BookOpen;
-}> = [
-  { id: 'api', label: 'API 手册', path: '/docs/api', icon: Code2 },
-  { id: 'integration', label: '集成指南', path: '/docs/integration', icon: Cable },
-  { id: 'user-guide', label: '用户指南', path: '/docs/user-guide', icon: UserRound },
-  { id: 'faq', label: '常见问题', path: '/docs/faq', icon: CircleHelp },
-];
-
-const endpointRows = [
-  ['GET', '/v1/models', '获取当前可用模型'],
-  ['POST', '/v1/chat/completions', 'OpenAI 兼容对话'],
-  ['POST', '/v1/responses', 'Responses 模型调用'],
-  ['POST', '/v1/embeddings', '生成文本向量'],
-  ['POST', '/v1/images/generations', '生成图片'],
-  ['POST', '/v1/video/generations', '创建视频任务'],
-  ['GET', '/v1/video/generations/{task_id}', '查询视频任务'],
-] as const;
+const icons = { api: Code2, integration: Cable, 'user-guide': UserRound, faq: CircleHelp };
+const sections = manifest.sections.map((section) => ({
+  ...section, id: section.id as DocSection, icon: icons[section.id as DocSection],
+}));
+const endpointRows = manifest.endpoints;
 
 const curlExample = `curl ${BASE_URL}/chat/completions \\
   -H "Authorization: Bearer \${ZTAPI_API_KEY}" \\
@@ -212,10 +201,28 @@ function DocsSection({ title, children }: { title: string; children: ReactNode }
 }
 
 function CodeSample({ label, code }: { label: string; code: string }) {
+  const { t, locale } = useLocale();
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const localizedCode = locale === 'en' ? code.replaceAll('你好', 'Hello') : code;
+  async function copy() {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
+      await navigator.clipboard.writeText(localizedCode);
+      setCopyState('copied');
+    } catch {
+      setCopyState('failed');
+    }
+  }
   return (
     <div className="docs-code">
-      <div>{label}</div>
-      <pre><code>{code}</code></pre>
+      <div className="docs-code__toolbar">
+        <span>{label}</span>
+        <span role="status">{copyState === 'copied' ? t('已复制') : copyState === 'failed' ? t('复制失败，请手动选择代码') : ''}</span>
+        <button type="button" onClick={() => void copy()} aria-label={t('复制 {{name}} 示例', { name: label })} title={t('复制 {{name}} 示例', { name: label })}>
+          {copyState === 'copied' ? <Check aria-hidden="true" size={16} /> : <Copy aria-hidden="true" size={16} />}
+        </button>
+      </div>
+      <pre><code>{localizedCode}</code></pre>
     </div>
   );
 }
@@ -244,6 +251,7 @@ export function PublicDocsPage() {
               );
             })}
           </nav>
+          <Link className="docs-model-link" to="/models"><Boxes aria-hidden="true" size={17} />{t('查看模型目录')}</Link>
           <a className="docs-support" href="https://t.me/gan66" target="_blank" rel="noreferrer">
             <Send aria-hidden="true" size={17} />
             <span><strong>{t('需要帮助？')}</strong><small>@gan66</small></span>
