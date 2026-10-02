@@ -1,0 +1,95 @@
+name: ztapi-dev
+
+services:
+  console:
+    build:
+      context: ../..
+      dockerfile: web/console/Dockerfile.dev
+    environment:
+      ZTAPI_API_ORIGIN: http://server:3000
+    ports:
+      - "8080:5173"
+    depends_on:
+      server:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - app
+
+  server:
+    build:
+      context: ../../server
+      dockerfile: Dockerfile.ztapi
+    environment:
+      ZTAPI_ENV: development
+      ZTAPI_PUBLIC_ORIGIN: http://localhost:8080
+      ZTAPI_API_ORIGIN: http://server:3000
+      ZTAPI_SESSION_SIGNING_KEY: ${ZTAPI_SESSION_SIGNING_KEY:-local-development-signing-key-only}
+      ZTAPI_TRUSTED_PROXY_CIDRS: 172.31.0.0/24
+      CRYPTO_SECRET: ${CRYPTO_SECRET:-local-development-crypto-key-only}
+      SQL_DSN: ztapi:${MYSQL_PASSWORD:-ztapi-dev-password}@tcp(mysql:3306)/${MYSQL_DATABASE:-ztapi}?charset=utf8mb4&parseTime=True&loc=Local
+      REDIS_CONN_STRING: redis://:${REDIS_PASSWORD:-ztapi-dev-password}@redis:6379
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - ztapi_dev_data:/data
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/api/status"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - app
+
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-ztapi}
+      MYSQL_USER: ${MYSQL_USER:-ztapi}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-ztapi-dev-password}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-ztapi-dev-root-password}
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - mysql_dev_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p\"$${MYSQL_ROOT_PASSWORD}\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - app
+
+  redis:
+    image: redis:7.4-alpine
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-ztapi-dev-password}
+    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\""]
+    volumes:
+      - redis_dev_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+    networks:
+      - app
+
+volumes:
+  mysql_dev_data: {}
+  redis_dev_data: {}
+  ztapi_dev_data: {}
+
+networks:
+  app:
+    ipam:
+      config:
+        - subnet: 172.31.0.0/24

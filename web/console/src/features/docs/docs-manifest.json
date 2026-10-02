@@ -1,0 +1,31 @@
+{
+  "origin": "https://ztapi.vip",
+  "baseUrl": "https://ztapi.vip/v1",
+  "sections": [
+    { "id": "api", "label": "API 手册", "english": "API reference", "path": "/docs/api" },
+    { "id": "integration", "label": "集成指南", "english": "Integration guide", "path": "/docs/integration" },
+    { "id": "user-guide", "label": "用户指南", "english": "User guide", "path": "/docs/user-guide" },
+    { "id": "faq", "label": "常见问题", "english": "Frequently asked questions", "path": "/docs/faq" }
+  ],
+  "endpoints": [
+    ["GET", "/v1/models", "获取当前可用模型"],
+    ["POST", "/v1/chat/completions", "OpenAI 兼容对话"],
+    ["POST", "/v1/completions", "兼容旧版文本补全"],
+    ["POST", "/v1/responses", "Responses 模型调用"],
+    ["POST", "/v1/responses/compact", "压缩 Responses 对话上下文"],
+    ["POST", "/v1/messages", "Anthropic 原生消息接口"],
+    ["POST", "/v1/embeddings", "生成文本向量"],
+    ["POST", "/v1/images/generations", "生成图片"],
+    ["POST", "/v1/images/edits", "编辑图片"],
+    ["POST", "/v1/audio/transcriptions", "语音转文字"],
+    ["POST", "/v1/audio/translations", "语音翻译"],
+    ["POST", "/v1/audio/speech", "文字转语音"],
+    ["POST", "/v1/rerank", "对结果重排序"],
+    ["POST", "/v1/video/generations", "创建视频任务"],
+    ["GET", "/v1/video/generations/{task_id}", "查询视频任务"],
+    ["POST", "/v1/videos", "创建 OpenAI 兼容视频任务"],
+    ["GET", "/v1/videos/{task_id}", "查询 OpenAI 兼容视频任务"],
+    ["GET", "/v1/videos/{task_id}/content", "获取视频结果文件"],
+    ["POST", "/v1beta/models/{model}:generateContent", "Gemini 原生内容生成"]
+  ]
+}

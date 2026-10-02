@@ -1,0 +1,416 @@
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { RouterProvider } from 'react-router-dom';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { clearAuthSession } from '../../api/client';
+import { createZTAPIRouter } from '../../app/router';
+import { managedPublicPricing } from '../home/public-pricing.fixture';
+import { publicPricingWithEmbeddings } from './public-models.fixture';
+import { modelOfficialDiscount, type ModelPriceDetail } from './pricing';
+
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+function pricingResponse(data: unknown[]) {
+  return jsonResponse({
+    success: true,
+    data,
+    group_ratio: { default: 1.5 },
+    usable_group: { default: '默认分组' },
+    pricing_version: 'pricing-test-v2',
+  });
+}
+
+function statusResponse() {
+  return jsonResponse({
+    success: true,
+    data: { quota_per_unit: 250_000 },
+  });
+}
+
+function renderModels(fetchMock: ReturnType<typeof vi.fn>) {
+  vi.stubGlobal('fetch', fetchMock);
+  return render(
+    <RouterProvider router={createZTAPIRouter(['/models'])} />,
+  );
+}
+
+function modelArticle(name: string) {
+  return screen.getByRole('article', { name });
+}
+
+function expandModel(name: string) {
+  const article = modelArticle(name);
+  fireEvent.click(within(article).getByText('查看完整价格'));
+  return article;
+}
+
+function priceList(article: HTMLElement) {
+  return within(article.querySelector('.catalog-model__price-list') as HTMLElement);
+}
+
+afterEach(() => {
+  cleanup();
+  clearAuthSession();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+describe('ZTAPI public model pricing', () => {
+  it('shows an exact comparable official discount and keeps full prices in model details', async () => {
+    const item = {
+      ...managedPublicPricing.data[0],
+      input_price_per_million: '8',
+      output_price_per_million: '16',
+      sale_usd: { input_tokens: '8', output_tokens: '16' },
+      official_usd: { input_tokens: '10', output_tokens: '20' },
+      billing_dimensions: ['input_tokens', 'output_tokens'],
+      billing_rule: 'token',
+    };
+    renderModels(vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/api/status')
+      ? statusResponse() : jsonResponse({ ...managedPublicPricing, data: [item] })));
+
+    expect(await screen.findByText('综合优惠约 20%')).toBeVisible();
+    expect(screen.getByText('模型价格对比官方更优惠，充值再额外赠送 5% 使用额度。')).toBeVisible();
+    const model = screen.getByRole('article', { name: item.model_name });
+    expect(within(model).getByText('官方 8 折')).toBeVisible();
+    fireEvent.click(within(model).getByText('查看完整价格'));
+    expect(within(model).getAllByText('8 U / 1M tokens')[0]).toBeVisible();
+    expect(within(model).getByText('10 U / 1M tokens')).toBeVisible();
+    expect(within(model).queryByText(/节省 \d+%/)).not.toBeInTheDocument();
+  });
+
+  it('does not claim an official discount without a comparable reference', async () => {
+    const item = {
+      ...managedPublicPricing.data[0], model_name: 'zt-partial-price',
+      input_price_per_million: '8', output_price_per_million: '16',
+      sale_usd: { input_tokens: '8', output_tokens: '16' },
+      billing_dimensions: ['input_tokens', 'output_tokens'],
+      billing_rule: 'token',
+    };
+    renderModels(vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/api/status')
+      ? statusResponse() : jsonResponse({ ...managedPublicPricing, data: [item] })));
+    const model = await screen.findByRole('article', { name: item.model_name });
+    expect(within(model).queryByText(/官方 .* 折/)).not.toBeInTheDocument();
+    expect(within(model).getAllByText('8 U / 1M tokens')[0]).toBeVisible();
+  });
+
+  it('filters the public list by category and model ID without changing prices', async () => {
+    renderModels(vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/api/status')
+      ? statusResponse() : jsonResponse(publicPricingWithEmbeddings)));
+    await screen.findByText('zt-text-embedding-ada-002');
+    fireEvent.click(screen.getByRole('button', { name: '向量模型' }));
+    expect(screen.getByText('显示 2 / 37')).toBeVisible();
+    expect(document.querySelectorAll('.catalog-model')).toHaveLength(2);
+    expect(screen.queryByText('zt-claude-haiku-4.5')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole('searchbox', { name: '搜索模型' }), { target: { value: 'ada-002' } });
+    expect(screen.getByText('显示 1 / 37')).toBeVisible();
+    expect(modelArticle('zt-text-embedding-ada-002')).toHaveTextContent('0.13 U / 1M tokens');
+    fireEvent.change(screen.getByRole('searchbox', { name: '搜索模型' }), { target: { value: 'not-a-model' } });
+    expect(screen.getByText('没有符合筛选条件的模型。')).toBeVisible();
+  });
+
+  it('shows live counts beside category tabs before the user filters', async () => {
+    renderModels(vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/api/status')
+      ? statusResponse() : jsonResponse(publicPricingWithEmbeddings)));
+
+    await screen.findByText('zt-text-embedding-ada-002');
+    expect(screen.getByRole('button', { name: '全部模型' })).toHaveTextContent('37');
+    expect(screen.getByRole('button', { name: '文本模型' })).toHaveTextContent('35');
+    expect(screen.getByRole('button', { name: '向量模型' })).toHaveTextContent('2');
+    expect(screen.getByRole('button', { name: '图片生成' })).toHaveTextContent('0');
+    expect(screen.getByRole('button', { name: '视频生成' })).toHaveTextContent('0');
+  });
+
+  it('translates media pricing buckets into customer-facing descriptions', async () => {
+    const item = {
+      ...managedPublicPricing.data[0],
+      model_name: 'zt-image-readable-tiers',
+      modality: 'image',
+      supported_endpoint_types: ['images'],
+      input_price_per_million: '',
+      output_price_per_million: '',
+      billing_rule: 'multi_dimension',
+      billing_dimensions: [],
+      sale_usd: {},
+      billing_unit: 'usd_per_million_tokens',
+      supported_options: {
+        sizes: ['1024x1024'],
+        qualities: ['standard'],
+        response_formats: ['url'],
+        min_count: 1,
+        max_count: 1,
+      },
+      pricing_rules: [{
+        id: 'gt_200k',
+        conditions: { prompt_tokens_tier: 'gt_200k' },
+        billing_unit: 'usd_per_million_tokens',
+        sale_usd: { input_tokens: '8' },
+        official_usd: { input_tokens: '10' },
+      }],
+    };
+    renderModels(vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/api/status')
+      ? statusResponse() : jsonResponse({ ...managedPublicPricing, data: [item] })));
+
+    await screen.findByText(item.model_name);
+    const row = expandModel(item.model_name);
+    expect(priceList(row).getByText('输入超过 200K')).toBeVisible();
+    expect(row).not.toHaveTextContent('gt_200k');
+  });
+
+  it.each([managedPublicPricing, publicPricingWithEmbeddings])('renders every managed public model across all API providers ($data.length rows)', async (fixture) => {
+    renderModels(vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/api/status')
+      ? statusResponse() : jsonResponse(fixture)));
+    expect(await screen.findByText(`显示 ${fixture.data.length} / ${fixture.data.length}`)).toBeVisible();
+    expect(document.querySelectorAll('.catalog-model')).toHaveLength(fixture.data.length);
+    for (const item of fixture.data) expect(screen.getByText(item.model_name, { exact: true })).toBeVisible();
+    for (const vendor of new Set(fixture.data.map((item) => item.vendor_name))) {
+      expect(screen.getByRole('heading', { name: vendor })).toBeVisible();
+    }
+    expect(screen.queryByText('当前没有可展示的公开模型。')).not.toBeInTheDocument();
+    const claude = expandModel('zt-claude-haiku-4.5');
+    expect(within(claude).getAllByText('1.3 U / 1M tokens')[0]).toBeVisible();
+    expect(within(claude).getAllByText('6.5 U / 1M tokens')[0]).toBeVisible();
+    expect(priceList(claude).getByText('0.13 U / 1M tokens')).toBeVisible();
+    expect(priceList(claude).getByText('缓存读取')).toBeVisible();
+    expect(within(claude).getAllByRole('listitem')).toHaveLength(6);
+    expect(within(claude).queryByText('按规则计费')).not.toBeInTheDocument();
+  }, 15_000);
+
+  it('lists every tier of a model priced by tier instead of a missing single rate', async () => {
+    const tiered = {
+      ...managedPublicPricing,
+      data: [{
+        ...managedPublicPricing.data[0],
+        model_name: 'zt-gpt-5.6-sol',
+        input_price_per_million: '',
+        output_price_per_million: '',
+        sale_usd: {},
+        billing_dimensions: ['input_tokens', 'output_tokens'],
+        billing_rule: 'token',
+        token_price_rules: [
+          { conditions: ['输入长度≤272K'], sale_usd: { input_tokens: '3.9000000000', output_tokens: '19.5000000000' } },
+          { conditions: ['输入长度>272K'], sale_usd: { input_tokens: '7.8000000000', output_tokens: '29.2500000000' } },
+        ],
+      }],
+    };
+    renderModels(vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/api/status')
+      ? statusResponse() : jsonResponse(tiered)));
+
+    await screen.findByText('zt-gpt-5.6-sol');
+    const row = expandModel('zt-gpt-5.6-sol');
+    expect(priceList(row).getByText('输入（输入长度≤272K）')).toBeVisible();
+    expect(priceList(row).getByText('3.9 U / 1M tokens')).toBeVisible();
+    expect(priceList(row).getByText('输出（输入长度>272K）')).toBeVisible();
+    expect(priceList(row).getByText('29.25 U / 1M tokens')).toBeVisible();
+    expect(within(row).getAllByRole('listitem')).toHaveLength(4);
+    expect(within(row).queryByText('按规则计费')).not.toBeInTheDocument();
+  });
+
+  it('shows only exact input prices for both embeddings, with no output or legacy ratio price', async () => {
+    renderModels(vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/api/status')
+      ? statusResponse() : jsonResponse(publicPricingWithEmbeddings)));
+    await screen.findByText('zt-text-embedding-ada-002');
+    for (const [name, price] of [['zt-text-embedding-ada-002', '0.13 U / 1M tokens'], ['zt-text-embedding-3-small', '0.026 U / 1M tokens']]) {
+      const row = expandModel(name);
+      expect(within(row).getAllByText(price)[0]).toBeVisible();
+      expect(within(row).getAllByRole('listitem')).toHaveLength(1);
+      expect(priceList(row).getByText('输入')).toBeVisible();
+      expect(priceList(row).queryByText('输出')).not.toBeInTheDocument();
+      expect(row).not.toHaveTextContent('0 U /');
+      expect(row).not.toHaveTextContent('按规则计费');
+    }
+  });
+
+  it('groups by the authoritative API provider even when model name and legacy owner disagree', async () => {
+    const fixture = { ...managedPublicPricing, data: [{ ...managedPublicPricing.data[0],
+      model_name: 'gpt-misleading', owner_by: 'OpenAI', provider_family: 'qwen', vendor_name: 'Qwen',
+    }] };
+    renderModels(vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/api/status')
+      ? statusResponse() : jsonResponse(fixture)));
+    await screen.findByText('gpt-misleading');
+    expect(screen.getByRole('heading', { name: 'Qwen' })).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'OpenAI' })).not.toBeInTheDocument();
+  });
+
+  it('uses runtime and group pricing while labeling tiered rows as dynamic', async () => {
+    const rows = [
+      {
+        model_name: 'gpt-static',
+        description: 'Static token pricing',
+        quota_type: 0,
+        model_ratio: 1.25,
+        model_price: 0,
+        owner_by: 'OpenAI',
+        completion_ratio: 4,
+        enable_groups: ['default'],
+        billing_mode: 'ratio',
+      },
+      {
+        model_name: 'gpt-tiered',
+        description: 'Tiered pricing',
+        quota_type: 0,
+        model_ratio: 99,
+        model_price: 0,
+        owner_by: 'OpenAI',
+        completion_ratio: 99,
+        enable_groups: ['default'],
+        billing_mode: 'tiered_expr',
+        billing_expr: 'if(tokens>1000, 2, 1)',
+      },
+      {
+        model_name: 'gpt-multimodal',
+        description: 'Additional image pricing dimension',
+        quota_type: 0,
+        model_ratio: 1,
+        model_price: 0,
+        owner_by: 'OpenAI',
+        completion_ratio: 2,
+        image_ratio: 3,
+        enable_groups: ['default'],
+      },
+      {
+        model_name: 'claude-fixed',
+        description: 'Fixed request pricing',
+        quota_type: 1,
+        model_ratio: 0,
+        model_price: 0.2,
+        owner_by: 'Anthropic',
+        completion_ratio: 0,
+        enable_groups: ['default'],
+      },
+    ];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/api/status')) {
+        return statusResponse();
+      }
+      if (url.endsWith('/api/pricing')) {
+        return pricingResponse(rows);
+      }
+      return jsonResponse({ success: false, message: 'unexpected' }, 500);
+    });
+    renderModels(fetchMock);
+
+    await screen.findByText('gpt-static');
+    const staticRow = modelArticle('gpt-static');
+    expect(within(staticRow).getAllByText('7.5 U / 1M tokens')[0]).toBeVisible();
+    expect(within(staticRow).getAllByText('30 U / 1M tokens')[0]).toBeVisible();
+
+    const fixedRow = expandModel('claude-fixed');
+    expect(
+      priceList(fixedRow).getAllByText('0.3 U / 次'),
+    ).toHaveLength(2);
+
+    const tieredRow = expandModel('gpt-tiered');
+    expect(
+      priceList(tieredRow).getAllByText('按规则计费'),
+    ).toHaveLength(2);
+    expect(tieredRow).not.toHaveTextContent('198 U');
+
+    const multimodalRow = expandModel('gpt-multimodal');
+    expect(
+      priceList(multimodalRow).getAllByText('按规则计费'),
+    ).toHaveLength(2);
+  });
+
+  it.each([
+    {
+      caseName: 'unsupported quota type',
+      overrides: { quota_type: 2 },
+    },
+    {
+      caseName: 'string quota type',
+      overrides: { quota_type: '0' },
+    },
+    {
+      caseName: 'boolean quota type',
+      overrides: { quota_type: false },
+    },
+    {
+      caseName: 'null quota type',
+      overrides: { quota_type: null },
+    },
+    {
+      caseName: 'negative base ratio',
+      overrides: { model_ratio: -1 },
+    },
+    {
+      caseName: 'negative optional ratio',
+      overrides: { cache_ratio: -0.5 },
+    },
+  ])('rejects $caseName pricing data', async ({ overrides }) => {
+    const malformedRow = {
+      model_name: 'gpt-malformed',
+      description: 'Malformed pricing',
+      quota_type: 0,
+      model_ratio: 1,
+      model_price: 0,
+      owner_by: 'OpenAI',
+      completion_ratio: 1,
+      enable_groups: ['default'],
+      ...overrides,
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/api/status')) {
+        return statusResponse();
+      }
+      if (url.endsWith('/api/pricing')) {
+        return pricingResponse([malformedRow]);
+      }
+      return jsonResponse({ success: false, message: 'unexpected' }, 500);
+    });
+    renderModels(fetchMock);
+
+    expect(
+      await screen.findByText('模型价格加载失败，请稍后重试。'),
+    ).toBeVisible();
+    expect(screen.queryByText('gpt-malformed')).not.toBeInTheDocument();
+  });
+});
+
+describe('public model catalog ordering', () => {
+  it('leads each vendor with its current generation and keeps vendors in a fixed order', async () => {
+    const base = managedPublicPricing.data[0];
+    const fixture = {
+      ...managedPublicPricing,
+      data: [
+        { ...base, model_name: 'zt-glm-5.2', provider_family: 'glm', vendor_name: 'GLM' },
+        { ...base, model_name: 'zt-gpt-5.6-sol', provider_family: 'openai', vendor_name: 'OpenAI' },
+        { ...base, model_name: 'zt-glm-5.3', provider_family: 'glm', vendor_name: 'GLM' },
+        { ...base, model_name: 'zt-gpt-4.1', provider_family: 'openai', vendor_name: 'OpenAI' },
+        { ...base, model_name: 'zt-gpt-6-astra', provider_family: 'openai', vendor_name: 'OpenAI' },
+      ],
+    };
+    renderModels(vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/api/status')
+      ? statusResponse() : jsonResponse(fixture)));
+
+    await screen.findByText('zt-gpt-6-astra');
+    const rows = [...document.querySelectorAll('.catalog-model')].map(
+      (row) => row.querySelector('.catalog-model__identity code')?.textContent?.trim(),
+    );
+    // OpenAI before GLM whatever order the API returned, and inside each
+    // vendor the model that replaced the others comes first.
+    expect(rows).toEqual([
+      'zt-gpt-6-astra',
+      'zt-gpt-5.6-sol',
+      'zt-gpt-4.1',
+      'zt-glm-5.3',
+      'zt-glm-5.2',
+    ]);
+  });
+});
+
+describe('official discount display', () => {
+  it('requires every price dimension and uses a conservative tenth of a fold', () => {
+    const base: ModelPriceDetail = { key: 'input', dimension: 'input_tokens', label: '输入', price: '7.8 U', officialPrice: '10 U', officialDiscount: 7.8 };
+    expect(modelOfficialDiscount([base])).toBe('7.8');
+    expect(modelOfficialDiscount([base, { ...base, key: 'output', officialDiscount: 8.1 }])).toBe('7.8–8.1');
+    expect(modelOfficialDiscount([base, { ...base, key: 'output', officialDiscount: undefined }])).toBeNull();
+    expect(modelOfficialDiscount([])).toBeNull();
+  });
+});

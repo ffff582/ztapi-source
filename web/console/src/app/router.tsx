@@ -1,0 +1,137 @@
+import {
+  createBrowserRouter,
+  createMemoryRouter,
+  Navigate,
+  type RouteObject,
+} from 'react-router-dom';
+import { ProtectedRoute, PublicOnlyRoute } from '../auth/session';
+import { ConsoleShell } from '../components/layout/ConsoleShell';
+import { LoginPage } from '../features/auth/LoginPage';
+import { ForgotPasswordPage } from '../features/auth/ForgotPasswordPage';
+import { RegisterPage } from '../features/auth/RegisterPage';
+import { ResetPasswordPage } from '../features/auth/ResetPasswordPage';
+import { DashboardPage } from '../features/dashboard/DashboardPage';
+import { UsageGuidePage } from '../features/guide/UsageGuidePage';
+import { KeysPage } from '../features/keys/KeysPage';
+import { LogsPage } from '../features/logs/LogsPage';
+import { ModelsPage } from '../features/models/ModelsPage';
+import { PlaygroundPage } from '../features/playground/PlaygroundPage';
+import { SupportedModelsPage } from '../features/models/SupportedModelsPage';
+import { WalletPage } from '../features/wallet/WalletPage';
+import { AccountPage } from '../features/account/AccountPage';
+
+const routes: RouteObject[] = [
+  {
+    path: '/',
+    HydrateFallback: () => null,
+    lazy: async () => {
+      const { HomePage } = await import('../features/home/HomePage');
+
+      return { Component: HomePage };
+    },
+  },
+  {
+    path: '/models',
+    element: <ModelsPage />,
+  },
+  {
+    path: '/docs',
+    element: <Navigate replace to="/docs/integration" />,
+  },
+  {
+    path: '/docs/:section',
+    lazy: async () => {
+      const { PublicDocsPage } = await import('../features/docs/PublicDocsPage');
+
+      return { Component: PublicDocsPage };
+    },
+  },
+  {
+    path: '/login',
+    element: (
+      <PublicOnlyRoute>
+        <LoginPage />
+      </PublicOnlyRoute>
+    ),
+  },
+  {
+    path: '/register',
+    element: (
+      <PublicOnlyRoute>
+        <RegisterPage />
+      </PublicOnlyRoute>
+    ),
+  },
+  {
+    path: '/forgot-password',
+    element: (
+      <PublicOnlyRoute>
+        <ForgotPasswordPage />
+      </PublicOnlyRoute>
+    ),
+  },
+  {
+    path: '/reset-password',
+    element: (
+      <PublicOnlyRoute>
+        <ResetPasswordPage />
+      </PublicOnlyRoute>
+    ),
+  },
+  {
+    path: '/user/reset',
+    element: (
+      <PublicOnlyRoute>
+        <ResetPasswordPage />
+      </PublicOnlyRoute>
+    ),
+  },
+  {
+    path: '/console',
+    element: (
+      <ProtectedRoute>
+        <ConsoleShell />
+      </ProtectedRoute>
+    ),
+    children: [
+      {
+        index: true,
+        element: <DashboardPage />,
+      },
+      {
+        path: 'keys',
+        element: <KeysPage />,
+      },
+      {
+        path: 'models',
+        element: <SupportedModelsPage />,
+      },
+      {
+        path: 'test',
+        element: <PlaygroundPage />,
+      },
+      {
+        path: 'guide',
+        element: <UsageGuidePage />,
+      },
+      {
+        path: 'logs',
+        element: <LogsPage />,
+      },
+      {
+        path: 'wallet',
+        element: <WalletPage />,
+      },
+      {
+        path: 'account',
+        element: <AccountPage />,
+      },
+    ],
+  },
+];
+
+export function createZTAPIRouter(initialEntries?: string[]) {
+  return initialEntries === undefined
+    ? createBrowserRouter(routes)
+    : createMemoryRouter(routes, { initialEntries });
+}
