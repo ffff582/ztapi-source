@@ -83,8 +83,21 @@ jobs:
           tag_ref=$(curl --fail --silent --show-error --retry 3 --retry-delay 2 \
             --header "Authorization: Bearer $GH_TOKEN" \
             "https://api.github.com/repos/ffff582/ztapi-source/git/ref/tags/production-$ZTAPI_RELEASE_VERSION")
-          public_source_commit=$(echo "$tag_ref" | jq -er \
-            'select(.object.type == "commit") | .object.sha')
+          public_source_tag_type=$(echo "$tag_ref" | jq -er '.object.type')
+          if [ "$public_source_tag_type" = tag ]; then
+            public_source_tag_object=$(echo "$tag_ref" | jq -er '.object.sha')
+            [[ "$public_source_tag_object" =~ ^[0-9a-f]{40}$ ]]
+            tag_object=$(curl --fail --silent --show-error --retry 3 --retry-delay 2 \
+              --header "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/ffff582/ztapi-source/git/tags/$public_source_tag_object")
+            public_source_commit=$(echo "$tag_object" | jq -er \
+              'select(.object.type == "commit") | .object.sha')
+          elif [ "$public_source_tag_type" = commit ]; then
+            public_source_commit=$(echo "$tag_ref" | jq -er '.object.sha')
+          else
+            echo "::error::Unsupported public source tag object type: $public_source_tag_type"
+            exit 1
+          fi
           [[ "$public_source_commit" =~ ^[0-9a-f]{40}$ ]]
           echo "ZTAPI_SOURCE_RESOLVED_COMMIT=$public_source_commit" >> "$GITHUB_ENV"
 

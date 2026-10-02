@@ -21,7 +21,10 @@ test('public tag resolution uses authenticated metadata without weakening anonym
   assert.match(resolver.run, /\.private == false/);
   assert.match(resolver.run, /\.visibility == "public"/);
   assert.match(resolver.run, /\.full_name == "ffff582\/ztapi-source"/);
-  assert.match(resolver.run, /select\(\.object.type == "commit"\)/);
+  assert.match(resolver.run, /git\/ref\/tags\/production-\$ZTAPI_RELEASE_VERSION/);
+  assert.match(resolver.run, /git\/tags\/\$public_source_tag_object/);
+  assert.match(resolver.run, /public_source_tag_type.*= tag/);
+  assert.match(resolver.run, /\.object.type == "commit"/);
   assert.match(resolver.run, /public_source_commit" =~ \^\[0-9a-f\]\{40\}\$/);
   assert.match(resolver.run, /ZTAPI_SOURCE_RESOLVED_COMMIT=\$public_source_commit/);
   assert.ok(resolver.run.indexOf('.private == false') < resolver.run.indexOf('>> "$GITHUB_ENV"'));
