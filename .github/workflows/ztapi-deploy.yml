@@ -118,9 +118,20 @@ jobs:
           public_tree="$verification_root/public-tree"
           source_export="$verification_root/export"
           mkdir -p "$public_tree"
-          curl --fail --silent --show-error \
-            --output "$public_archive" \
-            "https://codeload.github.com/ffff582/ztapi-source/tar.gz/$public_source_commit"
+          for archive_attempt in 1 2 3 4 5; do
+            if curl --fail --silent --show-error \
+                --retry 3 --retry-all-errors --retry-delay 2 \
+                --connect-timeout 15 --max-time 180 \
+                --output "$public_archive" \
+                "https://codeload.github.com/ffff582/ztapi-source/tar.gz/$public_source_commit"; then
+              break
+            fi
+            if [ "$archive_attempt" -eq 5 ]; then
+              echo 'public source archive download failed after retries' >&2
+              exit 1
+            fi
+            sleep $((archive_attempt * 2))
+          done
           tar -tzf "$public_archive" > "$archive_entries"
           if grep -Eq '(^/|(^|/)\.\.(/|$))' "$archive_entries"; then
             echo "::error::Public source archive contains an unsafe path."
@@ -167,8 +178,18 @@ jobs:
             LICENSE NOTICE THIRD-PARTY-LICENSES.md MODIFICATIONS.md SOURCE-OFFER.md; do
             grep -Fxq "$required_source_file" "$expected_paths"
           done
-          git clone --quiet --filter=blob:none --no-checkout \
-            https://github.com/ffff582/ztapi-source.git "$verification_root/public-history"
+          for clone_attempt in 1 2 3 4 5; do
+            rm -rf "$verification_root/public-history"
+            if git -c http.version=HTTP/1.1 clone --quiet --filter=blob:none --no-checkout \
+                https://github.com/ffff582/ztapi-source.git "$verification_root/public-history"; then
+              break
+            fi
+            if [ "$clone_attempt" -eq 5 ]; then
+              echo 'public source history clone failed after retries' >&2
+              exit 1
+            fi
+            sleep $((clone_attempt * 2))
+          done
           test "$(git -C "$verification_root/public-history" rev-parse "refs/tags/$source_tag^{commit}")" = "$public_source_commit"
           git -C "$verification_root/public-history" show -s --format='%P' "$public_source_commit" \
             > "$verification_root/public-parent-shas.txt"
