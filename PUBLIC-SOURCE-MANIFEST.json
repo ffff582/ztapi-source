@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "b905032da30ebca0daafda304bc301b5586c6629",
+  "release_commit": "60cb37471503e4ad111fc4d50c2c5b42cb6a861c",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-b905032da30ebca0daafda304bc301b5586c6629",
+  "source_tag": "production-60cb37471503e4ad111fc4d50c2c5b42cb6a861c",
   "files": [
     {
       "path": ".dockerignore",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "41f4cf28c9ce1d311d8cac503224db83fe88ddbaa989709fd62d7e876ab8fe97",
+      "sha256": "8024c794ecf59e159d24968d8273125c7843731cb2cb7828ca9fa00461629ef2",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "3e6958cfc17b5349a07e2a379d00e9263e337edfea0cd16bc097b20fee1550d1",
+      "sha256": "d9c166800a35ffcbf7dacbccdb7bd53b4c8d032583b7650c0b0e9552acb019e2",
       "size": 942
     },
     {
@@ -4961,13 +4961,13 @@
     },
     {
       "path": "server/service/ztapi_model_verifier.go",
-      "sha256": "b9ac92ad21d88707ae5ea03937c72722d238f32e51dd9ac37f5b5b841b986937",
-      "size": 42079
+      "sha256": "1470dfea93a3b910c93d0650b10399ee04a74a8dfa02b017c0c7f3bbdf4cb8fd",
+      "size": 41921
     },
     {
       "path": "server/service/ztapi_model_verifier_test.go",
-      "sha256": "c89598ef849eb14e85ff70b7ac1e478ecc647be4e75ab1e0c210593e82a70cc9",
-      "size": 43873
+      "sha256": "a8c9a707a01e3fa201704affdc29a7423dc958c1352d32a0dbc8df87e0b175c7",
+      "size": 45112
     },
     {
       "path": "server/service/ztapi_okx_fx.go",

@@ -948,9 +948,6 @@ func VerifyZTAPIModel(
 	if err := model.DB.Where("source_model = ?", strings.TrimSpace(sourceModel)).First(&config).Error; err != nil {
 		return nil, err
 	}
-	if config.Protocol != model.ZTAPIProtocolOpenAICompatible {
-		return nil, errors.New("pilot verifier supports mapped OpenAI-compatible text models only")
-	}
 	requestTimeout := ztapiVerificationRequestTimeoutForModel(config.SourceModel)
 	boundedContext, cancel := context.WithTimeout(ctx, 2*requestTimeout)
 	defer cancel()

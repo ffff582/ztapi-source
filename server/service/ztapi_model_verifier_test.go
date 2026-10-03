@@ -110,6 +110,34 @@ func TestVerifyZTAPIModelPersistsOnlyBoundedOperationalEvidence(t *testing.T) {
 	require.Equal(t, 31, stored.OperatorID)
 }
 
+func TestVerifyZTAPIModelAllowsNativeGeminiImageProtocol(t *testing.T) {
+	channel, config := setupZTAPIModelVerifierTestDB(t)
+	require.NoError(t, model.DB.Model(&channel).Update("type", constant.ChannelTypeGemini).Error)
+	require.NoError(t, model.DB.Model(&config).Updates(map[string]any{
+		"source_model":    "gemini-2.5-flash-image",
+		"protocol":        model.ZTAPIProtocolGemini,
+		"provider_family": model.ZTAPIProviderGoogle,
+	}).Error)
+	_, protocolContract, err := ztapiGemini25ImageProtocolContract()
+	require.NoError(t, err)
+
+	previousRunner := ztapiModelVerificationProbeRunner
+	ztapiModelVerificationProbeRunner = func(context.Context, *model.Channel, string) (ztapiModelProbeResult, error) {
+		return ztapiModelProbeResult{
+			NonStreamingPassed:        true,
+			UsageReconciled:           true,
+			MediaResultValid:          true,
+			ImageProtocolContractJSON: protocolContract,
+		}, nil
+	}
+	t.Cleanup(func() { ztapiModelVerificationProbeRunner = previousRunner })
+
+	verification, err := VerifyZTAPIModel(context.Background(), channel.Id, config.SourceModel, 31)
+	require.NoError(t, err)
+	require.Equal(t, model.ZTAPIProtocolGemini, verification.Protocol)
+	require.Equal(t, model.ZTAPIModalityImage, verification.Modality)
+}
+
 func TestVerifyZTAPIModelPersistsFailureWithoutRawResponse(t *testing.T) {
 	channel, config := setupZTAPIModelVerifierTestDB(t)
 	previousRunner := ztapiModelVerificationProbeRunner
