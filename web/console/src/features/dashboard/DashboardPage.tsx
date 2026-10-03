@@ -22,6 +22,35 @@ interface DashboardData {
   tokenCount: number;
 }
 
+type DashboardRange = 'today' | 'yesterday' | '7d' | '30d';
+
+const dashboardRanges: Array<{ value: DashboardRange; label: string }> = [
+  { value: 'today', label: '今天' },
+  { value: 'yesterday', label: '昨天' },
+  { value: '7d', label: '近 7 天' },
+  { value: '30d', label: '近 30 天' },
+];
+
+function dashboardRangeTimestamps(range: DashboardRange) {
+  const now = new Date();
+  const endOfRange = Math.floor(now.getTime() / 1000);
+  const startOfToday = new Date(now);
+  startOfToday.setHours(0, 0, 0, 0);
+  const todayStart = Math.floor(startOfToday.getTime() / 1000);
+  if (range === 'today') {
+    return { start: todayStart, end: endOfRange };
+  }
+  if (range === 'yesterday') {
+    const yesterdayStart = new Date(startOfToday);
+    yesterdayStart.setDate(yesterdayStart.getDate() - 1);
+    return { start: Math.floor(yesterdayStart.getTime() / 1000), end: todayStart };
+  }
+  const days = range === '7d' ? 6 : 29;
+  const rangeStart = new Date(startOfToday);
+  rangeStart.setDate(rangeStart.getDate() - days);
+  return { start: Math.floor(rangeStart.getTime() / 1000), end: endOfRange };
+}
+
 function formatTimestamp(timestamp: number, locale: 'zh-CN' | 'en') {
   return new Intl.DateTimeFormat(localeTag(locale), {
     month: '2-digit',
@@ -36,13 +65,20 @@ export function DashboardPage() {
   const { locale, t } = useLocale();
   const [data, setData] = useState<DashboardData | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [range, setRange] = useState<DashboardRange>('7d');
 
   useEffect(() => {
     let active = true;
+    setStatus('loading');
+    const timestamps = dashboardRangeTimestamps(range);
+    const rangeQuery = new URLSearchParams({
+      start_timestamp: String(timestamps.start),
+      end_timestamp: String(timestamps.end),
+    }).toString();
     void Promise.all([
       apiClient.get<unknown>('/auth/session'),
-      apiClient.get<unknown>('/log/self/stat'),
-      apiClient.get<unknown>('/log/self?p=1&page_size=5'),
+      apiClient.get<unknown>(`/log/self/stat?${rangeQuery}`),
+      apiClient.get<unknown>(`/log/self?p=1&page_size=5&${rangeQuery}`),
       apiClient.get<unknown>('/token/?p=1&page_size=1'),
     ])
       .then(([userValue, statValue, logValue, tokenValue]) => {
@@ -67,19 +103,34 @@ export function DashboardPage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [range]);
 
   return (
     <div className="console-page">
-      <header className="console-page__header">
+      <header className="console-page__header dashboard-page__header">
         <div>
-          <p className="console-eyebrow">{t('账户与使用')}</p>
-          <h1>{t('使用概览')}</h1>
+          <p className="console-eyebrow">{t('控制台')}</p>
+          <h1>{t('看板')}</h1>
+          <span className="dashboard-page__subtitle">{t('模型、账单、API 文档与调用记录集中在一个工作台。')}</span>
         </div>
-        <p>{t('查看当前会话与最近请求的实际统计。')}</p>
+        <div className="dashboard-periods" aria-label={t('统计范围')}>
+          {dashboardRanges.map((option) => (
+            <button
+              aria-pressed={range === option.value}
+              className={range === option.value ? 'is-active' : undefined}
+              key={option.value}
+              onClick={() => setRange(option.value)}
+              type="button"
+            >
+              {t(option.label)}
+            </button>
+          ))}
+        </div>
       </header>
 
-      <AccountBalance />
+      <div className="dashboard-account-balance">
+        <AccountBalance />
+      </div>
 
       {status === 'loading' && (
         <div className="console-state" aria-live="polite" aria-busy="true">
@@ -93,6 +144,65 @@ export function DashboardPage() {
       )}
       {status === 'ready' && data !== null && (
         <>
+          {(() => {
+            const recentSpend = data.logs.reduce((total, log) => total + log.billed_amount, 0);
+            const recentTokens = data.logs.reduce((total, log) => total + log.total_tokens, 0);
+            const modelCounts = data.logs.reduce<Record<string, number>>((counts, log) => {
+              counts[log.model || t('未知模型')] = (counts[log.model || t('未知模型')] || 0) + 1;
+              return counts;
+            }, {});
+            const topModels = Object.entries(modelCounts).sort((left, right) => right[1] - left[1]).slice(0, 4);
+            return (
+              <>
+                <section className="dashboard-metrics" aria-label={t('关键统计')}>
+                  <div className="dashboard-metric-card dashboard-metric-card--spend">
+                    <span>{t('最近记录消费')}</span>
+                    <strong>{recentSpend.toFixed(6)} U</strong>
+                    <small>{t('按当前展示记录统计')}</small>
+                  </div>
+                  <div className="dashboard-metric-card dashboard-metric-card--requests">
+                    <span>{t('请求次数')}</span>
+                    <strong>{data.total}</strong>
+                    <small>{t('最近一分钟 {{count}} 次', { count: data.stat.rpm })}</small>
+                  </div>
+                  <div className="dashboard-metric-card dashboard-metric-card--tokens">
+                    <span>{t('Token 用量')}</span>
+                    <strong>{recentTokens.toLocaleString()}</strong>
+                    <small>{t('最近展示记录合计')}</small>
+                  </div>
+                </section>
+
+                <section className="dashboard-analysis" aria-label={t('调用分析')}>
+                  <div className="dashboard-analysis__panel">
+                    <div className="dashboard-analysis__heading">
+                      <div><p className="console-eyebrow">{t('最近请求')}</p><h2>{t('消费趋势')}</h2></div>
+                      <span>{t('按当前展示记录')}</span>
+                    </div>
+                    <div className="dashboard-bars" aria-label={t('最近记录消费趋势')}>
+                      {data.logs.length === 0 ? <span>{t('暂无足够数据')}</span> : data.logs.map((log) => (
+                        <div key={`${log.timestamp}-${log.request_id}`} className="dashboard-bars__item">
+                          <i style={{ height: `${Math.max(12, Math.min(100, log.billed_amount * 10000))}%` }} />
+                          <small>{log.model || t('未知')}</small>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="dashboard-analysis__panel">
+                    <div className="dashboard-analysis__heading">
+                      <div><p className="console-eyebrow">{t('调用分布')}</p><h2>{t('模型排行')}</h2></div>
+                      <span>{t('{{count}} 条记录', { count: data.logs.length })}</span>
+                    </div>
+                    <div className="dashboard-model-list">
+                      {topModels.length === 0 ? <span>{t('当前账户还没有请求记录。')}</span> : topModels.map(([model, count]) => (
+                        <div key={model}><span>{model}</span><strong>{count}</strong></div>
+                      ))}
+                    </div>
+                  </div>
+                </section>
+              </>
+            );
+          })()}
+
           {(() => {
             const progress = onboardingProgress(data.user.id, {
               tokenCount: data.tokenCount,

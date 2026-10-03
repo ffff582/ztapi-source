@@ -13,23 +13,24 @@ import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../auth/session';
 import { LanguageToggle } from '../../i18n/LanguageToggle';
 import { useLocale } from '../../i18n/locale';
+import { ThemeToggle } from '../../theme/ThemeToggle';
 
 const consoleNavigation = [
   {
-    label: '调用与测试',
+    label: '工作台',
     items: [
-      { to: '/console', label: '概览', icon: LayoutDashboard, end: true },
-      { to: '/console/models', label: '模型支持', icon: Boxes, end: false },
-      { to: '/console/test', label: '在线测试', icon: PlayCircle, end: false },
-      { to: '/console/guide', label: '使用说明', icon: BookOpenText, end: false },
+      { to: '/console', label: '看板', icon: LayoutDashboard, end: true },
+      { to: '/console/models', label: '模型市场', icon: Boxes, end: false },
+      { to: '/console/test', label: '在线工作台', icon: PlayCircle, end: false },
+      { to: '/console/guide', label: 'API 文档', icon: BookOpenText, end: false },
     ],
   },
   {
     label: '账户与数据',
     items: [
-      { to: '/console/keys', label: 'API 密钥', icon: KeyRound, end: false },
-      { to: '/console/logs', label: '使用日志', icon: ScrollText, end: false },
-      { to: '/console/wallet', label: '余额充值', icon: WalletCards, end: false },
+      { to: '/console/keys', label: 'API Key', icon: KeyRound, end: false },
+      { to: '/console/logs', label: '用量日志', icon: ScrollText, end: false },
+      { to: '/console/wallet', label: '账单充值', icon: WalletCards, end: false },
       { to: '/console/account', label: '账号设置', icon: UserRound, end: false },
     ],
   },
@@ -77,7 +78,11 @@ export function ConsoleShell() {
 
       <div className="console-workspace">
         <header className="console-header">
+          <Link className="console-header__market" to="/models">
+            {t('查看公开模型市场')} <span aria-hidden="true">↗</span>
+          </Link>
           <LanguageToggle />
+          <ThemeToggle />
           <span className="console-user">
             {t('当前账号')}
             <strong>{user?.username}</strong>

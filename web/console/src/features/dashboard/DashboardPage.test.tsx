@@ -63,7 +63,8 @@ describe('DashboardPage usage log', () => {
 
     render(<DashboardPage />);
 
-    const row = (await screen.findByText('zt-claude-sonnet-5')).closest('tr');
+    const table = await screen.findByRole('table');
+    const row = (await within(table).findByText('zt-claude-sonnet-5')).closest('tr');
     expect(row).not.toBeNull();
     const usageLog = within(row as HTMLElement);
     expect(usageLog.getByText('0.004321 U')).toBeVisible();

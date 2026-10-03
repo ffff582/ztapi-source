@@ -101,3 +101,67 @@ describe('playgroundClient.chat', () => {
     expect(String(error)).not.toContain('raw upstream secret detail');
   });
 });
+
+describe('playgroundClient media methods', () => {
+  it('generates images with catalog-selected options and parses image data', async () => {
+    setAuthSession(session());
+    const fetchMock = vi.fn().mockResolvedValue(response({
+      created: 1_760_000_000,
+      data: [{ url: 'https://cdn.example/image.png', revised_prompt: 'revised' }],
+    }, 200, 'image-request-1'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(playgroundClient.imageGeneration({
+      model: 'zt-image-1',
+      prompt: '一只猫',
+      size: '1024x1024',
+      quality: 'standard',
+      n: 1,
+      response_format: 'url',
+    })).resolves.toEqual({
+      created: 1_760_000_000,
+      request_id: 'image-request-1',
+      images: [{ url: 'https://cdn.example/image.png', revised_prompt: 'revised' }],
+    });
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/pg/images/generations');
+    expect(JSON.parse(String(init.body))).toEqual({
+      model: 'zt-image-1', prompt: '一只猫', size: '1024x1024', quality: 'standard', n: 1, response_format: 'url',
+    });
+  });
+
+  it('creates and fetches a video task through the authenticated workbench routes', async () => {
+    setAuthSession(session());
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ id: 'task-1', status: 'queued' }, 200, 'video-submit-1'))
+      .mockResolvedValueOnce(response({
+        code: 'success',
+        data: { task_id: 'task-1', status: 'succeeded', result_url: '/v1/videos/task-1/content' },
+      }, 200, 'video-fetch-1'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(playgroundClient.createVideo({
+      model: 'zt-video-1', prompt: '一段海边日落', size: '720p', duration: 5,
+    })).resolves.toMatchObject({ task_id: 'task-1', status: 'queued', request_id: 'video-submit-1' });
+    await expect(playgroundClient.fetchVideo('task-1')).resolves.toEqual({
+      task_id: 'task-1', status: 'succeeded', url: '/v1/videos/task-1/content', request_id: 'video-fetch-1',
+    });
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/pg/video/generations');
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
+      model: 'zt-video-1', prompt: '一段海边日落', size: '720p', duration: 5,
+    });
+    expect(fetchMock.mock.calls[1][0]).toBe('/pg/video/generations/task-1');
+  });
+
+  it('rejects a media response without a usable result identity', async () => {
+    setAuthSession(session());
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response({ data: [] })));
+
+    const error = await playgroundClient.imageGeneration({ model: 'zt-image-1', prompt: 'test' })
+      .catch((value: unknown) => value);
+    expect(error).toBeInstanceOf(PlaygroundClientError);
+    expect(error).toMatchObject({ kind: 'invalid_response' });
+  });
+});

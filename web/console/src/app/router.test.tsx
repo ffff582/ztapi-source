@@ -78,7 +78,7 @@ it('renders the ZTAPI home route', async () => {
     await screen.findByRole(
       'heading',
       {
-        name: 'ZTAPI',
+        name: '一个接口，连接主流 AI 模型',
       },
       { timeout: 10_000 },
     ),
@@ -119,7 +119,7 @@ it.each([
 });
 
 it.each([
-  ['/console', '使用概览'],
+  ['/console', '看板'],
   ['/console/keys', 'API 密钥'],
   ['/console/models', '模型支持'],
   ['/console/test', '在线 API 测试'],
@@ -135,16 +135,16 @@ it.each([
 it('keeps model support and integration guidance in the console navigation', async () => {
   renderWithProviders('/console', true);
 
-  await screen.findByRole('heading', { name: '使用概览' });
-  expect(screen.getByRole('link', { name: '模型支持' })).toHaveAttribute(
+  await screen.findByRole('heading', { name: '看板' });
+  expect(screen.getByRole('link', { name: '模型市场' })).toHaveAttribute(
     'href',
     '/console/models',
   );
-  expect(screen.getByRole('link', { name: '使用说明' })).toHaveAttribute(
+  expect(screen.getByRole('link', { name: 'API 文档' })).toHaveAttribute(
     'href',
     '/console/guide',
   );
-  expect(screen.getByRole('link', { name: '在线测试' })).toHaveAttribute(
+  expect(screen.getByRole('link', { name: '在线工作台' })).toHaveAttribute(
     'href',
     '/console/test',
   );
@@ -154,17 +154,16 @@ it('switches the public site to English and persists the language without changi
   vi.spyOn(window.navigator, 'language', 'get').mockReturnValue('zh-CN');
   renderWithProviders('/', false);
 
-  await screen.findByRole('heading', { name: 'ZTAPI' }, { timeout: 10_000 });
+  await screen.findByRole('heading', { name: '一个接口，连接主流 AI 模型' }, { timeout: 10_000 });
   const switcher = await screen.findByRole('button', { name: '切换到英文' });
   expect(document.documentElement.lang).toBe('zh-CN');
 
   fireEvent.click(switcher);
 
-  expect(await screen.findByText('One key connects leading')).toBeVisible();
-  expect(screen.getByText('AI models worldwide')).toBeVisible();
+  expect(await screen.findByRole('heading', { name: 'One interface for leading AI models' })).toBeVisible();
+  expect(screen.getByText('Access text, reasoning, image, and video models through one API, with clear requests, usage, and charges.')).toBeVisible();
   expect(screen.getByText('One interface for the models you need')).toBeVisible();
   expect(screen.queryByText('JavaScript')).toBeNull();
-  expect(screen.getAllByText('https://ztapi.vip/v1').length).toBeGreaterThan(0);
   expect(localStorage.getItem('ztapi.locale')).toBe('en');
   expect(document.documentElement.lang).toBe('en');
 });
@@ -207,7 +206,7 @@ it.each([
   ['/models', false, 'Models and pricing'],
   ['/login', false, 'Sign in to ZTAPI'],
   ['/register', false, 'Create a ZTAPI account'],
-  ['/console', true, 'Usage overview'],
+  ['/console', true, 'Dashboard'],
   ['/console/keys', true, 'API keys'],
   ['/console/models', true, 'Supported models'],
   ['/console/test', true, 'Online API test'],

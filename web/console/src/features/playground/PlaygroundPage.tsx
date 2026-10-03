@@ -1,16 +1,32 @@
-import { CheckCircle2, CircleDollarSign, Copy, Play } from 'lucide-react';
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { CheckCircle2, CircleAlert, CircleDollarSign, Copy, Download, Image as ImageIcon, Play, RefreshCw, Video as VideoIcon } from 'lucide-react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { apiClient, getAuthSession } from '../../api/client';
-import { parseUserLogPage, parseUserModelCatalog, type UserModelCatalogItem } from '../../api/contracts';
-import { PlaygroundClientError, playgroundClient, type PlaygroundChatResult } from '../../api/playground';
+import { parseUserLogPage, parseUserModelCatalog, type UserModelCatalogItem, type UserModelSupportedOptions } from '../../api/contracts';
+import {
+  PlaygroundClientError,
+  playgroundClient,
+  type PlaygroundChatResult,
+  type PlaygroundImageResult,
+  type PlaygroundVideoTask,
+} from '../../api/playground';
 import { useLocale } from '../../i18n/locale';
 import { markModelSelected } from '../onboarding/onboarding';
 
-const defaultPrompt = '请用一句话介绍你自己。';
+type PlaygroundMode = 'text' | 'image' | 'video';
 
-function isTestableModel(item: UserModelCatalogItem) {
-  return item.modality === 'text' && item.supported_endpoint_types.includes('openai');
+const defaultPrompt = '请用一句话介绍你自己。';
+const VIDEO_POLL_INTERVAL_MS = 1200;
+
+function isWorkbenchModel(item: UserModelCatalogItem) {
+  if (item.modality === 'text') return item.supported_endpoint_types.includes('openai');
+  if (item.modality === 'image') return item.supported_endpoint_types.includes('images');
+  if (item.modality === 'video') return item.supported_endpoint_types.includes('video-tasks');
+  return false;
+}
+
+function modeForModel(item: UserModelCatalogItem): PlaygroundMode | null {
+  return item.modality === 'text' || item.modality === 'image' || item.modality === 'video' ? item.modality : null;
 }
 
 function testErrorMessage(error: unknown) {
@@ -32,16 +48,66 @@ function testErrorMessage(error: unknown) {
   return '测试请求失败，请稍后重试。';
 }
 
-function codeExample(model: string) {
+function codeExample(mode: PlaygroundMode, model: string) {
+  const selectedModel = model || 'YOUR_MODEL_ID';
+  if (mode === 'image') {
+    return `export ZTAPI_API_KEY="YOUR_ZTAPI_API_KEY"
+
+curl https://ztapi.vip/v1/images/generations \\
+  -H "Authorization: Bearer $ZTAPI_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "${selectedModel}",
+    "prompt": "一只在雨中的橘猫",
+    "size": "1024x1024"
+  }'`;
+  }
+  if (mode === 'video') {
+    return `export ZTAPI_API_KEY="YOUR_ZTAPI_API_KEY"
+
+curl https://ztapi.vip/v1/video/generations \\
+  -H "Authorization: Bearer $ZTAPI_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "${selectedModel}",
+    "prompt": "镜头缓慢推进一片森林",
+    "size": "1280x720",
+    "duration": 5
+  }'`;
+  }
   return `export ZTAPI_API_KEY="YOUR_ZTAPI_API_KEY"
 
 curl https://ztapi.vip/v1/chat/completions \\
   -H "Authorization: Bearer $ZTAPI_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "model": "${model || 'YOUR_MODEL_ID'}",
+    "model": "${selectedModel}",
     "messages": [{"role": "user", "content": "你好"}]
   }'`;
+}
+
+function firstOption(options: UserModelSupportedOptions | undefined, key: 'sizes' | 'qualities' | 'response_formats' | 'resolutions') {
+  return options?.[key]?.[0] ?? '';
+}
+
+function videoStatusLabel(status: PlaygroundVideoTask['status']) {
+  switch (status) {
+    case 'queued':
+      return '视频任务已提交，正在等待上游处理。';
+    case 'processing':
+      return '视频正在生成，请保持页面打开。';
+    case 'succeeded':
+      return '视频已生成';
+    case 'failed':
+      return '视频生成失败';
+    default:
+      return '正在确认视频任务状态。';
+  }
+}
+
+function imageSource(image: PlaygroundImageResult['images'][number]) {
+  if (image.url) return image.url;
+  return image.b64_json ? `data:image/png;base64,${image.b64_json}` : '';
 }
 
 export function PlaygroundPage() {
@@ -49,33 +115,62 @@ export function PlaygroundPage() {
   const [searchParams] = useSearchParams();
   const [models, setModels] = useState<UserModelCatalogItem[]>([]);
   const [catalogStatus, setCatalogStatus] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [model, setModel] = useState('');
+  const [mode, setMode] = useState<PlaygroundMode>('text');
+  const [modelByMode, setModelByMode] = useState<Record<PlaygroundMode, string>>({ text: '', image: '', video: '' });
   const [prompt, setPrompt] = useState(defaultPrompt);
   const [requestStatus, setRequestStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
-  const [result, setResult] = useState<PlaygroundChatResult | null>(null);
+  const [chatResult, setChatResult] = useState<PlaygroundChatResult | null>(null);
+  const [imageResult, setImageResult] = useState<PlaygroundImageResult | null>(null);
+  const [videoTask, setVideoTask] = useState<PlaygroundVideoTask | null>(null);
   const [billedAmount, setBilledAmount] = useState<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState<number | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [copyState, setCopyState] = useState<'idle' | 'success' | 'error'>('idle');
+  const [imageSize, setImageSize] = useState('');
+  const [imageQuality, setImageQuality] = useState('');
+  const [imageCount, setImageCount] = useState(1);
+  const [imageResponseFormat, setImageResponseFormat] = useState('url');
+  const [videoSize, setVideoSize] = useState('');
+  const [videoDuration, setVideoDuration] = useState(5);
+  const [videoSequence, setVideoSequence] = useState(0);
+  const [videoStartedAt, setVideoStartedAt] = useState<number | null>(null);
   const requestSequence = useRef(0);
+
+  const model = modelByMode[mode];
+  const modeModels = useMemo(
+    () => models.filter((item) => modeForModel(item) === mode),
+    [mode, models],
+  );
+  const selectedCatalog = useMemo(
+    () => modeModels.find((item) => item.model_name === model) ?? null,
+    [model, modeModels],
+  );
+  const selectedOptions = selectedCatalog?.supported_options;
+  const example = useMemo(() => codeExample(mode, model), [mode, model]);
 
   useEffect(() => {
     let active = true;
     void apiClient
       .getResponse<unknown>('/user/models')
       .then(parseUserModelCatalog)
-      .then((catalog) => catalog.catalog.filter(isTestableModel))
-      .then((testableModels) => {
+      .then((catalog) => {
         if (!active) return;
-        setModels(testableModels);
+        const workbenchModels = catalog.catalog.filter(isWorkbenchModel);
         const requested = searchParams.get('model');
-        const selected = testableModels.some((item) => item.model_name === requested)
-          ? requested ?? ''
-          : testableModels[0]?.model_name ?? '';
-        setModel(selected);
+        const next: Record<PlaygroundMode, string> = { text: '', image: '', video: '' };
+        (['text', 'image', 'video'] as PlaygroundMode[]).forEach((candidateMode) => {
+          const candidates = workbenchModels.filter((item) => modeForModel(item) === candidateMode);
+          const requestedModel = candidateMode === 'text' ? requested : null;
+          next[candidateMode] = candidates.some((item) => item.model_name === requestedModel)
+            ? requestedModel ?? ''
+            : candidates[0]?.model_name ?? '';
+        });
+        setModels(workbenchModels);
+        setModelByMode(next);
+        setCatalogStatus('ready');
+        const selected = next.text || next.image || next.video;
         const userID = getAuthSession()?.user.id;
         if (selected !== '' && userID !== undefined) markModelSelected(userID);
-        setCatalogStatus('ready');
       })
       .catch(() => {
         if (active) setCatalogStatus('error');
@@ -85,9 +180,20 @@ export function PlaygroundPage() {
     };
   }, [searchParams]);
 
-  const example = useMemo(() => codeExample(model), [model]);
+  useEffect(() => {
+    if (mode === 'image') {
+      setImageSize(firstOption(selectedOptions, 'sizes'));
+      setImageQuality(firstOption(selectedOptions, 'qualities'));
+      setImageResponseFormat(firstOption(selectedOptions, 'response_formats'));
+      setImageCount(Math.max(1, selectedOptions?.min_count ?? 1));
+    }
+    if (mode === 'video') {
+      setVideoSize(firstOption(selectedOptions, 'resolutions'));
+      setVideoDuration(selectedOptions?.duration_seconds?.[0] ?? 5);
+    }
+  }, [mode, selectedCatalog, selectedOptions]);
 
-  async function loadBilling(requestID: string, sequence: number) {
+  const loadBilling = useCallback(async (requestID: string, sequence: number) => {
     if (requestID === '') return;
     try {
       const query = new URLSearchParams({ p: '1', page_size: '1', request_id: requestID });
@@ -96,8 +202,64 @@ export function PlaygroundPage() {
       const log = page.items.find((item) => item.request_id === requestID);
       setBilledAmount(log?.billed_amount ?? null);
     } catch {
-      // The model answer remains useful when the asynchronous log is not ready yet.
+      // The result remains useful when the asynchronous log is not ready yet.
     }
+  }, []);
+
+  useEffect(() => {
+    if (mode !== 'video' || videoTask === null || videoSequence === 0 || requestStatus !== 'sending') return;
+    if (videoTask.status === 'succeeded' || videoTask.status === 'failed') return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void playgroundClient.fetchVideo(videoTask.task_id).then((nextTask) => {
+        if (cancelled || videoSequence !== requestSequence.current) return;
+        const next = { ...nextTask, request_id: nextTask.request_id || videoTask.request_id };
+        setVideoTask(next);
+        if (next.status === 'succeeded') {
+          setElapsedMs(videoStartedAt === null ? null : Math.max(0, Math.round(performance.now() - videoStartedAt)));
+          setRequestStatus('success');
+          void loadBilling(next.request_id, videoSequence);
+        } else if (next.status === 'failed') {
+          setErrorMessage(next.error || '视频生成失败，请稍后重试。');
+          setRequestStatus('error');
+        }
+      }).catch((error: unknown) => {
+        if (cancelled || videoSequence !== requestSequence.current) return;
+        setErrorMessage(testErrorMessage(error));
+        setRequestStatus('error');
+      });
+    }, VIDEO_POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [loadBilling, mode, requestStatus, videoSequence, videoStartedAt, videoTask]);
+
+  function clearResults() {
+    requestSequence.current += 1;
+    setRequestStatus('idle');
+    setChatResult(null);
+    setImageResult(null);
+    setVideoTask(null);
+    setVideoSequence(0);
+    setVideoStartedAt(null);
+    setBilledAmount(null);
+    setElapsedMs(null);
+    setErrorMessage('');
+  }
+
+  function handleModeChange(nextMode: PlaygroundMode) {
+    if (nextMode === mode) return;
+    clearResults();
+    setMode(nextMode);
+    setPrompt(nextMode === 'text' ? defaultPrompt : '');
+  }
+
+  function handleModelChange(nextModel: string) {
+    clearResults();
+    setModelByMode((current) => ({ ...current, [mode]: nextModel }));
+    const userID = getAuthSession()?.user.id;
+    if (userID !== undefined) markModelSelected(userID);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -108,17 +270,58 @@ export function PlaygroundPage() {
     const sequence = ++requestSequence.current;
     const startedAt = performance.now();
     setRequestStatus('sending');
-    setResult(null);
+    setChatResult(null);
+    setImageResult(null);
+    setVideoTask(null);
+    setVideoSequence(0);
+    setVideoStartedAt(null);
     setBilledAmount(null);
     setElapsedMs(null);
     setErrorMessage('');
     try {
-      const value = await playgroundClient.chat({ model, prompt: normalizedPrompt });
+      if (mode === 'text') {
+        const value = await playgroundClient.chat({ model, prompt: normalizedPrompt });
+        if (sequence !== requestSequence.current) return;
+        setElapsedMs(Math.max(0, Math.round(performance.now() - startedAt)));
+        setChatResult(value);
+        setRequestStatus('success');
+        await loadBilling(value.request_id, sequence);
+        return;
+      }
+      if (mode === 'image') {
+        const value = await playgroundClient.imageGeneration({
+          model,
+          prompt: normalizedPrompt,
+          ...(imageSize === '' ? {} : { size: imageSize }),
+          ...(imageQuality === '' ? {} : { quality: imageQuality }),
+          n: imageCount,
+          ...(imageResponseFormat === '' ? {} : { response_format: imageResponseFormat }),
+        });
+        if (sequence !== requestSequence.current) return;
+        setElapsedMs(Math.max(0, Math.round(performance.now() - startedAt)));
+        setImageResult(value);
+        setRequestStatus('success');
+        await loadBilling(value.request_id, sequence);
+        return;
+      }
+      const value = await playgroundClient.createVideo({
+        model,
+        prompt: normalizedPrompt,
+        ...(videoSize === '' ? {} : { size: videoSize }),
+        duration: videoDuration,
+      });
       if (sequence !== requestSequence.current) return;
-      setElapsedMs(Math.max(0, Math.round(performance.now() - startedAt)));
-      setResult(value);
-      setRequestStatus('success');
-      await loadBilling(value.request_id, sequence);
+      setVideoStartedAt(startedAt);
+      setVideoTask(value);
+      setVideoSequence(sequence);
+      if (value.status === 'succeeded') {
+        setElapsedMs(Math.max(0, Math.round(performance.now() - startedAt)));
+        setRequestStatus('success');
+        await loadBilling(value.request_id, sequence);
+      } else if (value.status === 'failed') {
+        setErrorMessage(value.error || '视频生成失败，请稍后重试。');
+        setRequestStatus('error');
+      }
     } catch (error) {
       if (sequence !== requestSequence.current) return;
       setElapsedMs(Math.max(0, Math.round(performance.now() - startedAt)));
@@ -136,6 +339,10 @@ export function PlaygroundPage() {
       setCopyState('error');
     }
   }
+
+  const availableModes = (['text', 'image', 'video'] as PlaygroundMode[]).filter((candidateMode) =>
+    models.some((item) => modeForModel(item) === candidateMode),
+  );
 
   return (
     <div className="console-page playground-page">
@@ -163,96 +370,95 @@ export function PlaygroundPage() {
           </aside>
 
           {catalogStatus === 'loading' && <div className="console-state">{t('正在加载可测试模型...')}</div>}
-          {catalogStatus === 'error' && (
-            <div className="console-alert" role="alert">{t('可测试模型加载失败，请刷新后重试。')}</div>
-          )}
-          {catalogStatus === 'ready' && models.length === 0 && (
-            <div className="console-state">{t('当前账号暂无可在线测试的文本模型。')}</div>
-          )}
+          {catalogStatus === 'error' && <div className="console-alert" role="alert">{t('可测试模型加载失败，请刷新后重试。')}</div>}
+          {catalogStatus === 'ready' && models.length === 0 && <div className="console-state">{t('当前账号暂无可在线测试的模型。')}</div>}
           {catalogStatus === 'ready' && models.length > 0 && (
-            <form className="playground-form" onSubmit={handleSubmit}>
-              <div className="console-field">
-                <label htmlFor="playground-model">{t('测试模型')}</label>
-                <select id="playground-model" value={model} onChange={(event) => {
-                  setModel(event.target.value);
-                  const userID = getAuthSession()?.user.id;
-                  if (userID !== undefined) markModelSelected(userID);
-                }}>
-                  {models.map((item) => <option key={item.model_name} value={item.model_name}>{item.model_name}</option>)}
-                </select>
+            <>
+              <div className="playground-mode-tabs" aria-label={t('工作台能力')}>
+                {availableModes.map((candidateMode) => {
+                  const label = candidateMode === 'text' ? '文本' : candidateMode === 'image' ? '图片' : '视频';
+                  return (
+                    <button aria-pressed={candidateMode === mode} className={candidateMode === mode ? 'playground-mode-tab is-active' : 'playground-mode-tab'} key={candidateMode} type="button" onClick={() => handleModeChange(candidateMode)}>
+                      {candidateMode === 'image' ? <ImageIcon aria-hidden="true" size={16} /> : candidateMode === 'video' ? <VideoIcon aria-hidden="true" size={16} /> : null}
+                      {label}
+                    </button>
+                  );
+                })}
               </div>
-              <div className="console-field">
-                <label htmlFor="playground-prompt">{t('测试问题')}</label>
-                <textarea
-                  id="playground-prompt"
-                  maxLength={4_000}
-                  rows={7}
-                  value={prompt}
-                  onChange={(event) => setPrompt(event.target.value)}
-                />
-                <p className="console-field__help">{t('{{count}} / 4000 字符', { count: prompt.length })}</p>
-              </div>
-              <button
-                className="console-button console-button--primary"
-                disabled={requestStatus === 'sending' || prompt.trim() === ''}
-                type="submit"
-              >
-                <Play aria-hidden="true" size={16} />
-                {requestStatus === 'sending' ? t('正在调用...') : t('发送测试请求')}
-              </button>
-            </form>
+              {modeModels.length === 0 ? <div className="console-state">{t('当前能力暂无可用模型。')}</div> : (
+                <form className="playground-form" onSubmit={handleSubmit}>
+                  <div className="console-field">
+                    <label htmlFor={mode === 'text' ? 'playground-model' : `playground-${mode}-model`}>{mode === 'text' ? t('测试模型') : `${mode === 'image' ? '图片' : '视频'}模型`}</label>
+                    <select id={mode === 'text' ? 'playground-model' : `playground-${mode}-model`} value={model} onChange={(event) => handleModelChange(event.target.value)}>
+                      {modeModels.map((item) => <option key={item.model_name} value={item.model_name}>{item.model_name}</option>)}
+                    </select>
+                  </div>
+                  <div className="console-field">
+                    <label htmlFor={mode === 'text' ? 'playground-prompt' : `playground-${mode}-prompt`}>{mode === 'text' ? t('测试问题') : `${mode === 'image' ? '图片' : '视频'}提示词`}</label>
+                    <textarea id={mode === 'text' ? 'playground-prompt' : `playground-${mode}-prompt`} maxLength={4_000} rows={mode === 'text' ? 7 : 5} value={prompt} onChange={(event) => setPrompt(event.target.value)} />
+                    <p className="console-field__help">{t('{{count}} / 4000 字符', { count: prompt.length })}</p>
+                  </div>
+                  {mode === 'image' && selectedOptions && (
+                    <div className="playground-option-grid">
+                      <div className="console-field"><label htmlFor="playground-image-size">图片尺寸</label><select id="playground-image-size" value={imageSize} onChange={(event) => setImageSize(event.target.value)}>{selectedOptions.sizes?.map((option) => <option key={option} value={option}>{option}</option>)}</select></div>
+                      <div className="console-field"><label htmlFor="playground-image-quality">图片质量</label><select id="playground-image-quality" value={imageQuality} onChange={(event) => setImageQuality(event.target.value)}>{selectedOptions.qualities?.map((option) => <option key={option} value={option}>{option}</option>)}</select></div>
+                      <div className="console-field"><label htmlFor="playground-image-count">图片数量</label><select id="playground-image-count" value={imageCount} onChange={(event) => setImageCount(Number(event.target.value))}>{Array.from({ length: Math.max(1, (selectedOptions.max_count ?? 1) - (selectedOptions.min_count ?? 1) + 1) }, (_, index) => (selectedOptions.min_count ?? 1) + index).map((count) => <option key={count} value={count}>{count}</option>)}</select></div>
+                      <div className="console-field"><label htmlFor="playground-image-format">图片格式</label><select id="playground-image-format" value={imageResponseFormat} onChange={(event) => setImageResponseFormat(event.target.value)}>{selectedOptions.response_formats?.map((option) => <option key={option} value={option}>{option}</option>)}</select></div>
+                    </div>
+                  )}
+                  {mode === 'video' && selectedOptions && (
+                    <div className="playground-option-grid">
+                      <div className="console-field"><label htmlFor="playground-video-size">视频分辨率</label><select id="playground-video-size" value={videoSize} onChange={(event) => setVideoSize(event.target.value)}>{selectedOptions.resolutions?.map((option) => <option key={option} value={option}>{option}</option>)}</select></div>
+                      <div className="console-field"><label htmlFor="playground-video-duration">视频时长</label><select id="playground-video-duration" value={videoDuration} onChange={(event) => setVideoDuration(Number(event.target.value))}>{selectedOptions.duration_seconds?.map((duration) => <option key={duration} value={duration}>{duration} 秒</option>)}</select></div>
+                    </div>
+                  )}
+                  <button className="console-button console-button--primary" disabled={requestStatus === 'sending' || prompt.trim() === ''} type="submit">
+                    <Play aria-hidden="true" size={16} />
+                    {requestStatus === 'sending' ? (mode === 'video' ? '正在等待任务...' : t('正在调用...')) : mode === 'image' ? '生成图片' : mode === 'video' ? '生成视频' : t('发送测试请求')}
+                  </button>
+                </form>
+              )}
+            </>
           )}
-
           {requestStatus === 'error' && <div className="console-alert playground-result-alert" role="alert">{t(errorMessage)}</div>}
         </section>
 
         <section className="console-panel playground-result" aria-labelledby="playground-result-heading">
           <div className="console-panel__heading">
-            <CheckCircle2 aria-hidden="true" size={19} />
+            {requestStatus === 'error' ? <CircleAlert aria-hidden="true" size={19} /> : <CheckCircle2 aria-hidden="true" size={19} />}
             <h2 id="playground-result-heading">{t('调用结果')}</h2>
           </div>
-          {result === null ? (
-            <div className="console-state">{t('发送请求后，模型回答和本次费用会显示在这里。')}</div>
-          ) : (
+          {mode === 'text' && chatResult !== null ? (
             <div className="playground-result__body">
-              <div className="playground-answer">{result.text}</div>
-              <dl className="playground-metrics">
-                <div><dt>{t('Token 用量')}</dt><dd>{result.usage?.total_tokens ?? 0} tokens</dd></div>
-                <div><dt>{t('本次费用')}</dt><dd>{billedAmount === null ? t('入账中') : `${billedAmount.toFixed(6)} U`}</dd></div>
-                <div><dt>{t('页面耗时')}</dt><dd>{elapsedMs === null ? '—' : `${elapsedMs} ms`}</dd></div>
-                <div><dt>{t('结束原因')}</dt><dd>{result.finish_reason || '—'}</dd></div>
-              </dl>
-              <div className="playground-request-id">
-                <span>{t('请求 ID')}</span>
-                <code>{result.request_id || '—'}</code>
-              </div>
-              {result.request_id !== '' && (
-                <Link className="console-button console-button--secondary" to={`/console/logs?request_id=${encodeURIComponent(result.request_id)}`}>
-                  {t('在使用日志中查看')}
-                </Link>
-              )}
+              <div className="playground-answer">{chatResult.text}</div>
+              <dl className="playground-metrics"><div><dt>{t('Token 用量')}</dt><dd>{chatResult.usage?.total_tokens ?? 0} tokens</dd></div><div><dt>{t('本次费用')}</dt><dd>{billedAmount === null ? t('入账中') : `${billedAmount.toFixed(6)} U`}</dd></div><div><dt>{t('页面耗时')}</dt><dd>{elapsedMs === null ? '—' : `${elapsedMs} ms`}</dd></div><div><dt>{t('结束原因')}</dt><dd>{chatResult.finish_reason || '—'}</dd></div></dl>
+              <ResultRequest requestID={chatResult.request_id} t={t} />
             </div>
-          )}
+          ) : mode === 'image' && imageResult !== null ? (
+            <div className="playground-result__body">
+              <div className="playground-media-gallery">{imageResult.images.map((image, index) => { const source = imageSource(image); return source === '' ? null : <figure className="playground-media-card" key={`${source}-${index}`}><img alt={`生成结果 ${index + 1}`} src={source} /><figcaption><span>{image.revised_prompt || '生成结果'}</span><a download href={source} rel="noreferrer" target="_blank"><Download aria-hidden="true" size={14} />下载图片 {index + 1}</a></figcaption></figure>; })}</div>
+              <dl className="playground-metrics"><div><dt>{t('图片数量')}</dt><dd>{imageResult.images.length}</dd></div><div><dt>{t('本次费用')}</dt><dd>{billedAmount === null ? t('入账中') : `${billedAmount.toFixed(6)} U`}</dd></div><div><dt>{t('页面耗时')}</dt><dd>{elapsedMs === null ? '—' : `${elapsedMs} ms`}</dd></div><div><dt>{t('请求状态')}</dt><dd>{t('已完成')}</dd></div></dl>
+              <ResultRequest requestID={imageResult.request_id} t={t} />
+            </div>
+          ) : mode === 'video' && videoTask !== null ? (
+            <div className="playground-result__body">
+              {videoTask.status === 'succeeded' && videoTask.url ? <div className="playground-video-result"><div className="playground-status playground-status--succeeded" role="status"><CheckCircle2 aria-hidden="true" size={18} /><strong>视频已生成</strong></div><video aria-label="生成的视频" controls src={videoTask.url} /><a className="console-button console-button--secondary" download href={videoTask.url} rel="noreferrer" target="_blank"><Download aria-hidden="true" size={15} />下载视频</a></div> : <div className={`playground-status playground-status--${videoTask.status}`} role="status">{videoTask.status === 'processing' ? <RefreshCw aria-hidden="true" className="playground-status__spin" size={18} /> : videoTask.status === 'failed' ? <CircleAlert aria-hidden="true" size={18} /> : <VideoIcon aria-hidden="true" size={18} />}<div><strong>{videoStatusLabel(videoTask.status)}</strong>{videoTask.progress && <p>{videoTask.progress}</p>}{videoTask.error && <p>{videoTask.error}</p>}</div></div>}
+              <dl className="playground-metrics"><div><dt>{t('任务 ID')}</dt><dd>{videoTask.task_id}</dd></div><div><dt>{t('本次费用')}</dt><dd>{billedAmount === null ? t('入账中') : `${billedAmount.toFixed(6)} U`}</dd></div><div><dt>{t('页面耗时')}</dt><dd>{elapsedMs === null ? '—' : `${elapsedMs} ms`}</dd></div><div><dt>{t('请求状态')}</dt><dd>{videoTask.status}</dd></div></dl>
+              <ResultRequest requestID={videoTask.request_id} t={t} />
+            </div>
+          ) : <div className="console-state">{t('发送请求后，模型回答和本次费用会显示在这里。')}</div>}
         </section>
       </div>
 
       <section className="console-section" aria-labelledby="playground-code-heading">
-        <div className="console-section__heading">
-          <div>
-            <p className="console-eyebrow">{t('接入代码')}</p>
-            <h2 id="playground-code-heading">{t('把相同模型接入你的程序')}</h2>
-          </div>
-          <button className="console-icon-action" type="button" onClick={copyExample}>
-            <Copy aria-hidden="true" size={15} />
-            {t('复制代码')}
-          </button>
-        </div>
+        <div className="console-section__heading"><div><p className="console-eyebrow">{t('接入代码')}</p><h2 id="playground-code-heading">{t('把相同模型接入你的程序')}</h2></div><button className="console-icon-action" type="button" onClick={copyExample}><Copy aria-hidden="true" size={15} />{t('复制代码')}</button></div>
         <pre className="playground-code" data-testid="playground-code"><code>{example}</code></pre>
-        <p className="playground-copy-status" aria-live="polite" role="status">
-          {copyState === 'success' && t('已复制')}
-          {copyState === 'error' && t('复制失败，请手动复制')}
-        </p>
+        <p className="playground-copy-status" aria-live="polite" role="status">{copyState === 'success' && t('已复制')}{copyState === 'error' && t('复制失败，请手动复制')}</p>
       </section>
     </div>
   );
+}
+
+function ResultRequest({ requestID, t }: { requestID: string; t: (key: string, vars?: Record<string, string | number>) => string }) {
+  return <div className="playground-request-id"><span>{t('请求 ID')}</span><code>{requestID || '—'}</code>{requestID !== '' && <Link className="console-button console-button--secondary" to={`/console/logs?request_id=${encodeURIComponent(requestID)}`}>{t('在使用日志中查看')}</Link>}</div>;
 }

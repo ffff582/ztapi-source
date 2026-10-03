@@ -10,5 +10,7 @@ afterEach(() => {
   cleanup();
   localStorage.clear();
   document.documentElement.lang = '';
+  document.documentElement.removeAttribute('data-theme');
+  document.documentElement.style.removeProperty('color-scheme');
   vi.restoreAllMocks();
 });

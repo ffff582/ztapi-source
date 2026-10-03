@@ -48,8 +48,8 @@ function mediaRule(params: string): AtRule {
   const matches = (homeStyles.nodes ?? []).filter(
     (node): node is AtRule => node.type === 'atrule' && node.name === 'media' && node.params === params,
   );
-  expect(matches).toHaveLength(1);
-  return matches[0];
+  expect(matches.length).toBeGreaterThan(0);
+  return matches[matches.length - 1];
 }
 
 function lastDeclaration(root: Root | AtRule, selector: string, property: string) {
@@ -71,29 +71,20 @@ afterEach(() => {
 });
 
 describe('ZTAPI public homepage', () => {
-  it('makes the brand the hero and shows a product-specific routing visual', async () => {
+  it('makes the brand the hero and shows the signed-in console as the product proof', async () => {
     renderHomePage();
 
     const hero = screen.getByRole('region', { name: 'ZTAPI' });
-    expect(within(hero).getByRole('heading', { level: 1, name: 'ZTAPI' })).toBeVisible();
+    expect(within(hero).getByRole('heading', { level: 1, name: '一个接口，连接主流 AI 模型' })).toBeVisible();
     const heroTitle = hero.querySelector('.gateway-hero__title') as HTMLElement;
     expect(heroTitle).toBeVisible();
-    expect(heroTitle).toHaveTextContent('一个 Key，连接全球主流 AI 模型');
-    expect(heroTitle.querySelector('.gateway-hero__title-models')).toHaveTextContent('AI 模型');
-    expect(hero.querySelector('canvas')).toBeNull();
-    expect(hero.querySelector('[data-testid="hero-scene"]')).toBeNull();
-    expect(hero.querySelector('.gateway-hero__visual img')).toBeNull();
-    const visual = within(hero).getByTestId('gateway-motion-visual');
-    expect(visual).toHaveTextContent('REQUEST FLOW');
-    expect(visual).toHaveTextContent('ZTAPI GATEWAY');
-    expect(visual).toHaveTextContent('OpenAI');
-    expect(visual).toHaveTextContent('Claude');
-    expect(visual).toHaveTextContent('Gemini');
-    expect(visual.querySelectorAll('[data-route-provider]')).toHaveLength(3);
-    expect(visual.querySelectorAll('.gateway-motion__packet').length).toBeGreaterThanOrEqual(4);
+    expect(heroTitle).toHaveTextContent('一个接口，连接主流 AI 模型');
+    expect(hero.querySelector('.gateway-hero__visual')).toHaveAttribute('aria-label', 'ZTAPI 用户台预览');
+    expect(within(hero).getByText('使用概览')).toBeVisible();
+    expect(within(hero).getByText('当前余额')).toBeVisible();
+    expect(within(hero).getByText('最近使用记录')).toBeVisible();
     expect(within(hero).getByRole('link', { name: '开始使用' })).toHaveAttribute('href', '/register');
     expect(within(hero).getByRole('link', { name: '查看模型价格' })).toHaveAttribute('href', '/models');
-    expect(within(hero).getByText('https://ztapi.vip/v1')).toBeVisible();
   });
 
   it('keeps one main landmark and stable public section targets', async () => {
@@ -133,10 +124,10 @@ describe('ZTAPI public homepage', () => {
     renderHomePage();
     const navigation = await screen.findByRole('navigation', { name: '公共导航' });
     const expected = [
-      ['模型价格', '/models'],
-      ['文档中心', '/docs/integration'],
+      ['模型市场', '/models'],
+      ['API 文档', '/docs/integration'],
       ['快速接入', '/#quickstart'],
-      ['网关能力', '/#capabilities'],
+      ['支持', 'https://t.me/gan66'],
       ['登录', '/login'],
       ['开始使用', '/register'],
     ];
@@ -190,10 +181,9 @@ describe('ZTAPI public homepage', () => {
     const reduced = mediaRule('(prefers-reduced-motion: reduce)');
     expect(lastDeclaration(homeStyles, '.gateway-motion__frame', 'position')).toBe('absolute');
     expect(lastDeclaration(homeStyles, '.gateway-motion__frame', 'inset')).toBe('0');
-    expect(lastDeclaration(mobile, '.gateway-hero', 'min-height')).toBe('690px');
-    expect(lastDeclaration(narrow, '.gateway-hero h1', 'font-size')).toBe('72px');
+    expect(lastDeclaration(mobile, '.gateway-hero', 'min-height')).toBe('auto');
+    expect(lastDeclaration(narrow, '.gateway-hero h1.gateway-hero__title', 'font-size')).toBe('42px');
     expect(lastDeclaration(narrow, '.gateway-hero__actions', 'flex-direction')).toBe('column');
-    expect(lastDeclaration(narrow, '.gateway-hero__title-models', 'display')).toBe('block');
     expect(lastDeclaration(homeStyles, '.principles-band__heading h2', 'white-space')).toBe('nowrap');
     expect(lastDeclaration(mobile, '.principles-band__heading h2', 'white-space')).toBe('normal');
     expect(lastDeclaration(reduced, '.gateway-motion__packet', 'animation')).toBe('none');

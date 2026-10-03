@@ -598,7 +598,7 @@ describe('ZTAPI one-time API keys', () => {
       within(dialog).queryByRole('button', { name: /关闭|取消|Close/i }),
     ).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('link', { name: '概览' }));
+    fireEvent.click(screen.getByRole('link', { name: '看板' }));
     expect(screen.getByText(plaintextKey)).toBeVisible();
 
     await waitFor(() => expect(tokenListReads).toBe(2));

@@ -1,13 +1,12 @@
 import { useEffect } from 'react';
 import { ArrowRight, CircleDollarSign, Gift, ListTree, Route, Send } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
-import '../../brand/tokens.css';
 import { PublicHeader } from '../../components/layout/PublicHeader';
-import { GatewayMotionVisual } from './GatewayMotionVisual';
 import { GatewayStatusRail } from './GatewayStatusRail';
 import { PublicModelProof } from './PublicModelProof';
 import { useLocale } from '../../i18n/locale';
 import { GettingStartedPaths } from './GettingStartedPaths';
+import { DashboardPreview } from './DashboardPreview';
 import './home.css';
 
 export function HomePage() {
@@ -26,19 +25,16 @@ export function HomePage() {
     <div className="public-home">
       <PublicHeader />
       <main>
-        <section className="gateway-hero" aria-labelledby="gateway-hero-title">
-          <div className="gateway-hero__visual" aria-hidden="true">
-            <GatewayMotionVisual />
-          </div>
+        <section className="gateway-hero" aria-label={t('ZTAPI')}>
           <div className="gateway-hero__content public-shell">
-            <p className="gateway-hero__eyebrow">UNIFIED MODEL API</p>
-            <h1 id="gateway-hero-title">ZTAPI</h1>
-            <p className="gateway-hero__title">
-              <span>{t('一个 Key，连接全球主流')}</span>{' '}
-              <span className="gateway-hero__title-models">{t('AI 模型')}</span>
-            </p>
+            <div className="gateway-hero__copy">
+              <p className="gateway-hero__eyebrow">ZTAPI UNIFIED AI API</p>
+              <h1 id="gateway-hero-title" className="gateway-hero__title">
+                {t('一个接口，连接主流 AI 模型')}
+              </h1>
+            </div>
             <p className="gateway-hero__summary">
-              {t('兼容 OpenAI SDK，统一管理调用、用量和模型路由。')}
+              {t('用一套统一的 API 接入文本、推理、图片和视频模型，清晰管理调用、用量和费用。')}
             </p>
             <div className="gateway-hero__actions">
               <Link className="button-link button-link--primary" to="/register">
@@ -49,10 +45,14 @@ export function HomePage() {
                 {t('查看模型价格')}
               </Link>
             </div>
-            <div className="gateway-hero__endpoint">
-              <span>API BASE URL</span>
-              <code>https://ztapi.vip/v1</code>
+            <div className="gateway-hero__proofs" aria-label={t('平台特点')}>
+              <span><b>01</b>{t('统一接口')}</span>
+              <span><b>02</b>{t('透明计费')}</span>
+              <span><b>03</b>{t('清晰日志')}</span>
             </div>
+          </div>
+          <div className="gateway-hero__visual" aria-label={t('ZTAPI 用户台预览')}>
+            <DashboardPreview />
           </div>
         </section>
         <GatewayStatusRail />

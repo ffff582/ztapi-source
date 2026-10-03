@@ -4,6 +4,7 @@ import { RouterProvider } from 'react-router-dom';
 import { AppProviders } from './app/providers';
 import { createZTAPIRouter } from './app/router';
 import './brand/tokens.css';
+import './brand/theme.css';
 
 const rootElement = document.getElementById('root');
 

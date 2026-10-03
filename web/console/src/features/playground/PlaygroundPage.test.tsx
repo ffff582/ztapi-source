@@ -44,6 +44,59 @@ function catalogResponse() {
   };
 }
 
+function mediaCatalogResponse() {
+  const image = {
+    ...catalogItem('zt-image-2', ['images'], 'image'),
+    provider_family: 'openai',
+    supported_options: {
+      sizes: ['1024x1024', '1536x1024'],
+      qualities: ['standard', 'hd'],
+      response_formats: ['url', 'b64_json'],
+      min_count: 1,
+      max_count: 2,
+    },
+    input_price_per_million: '',
+    output_price_per_million: '',
+    billing_dimensions: [],
+    sale_usd: {},
+    billing_rule: 'multi_dimension',
+    billing_unit: 'per_image',
+    pricing_rules: [{
+      id: 'image-standard',
+      conditions: { quality: 'standard' },
+      billing_unit: 'per_image',
+      sale_usd: { image: '0.0400000000' },
+    }],
+  };
+  const video = {
+    ...catalogItem('zt-video-2', ['video-tasks'], 'video'),
+    provider_family: 'openai',
+    supported_options: {
+      resolutions: ['1280x720', '1920x1080'],
+      duration_seconds: [5, 10],
+      supports_video_input: false,
+    },
+    input_price_per_million: '',
+    output_price_per_million: '',
+    billing_dimensions: [],
+    sale_usd: {},
+    billing_rule: 'multi_dimension',
+    billing_unit: 'per_second',
+    pricing_rules: [{
+      id: 'video-hd',
+      conditions: { resolution: '1280x720' },
+      billing_unit: 'per_second',
+      sale_usd: { second: '0.1000000000' },
+    }],
+  };
+  const catalog = [catalogItem('zt-gpt-5.6-sol'), image, video];
+  return {
+    success: true,
+    data: catalog.map((item) => item.model_name),
+    catalog,
+  };
+}
+
 describe('PlaygroundPage', () => {
   beforeEach(() => {
     setAuthSession({
@@ -154,4 +207,80 @@ describe('PlaygroundPage', () => {
     expect(example).toHaveTextContent('$ZTAPI_API_KEY');
     expect(example).not.toHaveTextContent('playground-session');
   });
+
+  it('runs image generation with the catalog options and renders a downloadable result', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.endsWith('/api/user/models')) return jsonResponse(mediaCatalogResponse());
+      if (url.endsWith('/pg/images/generations')) {
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          model: 'zt-image-2',
+          prompt: '一只在雨中的橘猫',
+          size: '1536x1024',
+          quality: 'hd',
+          n: 1,
+          response_format: 'url',
+        });
+        return jsonResponse({
+          created: 1,
+          data: [{ url: 'https://cdn.example/image-1.png', revised_prompt: '雨中的橘猫' }],
+        }, 200, { 'X-Request-ID': 'req-image-1' });
+      }
+      if (url.includes('/api/log/self?')) return jsonResponse({ success: true, data: { page: 1, page_size: 1, total: 0, items: [] } });
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<MemoryRouter initialEntries={['/console/test']}><PlaygroundPage /></MemoryRouter>);
+    await screen.findByRole('button', { name: '图片' });
+    fireEvent.click(screen.getByRole('button', { name: '图片' }));
+    expect(await screen.findByLabelText('图片模型')).toHaveValue('zt-image-2');
+    fireEvent.change(screen.getByLabelText('图片提示词'), { target: { value: '一只在雨中的橘猫' } });
+    fireEvent.change(screen.getByLabelText('图片尺寸'), { target: { value: '1536x1024' } });
+    fireEvent.change(screen.getByLabelText('图片质量'), { target: { value: 'hd' } });
+    fireEvent.click(screen.getByRole('button', { name: '生成图片' }));
+
+    const image = await screen.findByRole('img', { name: '生成结果 1' });
+    expect(image).toHaveAttribute('src', 'https://cdn.example/image-1.png');
+    expect(screen.getByRole('link', { name: '下载图片 1' })).toHaveAttribute('href', 'https://cdn.example/image-1.png');
+    expect(screen.getByText('req-image-1')).toBeVisible();
+  });
+
+  it('creates a video task, polls its status, and renders the completed video', async () => {
+    let pollCount = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.endsWith('/api/user/models')) return jsonResponse(mediaCatalogResponse());
+      if (url.endsWith('/pg/video/generations')) {
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          model: 'zt-video-2',
+          prompt: '镜头缓慢推进一片森林',
+          size: '1280x720',
+          duration: 5,
+        });
+        return jsonResponse({ id: 'task-1', status: 'queued' }, 200, { 'X-Request-ID': 'req-video-1' });
+      }
+      if (url.endsWith('/pg/video/generations/task-1')) {
+        pollCount += 1;
+        if (pollCount === 1) return jsonResponse({ data: { task_id: 'task-1', status: 'processing', progress: '处理中' } });
+        return jsonResponse({ data: { task_id: 'task-1', status: 'succeeded', result_url: 'https://cdn.example/video-1.mp4' } });
+      }
+      if (url.includes('/api/log/self?')) return jsonResponse({ success: true, data: { page: 1, page_size: 1, total: 0, items: [] } });
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<MemoryRouter initialEntries={['/console/test']}><PlaygroundPage /></MemoryRouter>);
+    await screen.findByRole('button', { name: '视频' });
+    fireEvent.click(screen.getByRole('button', { name: '视频' }));
+    expect(await screen.findByLabelText('视频模型')).toHaveValue('zt-video-2');
+    fireEvent.change(screen.getByLabelText('视频提示词'), { target: { value: '镜头缓慢推进一片森林' } });
+    fireEvent.click(screen.getByRole('button', { name: '生成视频' }));
+
+    expect(await screen.findByText('视频任务已提交，正在等待上游处理。')).toBeVisible();
+    expect(await screen.findByText('视频已生成', {}, { timeout: 4500 })).toBeVisible();
+    expect(screen.getByLabelText('生成的视频')).toHaveAttribute('src', 'https://cdn.example/video-1.mp4');
+    expect(screen.getByRole('link', { name: '下载视频' })).toHaveAttribute('href', 'https://cdn.example/video-1.mp4');
+    expect(pollCount).toBeGreaterThanOrEqual(2);
+  }, 5000);
 });

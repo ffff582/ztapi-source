@@ -157,7 +157,7 @@ describe('protected authentication routes', () => {
     renderRoute('/console');
 
     expect(
-      screen.queryByRole('heading', { name: '使用概览' }),
+      screen.queryByRole('heading', { name: '看板' }),
     ).not.toBeInTheDocument();
 
     await act(async () => {
@@ -459,7 +459,7 @@ describe('protected authentication routes', () => {
     submitLogin();
 
     expect(
-      await screen.findByRole('heading', { name: '使用概览' }),
+      await screen.findByRole('heading', { name: '看板' }),
     ).toBeInTheDocument();
     expect(screen.getByText('alice')).toBeInTheDocument();
   });
@@ -767,7 +767,7 @@ describe('protected authentication routes', () => {
     await submitRegistration(' alice ');
 
     expect(
-      await screen.findByRole('heading', { name: '使用概览' }),
+      await screen.findByRole('heading', { name: '看板' }),
     ).toBeInTheDocument();
 
     const registerCall = fetchMock.mock.calls.find(([input]) =>
@@ -944,7 +944,7 @@ describe('protected authentication routes', () => {
     renderRoute('/login');
     await waitForLoginForm();
     submitLogin();
-    await screen.findByRole('heading', { name: '使用概览' });
+    await screen.findByRole('heading', { name: '看板' });
 
     expect(storageWrite).not.toHaveBeenCalled();
     expect(localStorage.length).toBe(0);
@@ -1457,7 +1457,7 @@ describe('protected authentication routes', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     renderRoute('/console');
-    await screen.findByRole('heading', { name: '使用概览' });
+    await screen.findByRole('heading', { name: '看板' });
     fireEvent.click(screen.getByRole('button', { name: '退出登录' }));
 
     expect(await waitForLoginForm()).toBeInTheDocument();
@@ -1472,7 +1472,7 @@ describe('protected authentication routes', () => {
     renderRoute('/login');
 
     expect(
-      await screen.findByRole('heading', { name: '使用概览' }),
+      await screen.findByRole('heading', { name: '看板' }),
     ).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '登录 ZTAPI' })).toBeNull();
   });
@@ -1484,7 +1484,7 @@ describe('protected authentication routes', () => {
     await screen.findByRole('heading', { name: 'API 密钥' });
 
     expect(screen.getAllByRole('main')).toHaveLength(1);
-    expect(screen.getByRole('link', { name: 'API 密钥' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'API Key' })).toHaveAttribute(
       'aria-current',
       'page',
     );

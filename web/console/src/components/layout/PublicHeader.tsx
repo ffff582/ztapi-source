@@ -3,15 +3,16 @@ import { Menu, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { LanguageToggle } from '../../i18n/LanguageToggle';
 import { useLocale } from '../../i18n/locale';
+import { ThemeToggle } from '../../theme/ThemeToggle';
 import './public-header.css';
 
-const links = [
-  { label: '模型价格', to: '/models' },
-  { label: '文档中心', to: '/docs/integration' },
+const links: Array<{ label: string; to: string; external?: boolean }> = [
+  { label: '模型市场', to: '/models' },
+  { label: 'API 文档', to: '/docs/integration' },
   { label: '快速接入', to: '/#quickstart' },
-  { label: '网关能力', to: '/#capabilities' },
+  { label: '支持', to: 'https://t.me/gan66', external: true },
   { label: '登录', to: '/login' },
-] as const;
+];
 
 export function PublicHeader() {
   const { t } = useLocale();
@@ -49,6 +50,7 @@ export function PublicHeader() {
         </Link>
         <div className="public-header__controls">
           <LanguageToggle tone="dark" />
+          <ThemeToggle />
           <button
           ref={menuButtonRef}
           className="public-header__menu"
@@ -67,16 +69,29 @@ export function PublicHeader() {
           aria-label={t('公共导航')}
           data-open={open}
         >
-          {links.map((link) => (
-            <Link
-              className="public-header__link"
-              key={link.label}
-              to={link.to}
-              onClick={() => setOpen(false)}
-            >
-              {t(link.label)}
-            </Link>
-          ))}
+          {links.map((link) =>
+            link.external ? (
+              <a
+                className="public-header__link"
+                key={link.label}
+                href={link.to}
+                target="_blank"
+                rel="noreferrer"
+                onClick={() => setOpen(false)}
+              >
+                {t(link.label)}
+              </a>
+            ) : (
+              <Link
+                className="public-header__link"
+                key={link.label}
+                to={link.to}
+                onClick={() => setOpen(false)}
+              >
+                {t(link.label)}
+              </Link>
+            ),
+          )}
           <Link
             className="public-header__link public-header__link--strong"
             to="/register"
