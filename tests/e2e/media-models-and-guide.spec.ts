@@ -479,7 +479,7 @@ test('user media catalog, guide and wallet remain usable without data exposure',
   });
 
   await page.goto('/console');
-  await expect(page.getByRole('heading', { level: 1, name: '使用概览' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: '看板' })).toBeVisible();
   const usageRow = page.getByText('zt-claude-sonnet-5').locator('xpath=ancestor::tr[1]');
   await expect(usageRow.getByText('0.004321 U')).toBeVisible();
   await expect(usageRow.getByText('输入 120')).toBeVisible();

@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "bcea52784788401382f2cd33134cc4b009f8a926",
+  "release_commit": "b905032da30ebca0daafda304bc301b5586c6629",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-bcea52784788401382f2cd33134cc4b009f8a926",
+  "source_tag": "production-b905032da30ebca0daafda304bc301b5586c6629",
   "files": [
     {
       "path": ".dockerignore",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "d2cf00b8fcbf6d94f1ad0a5c47fe6fa439571cf972764c3c32b59cafdaefb063",
+      "sha256": "41f4cf28c9ce1d311d8cac503224db83fe88ddbaa989709fd62d7e876ab8fe97",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "7529fdeeffdfb73418ebd5afbbc1daa18a7e49b00a3c0de1c0db8bda471b6341",
+      "sha256": "3e6958cfc17b5349a07e2a379d00e9263e337edfea0cd16bc097b20fee1550d1",
       "size": 942
     },
     {
@@ -9491,8 +9491,8 @@
     },
     {
       "path": "tests/e2e/media-models-and-guide.spec.ts",
-      "sha256": "9ac030356229ee13c40bc5934e7178709a6293cd7f68c30efd59cbb43826030d",
-      "size": 19698
+      "sha256": "5ee8cfebde5b8bee15bc9fe063c1dd08377508a6dd03f94a7f2f2b024a299fb2",
+      "size": 19692
     },
     {
       "path": "tests/e2e/public-pages.spec.ts",
@@ -9831,8 +9831,8 @@
     },
     {
       "path": "web/console/src/features/dashboard/DashboardPage.tsx",
-      "sha256": "947e765b2f28845b579f2cf589ac5de9c77eb5b096faa0565bcfff43edd063e1",
-      "size": 15021
+      "sha256": "1e16d28a772ad08371f36b05383d9152c40b923d9fffb23532650ee486dcc043",
+      "size": 15015
     },
     {
       "path": "web/console/src/features/docs/PublicDocsPage.test.tsx",

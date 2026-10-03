@@ -110,7 +110,7 @@ export function DashboardPage() {
       <header className="console-page__header dashboard-page__header">
         <div>
           <p className="console-eyebrow">{t('控制台')}</p>
-          <h1>{t('使用概览')}</h1>
+          <h1>{t('看板')}</h1>
           <span className="dashboard-page__subtitle">{t('模型、账单、API 文档与调用记录集中在一个工作台。')}</span>
         </div>
         <div className="dashboard-periods" aria-label={t('统计范围')}>
