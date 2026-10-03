@@ -660,3 +660,196 @@ body {
     padding-inline: 6px;
   }
 }
+
+/* Console and workbench share one product chrome, but expose different jobs. */
+.console-mode-switch {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 2px;
+  align-items: center;
+  padding: 3px;
+  border: 1px solid var(--zt-border);
+  border-radius: 9px;
+  background: var(--zt-panel-soft);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.console-mode-switch__link {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  border-radius: 6px;
+  color: var(--zt-muted);
+  font-size: 12px;
+  font-weight: 720;
+  text-decoration: none;
+}
+
+.console-mode-switch__link:hover {
+  color: var(--zt-text-strong);
+}
+
+.console-mode-switch__link.is-active {
+  color: var(--zt-text-strong);
+  background: linear-gradient(135deg, var(--zt-accent-soft), var(--zt-lavender-soft));
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
+}
+
+.workbench-shell {
+  background:
+    radial-gradient(circle at 86% 8%, var(--zt-lavender-soft), transparent 26rem),
+    var(--zt-bg);
+}
+
+.workbench-sidebar {
+  background:
+    linear-gradient(180deg, rgba(188, 168, 232, 0.08), transparent 22rem),
+    var(--zt-sidebar);
+}
+
+.workbench-nav {
+  margin-top: 34px;
+}
+
+.workbench-sidebar__note {
+  display: grid;
+  gap: 5px;
+  margin-top: auto;
+  padding: 14px 12px 4px;
+  border-top: 1px solid var(--zt-border);
+  color: var(--zt-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.workbench-sidebar__note strong {
+  color: var(--zt-text);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.workbench-page .console-page__header {
+  align-items: center;
+}
+
+.workbench-page .console-page__header h1 {
+  letter-spacing: -0.01em;
+}
+
+.workbench-page .playground-grid {
+  grid-template-columns: minmax(320px, 0.9fr) minmax(380px, 1.1fr);
+  gap: 16px;
+}
+
+.workbench-page .console-panel {
+  border-color: var(--zt-border-strong);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.025), transparent 55%),
+    var(--zt-panel);
+  box-shadow: var(--zt-shadow);
+}
+
+.workbench-page .console-panel__heading {
+  margin-bottom: 18px;
+}
+
+.workbench-page .console-panel__heading svg {
+  color: var(--zt-accent);
+}
+
+.workbench-page .playground-billing-note {
+  border-left-color: var(--zt-accent);
+  color: var(--zt-text);
+  background: var(--zt-accent-soft);
+}
+
+.workbench-page .playground-billing-note p {
+  color: var(--zt-muted);
+}
+
+.workbench-page .playground-mode-tabs {
+  border-color: var(--zt-border);
+  background: var(--zt-bg);
+}
+
+.workbench-page .playground-mode-tab:hover,
+.workbench-page .playground-mode-tab.is-active {
+  border-color: var(--zt-accent);
+  color: var(--zt-text-strong);
+  background: var(--zt-accent-soft);
+}
+
+.workbench-page .playground-answer,
+.workbench-page .playground-status,
+.workbench-page .playground-media-card,
+.workbench-page .playground-media-card img,
+.workbench-page .console-state {
+  border-color: var(--zt-border);
+  background: var(--zt-panel-soft);
+}
+
+.workbench-page .playground-answer {
+  color: var(--zt-text);
+}
+
+.workbench-page .playground-media-card a,
+.workbench-page .playground-copy-status {
+  color: var(--zt-accent-strong);
+}
+
+.workbench-page .playground-status svg {
+  color: var(--zt-accent);
+}
+
+.workbench-page .playground-status--succeeded svg {
+  color: var(--zt-success);
+}
+
+.workbench-page .playground-status--failed svg {
+  color: var(--zt-danger);
+}
+
+.workbench-page .playground-code {
+  border: 1px solid var(--zt-border);
+  background: var(--zt-sidebar);
+}
+
+.workbench-page .playground-request-id {
+  padding-top: 2px;
+}
+
+@media (max-width: 900px) {
+  .workbench-page .playground-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .console-header {
+    display: grid;
+    grid-template-columns: auto auto minmax(80px, 1fr) auto;
+    min-height: 0;
+    gap: 8px;
+    padding: 10px 16px;
+  }
+
+  .console-mode-switch {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
+  .console-user {
+    justify-self: end;
+    margin-right: 0;
+  }
+
+  .console-user__label {
+    display: none;
+  }
+
+  .workbench-sidebar__note {
+    display: none;
+  }
+}

@@ -3,25 +3,20 @@ import {
   Boxes,
   KeyRound,
   LayoutDashboard,
-  LogOut,
-  PlayCircle,
   ScrollText,
   UserRound,
   WalletCards,
 } from 'lucide-react';
-import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { useAuth } from '../../auth/session';
-import { LanguageToggle } from '../../i18n/LanguageToggle';
+import { Link, NavLink, Outlet } from 'react-router-dom';
+import { ConsoleHeader } from './ConsoleHeader';
 import { useLocale } from '../../i18n/locale';
-import { ThemeToggle } from '../../theme/ThemeToggle';
 
 const consoleNavigation = [
   {
-    label: '工作台',
+    label: '控制台',
     items: [
       { to: '/console', label: '看板', icon: LayoutDashboard, end: true },
       { to: '/console/models', label: '模型市场', icon: Boxes, end: false },
-      { to: '/console/test', label: '在线工作台', icon: PlayCircle, end: false },
       { to: '/console/guide', label: 'API 文档', icon: BookOpenText, end: false },
     ],
   },
@@ -37,14 +32,7 @@ const consoleNavigation = [
 ];
 
 export function ConsoleShell() {
-  const navigate = useNavigate();
-  const { user, logout } = useAuth();
   const { t } = useLocale();
-
-  async function handleLogout() {
-    await logout();
-    navigate('/login', { replace: true });
-  }
 
   return (
     <div className="console-shell">
@@ -77,25 +65,7 @@ export function ConsoleShell() {
       </aside>
 
       <div className="console-workspace">
-        <header className="console-header">
-          <Link className="console-header__market" to="/models">
-            {t('查看公开模型市场')} <span aria-hidden="true">↗</span>
-          </Link>
-          <LanguageToggle />
-          <ThemeToggle />
-          <span className="console-user">
-            {t('当前账号')}
-            <strong>{user?.username}</strong>
-          </span>
-          <button
-            className="console-logout"
-            type="button"
-            onClick={handleLogout}
-          >
-            <LogOut size={17} aria-hidden="true" />
-            <span>{t('退出登录')}</span>
-          </button>
-        </header>
+        <ConsoleHeader />
 
         <main className="console-content">
           <Outlet />

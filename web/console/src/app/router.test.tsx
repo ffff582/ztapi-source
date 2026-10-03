@@ -122,7 +122,10 @@ it.each([
   ['/console', '看板'],
   ['/console/keys', 'API 密钥'],
   ['/console/models', '模型支持'],
-  ['/console/test', '在线 API 测试'],
+  ['/console/workbench/text', '文本工作台'],
+  ['/console/workbench/image', '图像工作台'],
+  ['/console/workbench/video', '视频工作台'],
+  ['/console/test', '文本工作台'],
   ['/console/guide', '使用说明'],
   ['/console/logs', '使用日志'],
   ['/console/wallet', '余额充值'],
@@ -144,9 +147,9 @@ it('keeps model support and integration guidance in the console navigation', asy
     'href',
     '/console/guide',
   );
-  expect(screen.getByRole('link', { name: '在线工作台' })).toHaveAttribute(
+  expect(screen.getByRole('link', { name: '工作台' })).toHaveAttribute(
     'href',
-    '/console/test',
+    '/console/workbench/text',
   );
 });
 
@@ -209,7 +212,10 @@ it.each([
   ['/console', true, 'Dashboard'],
   ['/console/keys', true, 'API keys'],
   ['/console/models', true, 'Supported models'],
-  ['/console/test', true, 'Online API test'],
+  ['/console/workbench/text', true, 'Text workbench'],
+  ['/console/workbench/image', true, 'Image workbench'],
+  ['/console/workbench/video', true, 'Video workbench'],
+  ['/console/test', true, 'Text workbench'],
   ['/console/guide', true, 'Integration guide'],
   ['/console/logs', true, 'Usage logs'],
   ['/console/wallet', true, 'Add funds'],

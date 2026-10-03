@@ -444,7 +444,7 @@ test('user media catalog, guide and wallet remain usable without data exposure',
   });
 
   await page.goto('/console/test?model=zt-claude-sonnet-5');
-  await expect(page.getByRole('heading', { level: 1, name: '在线 API 测试' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: '文本工作台' })).toBeVisible();
   await expect(page.getByLabel('测试模型')).toHaveValue('zt-claude-sonnet-5');
   await page.getByRole('button', { name: '发送测试请求' }).click();
   await expect(page.getByText('在线测试连接正常。')).toBeVisible();

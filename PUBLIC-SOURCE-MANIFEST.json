@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "f01a561f9e44a744d8304e9facc85b9367abd2bc",
+  "release_commit": "798c1b1370765e23323daa8d24ee2c8cbfc1355e",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-f01a561f9e44a744d8304e9facc85b9367abd2bc",
+  "source_tag": "production-798c1b1370765e23323daa8d24ee2c8cbfc1355e",
   "files": [
     {
       "path": ".dockerignore",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "8287ae7521ad0d53f36b4d50b1b7bab5b87c346705401af7a5131f083ef25783",
+      "sha256": "3821bb5388cc3f155b46cf60e55c215e2d442b3ec5ef8e4c6e71a3d8a99da7f3",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "39a6c86e6143a3ac32705c1e52c79997b426895512477a3764f5e6e222daade3",
+      "sha256": "ce48a6d377f4e6d76ac90fe35d43a5c74eb9521fd6dbc5b4a0a0b255e2d74e4d",
       "size": 942
     },
     {
@@ -9491,8 +9491,8 @@
     },
     {
       "path": "tests/e2e/media-models-and-guide.spec.ts",
-      "sha256": "5ee8cfebde5b8bee15bc9fe063c1dd08377508a6dd03f94a7f2f2b024a299fb2",
-      "size": 19692
+      "sha256": "37f7134167ae4cbeffd3c916a6256c4200e22d42bdd1aa79e7f44cd76045acd9",
+      "size": 19690
     },
     {
       "path": "tests/e2e/public-pages.spec.ts",
@@ -9706,13 +9706,13 @@
     },
     {
       "path": "web/console/src/app/router.test.tsx",
-      "sha256": "81e5dbbf788e1b199d408f42361c8b81be5fa36c45d05af77e13b78257742607",
-      "size": 7636
+      "sha256": "0d4324a6d8b955587fffeb631c402de13eaeb9b97d859cacab0246671eb7edb1",
+      "size": 7958
     },
     {
       "path": "web/console/src/app/router.tsx",
-      "sha256": "1e6138eb0667bda2990013c033411f61ce4fcaf2d1aadf27107d88a85c40b2b4",
-      "size": 3265
+      "sha256": "889d618a41f3d678b36a4fb45d2c3233b981a305f2909db4e4cec22f59184216",
+      "size": 4079
     },
     {
       "path": "web/console/src/auth/session.tsx",
@@ -9721,8 +9721,8 @@
     },
     {
       "path": "web/console/src/brand/theme.css",
-      "sha256": "5eeccbbef96e7124981d5cb1baa012eb312f4284abfd18811fcefc5db67c0115",
-      "size": 16397
+      "sha256": "3954a8089dac442177e1573961690101ff600f9fd5e7802c784d64268f27b5cc",
+      "size": 20452
     },
     {
       "path": "web/console/src/brand/tokens.css",
@@ -9735,14 +9735,19 @@
       "size": 950
     },
     {
+      "path": "web/console/src/components/layout/ConsoleHeader.tsx",
+      "sha256": "3331bb98bce8f22cdc9ca0046261fa8bb10fa1d00c548db552b5f9f618c5d6b2",
+      "size": 1732
+    },
+    {
       "path": "web/console/src/components/layout/ConsoleShell.test.tsx",
-      "sha256": "0adfa2816e0fc4a3bd327b3692a7d241f41ec907c22e694c58d97616ba0e4ed7",
-      "size": 1848
+      "sha256": "2a2598808e35d769b3f489fffa5fcd73cf3b64dd2e76fdb0ad5549e3df60e727",
+      "size": 2019
     },
     {
       "path": "web/console/src/components/layout/ConsoleShell.tsx",
-      "sha256": "6d4a4457e61f6bc2c4503a187d45a3b87b8dfa16fdc82e090043f497c51b6d3b",
-      "size": 3447
+      "sha256": "c21fb76911ee018814fea3f2e502f8f2eaefd6bcdafcbf2a2b043b7df75f3b7e",
+      "size": 2398
     },
     {
       "path": "web/console/src/components/layout/PublicHeader.test.tsx",
@@ -9753,6 +9758,16 @@
       "path": "web/console/src/components/layout/PublicHeader.tsx",
       "sha256": "b413ba2baec1936ab462ea6f9e33cf1064999db7c49e9aad28cb2d436aa2bffa",
       "size": 3508
+    },
+    {
+      "path": "web/console/src/components/layout/WorkbenchShell.test.tsx",
+      "sha256": "4506d6d6d51eebe8e7f3f0c4ec5c4c64c4fc35a4c53da7f4de6a5dadb3ff7359",
+      "size": 1642
+    },
+    {
+      "path": "web/console/src/components/layout/WorkbenchShell.tsx",
+      "sha256": "556149d2d6a2fa5ab8b7bd9609e37875f2e829b9931d50ec7b1066eeb6c9cb75",
+      "size": 1992
     },
     {
       "path": "web/console/src/components/layout/public-header.css",
@@ -10031,8 +10046,8 @@
     },
     {
       "path": "web/console/src/features/playground/PlaygroundPage.tsx",
-      "sha256": "3c82306c6fc86115e0ee80d993720e51f15e49750b207f1ec5cbfc512880fc97",
-      "size": 26040
+      "sha256": "b582218bd521edf1898a11c56e25ebae57b1a883c7fbe3dce41ee1412c1494b3",
+      "size": 26521
     },
     {
       "path": "web/console/src/features/wallet/AccountBalance.tsx",
@@ -10086,8 +10101,8 @@
     },
     {
       "path": "web/console/src/i18n/locale.tsx",
-      "sha256": "ed680d7550462de09ee57e2b0af19aa5bf5a074927b5c9f1335595520ff83290",
-      "size": 40832
+      "sha256": "87ae06149761c9a009cc02438eebb759ba8b9328b61a341bd9c8ecfb08dd2222",
+      "size": 41375
     },
     {
       "path": "web/console/src/main.tsx",

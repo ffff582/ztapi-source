@@ -110,12 +110,17 @@ function imageSource(image: PlaygroundImageResult['images'][number]) {
   return image.b64_json ? `data:image/png;base64,${image.b64_json}` : '';
 }
 
-export function PlaygroundPage() {
+type PlaygroundPageProps = {
+  initialMode?: PlaygroundMode;
+  workbench?: boolean;
+};
+
+export function PlaygroundPage({ initialMode = 'text', workbench = false }: PlaygroundPageProps) {
   const { t } = useLocale();
   const [searchParams] = useSearchParams();
   const [models, setModels] = useState<UserModelCatalogItem[]>([]);
   const [catalogStatus, setCatalogStatus] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [mode, setMode] = useState<PlaygroundMode>('text');
+  const [mode, setMode] = useState<PlaygroundMode>(initialMode);
   const [modelByMode, setModelByMode] = useState<Record<PlaygroundMode, string>>({ text: '', image: '', video: '' });
   const [prompt, setPrompt] = useState(defaultPrompt);
   const [requestStatus, setRequestStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
@@ -167,6 +172,7 @@ export function PlaygroundPage() {
         });
         setModels(workbenchModels);
         setModelByMode(next);
+        setMode(initialMode);
         setCatalogStatus('ready');
         const selected = next.text || next.image || next.video;
         const userID = getAuthSession()?.user.id;
@@ -178,7 +184,7 @@ export function PlaygroundPage() {
     return () => {
       active = false;
     };
-  }, [searchParams]);
+  }, [initialMode, searchParams]);
 
   useEffect(() => {
     if (mode === 'image') {
@@ -345,13 +351,13 @@ export function PlaygroundPage() {
   );
 
   return (
-    <div className="console-page playground-page">
+    <div className={`console-page playground-page${workbench ? ' workbench-page' : ''}`}>
       <header className="console-page__header">
         <div>
-          <p className="console-eyebrow">{t('接入验证')}</p>
-          <h1>{t('在线 API 测试')}</h1>
+          <p className="console-eyebrow">{workbench ? t('工作台') : t('接入验证')}</p>
+          <h1>{workbench ? t(mode === 'text' ? '文本工作台' : mode === 'image' ? '图像工作台' : '视频工作台') : t('在线 API 测试')}</h1>
         </div>
-        <p>{t('用当前账号真实调用模型，确认模型、余额、计费和返回结果是否正常。')}</p>
+        <p>{workbench ? t('使用当前账号的 API Key，直接体验真实模型能力。') : t('用当前账号真实调用模型，确认模型、余额、计费和返回结果是否正常。')}</p>
       </header>
 
       <div className="playground-grid">
@@ -374,7 +380,7 @@ export function PlaygroundPage() {
           {catalogStatus === 'ready' && models.length === 0 && <div className="console-state">{t('当前账号暂无可在线测试的模型。')}</div>}
           {catalogStatus === 'ready' && models.length > 0 && (
             <>
-              <div className="playground-mode-tabs" aria-label={t('工作台能力')}>
+              {!workbench && <div className="playground-mode-tabs" aria-label={t('工作台能力')}>
                 {availableModes.map((candidateMode) => {
                   const label = candidateMode === 'text' ? '文本' : candidateMode === 'image' ? '图片' : '视频';
                   return (
@@ -384,7 +390,7 @@ export function PlaygroundPage() {
                     </button>
                   );
                 })}
-              </div>
+              </div>}
               {modeModels.length === 0 ? <div className="console-state">{t('当前能力暂无可用模型。')}</div> : (
                 <form className="playground-form" onSubmit={handleSubmit}>
                   <div className="console-field">

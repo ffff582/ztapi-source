@@ -2,10 +2,12 @@ import {
   createBrowserRouter,
   createMemoryRouter,
   Navigate,
+  useLocation,
   type RouteObject,
 } from 'react-router-dom';
 import { ProtectedRoute, PublicOnlyRoute } from '../auth/session';
 import { ConsoleShell } from '../components/layout/ConsoleShell';
+import { WorkbenchShell } from '../components/layout/WorkbenchShell';
 import { LoginPage } from '../features/auth/LoginPage';
 import { ForgotPasswordPage } from '../features/auth/ForgotPasswordPage';
 import { RegisterPage } from '../features/auth/RegisterPage';
@@ -108,7 +110,7 @@ const routes: RouteObject[] = [
       },
       {
         path: 'test',
-        element: <PlaygroundPage />,
+        element: <LegacyWorkbenchRedirect />,
       },
       {
         path: 'guide',
@@ -128,7 +130,38 @@ const routes: RouteObject[] = [
       },
     ],
   },
+  {
+    path: '/console/workbench',
+    element: (
+      <ProtectedRoute>
+        <WorkbenchShell />
+      </ProtectedRoute>
+    ),
+    children: [
+      {
+        index: true,
+        element: <Navigate replace to="text" />,
+      },
+      {
+        path: 'text',
+        element: <PlaygroundPage initialMode="text" workbench />,
+      },
+      {
+        path: 'image',
+        element: <PlaygroundPage initialMode="image" workbench />,
+      },
+      {
+        path: 'video',
+        element: <PlaygroundPage initialMode="video" workbench />,
+      },
+    ],
+  },
 ];
+
+function LegacyWorkbenchRedirect() {
+  const location = useLocation();
+  return <Navigate replace to={`/console/workbench/text${location.search}`} />;
+}
 
 export function createZTAPIRouter(initialEntries?: string[]) {
   return initialEntries === undefined
