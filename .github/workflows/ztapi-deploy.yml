@@ -56,6 +56,8 @@ jobs:
         run: |
           set -euo pipefail
           ci_runs=$(curl --fail --silent --show-error \
+            --retry 5 --retry-all-errors --retry-delay 2 \
+            --connect-timeout 15 --max-time 90 \
             --header "Authorization: Bearer $GH_TOKEN" \
             --header "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/ffff582/kuaiyi-assistant-candidate/actions/workflows/ztapi-financial-ci.yml/runs?head_sha=$ZTAPI_RELEASE_COMMIT&event=workflow_dispatch&per_page=10")
@@ -75,19 +77,25 @@ jobs:
           ZTAPI_RELEASE_VERSION: ${{ inputs.release_commit }}
         run: |
           set -euo pipefail
-          repository=$(curl --fail --silent --show-error --retry 3 --retry-delay 2 \
+          repository=$(curl --fail --silent --show-error \
+            --retry 5 --retry-all-errors --retry-delay 2 \
+            --connect-timeout 15 --max-time 90 \
             --header "Authorization: Bearer $GH_TOKEN" \
             "https://api.github.com/repos/ffff582/ztapi-source")
           echo "$repository" | jq -e \
             '.full_name == "ffff582/ztapi-source" and .private == false and .visibility == "public"' >/dev/null
-          tag_ref=$(curl --fail --silent --show-error --retry 3 --retry-delay 2 \
+          tag_ref=$(curl --fail --silent --show-error \
+            --retry 5 --retry-all-errors --retry-delay 2 \
+            --connect-timeout 15 --max-time 90 \
             --header "Authorization: Bearer $GH_TOKEN" \
             "https://api.github.com/repos/ffff582/ztapi-source/git/ref/tags/production-$ZTAPI_RELEASE_VERSION")
           public_source_tag_type=$(echo "$tag_ref" | jq -er '.object.type')
           if [ "$public_source_tag_type" = tag ]; then
             public_source_tag_object=$(echo "$tag_ref" | jq -er '.object.sha')
             [[ "$public_source_tag_object" =~ ^[0-9a-f]{40}$ ]]
-            tag_object=$(curl --fail --silent --show-error --retry 3 --retry-delay 2 \
+            tag_object=$(curl --fail --silent --show-error \
+              --retry 5 --retry-all-errors --retry-delay 2 \
+              --connect-timeout 15 --max-time 90 \
               --header "Authorization: Bearer $GH_TOKEN" \
               "https://api.github.com/repos/ffff582/ztapi-source/git/tags/$public_source_tag_object")
             public_source_commit=$(echo "$tag_object" | jq -er \
