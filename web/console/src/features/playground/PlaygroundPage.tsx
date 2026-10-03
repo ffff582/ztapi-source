@@ -1,5 +1,5 @@
-import { CheckCircle2, CircleAlert, CircleDollarSign, Copy, Download, Image as ImageIcon, Play, RefreshCw, Video as VideoIcon } from 'lucide-react';
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { CheckCircle2, CircleAlert, CircleDollarSign, Copy, Download, FilePlus2, Image as ImageIcon, Images, MessageCircle, Paperclip, Play, Plus, RefreshCw, Send, Settings2, Sparkles, Video as VideoIcon } from 'lucide-react';
+import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { apiClient, getAuthSession } from '../../api/client';
 import { parseUserLogPage, parseUserModelCatalog, type UserModelCatalogItem, type UserModelSupportedOptions } from '../../api/contracts';
@@ -135,10 +135,13 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
   const [imageQuality, setImageQuality] = useState('');
   const [imageCount, setImageCount] = useState(1);
   const [imageResponseFormat, setImageResponseFormat] = useState('url');
+  const [imageHistory, setImageHistory] = useState<PlaygroundImageResult[]>([]);
   const [videoSize, setVideoSize] = useState('');
   const [videoDuration, setVideoDuration] = useState(5);
   const [videoSequence, setVideoSequence] = useState(0);
   const [videoStartedAt, setVideoStartedAt] = useState<number | null>(null);
+  const [textAttachmentName, setTextAttachmentName] = useState('');
+  const textAttachmentInput = useRef<HTMLInputElement>(null);
   const requestSequence = useRef(0);
 
   const model = modelByMode[mode];
@@ -306,6 +309,7 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
         if (sequence !== requestSequence.current) return;
         setElapsedMs(Math.max(0, Math.round(performance.now() - startedAt)));
         setImageResult(value);
+        setImageHistory((current) => [value, ...current].slice(0, 6));
         setRequestStatus('success');
         await loadBilling(value.request_id, sequence);
         return;
@@ -346,9 +350,185 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
     }
   }
 
+  async function handleTextAttachment(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (file === undefined) return;
+    try {
+      const content = await file.text();
+      const attachment = `\n\n[附件：${file.name}]\n${content}`;
+      setPrompt((current) => `${current}${attachment}`.slice(0, 4_000));
+      setTextAttachmentName(file.name);
+    } catch {
+      setTextAttachmentName('附件读取失败');
+    }
+  }
+
+  function startTextConversation() {
+    clearResults();
+    setPrompt(defaultPrompt);
+    setTextAttachmentName('');
+  }
+
   const availableModes = (['text', 'image', 'video'] as PlaygroundMode[]).filter((candidateMode) =>
     models.some((item) => modeForModel(item) === candidateMode),
   );
+
+  function renderBillingNote() {
+    return (
+      <aside className="playground-billing-note" aria-label={t('计费提醒')} role="note">
+        <CircleDollarSign aria-hidden="true" size={18} />
+        <div>
+          <strong>{t('本次测试会按正常 API 请求扣费')}</strong>
+          <p>{t('请求会经过正式模型线路，并在使用日志中留下费用记录。')}</p>
+        </div>
+      </aside>
+    );
+  }
+
+  function renderCatalogState() {
+    if (catalogStatus === 'loading') return <div className="console-state">{t('正在加载可测试模型...')}</div>;
+    if (catalogStatus === 'error') return <div className="console-alert" role="alert">{t('可测试模型加载失败，请刷新后重试。')}</div>;
+    if (models.length === 0) return <div className="console-state">{t('当前账号暂无可在线测试的模型。')}</div>;
+    if (modeModels.length === 0) return <div className="console-state">{t('当前能力暂无可用模型。')}</div>;
+    return null;
+  }
+
+  function renderTextWorkbench() {
+    return (
+      <div className="zt-workbench zt-workbench--text">
+        <aside className="zt-workbench__conversation-rail" aria-label="文本会话">
+          <button className="zt-workbench__new-chat" type="button" onClick={startTextConversation}>
+            <Plus aria-hidden="true" size={16} />
+            <span>新对话</span>
+          </button>
+          <div className="zt-workbench__conversation-list">
+            <button className="zt-workbench__conversation is-active" type="button" onClick={startTextConversation}>
+              <MessageCircle aria-hidden="true" size={16} />
+              <span>{prompt.trim() || '新的文本对话'}</span>
+            </button>
+          </div>
+        </aside>
+        <main className="zt-workbench__chat">
+          <div className="zt-workbench__chat-scroll">
+            {chatResult === null ? (
+              <div className="zt-workbench__empty">
+                <div className="zt-workbench__empty-mark"><Sparkles aria-hidden="true" size={22} /></div>
+                <h2>开始一段对话</h2>
+                <p>选择模型，输入问题，直接体验当前账号的真实 API 能力。</p>
+              </div>
+            ) : (
+              <div className="zt-workbench__thread">
+                <div className="zt-workbench__message zt-workbench__message--user"><span>你</span><p>{prompt}</p></div>
+                <div className="zt-workbench__message zt-workbench__message--assistant"><span>ZTAPI</span><div className="zt-workbench__answer">{chatResult.text}</div></div>
+                <dl className="playground-metrics">
+                  <div><dt>{t('Token 用量')}</dt><dd>{chatResult.usage?.total_tokens ?? 0} tokens</dd></div>
+                  <div><dt>{t('本次费用')}</dt><dd>{billedAmount === null ? t('入账中') : `${billedAmount.toFixed(6)} U`}</dd></div>
+                  <div><dt>{t('页面耗时')}</dt><dd>{elapsedMs === null ? '—' : `${elapsedMs} ms`}</dd></div>
+                  <div><dt>{t('结束原因')}</dt><dd>{chatResult.finish_reason || '—'}</dd></div>
+                </dl>
+                <ResultRequest requestID={chatResult.request_id} t={t} />
+              </div>
+            )}
+          </div>
+          <form className="zt-workbench__composer" onSubmit={handleSubmit}>
+            <div className="zt-workbench__composer-title">询问 ZTAPI</div>
+            <textarea aria-label="输入消息" id="workbench-text-prompt" maxLength={4_000} value={prompt} onChange={(event) => setPrompt(event.target.value)} />
+            <div className="zt-workbench__composer-toolbar">
+              <div className="zt-workbench__composer-left">
+                <button aria-label="添加附件" className="zt-workbench__icon-button" title="添加文本附件" type="button" onClick={() => textAttachmentInput.current?.click()}>
+                  <Paperclip aria-hidden="true" size={17} />
+                </button>
+                <input ref={textAttachmentInput} accept=".txt,.md,.json,.csv" hidden type="file" onChange={handleTextAttachment} />
+                <label className="zt-workbench__select-wrap" htmlFor="workbench-text-model">
+                  <span className="sr-only">文本模型</span>
+                  <select id="workbench-text-model" aria-label="文本模型" value={model} onChange={(event) => handleModelChange(event.target.value)}>
+                    {modeModels.map((item) => <option key={item.model_name} value={item.model_name}>{item.model_name}</option>)}
+                  </select>
+                </label>
+                {textAttachmentName !== '' && <span className="zt-workbench__attachment" title={textAttachmentName}><FilePlus2 aria-hidden="true" size={14} />{textAttachmentName}</span>}
+              </div>
+              <button className="zt-workbench__send" disabled={requestStatus === 'sending' || model === '' || prompt.trim() === ''} type="submit">
+                {requestStatus === 'sending' ? <RefreshCw aria-hidden="true" className="playground-status__spin" size={16} /> : <Send aria-hidden="true" size={16} />}
+                <span>{requestStatus === 'sending' ? '发送中' : '发送'}</span>
+              </button>
+            </div>
+            <p className="zt-workbench__composer-meta">当前使用 Key：已脱敏 · {prompt.length}/4000 字符</p>
+          </form>
+          {requestStatus === 'error' && <div className="console-alert playground-result-alert" role="alert">{t(errorMessage)}</div>}
+        </main>
+      </div>
+    );
+  }
+
+  function renderImageWorkbench() {
+    const gallery = imageHistory.flatMap((result) => result.images.map((image, index) => ({ image, index, requestID: result.request_id })));
+    return (
+      <div className="zt-workbench zt-workbench--media">
+        <section className="zt-workbench__config" aria-labelledby="image-config-heading">
+          <div className="zt-workbench__section-heading"><div><p className="console-eyebrow">图像生成</p><h2 id="image-config-heading">创建一张图片</h2></div><Settings2 aria-hidden="true" size={18} /></div>
+          {renderBillingNote()}
+          {renderCatalogState() ?? <form className="zt-workbench__media-form" onSubmit={handleSubmit}>
+            <div className="console-field"><label htmlFor="workbench-image-model">图片模型</label><select id="workbench-image-model" value={model} onChange={(event) => handleModelChange(event.target.value)}>{modeModels.map((item) => <option key={item.model_name} value={item.model_name}>{item.model_name}</option>)}</select></div>
+            <div className="zt-workbench__model-caption"><span>模型 ID</span><code>{model || '—'}</code></div>
+            <div className="console-field"><label htmlFor="workbench-image-prompt">图片提示词</label><textarea id="workbench-image-prompt" maxLength={4_000} rows={7} value={prompt} onChange={(event) => setPrompt(event.target.value)} /><p className="console-field__help">{prompt.length} / 4000 字符</p></div>
+            <div className="playground-option-grid"><div className="console-field"><label htmlFor="workbench-image-size">图片尺寸</label><select id="workbench-image-size" value={imageSize} onChange={(event) => setImageSize(event.target.value)}>{selectedOptions?.sizes?.map((option) => <option key={option} value={option}>{option}</option>)}</select></div><div className="console-field"><label htmlFor="workbench-image-quality">图片质量</label><select id="workbench-image-quality" value={imageQuality} onChange={(event) => setImageQuality(event.target.value)}>{selectedOptions?.qualities?.map((option) => <option key={option} value={option}>{option}</option>)}</select></div><div className="console-field"><label htmlFor="workbench-image-count">图片数量</label><select id="workbench-image-count" value={imageCount} onChange={(event) => setImageCount(Number(event.target.value))}>{Array.from({ length: Math.max(1, (selectedOptions?.max_count ?? 1) - (selectedOptions?.min_count ?? 1) + 1) }, (_, index) => (selectedOptions?.min_count ?? 1) + index).map((count) => <option key={count} value={count}>{count}</option>)}</select></div><div className="console-field"><label htmlFor="workbench-image-format">返回格式</label><select id="workbench-image-format" value={imageResponseFormat} onChange={(event) => setImageResponseFormat(event.target.value)}>{selectedOptions?.response_formats?.map((option) => <option key={option} value={option}>{option}</option>)}</select></div></div>
+            <button className="zt-workbench__run" disabled={requestStatus === 'sending' || model === '' || prompt.trim() === ''} type="submit"><Play aria-hidden="true" size={16} />{requestStatus === 'sending' ? '生成中...' : '生成图片'}</button>
+          </form>}
+          {requestStatus === 'error' && <div className="console-alert playground-result-alert" role="alert">{t(errorMessage)}</div>}
+        </section>
+        <section className="zt-workbench__results" aria-labelledby="image-results-heading">
+          <div className="zt-workbench__section-heading"><div><p className="console-eyebrow">输出记录</p><h2 id="image-results-heading">最近生成</h2></div><span className="zt-workbench__result-count">{gallery.length} 张图片</span></div>
+          {gallery.length === 0 ? <div className="zt-workbench__media-empty"><Images aria-hidden="true" size={28} /><strong>暂无生成记录</strong><p>生成完成后，图片会显示在这里。</p></div> : <div className="zt-workbench__gallery">{gallery.map(({ image, index, requestID }) => { const source = imageSource(image); return source === '' ? null : <figure className="zt-workbench__gallery-card" key={`${requestID}-${index}-${source}`}><img alt={`生成结果 ${index + 1}`} src={source} /><figcaption><span>{image.revised_prompt || '生成结果'}</span><a download href={source} rel="noreferrer" target="_blank"><Download aria-hidden="true" size={14} />下载</a></figcaption></figure>; })}</div>}
+          {imageResult !== null && <ResultRequest requestID={imageResult.request_id} t={t} />}
+        </section>
+      </div>
+    );
+  }
+
+  function renderVideoWorkbench() {
+    const hasVideoInput = selectedOptions?.supports_video_input === true;
+    return (
+      <div className="zt-workbench zt-workbench--media">
+        <section className="zt-workbench__config" aria-labelledby="video-config-heading">
+          <div className="zt-workbench__section-heading"><div><p className="console-eyebrow">视频生成</p><h2 id="video-config-heading">创建一段视频</h2></div><Settings2 aria-hidden="true" size={18} /></div>
+          {renderBillingNote()}
+          {renderCatalogState() ?? <form className="zt-workbench__media-form" onSubmit={handleSubmit}>
+            <div className="console-field"><label htmlFor="workbench-video-model">视频模型</label><select id="workbench-video-model" value={model} onChange={(event) => handleModelChange(event.target.value)}>{modeModels.map((item) => <option key={item.model_name} value={item.model_name}>{item.model_name}</option>)}</select></div>
+            <div className="zt-workbench__model-caption"><span>模型 ID</span><code>{model || '—'}</code></div>
+            <fieldset className="zt-workbench__mode-field"><legend>生成模式</legend><div className={`zt-workbench__segmented${hasVideoInput ? ' is-multi' : ' is-single'}`}><button aria-pressed="true" className="is-active" type="button">文生视频</button>{hasVideoInput && <><button type="button">关键帧</button><button type="button">视频续写</button></>}</div><p>根据提示词创建视频</p></fieldset>
+            <div className="console-field"><label htmlFor="workbench-video-prompt">视频提示词</label><textarea id="workbench-video-prompt" maxLength={4_000} rows={6} value={prompt} onChange={(event) => setPrompt(event.target.value)} /><p className="console-field__help">{prompt.length} / 4000 字符</p></div>
+            <div className="zt-workbench__range-field"><div><label htmlFor="workbench-video-duration">视频时长</label><output>{videoDuration} 秒</output></div><input id="workbench-video-duration" max={Math.max(...(selectedOptions?.duration_seconds ?? [20]))} min={Math.min(...(selectedOptions?.duration_seconds ?? [5]))} step="1" type="range" value={videoDuration} onChange={(event) => { const value = Number(event.target.value); const durations = selectedOptions?.duration_seconds ?? [value]; const nearest = durations.reduce((best, current) => Math.abs(current - value) < Math.abs(best - value) ? current : best, durations[0]); setVideoDuration(nearest); }} /><p>可选时长由当前模型目录提供。</p></div>
+            <div className="playground-option-grid"><div className="console-field"><label htmlFor="workbench-video-size">分辨率</label><select id="workbench-video-size" value={videoSize} onChange={(event) => setVideoSize(event.target.value)}>{selectedOptions?.resolutions?.map((option) => <option key={option} value={option}>{option}</option>)}</select></div><div className="console-field"><label>能力</label><div className="zt-workbench__capability">{hasVideoInput ? '支持参考视频' : '文生视频'}</div></div></div>
+            <button className="zt-workbench__run" disabled={requestStatus === 'sending' || model === '' || prompt.trim() === ''} type="submit"><Play aria-hidden="true" size={16} />{requestStatus === 'sending' ? '处理中...' : '生成视频'}</button>
+          </form>}
+          {requestStatus === 'error' && <div className="console-alert playground-result-alert" role="alert">{t(errorMessage)}</div>}
+        </section>
+        <section className="zt-workbench__results" aria-labelledby="video-results-heading">
+          <div className="zt-workbench__section-heading"><div><p className="console-eyebrow">任务输出</p><h2 id="video-results-heading">生成结果</h2></div>{videoTask !== null && <span className="zt-workbench__result-count">{videoTask.status}</span>}</div>
+          {videoTask === null ? <div className="zt-workbench__media-empty"><VideoIcon aria-hidden="true" size={28} /><strong>暂无生成记录</strong><p>提交任务后，状态和视频会显示在这里。</p></div> : <div className="zt-workbench__video-output">{videoTask.status === 'succeeded' && videoTask.url ? <><div className="playground-status playground-status--succeeded" role="status"><CheckCircle2 aria-hidden="true" size={18} /><strong>视频已生成</strong></div><video aria-label="生成的视频" controls src={videoTask.url} /><a className="console-button console-button--secondary" download href={videoTask.url} rel="noreferrer" target="_blank"><Download aria-hidden="true" size={15} />下载视频</a></> : <div className={`playground-status playground-status--${videoTask.status}`} role="status">{videoTask.status === 'processing' ? <RefreshCw aria-hidden="true" className="playground-status__spin" size={18} /> : videoTask.status === 'failed' ? <CircleAlert aria-hidden="true" size={18} /> : <VideoIcon aria-hidden="true" size={18} />}<div><strong>{videoStatusLabel(videoTask.status)}</strong>{videoTask.progress && <p>{videoTask.progress}</p>}{videoTask.error && <p>{videoTask.error}</p>}</div></div>}<dl className="playground-metrics"><div><dt>{t('任务 ID')}</dt><dd>{videoTask.task_id}</dd></div><div><dt>{t('本次费用')}</dt><dd>{billedAmount === null ? t('入账中') : `${billedAmount.toFixed(6)} U`}</dd></div><div><dt>{t('页面耗时')}</dt><dd>{elapsedMs === null ? '—' : `${elapsedMs} ms`}</dd></div><div><dt>{t('请求状态')}</dt><dd>{videoTask.status}</dd></div></dl><ResultRequest requestID={videoTask.request_id} t={t} /></div>}
+        </section>
+      </div>
+    );
+  }
+
+  if (workbench) {
+    const title = mode === 'text' ? '文本工作台' : mode === 'image' ? '图像工作台' : '视频工作台';
+    return (
+      <div className={`console-page playground-page workbench-page workbench-page--${mode}`}>
+        <header className="console-page__header">
+          <div><p className="console-eyebrow">工作台</p><h1>{t(title)}</h1></div>
+          <p>使用当前账号的 API Key，直接体验真实模型能力。</p>
+        </header>
+        {mode === 'text' ? renderTextWorkbench() : mode === 'image' ? renderImageWorkbench() : renderVideoWorkbench()}
+        <section className="console-section workbench-code-section" aria-labelledby="playground-code-heading">
+          <div className="console-section__heading"><div><p className="console-eyebrow">{t('接入代码')}</p><h2 id="playground-code-heading">{t('把相同模型接入你的程序')}</h2></div><button className="console-icon-action" type="button" onClick={copyExample}><Copy aria-hidden="true" size={15} />{t('复制代码')}</button></div>
+          <pre className="playground-code" data-testid="playground-code"><code>{example}</code></pre>
+          <p className="playground-copy-status" aria-live="polite" role="status">{copyState === 'success' && t('已复制')}{copyState === 'error' && t('复制失败，请手动复制')}</p>
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div className={`console-page playground-page${workbench ? ' workbench-page' : ''}`}>

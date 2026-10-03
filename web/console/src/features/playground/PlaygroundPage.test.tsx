@@ -112,6 +112,62 @@ describe('PlaygroundPage', () => {
     vi.restoreAllMocks();
   });
 
+  it('renders an APIMart-style text workspace instead of the generic test form', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith('/api/user/models')) return jsonResponse(catalogResponse());
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+
+    render(<MemoryRouter initialEntries={['/console/workbench/text']}><PlaygroundPage initialMode="text" workbench /></MemoryRouter>);
+
+    expect(await screen.findByRole('button', { name: '新对话' })).toBeVisible();
+    expect(screen.getByText('询问 ZTAPI')).toBeVisible();
+    expect(screen.getByLabelText('文本模型')).toHaveValue('zt-gpt-5.6-sol');
+    expect(screen.getByRole('button', { name: '添加附件' })).toBeVisible();
+    expect(screen.getByRole('button', { name: '发送' })).toBeVisible();
+    expect(screen.queryByText('发送测试请求')).not.toBeInTheDocument();
+  });
+
+  it('renders an image generation workspace with a model panel and recent gallery', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith('/api/user/models')) return jsonResponse(mediaCatalogResponse());
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+
+    render(<MemoryRouter initialEntries={['/console/workbench/image']}><PlaygroundPage initialMode="image" workbench /></MemoryRouter>);
+
+    expect(await screen.findByRole('heading', { name: '图像工作台' })).toBeVisible();
+    expect(screen.getByLabelText('图片模型')).toHaveValue('zt-image-2');
+    expect(screen.getByLabelText('图片提示词')).toBeVisible();
+    expect(screen.getByLabelText('图片尺寸')).toBeVisible();
+    expect(screen.getByLabelText('图片质量')).toBeVisible();
+    expect(screen.getByText('最近生成')).toBeVisible();
+    expect(screen.getByRole('button', { name: '生成图片' })).toBeVisible();
+    expect(screen.queryByText('发送测试请求')).not.toBeInTheDocument();
+  });
+
+  it('renders a video task workspace with capability-driven controls and a result area', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith('/api/user/models')) return jsonResponse(mediaCatalogResponse());
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+
+    render(<MemoryRouter initialEntries={['/console/workbench/video']}><PlaygroundPage initialMode="video" workbench /></MemoryRouter>);
+
+    expect(await screen.findByRole('heading', { name: '视频工作台' })).toBeVisible();
+    expect(screen.getByLabelText('视频模型')).toHaveValue('zt-video-2');
+    expect(screen.getByText('生成模式')).toBeVisible();
+    expect(screen.getByRole('button', { name: '文生视频' })).toBeVisible();
+    expect(screen.getByLabelText('视频提示词')).toBeVisible();
+    expect(screen.getByLabelText('视频时长')).toBeVisible();
+    expect(screen.getByText('生成结果')).toBeVisible();
+    expect(screen.getByRole('button', { name: '生成视频' })).toBeVisible();
+    expect(screen.queryByText('发送测试请求')).not.toBeInTheDocument();
+  });
+
   it('loads only compatible text models and runs a normally billed request', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       void init;

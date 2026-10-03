@@ -445,13 +445,28 @@ test('user media catalog, guide and wallet remain usable without data exposure',
 
   await page.goto('/console/test?model=zt-claude-sonnet-5');
   await expect(page.getByRole('heading', { level: 1, name: '文本工作台' })).toBeVisible();
-  await expect(page.getByLabel('测试模型')).toHaveValue('zt-claude-sonnet-5');
-  await page.getByRole('button', { name: '发送测试请求' }).click();
+  await expect(page.getByLabel('文本模型')).toHaveValue('zt-claude-sonnet-5');
+  await page.getByRole('button', { name: '发送' }).click();
   await expect(page.getByText('在线测试连接正常。')).toBeVisible();
   await expect(page.getByText('0.004321 U')).toBeVisible();
   await expect(page.getByText('req-browser-usage-001')).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expectConsoleRegionsDoNotOverlap(page);
+
+  await page.goto('/console/workbench/image');
+  await expect(page.getByRole('heading', { level: 1, name: '图像工作台' })).toBeVisible();
+  await expect(page.getByLabel('图片模型')).toHaveValue('zt-image-pro');
+  await expect(page.getByLabel('图片提示词')).toBeVisible();
+  await expect(page.getByText('最近生成')).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+
+  await page.goto('/console/workbench/video');
+  await expect(page.getByRole('heading', { level: 1, name: '视频工作台' })).toBeVisible();
+  await expect(page.getByLabel('视频模型')).toHaveValue('zt-video-pro');
+  await expect(page.getByRole('button', { name: '文生视频' })).toBeVisible();
+  await expect(page.getByLabel('视频时长')).toBeVisible();
+  await expect(page.getByText('生成结果')).toBeVisible();
+  await expectNoHorizontalOverflow(page);
 
   await page.goto('/console/guide');
   await expect(page.getByRole('heading', { level: 1, name: '使用说明' })).toBeVisible();
