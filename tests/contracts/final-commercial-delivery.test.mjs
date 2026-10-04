@@ -639,6 +639,41 @@ test('a preexisting unpublished Gemini image product stays unpublished during un
   );
 });
 
+test('catalog and pricing acceptance follow the preexisting Gemini publication state', () => {
+  const source = read(workflowPath);
+  const acceptance = source.slice(
+    source.indexOf('expected_image_catalog_count=2'),
+    source.indexOf('acceptance_catalog_count=', source.indexOf('expected_image_catalog_count=2')),
+  );
+
+  assert.match(acceptance, /expected_image_catalog_count=2/);
+  assert.match(
+    acceptance,
+    /if \[ "\$gemini_was_published" != true \]; then[\s\S]*expected_image_catalog_count=1[\s\S]*fi/,
+    'an intentionally unpublished Gemini must reduce the required image count to the single published image model',
+  );
+  assert.match(
+    acceptance,
+    /--argjson expected_image_catalog_count "\$expected_image_catalog_count"[\s\S]*\| length\) == \$expected_image_catalog_count/,
+    'user catalog acceptance must compare against the state-aware image count',
+  );
+  assert.match(
+    acceptance,
+    /acceptance_pricing=.*[\s\S]*--argjson expected_image_catalog_count "\$expected_image_catalog_count"[\s\S]*\| length\) == \$expected_image_catalog_count/,
+    'public pricing acceptance must compare against the same state-aware image count',
+  );
+
+  const publishedModels = source.slice(
+    source.indexOf('published_since_baseline=$(mktemp'),
+    source.indexOf('retired_since_baseline=$(mktemp'),
+  );
+  assert.match(
+    publishedModels,
+    /if \[ "\$gemini_was_published" = true \]; then[\s\S]*echo zt-gemini-2\.5-flash-image >> "\$published_since_baseline"[\s\S]*fi/,
+    'the exact catalog comparison must exclude a Gemini model that was already unpublished',
+  );
+});
+
 test('deployment rollback restores every quotation-backed media publication before restarting the old server', () => {
   const workflow = read(workflowPath);
   const releaseControl = read('deploy/scripts/ztapi-release-control.sh');

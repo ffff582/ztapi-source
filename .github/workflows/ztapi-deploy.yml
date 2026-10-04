@@ -2754,6 +2754,12 @@ jobs:
             --argjson seed_quota "$acceptance_seed_quota" \
             'select(.success == true and .data.applied == true and .data.user_id > 0 and .data.balance_after == $seed_quota) | .data.id')
 
+          expected_image_catalog_count=2
+          if [ "$gemini_was_published" != true ]; then
+            # Gemini was already unpublished before this release. Do not make
+            # an intentional retirement fail the catalog gate.
+            expected_image_catalog_count=1
+          fi
           acceptance_catalog=""
           catalog_accepted=false
           for catalog_attempt in {1..6}; do
@@ -2761,7 +2767,7 @@ jobs:
               --header "Authorization: Bearer $acceptance_user_access_token" \
               --header "New-API-User: $acceptance_user_id" \
               "$acceptance_origin/api/user/models") &&
-              echo "$acceptance_catalog" | jq -e '
+              echo "$acceptance_catalog" | jq -e --argjson expected_image_catalog_count "$expected_image_catalog_count" '
                 .success == true
                 and (all(.catalog[];
                   (.pricing_version | length) > 0
@@ -2786,7 +2792,9 @@ jobs:
                     (.input_price_per_million | tonumber) >= 0
                     and (.output_price_per_million | tonumber) >= 0
                   end)))
-                and ([.catalog[] | select(.modality == "image" and (.model_name == "zt-gp-image-2" or .model_name == "zt-gemini-2.5-flash-image"))] | length) == 2
+                and ([.catalog[] | select(.modality == "image" and .model_name == "zt-gp-image-2")] | length) == 1
+                and ([.catalog[] | select(.modality == "image" and .model_name == "zt-gemini-2.5-flash-image")] | length) == ($expected_image_catalog_count - 1)
+                and ([.catalog[] | select(.modality == "image" and (.model_name == "zt-gp-image-2" or .model_name == "zt-gemini-2.5-flash-image"))] | length) == $expected_image_catalog_count
                 and ([.catalog[] | select(.modality == "video" and (
                   .model_name == "zt-seedance-2.0"
                   or .model_name == "zt-seedance-2.0-fast"
@@ -2823,7 +2831,7 @@ jobs:
           fi
           acceptance_pricing=$(curl --fail --silent --show-error \
             "$acceptance_origin/api/pricing")
-          echo "$acceptance_pricing" | jq -e '
+          echo "$acceptance_pricing" | jq -e --argjson expected_image_catalog_count "$expected_image_catalog_count" '
             .success == true
             and (all(.data[];
               if (.modality == "image" or .modality == "video") then
@@ -2840,7 +2848,9 @@ jobs:
                 and (.pricing_rules | length) > 0
                 and (.billing_unit | length) > 0
               else true end))
-            and ([.data[] | select(.modality == "image")] | length) == 2
+            and ([.data[] | select(.modality == "image" and .model_name == "zt-gp-image-2")] | length) == 1
+            and ([.data[] | select(.modality == "image" and .model_name == "zt-gemini-2.5-flash-image")] | length) == ($expected_image_catalog_count - 1)
+            and ([.data[] | select(.modality == "image")] | length) == $expected_image_catalog_count
             and ([.data[] | select(.modality == "video" and (
               .model_name == "zt-seedance-2.0"
               or .model_name == "zt-seedance-2.0-fast"
@@ -2863,13 +2873,15 @@ jobs:
           published_since_baseline=$(mktemp /tmp/ztapi-published-since-baseline.XXXXXX)
           cat > "$published_since_baseline" <<'PUBLISHED_SINCE_BASELINE'
           zt-gp-image-2
-          zt-gemini-2.5-flash-image
           zt-seedance-2.0
           zt-seedance-2.0-fast
           zt-seedance-2.0-mini
           zt-claude-fable-5
           zt-claude-opus-5
           PUBLISHED_SINCE_BASELINE
+          if [ "$gemini_was_published" = true ]; then
+            echo zt-gemini-2.5-flash-image >> "$published_since_baseline"
+          fi
           # In the pricing baseline but no longer sold. The 2026-09-15
           # quotation prices only the A and B grades, and these four are quoted
           # on the flagship grade alone, so the catalog can no longer price

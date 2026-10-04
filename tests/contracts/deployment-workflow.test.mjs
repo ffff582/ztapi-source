@@ -946,7 +946,6 @@ test('the expected catalog counts the models it lists instead of restating a num
   // ordinary user's catalog no longer matches what the release expects.
   for (const modelName of [
     'zt-gp-image-2',
-    'zt-gemini-2.5-flash-image',
     'zt-seedance-2.0',
     'zt-seedance-2.0-fast',
     'zt-seedance-2.0-mini',
@@ -955,6 +954,11 @@ test('the expected catalog counts the models it lists instead of restating a num
   ]) {
     assert.ok(block.includes(`\n          ${modelName}\n`), `${modelName} must be expected`);
   }
+  assert.match(
+    block,
+    /if \[ "\$gemini_was_published" = true \]; then[\s\S]*echo zt-gemini-2\.5-flash-image >> "\$published_since_baseline"[\s\S]*fi/,
+    'Gemini must be added to the expected catalog only when it was already published',
+  );
 
   // Counting the list is what keeps adding a model from also requiring the
   // arithmetic to be corrected by hand.
