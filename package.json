@@ -1,0 +1,22 @@
+{
+  "name": "ztapi",
+  "private": true,
+  "packageManager": "pnpm@10.13.1",
+  "scripts": {
+    "test:layout": "node --test tests/repository-layout.test.mjs",
+    "test:web": "pnpm --filter @ztapi/console test",
+    "test:contracts": "node --test tests/contracts/*.test.mjs",
+    "test:runtime": "node --test tests/runtime/*.test.mjs",
+    "test:e2e": "playwright test",
+    "test:public-pages": "playwright test tests/e2e/public-pages.spec.ts",
+    "lint:web": "pnpm --filter @ztapi/console lint",
+    "source:export": "node tools/public-source/export.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "@types/pngjs": "^6.0.5",
+    "node-forge": "^1.3.1",
+    "pngjs": "^7.0.0",
+    "yaml": "^2.8.0"
+  }
+}

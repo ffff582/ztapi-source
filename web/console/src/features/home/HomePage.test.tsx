@@ -1,0 +1,200 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import postcss, { type AtRule, type Declaration, type Root, type Rule } from 'postcss';
+import { MemoryRouter } from 'react-router-dom';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { HomePage } from './HomePage';
+
+declare const process: { cwd: () => string };
+
+const homeCss = readFileSync(resolve(process.cwd(), 'src/features/home/home.css'), 'utf8');
+const homeStyles = postcss.parse(homeCss);
+
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+function defaultFetch(input: RequestInfo | URL) {
+  const url = input.toString();
+  if (url.endsWith('/api/status')) {
+    return Promise.resolve(jsonResponse({ success: true, data: { quota_per_unit: 250_000 } }));
+  }
+  if (url.endsWith('/api/pricing')) {
+    return Promise.resolve(jsonResponse({
+      success: true,
+      data: [],
+      group_ratio: { default: 1 },
+      usable_group: { default: '默认分组' },
+      pricing_version: 'homepage-shell-v1',
+    }));
+  }
+  return Promise.resolve(jsonResponse({ success: false }, 500));
+}
+
+function renderHomePage(initialEntry = '/') {
+  vi.stubGlobal('fetch', vi.fn(defaultFetch));
+  return render(
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <HomePage />
+    </MemoryRouter>,
+  );
+}
+
+function mediaRule(params: string): AtRule {
+  const matches = (homeStyles.nodes ?? []).filter(
+    (node): node is AtRule => node.type === 'atrule' && node.name === 'media' && node.params === params,
+  );
+  expect(matches.length).toBeGreaterThan(0);
+  return matches[matches.length - 1];
+}
+
+function lastDeclaration(root: Root | AtRule, selector: string, property: string) {
+  const rules = (root.nodes ?? []).filter(
+    (node): node is Rule => node.type === 'rule' && node.selectors.includes(selector),
+  );
+  const values = rules.flatMap((rule) => (rule.nodes ?? [])
+    .filter((node): node is Declaration => node.type === 'decl' && node.prop === property)
+    .map((node) => node.value));
+  return values.at(-1);
+}
+
+afterEach(() => {
+  cleanup();
+  Reflect.deleteProperty(navigator, 'clipboard');
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  Object.defineProperty(window, 'scrollY', { configurable: true, value: 0 });
+});
+
+describe('ZTAPI public homepage', () => {
+  it('makes the brand the hero and shows the signed-in console as the product proof', async () => {
+    renderHomePage();
+
+    const hero = screen.getByRole('region', { name: 'ZTAPI' });
+    expect(within(hero).getByRole('heading', { level: 1, name: '一个接口，连接主流 AI 模型' })).toBeVisible();
+    const heroTitle = hero.querySelector('.gateway-hero__title') as HTMLElement;
+    expect(heroTitle).toBeVisible();
+    expect(heroTitle).toHaveTextContent('一个接口，连接主流 AI 模型');
+    expect(hero.querySelector('.gateway-hero__visual')).toHaveAttribute('aria-label', 'ZTAPI 用户台预览');
+    expect(within(hero).getByText('使用概览')).toBeVisible();
+    expect(within(hero).getByText('当前余额')).toBeVisible();
+    expect(within(hero).getByText('最近使用记录')).toBeVisible();
+    expect(within(hero).getByRole('link', { name: '开始使用' })).toHaveAttribute('href', '/register');
+    expect(within(hero).getByRole('link', { name: '查看模型价格' })).toHaveAttribute('href', '/models');
+  });
+
+  it('keeps one main landmark and stable public section targets', async () => {
+    renderHomePage();
+
+    expect(await screen.findAllByRole('main')).toHaveLength(1);
+    expect(screen.getByRole('region', { name: '网关能力' })).toHaveAttribute('id', 'capabilities');
+    expect(screen.getByRole('region', { name: '快速接入' })).toHaveAttribute('id', 'quickstart');
+    expect(
+      screen.getByRole('heading', {
+        name: '文本、图片与视频，通过一个账户统一调用',
+      }),
+    ).toBeVisible();
+    expect(document.querySelectorAll('.card .card')).toHaveLength(0);
+  });
+
+  it('keeps repository attribution off the marketing homepage', async () => {
+    renderHomePage();
+
+    expect(screen.queryByText('Frontend design and development by New API contributors.')).toBeNull();
+    expect(screen.queryByRole('link', { name: 'ZTAPI 对应源码' })).toBeNull();
+  });
+
+  it('makes the top-up promotion and Telegram support visible before the model catalog', () => {
+    renderHomePage();
+
+    const promotion = screen.getByRole('region', { name: '充值福利' });
+    expect(within(promotion).getByText('充值即赠 5% 使用额度')).toBeVisible();
+    expect(within(promotion).getByText('充值 100 U，到账可用 105 U')).toBeVisible();
+    expect(within(promotion).getByRole('link', { name: '联系 Telegram 客服' })).toHaveAttribute(
+      'href',
+      'https://t.me/gan66',
+    );
+  });
+
+  it('links every public navigation item to a usable destination', async () => {
+    renderHomePage();
+    const navigation = await screen.findByRole('navigation', { name: '公共导航' });
+    const expected = [
+      ['模型市场', '/models'],
+      ['API 文档', '/docs/integration'],
+      ['快速接入', '/#quickstart'],
+      ['支持', 'https://t.me/gan66'],
+      ['登录', '/login'],
+      ['开始使用', '/register'],
+    ];
+    for (const [name, href] of expected) {
+      expect(within(navigation).getByRole('link', { name })).toHaveAttribute('href', href);
+    }
+  });
+
+  it('opens the mobile menu and restores focus when Escape closes it', async () => {
+    renderHomePage();
+    const menu = await screen.findByRole('button', { name: '打开导航菜单' });
+    const navigation = screen.getByRole('navigation', { name: '公共导航' });
+    menu.focus();
+    fireEvent.click(menu);
+    expect(navigation).toHaveAttribute('data-open', 'true');
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(navigation).toHaveAttribute('data-open', 'false');
+    expect(menu).toHaveFocus();
+  });
+
+  it('marks the sticky public header after scrolling', async () => {
+    renderHomePage();
+    const header = await screen.findByRole('banner');
+    expect(header).toHaveAttribute('data-scrolled', 'false');
+    Object.defineProperty(window, 'scrollY', { configurable: true, value: 20 });
+    fireEvent.scroll(window);
+    expect(header).toHaveAttribute('data-scrolled', 'true');
+  });
+
+  it('keeps the homepage focused on next actions and moves code examples to docs', () => {
+    renderHomePage();
+
+    const quickstart = screen.getByRole('region', { name: '快速接入' });
+    expect(within(quickstart).getByRole('heading', { name: '一个接口，快速接入你需要的模型' })).toBeVisible();
+    expect(within(quickstart).getByRole('heading', { name: '注册、改一行配置、开始调用' })).toBeVisible();
+    expect(within(quickstart).getByRole('link', { name: '查看集成指南' })).toHaveAttribute(
+      'href',
+      '/docs/integration',
+    );
+    expect(within(quickstart).getByRole('link', { name: /查看模型目录/ })).toHaveAttribute('href', '/models');
+    expect(within(quickstart).getByRole('link', { name: /创建 API Key/ })).toHaveAttribute('href', '/register');
+    expect(within(quickstart).getByRole('link', { name: /查看使用日志/ })).toHaveAttribute('href', '/register');
+    expect(within(quickstart).getByRole('link', { name: /在线测试/ })).toHaveAttribute('href', '/register');
+    expect(screen.queryByRole('button', { name: '复制代码' })).toBeNull();
+    expect(screen.queryByText(/import OpenAI/)).toBeNull();
+  });
+
+  it('has explicit mobile and reduced-motion contracts', () => {
+    const mobile = mediaRule('(max-width: 760px)');
+    const narrow = mediaRule('(max-width: 420px)');
+    const reduced = mediaRule('(prefers-reduced-motion: reduce)');
+    expect(lastDeclaration(homeStyles, '.gateway-motion__frame', 'position')).toBe('absolute');
+    expect(lastDeclaration(homeStyles, '.gateway-motion__frame', 'inset')).toBe('0');
+    expect(lastDeclaration(mobile, '.gateway-hero', 'min-height')).toBe('auto');
+    expect(lastDeclaration(narrow, '.gateway-hero h1.gateway-hero__title', 'font-size')).toBe('42px');
+    expect(lastDeclaration(narrow, '.gateway-hero__actions', 'flex-direction')).toBe('column');
+    expect(lastDeclaration(homeStyles, '.principles-band__heading h2', 'white-space')).toBe('nowrap');
+    expect(lastDeclaration(mobile, '.principles-band__heading h2', 'white-space')).toBe('normal');
+    expect(lastDeclaration(reduced, '.gateway-motion__packet', 'animation')).toBe('none');
+    expect(lastDeclaration(reduced, '.gateway-motion__pulse', 'animation')).toBe('none');
+  });
+
+  it('does not ship the retired Three.js hero dependency from homepage code', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/features/home/HomePage.tsx'), 'utf8');
+    expect(source).not.toContain('HeroScene');
+    expect(source).not.toContain("from 'three'");
+    expect(homeCss).not.toContain('.hero-scene');
+    expect(homeCss).not.toContain('ztapi-hero-infrastructure.webp');
+  });
+});
