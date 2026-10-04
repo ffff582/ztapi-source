@@ -39,14 +39,23 @@ type ZTAPIPublicCatalogItem struct {
 }
 
 type ZTAPIPublicSupportedOptions struct {
-	Sizes              []string `json:"sizes,omitempty"`
-	Qualities          []string `json:"qualities,omitempty"`
-	ResponseFormats    []string `json:"response_formats,omitempty"`
-	MinCount           int      `json:"min_count,omitempty"`
-	MaxCount           int      `json:"max_count,omitempty"`
-	Resolutions        []string `json:"resolutions,omitempty"`
-	DurationSeconds    []int    `json:"duration_seconds,omitempty"`
-	SupportsVideoInput *bool    `json:"supports_video_input,omitempty"`
+	Sizes              []string                   `json:"sizes,omitempty"`
+	Qualities          []string                   `json:"qualities,omitempty"`
+	ResponseFormats    []string                   `json:"response_formats,omitempty"`
+	MinCount           int                        `json:"min_count,omitempty"`
+	MaxCount           int                        `json:"max_count,omitempty"`
+	SupportsEdits      bool                       `json:"supports_edits,omitempty"`
+	EditInput          *ZTAPIPublicImageEditInput `json:"edit_input,omitempty"`
+	Resolutions        []string                   `json:"resolutions,omitempty"`
+	DurationSeconds    []int                      `json:"duration_seconds,omitempty"`
+	SupportsVideoInput *bool                      `json:"supports_video_input,omitempty"`
+}
+
+type ZTAPIPublicImageEditInput struct {
+	MaxFiles      int      `json:"max_files"`
+	MaxBytes      int64    `json:"max_bytes"`
+	MaxTotalBytes int64    `json:"max_total_bytes"`
+	MimeTypes     []string `json:"mime_types"`
 }
 
 type ZTAPIPublicPricingRule struct {
@@ -428,6 +437,17 @@ func ztapiPublicMediaMetadata(publication ZTAPIRuntimePublication) (*ZTAPIPublic
 		options.ResponseFormats = append([]string(nil), capabilities.ResponseFormats...)
 		options.MinCount = capabilities.MinCount
 		options.MaxCount = capabilities.MaxCount
+		if capabilities.SupportsEdits && types.ZTAPIMediaPriceContractSupportsImageOperation(contract, "edit") {
+			if publication.ImageProtocolContract.Edit == nil {
+				return nil, nil, ""
+			}
+			edit := publication.ImageProtocolContract.Edit
+			options.SupportsEdits = true
+			options.EditInput = &ZTAPIPublicImageEditInput{
+				MaxFiles: edit.MaxInputFiles, MaxBytes: edit.MaxInputBytes,
+				MaxTotalBytes: edit.MaxTotalInputBytes, MimeTypes: append([]string(nil), edit.AllowedMimeTypes...),
+			}
+		}
 	case ZTAPIModalityVideo:
 		if publication.VideoProtocolContract == nil {
 			return nil, nil, ""

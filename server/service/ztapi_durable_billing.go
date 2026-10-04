@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 )
@@ -38,7 +40,7 @@ func newZTAPIDurableBilling(info *relaycommon.RelayInfo, amount int) (*ztapiDura
 	var row *model.ZTAPIRequestSettlement
 	var err error
 	if info.ZTAPIPublicationSnapshot.Modality == "image" {
-		selectorJSON, selectorErr := ztapiImageReservationSelector(info.Request)
+		selectorJSON, selectorErr := ztapiImageReservationSelector(info.Request, info)
 		if selectorErr != nil {
 			return nil, types.NewErrorWithStatusCode(selectorErr, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 		}
@@ -93,15 +95,19 @@ func newZTAPIDurableBilling(info *relaycommon.RelayInfo, amount int) (*ztapiDura
 	return &ztapiDurableBilling{row: row, info: info}, nil
 }
 
-func ztapiImageReservationSelector(request any) (string, error) {
+func ztapiImageReservationSelector(request any, info *relaycommon.RelayInfo) (string, error) {
 	image, ok := request.(*dto.ImageRequest)
 	if !ok || image == nil || image.N == nil || *image.N == 0 || image.Size == "" || image.Quality == "" || image.ResponseFormat == "" {
 		return "", model.ErrZTAPISettlementInvalid
 	}
-	raw, err := common.Marshal(map[string]any{
+	selector := map[string]any{
 		"modality": "image", "n": *image.N, "quality": image.Quality,
 		"response_format": image.ResponseFormat, "size": image.Size,
-	})
+	}
+	if info != nil && (info.RelayMode == relayconstant.RelayModeImagesEdits || strings.HasPrefix(info.RequestURLPath, "/v1/images/edits")) {
+		selector["image_operation"] = "edit"
+	}
+	raw, err := common.Marshal(selector)
 	return string(raw), err
 }
 

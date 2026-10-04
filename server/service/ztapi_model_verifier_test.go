@@ -619,8 +619,39 @@ func TestVerifyZTAPIGPTImage2UsesRealGenerationAndPersistsExactProtocol(t *testi
 	calls := 0
 	http.DefaultTransport = ztapiVerifierRoundTripFunc(func(r *http.Request) (*http.Response, error) {
 		calls++
-		require.Equal(t, "/v1/images/generations", r.URL.Path)
 		if calls == 2 {
+			require.Equal(t, "/v1/images/edits", r.URL.Path)
+			require.NoError(t, r.ParseMultipartForm(20<<20))
+			require.Equal(t, []string{"gpt-image-2"}, r.MultipartForm.Value["model"])
+			require.Equal(t, []string{"Turn the reference into a simple blue circle."}, r.MultipartForm.Value["prompt"])
+			require.Equal(t, []string{"1"}, r.MultipartForm.Value["n"])
+			require.Equal(t, []string{"1024x1024"}, r.MultipartForm.Value["size"])
+			require.Equal(t, []string{"low"}, r.MultipartForm.Value["quality"])
+			require.Len(t, r.MultipartForm.File["image"], 1)
+			file, err := r.MultipartForm.File["image"][0].Open()
+			require.NoError(t, err)
+			defer file.Close()
+			fileBytes, err := io.ReadAll(file)
+			require.NoError(t, err)
+			require.Greater(t, len(fileBytes), 0)
+			require.Equal(t, "Bearer synthetic-verifier-key", r.Header.Get("Authorization"))
+			body, err := common.Marshal(map[string]any{
+				"data": []map[string]string{{"b64_json": ztapiVerifierPNG(t, 1024, 1024)}},
+				"usage": map[string]any{
+					"input_tokens": 30, "input_tokens_details": map[string]any{"text_tokens": 18, "image_tokens": 12},
+					"output_tokens": 196, "output_tokens_details": map[string]any{"image_tokens": 196, "text_tokens": 0},
+					"total_tokens": 226,
+				},
+			})
+			require.NoError(t, err)
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": {"application/json"}, "X-Request-Id": {"provider-image-edit-request-1"}},
+				Body:       io.NopCloser(bytes.NewReader(body)),
+			}, nil
+		}
+		require.Equal(t, "/v1/images/generations", r.URL.Path)
+		if calls == 3 {
 			require.Equal(t, "Bearer ztapi-deliberately-invalid-credential", r.Header.Get("Authorization"))
 			return &http.Response{StatusCode: http.StatusUnauthorized, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"error":{"message":"RAW_SECRET_BODY"}}`))}, nil
 		}
@@ -649,7 +680,7 @@ func TestVerifyZTAPIGPTImage2UsesRealGenerationAndPersistsExactProtocol(t *testi
 
 	verification, err := VerifyZTAPIModel(context.Background(), channel.Id, "gpt-image-2", 35)
 	require.NoError(t, err)
-	require.Equal(t, 2, calls)
+	require.Equal(t, 3, calls)
 	require.Equal(t, model.ZTAPIModalityImage, verification.Modality)
 	require.True(t, verification.NonStreamingPassed)
 	require.False(t, verification.StreamingRequired)
@@ -665,9 +696,18 @@ func TestVerifyZTAPIGPTImage2UsesRealGenerationAndPersistsExactProtocol(t *testi
 	require.NoError(t, err)
 	require.Equal(t, verification.ImageProtocolContractJSON, canonical)
 	require.True(t, types.IsZTAPIGPTImage2NotReportedUsageProtocol(contract))
+	require.Equal(t, types.ZTAPIImageProtocolContractVersionV3, contract.Version)
+	require.True(t, contract.Capabilities.SupportsEdits)
+	require.Equal(t, 10, contract.Capabilities.MaxCount)
+	require.NotNil(t, contract.Edit)
 	require.Equal(t, types.ZTAPIResponseIDSourceHeader, contract.RequestIDSource)
 	require.Equal(t, "X-Request-ID", contract.RequestIDKey)
-	require.Equal(t, map[string]string{"text_input": "200000", "image_input": "0", "image_output": "196"}, contract.Reservations[0].MaximumDimensions)
+	generation, ok := contract.FindReservationAuthority(types.ZTAPIImageSelector{Operation: "generation", Size: "1024x1024", Quality: "low", ResponseFormat: "b64_json", N: 1})
+	require.True(t, ok)
+	require.Equal(t, map[string]string{"text_input": "200000", "image_input": "0", "image_output": "196"}, generation.MaximumDimensions)
+	edit, ok := contract.FindReservationAuthority(types.ZTAPIImageSelector{Operation: "edit", Size: "1024x1024", Quality: "low", ResponseFormat: "b64_json", N: 10})
+	require.True(t, ok)
+	require.Equal(t, map[string]string{"text_input": "200000", "image_input": "200000", "image_output": "196"}, edit.MaximumDimensions)
 	require.Equal(t, types.ZTAPIImageRequestFieldOmit, contract.UpstreamRequestFields["response_format"])
 
 	var stored model.ZTAPIModelVerification

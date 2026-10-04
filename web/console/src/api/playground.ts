@@ -46,6 +46,10 @@ export interface PlaygroundImageInput {
   response_format?: string;
 }
 
+export interface PlaygroundImageEditOptions extends PlaygroundImageInput {
+  input_field?: string;
+}
+
 export interface PlaygroundImageResult {
   created: number;
   request_id: string;
@@ -349,6 +353,23 @@ export const playgroundClient = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
       },
+      parseImageResult,
+      true,
+    );
+  },
+  imageEdit(files: File[], options: PlaygroundImageEditOptions) {
+    const body = new FormData();
+    const inputField = options.input_field ?? 'image';
+    files.forEach((file) => body.append(inputField, file, file.name));
+    body.append('model', options.model);
+    body.append('prompt', options.prompt);
+    if (options.size !== undefined) body.append('size', options.size);
+    if (options.quality !== undefined) body.append('quality', options.quality);
+    if (options.n !== undefined) body.append('n', String(options.n));
+    if (options.response_format !== undefined) body.append('response_format', options.response_format);
+    return mediaJSONRequest(
+      '/pg/images/edits',
+      { method: 'POST', body },
       parseImageResult,
       true,
     );

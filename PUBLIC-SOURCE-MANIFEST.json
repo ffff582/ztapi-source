@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "33634377b334cf3108d3eedd32ae0ab97ea15073",
+  "release_commit": "ac41f428a01825972add96c4d481655ca063ca97",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-33634377b334cf3108d3eedd32ae0ab97ea15073",
+  "source_tag": "production-ac41f428a01825972add96c4d481655ca063ca97",
   "files": [
     {
       "path": ".dockerignore",
@@ -21,8 +21,8 @@
     },
     {
       "path": ".github/workflows/ztapi-deploy.yml",
-      "sha256": "680565fdba58f45ea03548a7d4c730c9a8b8d5feac8da1fc0b75b2d8bc1eaa67",
-      "size": 203056
+      "sha256": "76a16c031fdb86e16b78b75ce0e45f0a029909c07a3ad84c422510aecbb82d71",
+      "size": 210362
     },
     {
       "path": ".github/workflows/ztapi-edge-diagnostic.yml",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "01c9c85c862f3dfb8f42db4a31bad92f78d9ef375661a07e0e40c88ddc027eb9",
+      "sha256": "4e020aa7b3e2788e2f0888207d74a4b88aeab921e163a5dddf2262eb4c5ee307",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "aa0f625070fb46fb799cbf0fb5a793930c9768ee996caa80938cee68a5c07379",
+      "sha256": "e673fbde0426aa693e764b9f1a8da06073c4b4399d758c3ae68edec4a70d57e1",
       "size": 942
     },
     {
@@ -1091,8 +1091,8 @@
     },
     {
       "path": "server/controller/playground_test.go",
-      "sha256": "4541ce996f750f47c10608c0fd8b29168a51e47a966a478d43b318632f035d6f",
-      "size": 1251
+      "sha256": "504b30257615e334f9e2b4971275c353ff15df71606afc1e97d4411b9ebd9fcb",
+      "size": 1327
     },
     {
       "path": "server/controller/playground_ztapi_test.go",
@@ -2586,13 +2586,13 @@
     },
     {
       "path": "server/model/ztapi_media_pricing.go",
-      "sha256": "16cecc6c90781358466ed53d18350f30da8044bc528fece1888d1d1c44e0f00d",
-      "size": 2467
+      "sha256": "1942ae73d30774d7c58046af37e37e242fb62c20cf4d2a9f5b58fd1094f643d2",
+      "size": 4563
     },
     {
       "path": "server/model/ztapi_media_pricing_test.go",
-      "sha256": "178ac290581bae6b770c7a927a7833da4444427fa4b5e1b0259e870bf60131dd",
-      "size": 36929
+      "sha256": "96fba9063e70e3467cfecbba333538c7452f514308e97dbcaaa8aa56dce2f95c",
+      "size": 37745
     },
     {
       "path": "server/model/ztapi_media_task.go",
@@ -2641,8 +2641,8 @@
     },
     {
       "path": "server/model/ztapi_model_evidence.go",
-      "sha256": "a742ea4db2fff574bc2bb9b1d68bee7f83311b43aacf367e072c31961c069d6e",
-      "size": 43782
+      "sha256": "9d06cb4196387e5d2b62a403775cb3462941e3b72dce94500be02d823e0d1b48",
+      "size": 44009
     },
     {
       "path": "server/model/ztapi_model_evidence_test.go",
@@ -2696,13 +2696,13 @@
     },
     {
       "path": "server/model/ztapi_public_catalog.go",
-      "sha256": "4f062568e03d113c83111e00484c0e66607c7c17c5193b94faea715dd6fac55b",
-      "size": 31083
+      "sha256": "56b91effcaee18ff47629b10e0263f79ec8fc034dfa5205f84b12a2616ca6e8c",
+      "size": 32107
     },
     {
       "path": "server/model/ztapi_public_catalog_test.go",
-      "sha256": "1c32740fe05a5c6b39ca5954dd7a2941e06b5c416c4b070a53e556880753b054",
-      "size": 26857
+      "sha256": "7a245b13f09485b5c40beac96754b1a7afc9b2c86428f6ccd29608b92e33b5a2",
+      "size": 31331
     },
     {
       "path": "server/model/ztapi_publication_cache_concurrency_test.go",
@@ -2711,8 +2711,8 @@
     },
     {
       "path": "server/model/ztapi_publication_gate.go",
-      "sha256": "9c5bc5be4944bf885c61f2800659665d0956e2d2c97d13e9064bb6ca23c796f1",
-      "size": 22595
+      "sha256": "df87aa55b169241c3e978ea04eb8e991dedc37392ddbddc344d4edd16b5a6e9d",
+      "size": 22783
     },
     {
       "path": "server/model/ztapi_publication_gate_test.go",
@@ -2776,13 +2776,13 @@
     },
     {
       "path": "server/model/ztapi_quote_ab_media.go",
-      "sha256": "47955a94632413db672ac886ea685ad92cb4b4e624cbc72f372c2790db62ecd9",
-      "size": 21860
+      "sha256": "be98e90d46d67741d2701596a7919b52260b87aaabf33f1fc93967e103213a23",
+      "size": 22580
     },
     {
       "path": "server/model/ztapi_quote_ab_media_test.go",
-      "sha256": "ba1c41851bb5f5c29f58b492c296454f02551c6151a4325f1902d2fee7edf8b1",
-      "size": 13660
+      "sha256": "61550259112bb2e384378d9c2fbc3306917070e8104842bf6b57e3d15919bba6",
+      "size": 15923
     },
     {
       "path": "server/model/ztapi_quote_ab_repricing.go",
@@ -2801,8 +2801,8 @@
     },
     {
       "path": "server/model/ztapi_quote_ab_source.go",
-      "sha256": "0210eb6cb579d4fb087ca637e471e8c15d5fcdf66252a6d16f28bd78b7ef7509",
-      "size": 19244
+      "sha256": "a3fda821d0a27f495e346cb0ee1d226f5c32ac1fca6f12157901e429f6a3d149",
+      "size": 19750
     },
     {
       "path": "server/model/ztapi_quote_ab_source_test.go",
@@ -3961,8 +3961,8 @@
     },
     {
       "path": "server/relay/common/outbound_body.go",
-      "sha256": "d6f38957eec69413d3ba5eeffcfb49194fe0660de51140016395f2ea4c81b196",
-      "size": 1339
+      "sha256": "55a3e41f4bd27e49fb4187e983660712072153e7c6b695a706f30ba2106fa534",
+      "size": 1612
     },
     {
       "path": "server/relay/common/override.go",
@@ -3981,13 +3981,13 @@
     },
     {
       "path": "server/relay/common/relay_info.go",
-      "sha256": "71ed716885dafc78565fa012ecf9dea47adf5d2f6b58fad3a8196c9ef70dd80b",
-      "size": 40512
+      "sha256": "5753c1de60e2c76594c7b353c97811b5e959905500cb529677c494526e0f8fe3",
+      "size": 40563
     },
     {
       "path": "server/relay/common/relay_info_test.go",
-      "sha256": "98757eaed4ff53e4212bac5b488997a077dacd20965cac54315bdbafb78621f0",
-      "size": 1324
+      "sha256": "60c6a92b6a5eb3cfbf9d46450038a800edd31a8b3d24318ba1abae1336e2d1e2",
+      "size": 1968
     },
     {
       "path": "server/relay/common/relay_utils.go",
@@ -4081,8 +4081,8 @@
     },
     {
       "path": "server/relay/common/ztapi_media_usage.go",
-      "sha256": "d1fa485d36c2eb46972e5703d3f82a68a531923d542757a004223c02a8571753",
-      "size": 12056
+      "sha256": "a98dad13455cdd9eec40e81b7cefdb4ac669ccebad6c9cb82bddefa0a79ab625",
+      "size": 13493
     },
     {
       "path": "server/relay/common/ztapi_media_usage_test.go",
@@ -4206,8 +4206,8 @@
     },
     {
       "path": "server/relay/helper/valid_request.go",
-      "sha256": "3c94a89838bca8cd0255041e3a99c20b96694e37bc71c065114250784d8e02df",
-      "size": 13183
+      "sha256": "063ff6c40853bf927fa108449a8d952e46649c29eb539d52b16dd80bede5e1fb",
+      "size": 13248
     },
     {
       "path": "server/relay/helper/ztapi_embedding_price_test.go",
@@ -4226,8 +4226,8 @@
     },
     {
       "path": "server/relay/image_handler.go",
-      "sha256": "8d153e281266a3c62b46d61491a34ccbdd0f2d9a415e9d6d3ec70ec814761487",
-      "size": 7992
+      "sha256": "24ff473888d17781e82531224887da83a7b4462e7525dad331657598d40220ac",
+      "size": 8102
     },
     {
       "path": "server/relay/mjproxy_handler.go",
@@ -4291,13 +4291,13 @@
     },
     {
       "path": "server/relay/ztapi_image_contract.go",
-      "sha256": "b4dc11a731aa8c4a6b97c1d6157526d26cecc07810baf87e97c0719ee5b90319",
-      "size": 24970
+      "sha256": "8a912606ac5bce7f6fdaa2b21aff48f48be87321c5af6f9677392c643f538014",
+      "size": 34048
     },
     {
       "path": "server/relay/ztapi_image_contract_test.go",
-      "sha256": "70a8e462ba4f4c73a2ec4ac3fceb8f09bd9c0afa3b7c68d349a08fac04dbc34f",
-      "size": 30358
+      "sha256": "9970e6ca2d358b4d78d338fd9f8f9041a8543baf0c88e074e282b023e3dc8d56",
+      "size": 39335
     },
     {
       "path": "server/relay/ztapi_image_diagnostic.go",
@@ -4376,8 +4376,8 @@
     },
     {
       "path": "server/router/relay-router.go",
-      "sha256": "b0bc339458a9e257cb9b34aec41e21597ee9f64c54a322485125e135e2886b13",
-      "size": 8905
+      "sha256": "c809cd07230ce4e155587d4041e4b579613e5fa8d4e75a4d98b6686a37d21ddb",
+      "size": 8974
     },
     {
       "path": "server/router/task10_routes_test.go",
@@ -4826,8 +4826,8 @@
     },
     {
       "path": "server/service/ztapi_attempt_billing.go",
-      "sha256": "9d132e6249f6141fc0c870a5999002fe8b0a9b6266ebe4822eed09890507166f",
-      "size": 17127
+      "sha256": "24ee5bfb262ae81ed60d14e8e296acff614f23f7522dc45863a0a713d2455e0d",
+      "size": 17774
     },
     {
       "path": "server/service/ztapi_attempt_billing_test.go",
@@ -4871,8 +4871,8 @@
     },
     {
       "path": "server/service/ztapi_durable_billing.go",
-      "sha256": "5e1a8d00a755de08d81347e0e31d486a3608a9cb59224eb633f128c7bb1b570c",
-      "size": 11978
+      "sha256": "dc1864f73f3ba55993db3c01bef5b423ac62fb0581419ed31df4baca54dbe2c8",
+      "size": 12289
     },
     {
       "path": "server/service/ztapi_durable_billing_test.go",
@@ -4931,13 +4931,13 @@
     },
     {
       "path": "server/service/ztapi_media_billing.go",
-      "sha256": "576656bc6f94e7db1525e3362be921c50c4c2fd51b3149f84eed2e911fb413f9",
-      "size": 24182
+      "sha256": "3a2a5800dfde876a5c3e52603330418453b8bf7403eb8146ec986ad1e72a20b0",
+      "size": 25391
     },
     {
       "path": "server/service/ztapi_media_billing_test.go",
-      "sha256": "17c40445687e7875eb768c19e268ce889a4b2136ae610f9fa4105dbfece5d097",
-      "size": 43230
+      "sha256": "97990ff9191e1adba96e75735d4be8780340a339b037e39ce1efe05ddf813e4f",
+      "size": 44488
     },
     {
       "path": "server/service/ztapi_media_health.go",
@@ -4961,13 +4961,13 @@
     },
     {
       "path": "server/service/ztapi_model_verifier.go",
-      "sha256": "1470dfea93a3b910c93d0650b10399ee04a74a8dfa02b017c0c7f3bbdf4cb8fd",
-      "size": 41921
+      "sha256": "f9ff0bcf83b14ae09940c342ae0411e1c0233f0f8da9817004f5eb09b6412d42",
+      "size": 47755
     },
     {
       "path": "server/service/ztapi_model_verifier_test.go",
-      "sha256": "a8c9a707a01e3fa201704affdc29a7423dc958c1352d32a0dbc8df87e0b175c7",
-      "size": 45112
+      "sha256": "9f7b42974ab4e6696e438d138264a5fedf392e67030b8e482b4052f14273c2f7",
+      "size": 47370
     },
     {
       "path": "server/service/ztapi_okx_fx.go",
@@ -5306,13 +5306,13 @@
     },
     {
       "path": "server/types/ztapi_image_contract.go",
-      "sha256": "46a3716aafe07301aeb7f007464a74e81f0f401d765cf3a87d1e863790ab047c",
-      "size": 26110
+      "sha256": "8bbd9e41d8fda41e48ac2b6d3872fa36bcf5f046d170de63768fcdbd0e00c238",
+      "size": 32252
     },
     {
       "path": "server/types/ztapi_image_contract_test.go",
-      "sha256": "5a073d610ac5def153378052106bc03328424f9928c01dcb34a7e8198ee0b6b7",
-      "size": 14096
+      "sha256": "42fffd481c2883291f216d34dde9c22bd48b852d4720e1b9bd5f9d51aea1d244",
+      "size": 19369
     },
     {
       "path": "server/types/ztapi_image_request_policy_test.go",
@@ -5321,13 +5321,13 @@
     },
     {
       "path": "server/types/ztapi_media_pricing.go",
-      "sha256": "06ceff594fd141679ba46f1b85eb4f07b74c80e18e2cc16d1c41c9371a4a87f4",
-      "size": 23513
+      "sha256": "b117ce42776a87654372a82e7e180b490c8684bf08ff4255f05ca7a4002680e0",
+      "size": 26115
     },
     {
       "path": "server/types/ztapi_media_pricing_shared_test.go",
-      "sha256": "245514bb52dfc6d86c98f7cae690e1ca1be46c2bb9963b6cd3c94b0d179dabf5",
-      "size": 4861
+      "sha256": "f666b7015884701b2b4641b717b1333eb57c0aa21eed2e0343786f0edee1da1f",
+      "size": 6472
     },
     {
       "path": "server/types/ztapi_seedance_contract.go",
@@ -9491,8 +9491,8 @@
     },
     {
       "path": "tests/e2e/media-models-and-guide.spec.ts",
-      "sha256": "7143d79d9e159044a147e911926e0124b466d8d4b86627c61c9c3ae8622292af",
-      "size": 20539
+      "sha256": "a3db7a6cf57607415ca90083a2945082c44f943c0f8717997bd5b158358737bf",
+      "size": 26698
     },
     {
       "path": "tests/e2e/public-pages.spec.ts",
@@ -9666,8 +9666,8 @@
     },
     {
       "path": "web/console/src/api/contracts.media.test.ts",
-      "sha256": "0377231fd2b12dae7d67a62102b15957595f319640f07e1044881b74a12531d8",
-      "size": 3454
+      "sha256": "363075b54c6519c5b9c884c6e0ca6565a92545e4ffe0eea16f6bf5b83b2b2607",
+      "size": 4817
     },
     {
       "path": "web/console/src/api/contracts.public-pricing.test.ts",
@@ -9686,18 +9686,18 @@
     },
     {
       "path": "web/console/src/api/contracts.ts",
-      "sha256": "8cdcfda1ac9b5775c414649bd1fbb6aa518098660004e4e6e6eb70109bf5676a",
-      "size": 34215
+      "sha256": "2f87fc409efd333c0d77f2399653491a7dedae7a2f035fe5823136872e927a50",
+      "size": 35618
     },
     {
       "path": "web/console/src/api/playground.test.ts",
-      "sha256": "766f87b13812ed5ff7862b792a4a53e32b6a08fb0b04108c116fded5f6ceb04f",
-      "size": 6830
+      "sha256": "28ee673c6656729b083ba03d806555ecacc01e8b0996733cbfb170c3dba6e339",
+      "size": 8385
     },
     {
       "path": "web/console/src/api/playground.ts",
-      "sha256": "59bfe779a9ae861e017c0db660caa8ea23b3a567922176f5a10c85cc8d1ec771",
-      "size": 10538
+      "sha256": "71210fc45b76b8a9f0fee4aacdd6832a9ddb8b07b2f1b93db2c9c89582fed18a",
+      "size": 11409
     },
     {
       "path": "web/console/src/app/providers.tsx",
@@ -9721,8 +9721,8 @@
     },
     {
       "path": "web/console/src/brand/theme.css",
-      "sha256": "e3c4ee339a144381f730ca090a0eb18404c903cc962ff294d48c918261419fdf",
-      "size": 33790
+      "sha256": "85df11404674f196b2c6d8ee6abf6216a1351c302ee8e9375bf1da53e3d48a31",
+      "size": 38730
     },
     {
       "path": "web/console/src/brand/tokens.css",
@@ -10041,13 +10041,13 @@
     },
     {
       "path": "web/console/src/features/playground/PlaygroundPage.test.tsx",
-      "sha256": "812aab514282eb67048b3e8bf116d6b42a8cac5077dee6b9e5e49da3b36227a1",
-      "size": 16294
+      "sha256": "ca8f63596ba0793e5a2c385e31aa6eacdcb8c6f6bae335d801e6b501f4366421",
+      "size": 22880
     },
     {
       "path": "web/console/src/features/playground/PlaygroundPage.tsx",
-      "sha256": "7d7d0e22fda623c184375094b073de4e6f9d1e37d56d7b2475f3256240983d8b",
-      "size": 45724
+      "sha256": "2910f9884140942e40e9cd03f913195b40bbecd592d49bf6f2742761e2558822",
+      "size": 55342
     },
     {
       "path": "web/console/src/features/wallet/AccountBalance.tsx",

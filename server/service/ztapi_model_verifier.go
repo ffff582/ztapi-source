@@ -9,8 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"image"
-	_ "image/png"
+	"image/png"
 	"io"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/url"
@@ -321,7 +322,7 @@ func readZTAPIVerificationJSONResponse(response *http.Response) ([]byte, error) 
 
 func ztapiGPTImage2ProtocolContract(requestIDHeader string) (types.ZTAPIImageProtocolContract, string, error) {
 	contract := types.ZTAPIImageProtocolContract{
-		Version:       types.ZTAPIImageProtocolContractVersionV2,
+		Version:       types.ZTAPIImageProtocolContractVersionV3,
 		ProviderModel: "gpt-image-2",
 		EndpointType:  types.ZTAPIImageEndpointGeneration,
 		Method:        http.MethodPost,
@@ -330,7 +331,7 @@ func ztapiGPTImage2ProtocolContract(requestIDHeader string) (types.ZTAPIImagePro
 		ProviderPath:  "/v1/images/generations",
 		Capabilities: types.ZTAPIImageCapabilities{
 			Sizes: []string{"1024x1024"}, Qualities: []string{"low"},
-			ResponseFormats: []string{"b64_json"}, MinCount: 1, MaxCount: 1,
+			ResponseFormats: []string{"b64_json"}, MinCount: 1, MaxCount: 10, SupportsEdits: true,
 		},
 		Response: types.ZTAPIImageResponseContract{
 			Schema: "object_results_array", ResultsField: "data",
@@ -344,10 +345,6 @@ func ztapiGPTImage2ProtocolContract(requestIDHeader string) (types.ZTAPIImagePro
 			},
 			TotalSemantics: "sum_of_dimensions", CacheSemantics: "not_reported",
 		},
-		Reservations: []types.ZTAPIImageReservationAuthority{{
-			Size: "1024x1024", Quality: "low", ResponseFormat: "b64_json", N: 1,
-			MaximumDimensions: map[string]string{"text_input": "200000", "image_input": "0", "image_output": "196"},
-		}},
 		RequestIDSource: types.ZTAPIResponseIDSourceHeader, RequestIDKey: requestIDHeader,
 		EvidenceVersion: types.ZTAPIImageEvidenceVersion,
 		UpstreamRequestFields: map[string]string{
@@ -355,6 +352,29 @@ func ztapiGPTImage2ProtocolContract(requestIDHeader string) (types.ZTAPIImagePro
 			"n": types.ZTAPIImageRequestFieldRequired, "size": types.ZTAPIImageRequestFieldRequired,
 			"quality": types.ZTAPIImageRequestFieldRequired, "response_format": types.ZTAPIImageRequestFieldOmit,
 		},
+		Edit: &types.ZTAPIImageEditEndpointContract{
+			Method: http.MethodPost, Path: "/v1/images/edits", ContentType: "multipart/form-data",
+			WireProtocol: types.ZTAPIImageWireProtocolOpenAIImagesEdit, ProviderPath: "/v1/images/edits",
+			InputField: "image", MaxInputFiles: 15, MaxInputBytes: 20 << 20, MaxTotalInputBytes: 256 << 20,
+			AllowedMimeTypes: []string{"image/jpeg", "image/png", "image/webp"},
+			RequestFields: map[string]string{
+				"model": types.ZTAPIImageRequestFieldRequired, "prompt": types.ZTAPIImageRequestFieldRequired,
+				"n": types.ZTAPIImageRequestFieldRequired, "size": types.ZTAPIImageRequestFieldRequired,
+				"quality": types.ZTAPIImageRequestFieldRequired, "response_format": types.ZTAPIImageRequestFieldOmit,
+			},
+		},
+	}
+	for _, operation := range []string{"generation", "edit"} {
+		for n := 1; n <= contract.Capabilities.MaxCount; n++ {
+			imageInput := "0"
+			if operation == "edit" {
+				imageInput = "200000"
+			}
+			contract.Reservations = append(contract.Reservations, types.ZTAPIImageReservationAuthority{
+				Operation: operation, Size: "1024x1024", Quality: "low", ResponseFormat: "b64_json", N: n,
+				MaximumDimensions: map[string]string{"text_input": "200000", "image_input": imageInput, "image_output": "196"},
+			})
+		}
 	}
 	return types.SealZTAPIImageProtocolContract(contract)
 }
@@ -474,6 +494,93 @@ func performZTAPIGPTImageProbe(
 		PromptTokens:     int(root.Get("usage.input_tokens").Int()),
 		CompletionTokens: int(root.Get("usage.output_tokens").Int()),
 		TotalTokens:      int(root.Get("usage.total_tokens").Int()),
+	}
+	return usage, canonical, response.StatusCode, nil
+}
+
+func performZTAPIGPTImageEditProbe(
+	ctx context.Context,
+	client *http.Client,
+	endpoint string,
+	key string,
+) (ztapiProbeUsage, string, int, error) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	fields := map[string]string{
+		"model": "gpt-image-2", "prompt": "Turn the reference into a simple blue circle.",
+		"n": "1", "size": "1024x1024", "quality": "low",
+	}
+	for _, field := range []string{"model", "prompt", "n", "size", "quality"} {
+		if err := writer.WriteField(field, fields[field]); err != nil {
+			return ztapiProbeUsage{}, "", 0, err
+		}
+	}
+	part, err := writer.CreateFormFile("image", "reference.png")
+	if err != nil {
+		return ztapiProbeUsage{}, "", 0, err
+	}
+	var reference bytes.Buffer
+	if err := png.Encode(&reference, image.NewNRGBA(image.Rect(0, 0, 1, 1))); err != nil {
+		return ztapiProbeUsage{}, "", 0, err
+	}
+	if _, err := part.Write(reference.Bytes()); err != nil {
+		return ztapiProbeUsage{}, "", 0, err
+	}
+	if err := writer.Close(); err != nil {
+		return ztapiProbeUsage{}, "", 0, err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body.Bytes()))
+	if err != nil {
+		return ztapiProbeUsage{}, "", 0, err
+	}
+	request.Header.Set("Authorization", "Bearer "+key)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	response, err := client.Do(request)
+	if err != nil {
+		return ztapiProbeUsage{}, "", 0, err
+	}
+	defer response.Body.Close()
+	const imageBodyLimit = 20 << 20
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, ztapiVerificationBodyLimit))
+		return ztapiProbeUsage{}, "", response.StatusCode, errors.New("upstream rejected image edit verification request")
+	}
+	responseBody, err := io.ReadAll(io.LimitReader(response.Body, imageBodyLimit+1))
+	if err != nil || len(responseBody) > imageBodyLimit || common.RejectDuplicateJsonObjectMembers(bytes.NewReader(responseBody)) != nil {
+		return ztapiProbeUsage{}, "", response.StatusCode, errors.New("upstream image edit verification response is incomplete or malformed")
+	}
+	requestIDHeader, ok := ztapiVerificationResponseIDHeader(response.Header)
+	if !ok {
+		return ztapiProbeUsage{}, "", response.StatusCode, errors.New("upstream image edit verification response has no unambiguous request ID")
+	}
+	contract, canonical, err := ztapiGPTImage2ProtocolContract(requestIDHeader)
+	if err != nil {
+		return ztapiProbeUsage{}, "", response.StatusCode, err
+	}
+	root := gjson.ParseBytes(responseBody)
+	results := root.Get("data").Array()
+	if len(results) != 1 || strings.TrimSpace(results[0].Get("b64_json").String()) == "" || results[0].Get("url").Exists() {
+		return ztapiProbeUsage{}, "", response.StatusCode, errors.New("upstream image edit verification response has an invalid result")
+	}
+	decoded, err := base64.StdEncoding.DecodeString(results[0].Get("b64_json").String())
+	if err != nil {
+		return ztapiProbeUsage{}, "", response.StatusCode, errors.New("upstream image edit verification result is not valid base64")
+	}
+	imageConfig, format, err := image.DecodeConfig(bytes.NewReader(decoded))
+	if err != nil || format != "png" || imageConfig.Width != 1024 || imageConfig.Height != 1024 {
+		return ztapiProbeUsage{}, "", response.StatusCode, errors.New("upstream image edit verification result is not the required 1024x1024 PNG")
+	}
+	usageRaw := []byte(root.Get("usage").Raw)
+	if len(usageRaw) == 0 || relaycommon.ZTAPIGPTImage2UsagePendingReason(usageRaw, contract) != "" {
+		return ztapiProbeUsage{}, "", response.StatusCode, errors.New("upstream image edit verification usage is not reconciled")
+	}
+	usage := ztapiProbeUsage{
+		PromptTokens:     int(root.Get("usage.input_tokens").Int()),
+		CompletionTokens: int(root.Get("usage.output_tokens").Int()),
+		TotalTokens:      int(root.Get("usage.total_tokens").Int()),
+	}
+	if root.Get("usage.input_tokens_details.image_tokens").Int() <= 0 {
+		return ztapiProbeUsage{}, "", response.StatusCode, errors.New("upstream image edit verification did not report positive image input usage")
 	}
 	return usage, canonical, response.StatusCode, nil
 }
@@ -868,6 +975,18 @@ func runZTAPIModelVerificationProbes(ctx context.Context, channel *model.Channel
 		if err != nil {
 			result.StatusCategory = classifyZTAPIVerificationFailure(status, err)
 			return result, fmt.Errorf("image verification failed: %s", result.StatusCategory)
+		}
+		if !geminiImage && sourceModel == "gpt-image-2" {
+			editEndpoint := strings.TrimSuffix(endpoint, "/generations") + "/edits"
+			_, editContractJSON, editStatus, editErr := performZTAPIGPTImageEditProbe(ctx, client, editEndpoint, key)
+			if editErr != nil {
+				result.StatusCategory = classifyZTAPIVerificationFailure(editStatus, editErr)
+				return result, fmt.Errorf("image edit verification failed: %s", result.StatusCategory)
+			}
+			if editContractJSON != contractJSON {
+				result.StatusCategory = "verification_incomplete"
+				return result, errors.New("image generation and edit probes produced different frozen protocol contracts")
+			}
 		}
 		result.NonStreamingPassed = true
 		result.UsageReconciled = ztapiUsageReconciled(usage)

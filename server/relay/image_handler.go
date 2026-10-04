@@ -65,13 +65,16 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 	var requestBody io.Reader
 
 	if managedImage {
-		body, size, closer, err := relaycommon.NewOutboundJSONBody(managedDispatch.Body)
+		body, size, closer, err := relaycommon.NewOutboundBody(managedDispatch.Body)
 		if err != nil {
 			return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 		}
 		defer closer.Close()
 		info.UpstreamRequestBodySize = size
 		requestBody = body
+		if managedDispatch.ContentType != "" {
+			c.Request.Header.Set("Content-Type", managedDispatch.ContentType)
+		}
 	} else if model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSetting.PassThroughBodyEnabled {
 		storage, err := common.GetBodyStorage(c)
 		if err != nil {

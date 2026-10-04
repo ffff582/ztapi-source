@@ -5,8 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -16,6 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/types"
@@ -69,6 +73,213 @@ func syntheticManagedImageContract(t *testing.T) *types.ZTAPIImageProtocolContra
 	sealed, _, err := types.SealZTAPIImageProtocolContract(contract)
 	require.NoError(t, err)
 	return &sealed
+}
+
+func syntheticManagedImageEditContract(t *testing.T) *types.ZTAPIImageProtocolContract {
+	t.Helper()
+	contract := syntheticManagedImageContract(t).Clone()
+	contract.Version = types.ZTAPIImageProtocolContractVersionV3
+	contract.WireProtocol = types.ZTAPIImageWireProtocolOpenAIImages
+	contract.ProviderPath = contract.Path
+	contract.RequestIDField = ""
+	contract.RequestIDSource = types.ZTAPIResponseIDSourceHeader
+	contract.RequestIDKey = "X-Request-ID"
+	contract.UpstreamRequestFields = map[string]string{
+		"model": types.ZTAPIImageRequestFieldRequired, "prompt": types.ZTAPIImageRequestFieldRequired,
+		"n": types.ZTAPIImageRequestFieldRequired, "size": types.ZTAPIImageRequestFieldRequired,
+		"quality": types.ZTAPIImageRequestFieldRequired, "response_format": types.ZTAPIImageRequestFieldRequired,
+	}
+	contract.Capabilities.SupportsEdits = true
+	contract.Edit = &types.ZTAPIImageEditEndpointContract{
+		Method: http.MethodPost, Path: "/v1/images/edits", ContentType: "multipart/form-data",
+		WireProtocol: types.ZTAPIImageWireProtocolOpenAIImagesEdit, ProviderPath: "/v1/images/edits",
+		InputField: "image", MaxInputFiles: 15, MaxInputBytes: 20 << 20, MaxTotalInputBytes: 256 << 20,
+		AllowedMimeTypes: []string{"image/jpeg", "image/png", "image/webp"},
+		RequestFields: map[string]string{
+			"model": types.ZTAPIImageRequestFieldRequired, "prompt": types.ZTAPIImageRequestFieldRequired,
+			"n": types.ZTAPIImageRequestFieldRequired, "size": types.ZTAPIImageRequestFieldRequired,
+			"quality": types.ZTAPIImageRequestFieldOptional, "response_format": types.ZTAPIImageRequestFieldOptional,
+		},
+	}
+	baseReservations := append([]types.ZTAPIImageReservationAuthority(nil), contract.Reservations...)
+	contract.Reservations = append([]types.ZTAPIImageReservationAuthority(nil), baseReservations...)
+	for _, reservation := range baseReservations {
+		reservation.Operation = "generation"
+		contract.Reservations = append(contract.Reservations, reservation)
+		reservation.Operation = "edit"
+		contract.Reservations = append(contract.Reservations, reservation)
+	}
+	contract.Reservations = contract.Reservations[len(baseReservations):]
+	sealed, _, err := types.SealZTAPIImageProtocolContract(contract)
+	require.NoError(t, err)
+	return &sealed
+}
+
+type managedImageEditFile struct {
+	name string
+	mime string
+	data []byte
+	size int64
+}
+
+func managedImageEditFixture(t *testing.T, files []managedImageEditFile, fields map[string][]string) (*gin.Context, *relaycommon.RelayInfo, string) {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	for name, values := range fields {
+		for _, value := range values {
+			require.NoError(t, writer.WriteField(name, value))
+		}
+	}
+	for _, file := range files {
+		header := make(textproto.MIMEHeader)
+		header.Set("Content-Disposition", fmt.Sprintf(`form-data; name="image"; filename="%s"`, file.name))
+		header.Set("Content-Type", file.mime)
+		part, err := writer.CreatePart(header)
+		require.NoError(t, err)
+		_, err = part.Write(file.data)
+		require.NoError(t, err)
+	}
+	clientContentType := writer.FormDataContentType()
+	require.NoError(t, writer.Close())
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/edits", bytes.NewReader(body.Bytes()))
+	c.Request.Header.Set("Content-Type", clientContentType)
+	request, err := helper.GetAndValidOpenAIImageRequest(c, relayconstant.RelayModeImagesEdits)
+	require.NoError(t, err)
+	for _, file := range files {
+		for _, header := range c.Request.MultipartForm.File["image"] {
+			if header.Filename == file.name && file.size > 0 {
+				header.Size = file.size
+				break
+			}
+		}
+	}
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "zt-quoted-image", RequestURLPath: "/v1/images/edits", Request: request,
+		ChannelMeta: &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenAI, ApiType: constant.APITypeOpenAI},
+		ZTAPIPublicationSnapshot: &relaycommon.ZTAPIPublicationSnapshot{
+			PublicName: "zt-quoted-image", SourceModel: "verified-provider-image", Modality: "image",
+			MediaPriceContractJSON: syntheticManagedImageMediaPriceContract(t), ImageProtocolContract: syntheticManagedImageEditContract(t),
+		},
+	}
+	return c, info, clientContentType
+}
+
+func managedImageEditFields() map[string][]string {
+	return map[string][]string{
+		"model": {"zt-quoted-image"}, "prompt": {"preserve these references"}, "n": {"2"},
+		"size": {"1024x1024"}, "quality": {"standard"}, "response_format": {"url"},
+	}
+}
+
+func managedImageEditPNG(index int) managedImageEditFile {
+	return managedImageEditFile{name: fmt.Sprintf("reference-%d.png", index), mime: "image/png", data: []byte{137, 80, 78, 71, 13, 10, 26, 10, byte(index)}}
+}
+
+func TestZTAPIManagedImageEditAdmissionAcceptsFifteenReferences(t *testing.T) {
+	files := make([]managedImageEditFile, 15)
+	for index := range files {
+		files[index] = managedImageEditPNG(index + 1)
+	}
+	c, info, _ := managedImageEditFixture(t, files, managedImageEditFields())
+	require.Nil(t, AdmitZTAPIImageRequest(c, info))
+
+	dispatch, apiErr := PrepareZTAPIManagedImageDispatch(c, info)
+	require.Nil(t, apiErr)
+	require.Equal(t, types.ZTAPIImageWireProtocolOpenAIImagesEdit, dispatch.WireProtocol)
+	require.Equal(t, "/v1/images/edits", dispatch.ProviderPath)
+	mediaType, params, err := mime.ParseMediaType(dispatch.ContentType)
+	require.NoError(t, err)
+	require.Equal(t, "multipart/form-data", mediaType)
+	require.NotEqual(t, c.Request.Header.Get("Content-Type"), dispatch.ContentType, "upstream body must use a fresh multipart boundary")
+
+	reader := multipart.NewReader(bytes.NewReader(dispatch.Body), params["boundary"])
+	var gotImages [][]byte
+	var gotModel string
+	for {
+		part, nextErr := reader.NextPart()
+		if nextErr == io.EOF {
+			break
+		}
+		require.NoError(t, nextErr)
+		data, readErr := io.ReadAll(part)
+		require.NoError(t, readErr)
+		if part.FormName() == "image" {
+			gotImages = append(gotImages, data)
+		}
+		if part.FormName() == "model" {
+			gotModel = string(data)
+		}
+	}
+	require.Len(t, gotImages, 15)
+	for index, image := range gotImages {
+		require.Equal(t, files[index].data, image)
+	}
+	require.Equal(t, "verified-provider-image", gotModel)
+}
+
+func TestZTAPIManagedImageEditAdmissionRejectsMultipartAmbiguityAndLimits(t *testing.T) {
+	tests := []struct {
+		name   string
+		files  []managedImageEditFile
+		fields map[string][]string
+		mutate func(*relaycommon.RelayInfo, *gin.Context)
+	}{
+		{name: "sixteen references", files: func() []managedImageEditFile {
+			files := make([]managedImageEditFile, 16)
+			for index := range files {
+				files[index] = managedImageEditPNG(index)
+			}
+			return files
+		}(), fields: managedImageEditFields()},
+		{name: "duplicate prompt", files: []managedImageEditFile{managedImageEditPNG(1)}, fields: func() map[string][]string {
+			fields := managedImageEditFields()
+			fields["prompt"] = []string{"one", "two"}
+			return fields
+		}()},
+		{name: "unknown field", files: []managedImageEditFile{managedImageEditPNG(1)}, fields: func() map[string][]string {
+			fields := managedImageEditFields()
+			fields["provider_model"] = []string{"attacker"}
+			return fields
+		}()},
+		{name: "unsupported mime", files: []managedImageEditFile{{name: "reference.gif", mime: "image/gif", data: []byte("GIF89a")}}, fields: managedImageEditFields()},
+		{name: "empty prompt", files: []managedImageEditFile{managedImageEditPNG(1)}, fields: func() map[string][]string {
+			fields := managedImageEditFields()
+			fields["prompt"] = []string{""}
+			return fields
+		}()},
+		{name: "stream true", files: []managedImageEditFile{managedImageEditPNG(1)}, fields: func() map[string][]string {
+			fields := managedImageEditFields()
+			fields["stream"] = []string{"true"}
+			return fields
+		}()},
+		{name: "wrong model", files: []managedImageEditFile{managedImageEditPNG(1)}, fields: func() map[string][]string {
+			fields := managedImageEditFields()
+			fields["model"] = []string{"other-model"}
+			return fields
+		}()},
+		{name: "invalid count", files: []managedImageEditFile{managedImageEditPNG(1)}, fields: func() map[string][]string {
+			fields := managedImageEditFields()
+			fields["n"] = []string{"11"}
+			return fields
+		}()},
+		{name: "per file limit", files: []managedImageEditFile{{name: "large.png", mime: "image/png", data: managedImageEditPNG(1).data, size: 20<<20 + 1}}, fields: managedImageEditFields()},
+		{name: "total limit", files: []managedImageEditFile{managedImageEditPNG(1), managedImageEditPNG(2)}, fields: managedImageEditFields(), mutate: func(info *relaycommon.RelayInfo, c *gin.Context) {
+			for _, header := range c.Request.MultipartForm.File["image"] {
+				header.Size = 128 << 20
+			}
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, info, _ := managedImageEditFixture(t, tt.files, tt.fields)
+			if tt.mutate != nil {
+				tt.mutate(info, c)
+			}
+			require.NotNil(t, AdmitZTAPIImageRequest(c, info))
+		})
+	}
 }
 
 func syntheticManagedImageMediaPriceContract(t *testing.T) string {

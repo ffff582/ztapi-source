@@ -23,6 +23,12 @@ import (
 // size is meant to be propagated to http.Request.ContentLength because the
 // type-erased io.Reader prevents net/http from auto-detecting it.
 func NewOutboundJSONBody(data []byte) (body io.Reader, size int64, closer io.Closer, err error) {
+	return NewOutboundBody(data)
+}
+
+// NewOutboundBody wraps an arbitrary already-built upstream body into the
+// shared BodyStorage lifecycle used by JSON and multipart dispatches.
+func NewOutboundBody(data []byte) (body io.Reader, size int64, closer io.Closer, err error) {
 	storage, err := common.CreateBodyStorage(data)
 	if err != nil {
 		return nil, 0, nil, err

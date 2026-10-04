@@ -1,6 +1,7 @@
 package model
 
 import (
+	"net/http"
 	"strings"
 	"testing"
 
@@ -85,6 +86,56 @@ func TestZTAPIABMediaImage2FrozenEnterpriseBuckets(t *testing.T) {
 	require.ErrorContains(t, err, "evidence")
 	_, err = BuildZTAPIABMediaPriceContract(quoteABMediaRow(t, "D82"), &protocol, nil)
 	require.ErrorContains(t, err, "enterprise A")
+}
+
+func image2ABEditProtocol(t *testing.T) types.ZTAPIImageProtocolContract {
+	t.Helper()
+	contract := image2ABProtocol(t)
+	contract.Version = types.ZTAPIImageProtocolContractVersionV3
+	contract.Capabilities.SupportsEdits = true
+	contract.Capabilities.MaxCount = 10
+	contract.Edit = &types.ZTAPIImageEditEndpointContract{
+		Method: http.MethodPost, Path: "/v1/images/edits", ContentType: "multipart/form-data",
+		WireProtocol: types.ZTAPIImageWireProtocolOpenAIImagesEdit, ProviderPath: "/v1/images/edits",
+		InputField: "image", MaxInputFiles: 15, MaxInputBytes: 20 << 20, MaxTotalInputBytes: 256 << 20,
+		AllowedMimeTypes: []string{"image/jpeg", "image/png", "image/webp"},
+		RequestFields: map[string]string{
+			"model": "required", "prompt": "required", "n": "required", "size": "required",
+			"quality": "required", "response_format": "omit",
+		},
+	}
+	contract.Reservations = nil
+	for _, operation := range []string{"generation", "edit"} {
+		for n := 1; n <= 10; n++ {
+			imageInput := "0"
+			if operation == "edit" {
+				imageInput = "200000"
+			}
+			contract.Reservations = append(contract.Reservations, types.ZTAPIImageReservationAuthority{
+				Operation: operation, Size: "1024x1024", Quality: "standard", ResponseFormat: "url", N: n,
+				MaximumDimensions: map[string]string{"text_input": "200000", "image_input": imageInput, "image_output": "200000"},
+			})
+		}
+	}
+	sealed, _, err := types.SealZTAPIImageProtocolContract(contract)
+	require.NoError(t, err)
+	return sealed
+}
+
+func TestZTAPIABMediaImage2FrozenEnterpriseBucketsWithEdits(t *testing.T) {
+	protocol := image2ABEditProtocol(t)
+	contract, err := BuildZTAPIABMediaPriceContract(quoteABMediaRow(t, "D100"), &protocol, nil)
+	require.NoError(t, err)
+	require.Len(t, contract.Rules, 10)
+	for _, operation := range []string{"generation", "edit"} {
+		for _, bucket := range []string{"text_input", "text_cached_input", "image_input", "image_cached_input", "image_output"} {
+			rule, selectErr := types.SelectZTAPIMediaPriceRuleFromContract(contract, types.ZTAPIMediaPriceSelector{
+				Modality: "image", Conditions: map[string]string{"image_operation": operation, "token_bucket": bucket},
+			})
+			require.NoError(t, selectErr)
+			require.Equal(t, "F100", rule.SourceCells[bucket])
+		}
+	}
 }
 
 func TestBuildZTAPIABImage2PriceSourceUsesExactEnterpriseQuote(t *testing.T) {

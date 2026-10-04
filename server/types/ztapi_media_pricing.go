@@ -56,7 +56,7 @@ var (
 )
 
 var ztapiMediaConditionKeys = map[string]bool{
-	"token_bucket": true, "prompt_tokens_tier": true,
+	"image_operation": true, "token_bucket": true, "prompt_tokens_tier": true,
 	"resolution": true, "contains_video_input": true,
 }
 
@@ -243,6 +243,18 @@ func validateZTAPIMediaPriceMatrix(modality string, conditionKeys []string, rule
 		for _, tier := range []string{"lte_200k", "gt_200k"} {
 			add(tier, map[string]string{"prompt_tokens_tier": tier}, ztapiMediaDimensionInputTokens, ztapiMediaDimensionOutputTokens)
 		}
+	case modality == ztapiMediaModalityImage && shape == "image_operation,token_bucket":
+		for _, operation := range []string{"generation", "edit"} {
+			for _, bucket := range []string{"text_input", "text_cached_input", "image_input", "image_cached_input", "image_output"} {
+				add(operation+"_"+bucket, map[string]string{"image_operation": operation, "token_bucket": bucket}, bucket)
+			}
+		}
+	case modality == ztapiMediaModalityImage && shape == "image_operation,prompt_tokens_tier":
+		for _, operation := range []string{"generation", "edit"} {
+			for _, tier := range []string{"lte_200k", "gt_200k"} {
+				add(operation+"_"+tier, map[string]string{"image_operation": operation, "prompt_tokens_tier": tier}, ztapiMediaDimensionInputTokens, ztapiMediaDimensionOutputTokens)
+			}
+		}
 	case modality == ztapiMediaModalityVideo && shape == "contains_video_input,resolution":
 		// A model that is not quoted at 4K prices the other three resolutions
 		// in full; every other omission still leaves the matrix incomplete,
@@ -326,13 +338,53 @@ func ValidateZTAPIImagePriceProtocolCompatibility(price ZTAPIMediaPriceContract,
 	return nil
 }
 
-// IsZTAPIGPTImage2NotReportedUsageProtocol identifies the frozen generation-only
-// exception whose provider response reports three usage buckets and no cache split.
+// ZTAPIMediaPriceContractSupportsImageOperation reports whether the frozen
+// price contract has authoritative pricing for the requested image operation.
+// Legacy contracts without image_operation remain generation-only for
+// backwards compatibility; edit-capable contracts must carry both operations.
+func ZTAPIMediaPriceContractSupportsImageOperation(price ZTAPIMediaPriceContract, operation string) bool {
+	if price.Modality != ztapiMediaModalityImage || (operation != "generation" && operation != "edit") || len(price.Rules) == 0 {
+		return false
+	}
+	operationAware := false
+	for _, rule := range price.Rules {
+		if _, ok := rule.Conditions["image_operation"]; ok {
+			operationAware = true
+			break
+		}
+	}
+	if !operationAware {
+		return operation == "generation"
+	}
+	for _, rule := range price.Rules {
+		if rule.Conditions["image_operation"] == operation {
+			return true
+		}
+	}
+	return false
+}
+
+func ValidateZTAPIImagePriceProtocolCompatibilityForOperation(price ZTAPIMediaPriceContract, protocol ZTAPIImageProtocolContract, operation string) error {
+	if !ZTAPIMediaPriceContractSupportsImageOperation(price, operation) {
+		return fmt.Errorf("image media pricing does not cover %s operation", operation)
+	}
+	return ValidateZTAPIImagePriceProtocolCompatibility(price, protocol)
+}
+
+// IsZTAPIGPTImage2NotReportedUsageProtocol identifies the frozen GPT Image 2
+// usage protocol. V2 is the legacy generation-only contract; V3 adds the
+// separately bound multipart edit endpoint without changing provider usage.
 func IsZTAPIGPTImage2NotReportedUsageProtocol(protocol ZTAPIImageProtocolContract) bool {
-	if protocol.Version != ZTAPIImageProtocolContractVersionV2 || protocol.ProviderModel != "gpt-image-2" ||
+	if (protocol.Version != ZTAPIImageProtocolContractVersionV2 && protocol.Version != ZTAPIImageProtocolContractVersionV3) || protocol.ProviderModel != "gpt-image-2" ||
 		protocol.EndpointType != ZTAPIImageEndpointGeneration || protocol.Method != "POST" || protocol.Path != "/v1/images/generations" ||
 		protocol.Usage.UsageField != "usage" || protocol.Usage.TotalField != "total_tokens" ||
 		protocol.Usage.TotalSemantics != "sum_of_dimensions" || protocol.Usage.CacheSemantics != "not_reported" {
+		return false
+	}
+	if protocol.Version == ZTAPIImageProtocolContractVersionV3 && (!protocol.Capabilities.SupportsEdits || protocol.Edit == nil) {
+		return false
+	}
+	if protocol.Version == ZTAPIImageProtocolContractVersionV2 && (protocol.Capabilities.SupportsEdits || protocol.Edit != nil) {
 		return false
 	}
 	want := map[string]string{
@@ -529,7 +581,7 @@ func validateZTAPIMediaConditions(modality string, conditions map[string]string)
 	}
 	sort.Strings(keys)
 	shape := strings.Join(keys, ",")
-	validShape := (modality == ztapiMediaModalityImage && (shape == "prompt_tokens_tier" || shape == "token_bucket")) ||
+	validShape := (modality == ztapiMediaModalityImage && (shape == "prompt_tokens_tier" || shape == "token_bucket" || shape == "image_operation,prompt_tokens_tier" || shape == "image_operation,token_bucket")) ||
 		(modality == ztapiMediaModalityVideo && (shape == "contains_video_input" || shape == "contains_video_input,resolution"))
 	if !validShape {
 		return nil, errors.New("media price condition shape does not match modality")

@@ -16,6 +16,7 @@ func TestRewritePlaygroundMediaPathUsesPublicRelayPaths(t *testing.T) {
 		want string
 	}{
 		{name: "image", path: "/pg/images/generations", want: "/v1/images/generations"},
+		{name: "image edit", path: "/pg/images/edits", want: "/v1/images/edits"},
 		{name: "video submit", path: "/pg/video/generations", want: "/v1/video/generations"},
 		{name: "video fetch", path: "/pg/video/generations/task-1", want: "/v1/video/generations/task-1"},
 		{name: "chat unchanged", path: "/pg/chat/completions", want: "/pg/chat/completions"},

@@ -282,7 +282,8 @@ func ztapiPublicationBlockersTx(tx *gorm.DB, config *ZTAPIModelConfig) ([]string
 			contract, canonical, contractErr := types.ParseZTAPIImageProtocolContract(verification.ImageProtocolContractJSON)
 			if verification.Modality != ZTAPIModalityImage || contractErr != nil || canonical != verification.ImageProtocolContractJSON ||
 				contract.ProviderModel != config.SourceModel || verification.StreamingRequired || verification.StreamingPassed ||
-				!mediaPriceContractValid || validateZTAPIImagePriceProtocolCompatibility(mediaPriceContract, contract) != nil {
+				!mediaPriceContractValid || types.ValidateZTAPIImagePriceProtocolCompatibilityForOperation(mediaPriceContract, contract, "generation") != nil ||
+				(contract.Capabilities.SupportsEdits && types.ValidateZTAPIImagePriceProtocolCompatibilityForOperation(mediaPriceContract, contract, "edit") != nil) {
 				continue
 			}
 			imageContracts[channelID] = canonical

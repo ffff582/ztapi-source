@@ -131,6 +131,38 @@ describe('playgroundClient media methods', () => {
     });
   });
 
+  it('submits multiple reference images as ordered multipart fields without owning the boundary', async () => {
+    setAuthSession(session());
+    const first = new File([new Uint8Array([1, 2])], 'first.png', { type: 'image/png' });
+    const second = new File([new Uint8Array([3, 4])], 'second.webp', { type: 'image/webp' });
+    const fetchMock = vi.fn().mockResolvedValue(response({
+      created: 1_760_000_000,
+      data: [{ url: 'https://cdn.example/edited.png' }],
+    }, 200, 'edit-request-1'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(playgroundClient.imageEdit([first, second], {
+      model: 'zt-image-1',
+      prompt: '保留第一张图的人物，使用第二张图的背景',
+      size: '1024x1024',
+      quality: 'standard',
+      n: 10,
+      response_format: 'url',
+    })).resolves.toMatchObject({ request_id: 'edit-request-1', images: [{ url: 'https://cdn.example/edited.png' }] });
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/pg/images/edits');
+    expect(new Headers(init.headers).has('Content-Type')).toBe(false);
+    const body = init.body as FormData;
+    expect(body.getAll('image')).toEqual([first, second]);
+    expect(body.get('model')).toBe('zt-image-1');
+    expect(body.get('prompt')).toBe('保留第一张图的人物，使用第二张图的背景');
+    expect(body.get('n')).toBe('10');
+    expect(body.get('size')).toBe('1024x1024');
+    expect(body.get('quality')).toBe('standard');
+    expect(body.get('response_format')).toBe('url');
+  });
+
   it('creates and fetches a video task through the authenticated workbench routes', async () => {
     setAuthSession(session());
     const fetchMock = vi.fn()

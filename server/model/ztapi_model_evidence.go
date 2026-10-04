@@ -927,8 +927,13 @@ func (snapshot *ZTAPIModelPublicationSnapshot) BeforeCreate(tx *gorm.DB) error {
 			if err != nil || mediaCanonical != source.MediaPriceContractJSON {
 				return errors.New("image publication snapshot media price contract must be canonical")
 			}
-			if err := validateZTAPIImagePriceProtocolCompatibility(mediaContract, contract); err != nil {
+			if err := types.ValidateZTAPIImagePriceProtocolCompatibilityForOperation(mediaContract, contract, "generation"); err != nil {
 				return err
+			}
+			if contract.Capabilities.SupportsEdits {
+				if err := types.ValidateZTAPIImagePriceProtocolCompatibilityForOperation(mediaContract, contract, "edit"); err != nil {
+					return err
+				}
 			}
 		}
 	}

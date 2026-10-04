@@ -16,6 +16,7 @@ import (
 const (
 	ZTAPIImageProtocolContractVersion           = uint64(1)
 	ZTAPIImageProtocolContractVersionV2         = uint64(2)
+	ZTAPIImageProtocolContractVersionV3         = uint64(3)
 	ZTAPIImageEvidenceVersion                   = uint64(1)
 	ZTAPIImageEndpointGeneration                = "images_generation"
 	ZTAPIResponseIDSourceBodyField              = "body_field"
@@ -24,6 +25,7 @@ const (
 	ZTAPIImageRequestFieldOptional              = "optional"
 	ZTAPIImageRequestFieldOmit                  = "omit"
 	ZTAPIImageWireProtocolOpenAIImages          = "openai_images"
+	ZTAPIImageWireProtocolOpenAIImagesEdit      = "openai_images_edit_multipart"
 	ZTAPIImageWireProtocolGeminiGenerateContent = "gemini_generate_content"
 	ZTAPIImageResponseSchemaGeminiInlineImages  = "gemini_generate_content_inline_images"
 )
@@ -46,6 +48,7 @@ type ZTAPIImageProtocolContract struct {
 	EvidenceVersion       uint64                           `json:"evidence_version"`
 	EvidenceHash          string                           `json:"evidence_hash,omitempty"`
 	UpstreamRequestFields map[string]string                `json:"upstream_request_fields,omitempty"`
+	Edit                  *ZTAPIImageEditEndpointContract  `json:"edit,omitempty"`
 }
 
 type ZTAPIImageCapabilities struct {
@@ -71,11 +74,26 @@ type ZTAPIImageUsageContract struct {
 	CacheSemantics string            `json:"cache_semantics"`
 }
 
+type ZTAPIImageEditEndpointContract struct {
+	Method             string            `json:"method"`
+	Path               string            `json:"path"`
+	ContentType        string            `json:"content_type"`
+	WireProtocol       string            `json:"wire_protocol"`
+	ProviderPath       string            `json:"provider_path"`
+	InputField         string            `json:"input_field"`
+	MaxInputFiles      int               `json:"max_input_files"`
+	MaxInputBytes      int64             `json:"max_input_bytes"`
+	MaxTotalInputBytes int64             `json:"max_total_input_bytes"`
+	AllowedMimeTypes   []string          `json:"allowed_mime_types"`
+	RequestFields      map[string]string `json:"request_fields"`
+}
+
 type ZTAPIImageSelector struct {
 	Size           string `json:"size"`
 	Quality        string `json:"quality"`
 	ResponseFormat string `json:"response_format"`
 	N              int    `json:"n"`
+	Operation      string `json:"image_operation,omitempty"`
 }
 
 type ZTAPIImageReservationAuthority struct {
@@ -84,6 +102,7 @@ type ZTAPIImageReservationAuthority struct {
 	ResponseFormat    string            `json:"response_format"`
 	N                 int               `json:"n"`
 	MaximumDimensions map[string]string `json:"maximum_dimensions"`
+	Operation         string            `json:"image_operation,omitempty"`
 }
 
 var (
@@ -103,6 +122,12 @@ func (contract ZTAPIImageProtocolContract) Clone() ZTAPIImageProtocolContract {
 	contract.Response.ResultFields = cloneZTAPIImageStringMap(contract.Response.ResultFields)
 	contract.Usage.Fields = cloneZTAPIImageStringMap(contract.Usage.Fields)
 	contract.Reservations = append([]ZTAPIImageReservationAuthority(nil), contract.Reservations...)
+	if contract.Edit != nil {
+		edit := *contract.Edit
+		edit.AllowedMimeTypes = append([]string(nil), contract.Edit.AllowedMimeTypes...)
+		edit.RequestFields = cloneZTAPIImageStringMap(contract.Edit.RequestFields)
+		contract.Edit = &edit
+	}
 	for index := range contract.Reservations {
 		contract.Reservations[index].MaximumDimensions = cloneZTAPIImageStringMap(contract.Reservations[index].MaximumDimensions)
 	}
@@ -110,9 +135,17 @@ func (contract ZTAPIImageProtocolContract) Clone() ZTAPIImageProtocolContract {
 }
 
 func (contract ZTAPIImageProtocolContract) FindReservationAuthority(selector ZTAPIImageSelector) (ZTAPIImageReservationAuthority, bool) {
+	wantedOperation := selector.Operation
+	if wantedOperation == "" {
+		wantedOperation = "generation"
+	}
 	for _, reservation := range contract.Reservations {
+		reservationOperation := reservation.Operation
+		if reservationOperation == "" {
+			reservationOperation = "generation"
+		}
 		if reservation.Size == selector.Size && reservation.Quality == selector.Quality &&
-			reservation.ResponseFormat == selector.ResponseFormat && reservation.N == selector.N {
+			reservation.ResponseFormat == selector.ResponseFormat && reservation.N == selector.N && reservationOperation == wantedOperation {
 			reservation.MaximumDimensions = cloneZTAPIImageStringMap(reservation.MaximumDimensions)
 			return reservation, true
 		}
@@ -171,14 +204,22 @@ func ParseZTAPIImageProtocolContract(raw string) (ZTAPIImageProtocolContract, st
 }
 
 func normalizeAndValidateZTAPIImageProtocolContract(contract *ZTAPIImageProtocolContract) error {
-	if contract == nil || (contract.Version != ZTAPIImageProtocolContractVersion && contract.Version != ZTAPIImageProtocolContractVersionV2) || contract.EvidenceVersion != ZTAPIImageEvidenceVersion {
+	if contract == nil || (contract.Version != ZTAPIImageProtocolContractVersion && contract.Version != ZTAPIImageProtocolContractVersionV2 && contract.Version != ZTAPIImageProtocolContractVersionV3) || contract.EvidenceVersion != ZTAPIImageEvidenceVersion {
 		return errors.New("unsupported image protocol or evidence version")
 	}
 	if contract.ProviderModel != strings.TrimSpace(contract.ProviderModel) || !ztapiImageProviderModelPattern.MatchString(contract.ProviderModel) || len(contract.ProviderModel) > 255 {
 		return errors.New("image protocol provider model is invalid")
 	}
-	if contract.EndpointType != ZTAPIImageEndpointGeneration || contract.Method != "POST" || contract.Path != "/v1/images/generations" || contract.Capabilities.SupportsEdits {
+	if contract.EndpointType != ZTAPIImageEndpointGeneration || contract.Method != "POST" || contract.Path != "/v1/images/generations" {
 		return errors.New("unsupported image endpoint, method, path, or edit capability")
+	}
+	if contract.Capabilities.SupportsEdits != (contract.Edit != nil) || (contract.Capabilities.SupportsEdits && contract.Version != ZTAPIImageProtocolContractVersionV3) {
+		return errors.New("image edit capability requires the V3 edit contract")
+	}
+	if contract.Edit != nil {
+		if err := validateZTAPIImageEditEndpointContract(contract.Edit); err != nil {
+			return err
+		}
 	}
 	if err := normalizeZTAPIImageCapabilities(&contract.Capabilities); err != nil {
 		return err
@@ -281,6 +322,9 @@ func validateZTAPIImageResponseIDSource(contract *ZTAPIImageProtocolContract) (s
 func normalizeAndValidateZTAPIImageReservations(contract *ZTAPIImageProtocolContract) error {
 	want := len(contract.Capabilities.Sizes) * len(contract.Capabilities.Qualities) *
 		len(contract.Capabilities.ResponseFormats) * (contract.Capabilities.MaxCount - contract.Capabilities.MinCount + 1)
+	if contract.Capabilities.SupportsEdits {
+		want *= 2
+	}
 	if want <= 0 || len(contract.Reservations) != want {
 		return errors.New("image reservation authority must cover every admitted selector exactly once")
 	}
@@ -297,7 +341,17 @@ func normalizeAndValidateZTAPIImageReservations(contract *ZTAPIImageProtocolCont
 			entry.N < contract.Capabilities.MinCount || entry.N > contract.Capabilities.MaxCount {
 			return errors.New("image reservation authority contains an unadmitted selector")
 		}
-		key := ztapiImageSelectorKey(entry.Size, entry.Quality, entry.ResponseFormat, entry.N)
+		operation := entry.Operation
+		if operation == "" {
+			operation = "generation"
+		}
+		if operation != "generation" && operation != "edit" || operation == "edit" && !contract.Capabilities.SupportsEdits {
+			return errors.New("image reservation authority contains an unsupported operation")
+		}
+		if contract.Capabilities.SupportsEdits && entry.Operation == "" {
+			return errors.New("image reservation authority must declare its operation for edit-capable contracts")
+		}
+		key := ztapiImageSelectorKey(operation, entry.Size, entry.Quality, entry.ResponseFormat, entry.N)
 		if _, exists := seen[key]; exists {
 			return errors.New("image reservation authority contains a duplicate selector")
 		}
@@ -323,14 +377,21 @@ func normalizeAndValidateZTAPIImageReservations(contract *ZTAPIImageProtocolCont
 	}
 	sort.Slice(contract.Reservations, func(i, j int) bool {
 		left, right := contract.Reservations[i], contract.Reservations[j]
-		return ztapiImageSelectorKey(left.Size, left.Quality, left.ResponseFormat, left.N) <
-			ztapiImageSelectorKey(right.Size, right.Quality, right.ResponseFormat, right.N)
+		leftOperation, rightOperation := left.Operation, right.Operation
+		if leftOperation == "" {
+			leftOperation = "generation"
+		}
+		if rightOperation == "" {
+			rightOperation = "generation"
+		}
+		return ztapiImageSelectorKey(leftOperation, left.Size, left.Quality, left.ResponseFormat, left.N) <
+			ztapiImageSelectorKey(rightOperation, right.Size, right.Quality, right.ResponseFormat, right.N)
 	})
 	return nil
 }
 
-func ztapiImageSelectorKey(size, quality, responseFormat string, n int) string {
-	return size + "\x00" + quality + "\x00" + responseFormat + "\x00" + strconv.Itoa(n)
+func ztapiImageSelectorKey(operation, size, quality, responseFormat string, n int) string {
+	return operation + "\x00" + size + "\x00" + quality + "\x00" + responseFormat + "\x00" + strconv.Itoa(n)
 }
 
 func containsZTAPIImageString(values []string, target string) bool {
@@ -382,6 +443,44 @@ func normalizeZTAPIImageCapabilities(capabilities *ZTAPIImageCapabilities) error
 	return nil
 }
 
+func validateZTAPIImageEditEndpointContract(edit *ZTAPIImageEditEndpointContract) error {
+	if edit == nil || edit.Method != "POST" || edit.Path != "/v1/images/edits" ||
+		edit.ContentType != "multipart/form-data" || edit.WireProtocol != ZTAPIImageWireProtocolOpenAIImagesEdit ||
+		edit.ProviderPath != edit.Path || edit.InputField != "image" {
+		return errors.New("image edit endpoint binding is invalid")
+	}
+	if edit.MaxInputFiles < 1 || edit.MaxInputFiles > 15 || edit.MaxInputBytes <= 0 || edit.MaxInputBytes > 20<<20 ||
+		edit.MaxTotalInputBytes < edit.MaxInputBytes || edit.MaxTotalInputBytes > 256<<20 {
+		return errors.New("image edit input limits are invalid")
+	}
+	if len(edit.AllowedMimeTypes) == 0 || hasDuplicateZTAPIImageStrings(edit.AllowedMimeTypes) {
+		return errors.New("image edit MIME types must be non-empty and unique")
+	}
+	for _, mimeType := range edit.AllowedMimeTypes {
+		switch mimeType {
+		case "image/jpeg", "image/png", "image/webp":
+		default:
+			return fmt.Errorf("unsupported image edit MIME type %q", mimeType)
+		}
+	}
+	sort.Strings(edit.AllowedMimeTypes)
+	if len(edit.RequestFields) != 6 {
+		return errors.New("image edit request policy must contain all six scalar fields")
+	}
+	for _, field := range []string{"model", "prompt", "n", "size", "quality", "response_format"} {
+		policy, ok := edit.RequestFields[field]
+		if !ok || (policy != ZTAPIImageRequestFieldRequired && policy != ZTAPIImageRequestFieldOptional && policy != ZTAPIImageRequestFieldOmit) {
+			return fmt.Errorf("invalid image edit request policy for %q", field)
+		}
+	}
+	for _, field := range []string{"model", "prompt", "n"} {
+		if edit.RequestFields[field] != ZTAPIImageRequestFieldRequired {
+			return fmt.Errorf("image edit request field %q must remain required", field)
+		}
+	}
+	return nil
+}
+
 func validateZTAPIImageFieldMap(fields map[string]string, allowed map[string]bool) error {
 	values := make([]string, 0, len(fields))
 	for name, field := range fields {
@@ -404,7 +503,7 @@ func validateZTAPIImageRequestFieldPolicy(contract *ZTAPIImageProtocolContract) 
 		}
 		return nil
 	}
-	if contract.Version != ZTAPIImageProtocolContractVersionV2 || len(contract.UpstreamRequestFields) != 6 {
+	if (contract.Version != ZTAPIImageProtocolContractVersionV2 && contract.Version != ZTAPIImageProtocolContractVersionV3) || len(contract.UpstreamRequestFields) != 6 {
 		return errors.New("upstream image request policy requires V2 and all six admitted fields")
 	}
 	for _, field := range []string{"model", "prompt", "n", "size", "quality", "response_format"} {
@@ -448,7 +547,7 @@ func validateZTAPIImageDispatchContract(contract *ZTAPIImageProtocolContract) er
 		}
 		return nil
 	case ZTAPIImageWireProtocolOpenAIImages:
-		if contract.Version != ZTAPIImageProtocolContractVersionV2 || contract.ProviderPath != contract.Path {
+		if (contract.Version != ZTAPIImageProtocolContractVersionV2 && contract.Version != ZTAPIImageProtocolContractVersionV3) || contract.ProviderPath != contract.Path {
 			return errors.New("OpenAI image wire protocol requires the frozen public provider path")
 		}
 		return nil
@@ -491,7 +590,7 @@ func validateZTAPIImageJSONFields(raw []byte) error {
 		if err := exactZTAPIImageJSONFields(root, append(baseFields, "request_id_field")...); err != nil {
 			return err
 		}
-	case ZTAPIImageProtocolContractVersionV2:
+	case ZTAPIImageProtocolContractVersionV2, ZTAPIImageProtocolContractVersionV3:
 		if policy, exists := root["upstream_request_fields"]; exists {
 			var fields map[string]string
 			if common.Unmarshal(policy, &fields) != nil || fields == nil {
@@ -515,7 +614,11 @@ func validateZTAPIImageJSONFields(raw []byte) error {
 		if hasWireProtocol {
 			baseFields = append(baseFields, "wire_protocol", "provider_path")
 		}
-		if err := exactZTAPIImageJSONFields(root, append(baseFields, "request_id_source", "request_id_key")...); err != nil {
+		fields := append(baseFields, "request_id_source", "request_id_key")
+		if version == ZTAPIImageProtocolContractVersionV3 {
+			fields = append(fields, "edit")
+		}
+		if err := exactZTAPIImageJSONFields(root, fields...); err != nil {
 			return err
 		}
 	default:
@@ -547,7 +650,21 @@ func validateZTAPIImageJSONFields(raw []byte) error {
 		return errors.New("image reservation authority must be an array")
 	}
 	for _, reservation := range reservations {
-		if err := exactZTAPIImageJSONFields(reservation, "size", "quality", "response_format", "n", "maximum_dimensions"); err != nil {
+		fields := []string{"size", "quality", "response_format", "n", "maximum_dimensions"}
+		if version == ZTAPIImageProtocolContractVersionV3 {
+			if err := exactZTAPIImageJSONFieldsOptional(reservation, fields, "image_operation"); err != nil {
+				return err
+			}
+		} else if err := exactZTAPIImageJSONFields(reservation, fields...); err != nil {
+			return err
+		}
+	}
+	if version == ZTAPIImageProtocolContractVersionV3 {
+		var edit map[string]json.RawMessage
+		if common.Unmarshal(root["edit"], &edit) != nil || edit == nil {
+			return errors.New("image edit endpoint contract must be an object")
+		}
+		if err := exactZTAPIImageJSONFields(edit, "method", "path", "content_type", "wire_protocol", "provider_path", "input_field", "max_input_files", "max_input_bytes", "max_total_input_bytes", "allowed_mime_types", "request_fields"); err != nil {
 			return err
 		}
 	}
@@ -565,6 +682,27 @@ func exactZTAPIImageJSONFields(object map[string]json.RawMessage, fields ...stri
 		}
 	}
 	for _, field := range fields {
+		if _, ok := object[field]; !ok {
+			return fmt.Errorf("missing image protocol contract field %q", field)
+		}
+	}
+	return nil
+}
+
+func exactZTAPIImageJSONFieldsOptional(object map[string]json.RawMessage, required []string, optional ...string) error {
+	allowed := make(map[string]bool, len(required)+len(optional))
+	for _, field := range required {
+		allowed[field] = true
+	}
+	for _, field := range optional {
+		allowed[field] = true
+	}
+	for field := range object {
+		if !allowed[field] {
+			return fmt.Errorf("unknown image protocol contract field %q", field)
+		}
+	}
+	for _, field := range required {
 		if _, ok := object[field]; !ok {
 			return fmt.Errorf("missing image protocol contract field %q", field)
 		}

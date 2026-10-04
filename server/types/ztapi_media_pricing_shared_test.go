@@ -3,6 +3,7 @@ package types
 import (
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -85,4 +86,32 @@ func TestGPTImage2AllowsOnlyExactThreeFieldNotReportedUsageAgainstFivePrices(t *
 			require.Error(t, ValidateZTAPIImagePriceProtocolCompatibility(price, candidate))
 		})
 	}
+}
+
+func TestImageMediaPriceRulesSeparateGenerationAndEditOperations(t *testing.T) {
+	price := ZTAPIMediaPriceContract{Version: 1, Modality: "image"}
+	for _, operation := range []string{"generation", "edit"} {
+		for _, tier := range []string{"lte_200k", "gt_200k"} {
+			price.Rules = append(price.Rules, ZTAPIMediaPriceRule{
+				ID: operation + "_" + tier,
+				Conditions: map[string]string{"image_operation": operation, "prompt_tokens_tier": tier},
+				BillingUnit: ZTAPIMediaBillingUnitUSDPerMillionTokens,
+				CostUSD: map[string]string{"input_tokens": "1", "output_tokens": "1"},
+				SaleUSD: map[string]string{"input_tokens": "1.6666666667", "output_tokens": "1.6666666667"},
+				SourceCells: map[string]string{"input_tokens": "A1", "output_tokens": "B1"},
+			})
+		}
+	}
+	encoded, err := common.Marshal(price)
+	require.NoError(t, err)
+	canonical, err := CanonicalizeZTAPIMediaPriceContract(string(encoded))
+	require.NoError(t, err)
+	parsed, err := ParseZTAPIMediaPriceContract(canonical)
+	require.NoError(t, err)
+	edit, err := SelectZTAPIMediaPriceRuleFromContract(parsed, ZTAPIMediaPriceSelector{Modality: "image", Conditions: map[string]string{"image_operation": "edit", "prompt_tokens_tier": "lte_200k"}})
+	require.NoError(t, err)
+	require.Equal(t, "edit_lte_200k", edit.ID)
+	generation, err := SelectZTAPIMediaPriceRuleFromContract(parsed, ZTAPIMediaPriceSelector{Modality: "image", Conditions: map[string]string{"image_operation": "generation", "prompt_tokens_tier": "lte_200k"}})
+	require.NoError(t, err)
+	require.Equal(t, "generation_lte_200k", generation.ID)
 }

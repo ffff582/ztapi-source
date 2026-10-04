@@ -38,3 +38,16 @@ func TestRelayInfoGetFinalRequestRelayFormatNilReceiver(t *testing.T) {
 	var info *RelayInfo
 	require.Equal(t, types.RelayFormat(""), info.GetFinalRequestRelayFormat())
 }
+
+func TestZTAPIManagedImageDispatchPreservesMultipartContentType(t *testing.T) {
+	info := &RelayInfo{}
+	dispatch := &ZTAPIManagedImageDispatch{
+		Body: []byte("multipart-body"), ProviderPath: "/v1/images/edits",
+		WireProtocol: "openai_images_edit_multipart", ContentType: "multipart/form-data; boundary=upstream-boundary",
+	}
+	require.True(t, info.SetZTAPIManagedImageDispatch(dispatch))
+	got := info.GetZTAPIManagedImageDispatch()
+	require.Equal(t, dispatch.ContentType, got.ContentType)
+	dispatch.ContentType = "mutated"
+	require.Equal(t, "multipart/form-data; boundary=upstream-boundary", info.GetZTAPIManagedImageDispatch().ContentType)
+}

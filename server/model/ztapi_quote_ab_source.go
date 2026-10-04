@@ -395,7 +395,7 @@ func validateZTAPIABImage2PriceSource(quote ZTAPIABQuotationManifest, source *ZT
 	if row.ModelName != "GPT Image 2" || row.ModelCode != "zq-g-i-2" || !row.Active || row.Grade != "A" {
 		return errors.New("gpt-image-2 has no exact active A quotation")
 	}
-	contract, err := buildZTAPIABImage2Contract(row)
+	contract, err := buildZTAPIABImage2Contract(row, false)
 	if err != nil {
 		return err
 	}
@@ -407,7 +407,19 @@ func validateZTAPIABImage2PriceSource(quote ZTAPIABQuotationManifest, source *ZT
 	if err != nil {
 		return err
 	}
-	if source.MediaPriceContractJSON != want || source.ResourceType != "enterprise" ||
+	operationAware, operationAwareErr := buildZTAPIABImage2Contract(row, true)
+	if operationAwareErr != nil {
+		return operationAwareErr
+	}
+	operationAwareRaw, operationAwareErr := json.Marshal(operationAware)
+	if operationAwareErr != nil {
+		return operationAwareErr
+	}
+	operationAwareCanonical, operationAwareErr := canonicalizeZTAPIMediaPriceContract(string(operationAwareRaw))
+	if operationAwareErr != nil {
+		return operationAwareErr
+	}
+	if source.MediaPriceContractJSON != want && source.MediaPriceContractJSON != operationAwareCanonical || source.ResourceType != "enterprise" ||
 		source.PricePolicy != string(ZTAPIPricePolicyEnterprise20Margin) || source.SpendTier != "A" ||
 		source.Currency != "USD" || source.QuotationGrade != row.Grade ||
 		source.QuotationCell != row.QuotationCell || source.OfficialPriceCell != row.OfficialPriceCell ||

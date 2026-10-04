@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -37,10 +38,19 @@ func validateZTAPIMediaPriceContractPolicy(source *ZTAPIModelPriceSource) error 
 	policy := ZTAPIPricePolicy(source.PricePolicy)
 	if policy == ZTAPIPricePolicyPoolOfficial80 {
 		quoted, ok := ztapiMediaPriceRowFromManifest(ztapiQuotation, source.SourceModel)
-		if !ok || quoted.PricePolicy != source.PricePolicy || quoted.MediaPriceContractJSON != source.MediaPriceContractJSON {
+		if !ok || quoted.PricePolicy != source.PricePolicy {
 			return errors.New("pool media price contract does not match the exact quotation")
 		}
-		return nil
+		if quoted.MediaPriceContractJSON == source.MediaPriceContractJSON {
+			return nil
+		}
+		if source.SourceModel == "gpt-image-2" {
+			derived, err := deriveZTAPIGPTImage2OperationAwarePriceContract(quoted.MediaPriceContractJSON)
+			if err == nil && derived == source.MediaPriceContractJSON {
+				return nil
+			}
+		}
+		return errors.New("pool media price contract does not match the exact quotation")
 	}
 	share := decimal.Zero
 	switch policy {
@@ -65,6 +75,44 @@ func validateZTAPIMediaPriceContractPolicy(source *ZTAPIModelPriceSource) error 
 		}
 	}
 	return nil
+}
+
+// deriveZTAPIGPTImage2OperationAwarePriceContract keeps the quotation's five
+// frozen token buckets intact while binding the same prices to both admitted
+// image operations. The base quotation remains generation-only; this derived
+// form is used only after a V3 edit-capable provider contract is verified.
+func deriveZTAPIGPTImage2OperationAwarePriceContract(raw string) (string, error) {
+	base, err := parseZTAPIMediaPriceContract(raw)
+	if err != nil || base.Modality != ZTAPIModalityImage || len(base.Rules) != 5 {
+		return "", errors.New("gpt-image-2 quotation must contain the five frozen image buckets")
+	}
+	derived := types.ZTAPIMediaPriceContract{Version: base.Version, Modality: base.Modality, SaleMultiplier: base.SaleMultiplier}
+	for _, operation := range []string{"generation", "edit"} {
+		for _, baseRule := range base.Rules {
+			bucket, ok := baseRule.Conditions["token_bucket"]
+			if !ok || len(baseRule.Conditions) != 1 {
+				return "", errors.New("gpt-image-2 quotation is not a generation-only token bucket matrix")
+			}
+			clone := func(values map[string]string) map[string]string {
+				result := make(map[string]string, len(values))
+				for key, value := range values {
+					result[key] = value
+				}
+				return result
+			}
+			derived.Rules = append(derived.Rules, types.ZTAPIMediaPriceRule{
+				ID:          operation + "_" + bucket,
+				Conditions:  map[string]string{"image_operation": operation, "token_bucket": bucket},
+				BillingUnit: baseRule.BillingUnit,
+				CostUSD:     clone(baseRule.CostUSD), SaleUSD: clone(baseRule.SaleUSD), SourceCells: clone(baseRule.SourceCells),
+			})
+		}
+	}
+	encoded, err := json.Marshal(derived)
+	if err != nil {
+		return "", err
+	}
+	return canonicalizeZTAPIMediaPriceContract(string(encoded))
 }
 
 func validateZTAPIImagePriceProtocolCompatibility(price ZTAPIMediaPriceContract, protocol types.ZTAPIImageProtocolContract) error {

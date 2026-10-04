@@ -45,6 +45,19 @@
   --rule-dark: var(--zt-border);
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
 :root[data-theme='light'] {
   --zt-bg: #f7f4ef;
   --zt-bg-raised: #eee9e3;
@@ -730,14 +743,6 @@ body {
   font-weight: 650;
 }
 
-.workbench-page .console-page__header {
-  align-items: center;
-}
-
-.workbench-page .console-page__header h1 {
-  letter-spacing: -0.01em;
-}
-
 .workbench-page .playground-grid {
   grid-template-columns: minmax(320px, 0.9fr) minmax(380px, 1.1fr);
   gap: 16px;
@@ -856,12 +861,37 @@ body {
 
 /* APIMart-inspired workbench composition: each capability gets its own task flow. */
 .zt-workbench {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
   min-width: 0;
   border: 1px solid var(--zt-border);
   background:
     linear-gradient(145deg, rgba(188, 168, 232, 0.06), transparent 42%),
     var(--zt-panel);
   box-shadow: var(--zt-shadow);
+}
+
+.zt-workbench > :not(.zt-workbench__pointer-follow) {
+  position: relative;
+  z-index: 1;
+}
+
+.zt-workbench__pointer-follow {
+  position: absolute;
+  z-index: 0;
+  top: calc(var(--zt-pointer-y, 20%) - 170px);
+  left: calc(var(--zt-pointer-x, 50%) - 240px);
+  width: 480px;
+  height: 340px;
+  pointer-events: none;
+  opacity: var(--zt-pointer-opacity, 0);
+  background:
+    radial-gradient(ellipse at center, rgba(230, 170, 132, 0.075), transparent 68%),
+    linear-gradient(125deg, rgba(127, 110, 187, 0.055), transparent 62%);
+  filter: blur(8px);
+  transform: translate3d(0, 0, 0);
+  transition: opacity 180ms ease;
 }
 
 .zt-workbench--text {
@@ -1201,6 +1231,210 @@ body {
   gap: 14px;
 }
 
+.zt-workbench__reference-field {
+  display: grid;
+  gap: 10px;
+}
+
+.zt-workbench__reference-field--disabled {
+  padding: 10px;
+  border: 1px solid var(--zt-border);
+  border-radius: 7px;
+  background: var(--zt-panel-soft);
+}
+
+.zt-workbench__reference-field--disabled .zt-workbench__reference-heading {
+  align-items: center;
+}
+
+.zt-workbench__reference-field--disabled .zt-workbench__reference-heading > svg {
+  flex: 0 0 auto;
+  color: var(--zt-muted);
+}
+
+.zt-workbench__reference-label {
+  display: block;
+  color: var(--zt-text);
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.zt-workbench__reference-disabled-state {
+  display: flex;
+  min-height: 58px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px dashed var(--zt-border-strong);
+  border-radius: 6px;
+  color: var(--zt-muted);
+  font-size: 11px;
+}
+
+.zt-workbench__reference-disabled-state svg {
+  color: var(--zt-muted);
+}
+
+.zt-workbench__reference-heading {
+  display: flex;
+  min-width: 0;
+  gap: 12px;
+  align-items: start;
+  justify-content: space-between;
+}
+
+.zt-workbench__reference-heading > div {
+  min-width: 0;
+}
+
+.zt-workbench__reference-heading label {
+  display: block;
+  color: var(--zt-text);
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.zt-workbench__reference-heading p {
+  max-width: 330px;
+  margin: 5px 0 0;
+  color: var(--zt-muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.zt-workbench__reference-summary {
+  display: block;
+  margin-top: 5px;
+  color: var(--zt-accent-strong);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.zt-workbench__reference-heading .console-button {
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 0 9px;
+  font-size: 10px;
+}
+
+.zt-workbench__reference-dropzone {
+  display: grid;
+  min-height: 86px;
+  place-items: center;
+  align-content: center;
+  gap: 5px;
+  padding: 12px;
+  border: 1px dashed var(--zt-border-strong);
+  border-radius: 7px;
+  color: var(--zt-muted);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.018), transparent 70%);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.zt-workbench__reference-dropzone svg {
+  color: var(--zt-accent);
+}
+
+.zt-workbench__reference-dropzone small {
+  color: var(--zt-muted);
+  font-size: 10px;
+}
+
+.zt-workbench__reference-dropzone:hover,
+.zt-workbench__reference-dropzone:focus-visible {
+  border-color: var(--zt-accent);
+  color: var(--zt-text);
+  background: var(--zt-accent-soft);
+}
+
+.zt-workbench__reference-list {
+  display: grid;
+  gap: 7px;
+}
+
+.zt-workbench__reference-item {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: center;
+  padding: 6px;
+  border: 1px solid var(--zt-border);
+  border-radius: 7px;
+  background: var(--zt-panel-soft);
+}
+
+.zt-workbench__reference-item img {
+  display: block;
+  width: 38px;
+  height: 38px;
+  border-radius: 4px;
+  object-fit: cover;
+  background: var(--zt-bg);
+}
+
+.zt-workbench__reference-item > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.zt-workbench__reference-item strong,
+.zt-workbench__reference-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zt-workbench__reference-item strong {
+  color: var(--zt-text);
+  font-size: 11px;
+  font-weight: 620;
+}
+
+.zt-workbench__reference-item span {
+  color: var(--zt-muted);
+  font-size: 10px;
+}
+
+.zt-workbench__reference-remove,
+.zt-workbench__reference-add {
+  border: 0;
+  color: var(--zt-accent-strong);
+  background: transparent;
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.zt-workbench__reference-remove:hover,
+.zt-workbench__reference-remove:focus-visible {
+  color: var(--zt-danger);
+}
+
+.zt-workbench__reference-add {
+  display: inline-flex;
+  min-height: 31px;
+  gap: 5px;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--zt-border-strong);
+  border-radius: 6px;
+}
+
+.zt-workbench__reference-add:hover,
+.zt-workbench__reference-add:focus-visible {
+  border-color: var(--zt-accent);
+  background: var(--zt-accent-soft);
+}
+
+.zt-workbench__reference-error {
+  margin: 0;
+  color: var(--zt-danger);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
 .zt-workbench__model-caption {
   display: flex;
   min-height: 34px;
@@ -1486,4 +1720,8 @@ body {
   .zt-workbench__segmented { grid-template-columns: 1fr; }
   .zt-workbench__segmented button { border-right: 0; border-bottom: 1px solid var(--zt-border-strong); }
   .zt-workbench__segmented button:last-child { border-bottom: 0; }
+}
+
+@media (pointer: coarse), (prefers-reduced-motion: reduce) {
+  .zt-workbench__pointer-follow { display: none; }
 }

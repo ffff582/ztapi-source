@@ -8,7 +8,10 @@ import (
 	"image/png"
 	"io"
 	"math"
+	"mime"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"net/url"
 	"strconv"
 	"strings"
@@ -88,7 +91,13 @@ func AdmitZTAPIImageRequest(c *gin.Context, info *relaycommon.RelayInfo) *types.
 	if err != nil {
 		return ztapiImageProtocolError(err)
 	}
-	if c == nil || c.Request == nil || c.Request.Method != contract.Method || c.Request.URL.Path != contract.Path {
+	if c == nil || c.Request == nil {
+		return ztapiImageProtocolError(errors.New("managed image request requires an HTTP request"))
+	}
+	if contract.Edit != nil && c.Request.URL.Path == contract.Edit.Path {
+		return admitZTAPIImageEditRequest(c, info, contract)
+	}
+	if c.Request.Method != contract.Method || c.Request.URL.Path != contract.Path {
 		return ztapiImageProtocolError(errors.New("managed image requests require exact POST /v1/images/generations"))
 	}
 	request, ok := info.Request.(*dto.ImageRequest)
@@ -146,6 +155,198 @@ func AdmitZTAPIImageRequest(c *gin.Context, info *relaycommon.RelayInfo) *types.
 	return nil
 }
 
+func admitZTAPIImageEditRequest(c *gin.Context, info *relaycommon.RelayInfo, contract *types.ZTAPIImageProtocolContract) *types.NewAPIError {
+	edit := contract.Edit
+	if edit == nil || c.Request.Method != edit.Method || c.Request.URL.Path != edit.Path {
+		return ztapiImageProtocolError(errors.New("managed image edit requests require exact POST /v1/images/edits"))
+	}
+	contentType, _, err := mime.ParseMediaType(c.Request.Header.Get("Content-Type"))
+	if err != nil || contentType != edit.ContentType {
+		return ztapiImageProtocolError(errors.New("managed image edits require multipart/form-data"))
+	}
+	form, err := managedImageEditMultipartForm(c)
+	if err != nil {
+		return ztapiImageProtocolError(err)
+	}
+	formData := url.Values(form.Value)
+	for field, values := range form.Value {
+		if field != "stream" {
+			policy, covered := edit.RequestFields[field]
+			if !covered || policy == types.ZTAPIImageRequestFieldOmit {
+				return ztapiImageProtocolError(fmt.Errorf("managed image edit field %q is not covered by the frozen contract", field))
+			}
+		}
+		if len(values) != 1 {
+			return ztapiImageProtocolError(fmt.Errorf("managed image edit field %q must contain exactly one value", field))
+		}
+	}
+	for field, policy := range edit.RequestFields {
+		values, present := form.Value[field]
+		switch policy {
+		case types.ZTAPIImageRequestFieldRequired:
+			if !present || len(values) != 1 {
+				return ztapiImageProtocolError(fmt.Errorf("managed image edit field %q requires exactly one value", field))
+			}
+		case types.ZTAPIImageRequestFieldOmit:
+			if present {
+				return ztapiImageProtocolError(fmt.Errorf("managed image edit field %q must be omitted", field))
+			}
+		}
+	}
+	request, ok := info.Request.(*dto.ImageRequest)
+	if !ok || request == nil {
+		return ztapiImageProtocolError(errors.New("managed image edit request body is invalid"))
+	}
+	modelName := formData.Get("model")
+	prompt := formData.Get("prompt")
+	if modelName != info.OriginModelName || modelName != info.ZTAPIPublicationSnapshot.PublicName {
+		return ztapiImageProtocolError(errors.New("managed image edit model must match the published alias"))
+	}
+	if strings.TrimSpace(prompt) == "" || prompt != request.Prompt {
+		return ztapiImageProtocolError(errors.New("managed image edit prompt is invalid"))
+	}
+	count, err := strconv.Atoi(formData.Get("n"))
+	if err != nil || count < contract.Capabilities.MinCount || count > contract.Capabilities.MaxCount || request.N == nil || int(*request.N) != count {
+		return ztapiImageProtocolError(errors.New("managed image edit count is not supported by the frozen contract"))
+	}
+	for _, field := range []struct {
+		name  string
+		value string
+		bound []string
+	}{
+		{name: "size", value: request.Size, bound: contract.Capabilities.Sizes},
+		{name: "quality", value: request.Quality, bound: contract.Capabilities.Qualities},
+		{name: "response_format", value: request.ResponseFormat, bound: contract.Capabilities.ResponseFormats},
+	} {
+		formValue := formData.Get(field.name)
+		if formValue == "" {
+			if _, required := edit.RequestFields[field.name]; required && edit.RequestFields[field.name] == types.ZTAPIImageRequestFieldRequired {
+				return ztapiImageProtocolError(fmt.Errorf("managed image edit field %q requires a value", field.name))
+			}
+			continue
+		}
+		if !containsZTAPIImageCapability(field.bound, formValue) || field.value != formValue {
+			return ztapiImageProtocolError(fmt.Errorf("managed image edit field %q is not supported by the frozen contract", field.name))
+		}
+	}
+	if streamValue := strings.TrimSpace(formData.Get("stream")); streamValue != "" {
+		stream, parseErr := strconv.ParseBool(streamValue)
+		if parseErr != nil || stream {
+			return ztapiImageProtocolError(errors.New("managed image edit streaming is not covered by the frozen contract"))
+		}
+	}
+	for field := range form.File {
+		if field != edit.InputField {
+			return ztapiImageProtocolError(fmt.Errorf("managed image edit file field %q is not covered by the frozen contract", field))
+		}
+	}
+	files := form.File[edit.InputField]
+	if len(files) < 1 || len(files) > edit.MaxInputFiles {
+		return ztapiImageProtocolError(fmt.Errorf("managed image edit accepts between 1 and %d reference images", edit.MaxInputFiles))
+	}
+	var totalBytes int64
+	for _, fileHeader := range files {
+		if fileHeader == nil || fileHeader.Size <= 0 || fileHeader.Size > edit.MaxInputBytes || totalBytes > edit.MaxTotalInputBytes-fileHeader.Size {
+			return ztapiImageProtocolError(errors.New("managed image edit input exceeds the frozen size limits"))
+		}
+		totalBytes += fileHeader.Size
+		if _, _, fileErr := readManagedImageEditFile(fileHeader, edit); fileErr != nil {
+			return ztapiImageProtocolError(fileErr)
+		}
+	}
+	return nil
+}
+
+func managedImageEditMultipartForm(c *gin.Context) (*multipart.Form, error) {
+	if c.Request.MultipartForm != nil {
+		return c.Request.MultipartForm, nil
+	}
+	form, err := common.ParseMultipartFormReusable(c)
+	if err != nil {
+		return nil, fmt.Errorf("parse managed image edit multipart form: %w", err)
+	}
+	c.Request.MultipartForm = form
+	c.Request.PostForm = url.Values(form.Value)
+	return form, nil
+}
+
+func readManagedImageEditFile(fileHeader *multipart.FileHeader, edit *types.ZTAPIImageEditEndpointContract) ([]byte, string, error) {
+	file, err := fileHeader.Open()
+	if err != nil {
+		return nil, "", fmt.Errorf("open managed image edit reference: %w", err)
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, edit.MaxInputBytes+1))
+	if err != nil {
+		return nil, "", fmt.Errorf("read managed image edit reference: %w", err)
+	}
+	if len(data) == 0 || int64(len(data)) > edit.MaxInputBytes {
+		return nil, "", errors.New("managed image edit reference exceeds the per-file size limit")
+	}
+	detected := http.DetectContentType(data)
+	if !containsZTAPIImageCapability(edit.AllowedMimeTypes, detected) {
+		return nil, "", fmt.Errorf("managed image edit reference MIME type %q is not allowed", detected)
+	}
+	return data, detected, nil
+}
+
+func rebuildManagedImageEditDispatch(c *gin.Context, contract *types.ZTAPIImageProtocolContract) ([]byte, string, error) {
+	form, err := managedImageEditMultipartForm(c)
+	if err != nil {
+		return nil, "", err
+	}
+	edit := contract.Edit
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("model", contract.ProviderModel); err != nil {
+		return nil, "", err
+	}
+	for _, field := range []string{"prompt", "n", "size", "quality", "response_format"} {
+		policy := edit.RequestFields[field]
+		values := form.Value[field]
+		if policy == types.ZTAPIImageRequestFieldOmit || len(values) == 0 {
+			continue
+		}
+		if len(values) != 1 {
+			return nil, "", fmt.Errorf("managed image edit field %q must contain exactly one value", field)
+		}
+		if err := writer.WriteField(field, values[0]); err != nil {
+			return nil, "", err
+		}
+	}
+	for index, fileHeader := range form.File[edit.InputField] {
+		data, detected, err := readManagedImageEditFile(fileHeader, edit)
+		if err != nil {
+			return nil, "", err
+		}
+		header := make(textproto.MIMEHeader)
+		header.Set("Content-Disposition", fmt.Sprintf(`form-data; name="%s"; filename="reference-%d%s"`, edit.InputField, index+1, imageEditFilenameExtension(detected)))
+		header.Set("Content-Type", detected)
+		part, err := writer.CreatePart(header)
+		if err != nil {
+			return nil, "", err
+		}
+		if _, err := part.Write(data); err != nil {
+			return nil, "", err
+		}
+	}
+	if err := writer.Close(); err != nil {
+		return nil, "", err
+	}
+	return body.Bytes(), writer.FormDataContentType(), nil
+}
+
+func imageEditFilenameExtension(contentType string) string {
+	switch contentType {
+	case "image/jpeg":
+		return ".jpg"
+	case "image/webp":
+		return ".webp"
+	default:
+		return ".png"
+	}
+}
+
 func managedImageRequestObject(c *gin.Context) (map[string]any, error) {
 	storage, err := common.GetBodyStorage(c)
 	if err != nil {
@@ -197,6 +398,25 @@ func PrepareZTAPIManagedImageDispatch(c *gin.Context, info *relaycommon.RelayInf
 		return nil, ztapiImageProtocolError(err)
 	}
 	incoming := info.Request.(*dto.ImageRequest)
+	if contract.Edit != nil && c != nil && c.Request != nil && c.Request.URL.Path == contract.Edit.Path {
+		if info.ChannelMeta == nil || info.ChannelType != constant.ChannelTypeOpenAI || info.ApiType != constant.APITypeOpenAI {
+			return nil, ztapiImageProtocolError(errors.New("frozen OpenAI image edit binding requires the exact verified OpenAI channel family"))
+		}
+		body, contentType, buildErr := rebuildManagedImageEditDispatch(c, contract)
+		if buildErr != nil {
+			return nil, ztapiImageProtocolError(fmt.Errorf("build frozen managed image edit dispatch: %w", buildErr))
+		}
+		dispatch := &relaycommon.ZTAPIManagedImageDispatch{
+			Body: body, ProviderPath: contract.Edit.ProviderPath,
+			WireProtocol: contract.Edit.WireProtocol, ContentType: contentType,
+		}
+		if !info.SetZTAPIManagedImageDispatch(dispatch) {
+			return nil, ztapiImageProtocolError(errors.New("frozen managed image edit dispatch is invalid"))
+		}
+		info.UpstreamModelName = contract.ProviderModel
+		info.RequestURLPath = contract.Edit.ProviderPath
+		return info.GetZTAPIManagedImageDispatch(), nil
+	}
 	wireProtocol := contract.WireProtocol
 	providerPath := contract.ProviderPath
 	var body []byte
@@ -245,7 +465,7 @@ func PrepareZTAPIManagedImageDispatch(c *gin.Context, info *relaycommon.RelayInf
 	if err != nil {
 		return nil, ztapiImageProtocolError(fmt.Errorf("build frozen managed image dispatch: %w", err))
 	}
-	dispatch := &relaycommon.ZTAPIManagedImageDispatch{Body: body, ProviderPath: providerPath, WireProtocol: wireProtocol}
+	dispatch := &relaycommon.ZTAPIManagedImageDispatch{Body: body, ProviderPath: providerPath, WireProtocol: wireProtocol, ContentType: "application/json"}
 	if !info.SetZTAPIManagedImageDispatch(dispatch) {
 		return nil, ztapiImageProtocolError(errors.New("frozen managed image dispatch is invalid"))
 	}

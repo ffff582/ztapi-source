@@ -83,6 +83,33 @@ func ztapiImageReservationFixture(t *testing.T, maximumQuota int64) ZTAPIMediaRe
 	}
 }
 
+func TestZTAPIImageReservationSelectorDefaultsGenerationAndKeepsEditOperation(t *testing.T) {
+	generationJSON := `{"modality":"image","n":1,"quality":"standard","response_format":"url","size":"1024x1024"}`
+	generation, _, err := canonicalZTAPIMediaSelector(generationJSON)
+	require.NoError(t, err)
+	require.Equal(t, "generation", generation.Operation)
+	require.JSONEq(t, generationJSON, mustCanonicalSelectorJSONForTest(t, generation))
+
+	edit, _, err := canonicalZTAPIMediaSelector(`{"image_operation":"edit","modality":"image","n":10,"quality":"standard","response_format":"url","size":"1024x1024"}`)
+	require.NoError(t, err)
+	require.Equal(t, "edit", edit.Operation)
+	require.Contains(t, mustCanonicalSelectorJSONForTest(t, edit), `"image_operation":"edit"`)
+}
+
+func mustCanonicalSelectorJSONForTest(t *testing.T, selector types.ZTAPIImageSelector) string {
+	t.Helper()
+	encodedSelector := ztapiMediaSelector{
+		Modality: "image", N: selector.N, Quality: selector.Quality,
+		ResponseFormat: selector.ResponseFormat, Size: selector.Size, Operation: selector.Operation,
+	}
+	if encodedSelector.Operation == "generation" {
+		encodedSelector.Operation = ""
+	}
+	encoded, err := common.Marshal(encodedSelector)
+	require.NoError(t, err)
+	return string(encoded)
+}
+
 func gptImageThreeDimensionContracts(t *testing.T) (types.ZTAPIMediaPriceContract, string, types.ZTAPIImageProtocolContract, string) {
 	t.Helper()
 	prices := map[string]string{"text_input": "1", "text_cached_input": "0.2", "image_input": "2", "image_cached_input": "0.4", "image_output": "4"}

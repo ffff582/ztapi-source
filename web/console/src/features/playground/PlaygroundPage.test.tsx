@@ -53,7 +53,14 @@ function mediaCatalogResponse() {
       qualities: ['standard', 'hd'],
       response_formats: ['url', 'b64_json'],
       min_count: 1,
-      max_count: 2,
+      max_count: 10,
+      supports_edits: true,
+      edit_input: {
+        max_files: 15,
+        max_bytes: 20 * 1024 * 1024,
+        max_total_bytes: 256 * 1024 * 1024,
+        mime_types: ['image/jpeg', 'image/png', 'image/webp'],
+      },
     },
     input_price_per_million: '',
     output_price_per_million: '',
@@ -97,6 +104,17 @@ function mediaCatalogResponse() {
   };
 }
 
+function mediaCatalogWithoutEditsResponse() {
+  const response = mediaCatalogResponse();
+  return {
+    ...response,
+    catalog: response.catalog.map((item) => {
+      if (item.model_name !== 'zt-image-2' || !('supported_options' in item)) return item;
+      return { ...item, supported_options: { ...item.supported_options, supports_edits: false, edit_input: undefined } };
+    }),
+  };
+}
+
 describe('PlaygroundPage', () => {
   beforeEach(() => {
     setAuthSession({
@@ -124,6 +142,7 @@ describe('PlaygroundPage', () => {
     expect(await screen.findByRole('button', { name: '新对话' })).toBeVisible();
     expect(screen.getByText('询问 ZTAPI')).toBeVisible();
     expect(screen.getByLabelText('文本模型')).toHaveValue('zt-gpt-5.6-sol');
+    expect(screen.getByLabelText('输入消息')).toHaveValue('');
     expect(screen.getByRole('button', { name: '添加附件' })).toBeVisible();
     expect(screen.getByRole('button', { name: '发送' })).toBeVisible();
     expect(screen.queryByText('发送测试请求')).not.toBeInTheDocument();
@@ -138,7 +157,9 @@ describe('PlaygroundPage', () => {
 
     render(<MemoryRouter initialEntries={['/console/workbench/image']}><PlaygroundPage initialMode="image" workbench /></MemoryRouter>);
 
-    expect(await screen.findByRole('heading', { name: '图像工作台' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: '创建一张图片' })).toBeVisible();
+    expect(screen.getByRole('heading', { level: 1, name: '图像工作台' })).toHaveClass('sr-only');
+    expect(document.querySelector('.console-page__header')).not.toBeInTheDocument();
     expect(screen.getByLabelText('图片模型')).toHaveValue('zt-image-2');
     expect(screen.getByLabelText('图片提示词')).toBeVisible();
     expect(screen.getByLabelText('图片尺寸')).toBeVisible();
@@ -147,6 +168,8 @@ describe('PlaygroundPage', () => {
     expect(screen.getByText('最近生成')).toBeVisible();
     expect(screen.getByRole('button', { name: '生成图片' })).toBeVisible();
     expect(screen.getByRole('button', { name: '重置图像参数' })).toBeVisible();
+    expect(screen.getByLabelText('上传参考图')).toBeInTheDocument();
+    expect(within(screen.getByLabelText('图片数量')).getAllByRole('option')).toHaveLength(10);
     expect(screen.getByText('RUN')).toBeVisible();
     expect(screen.getByText('按实际 API 计费')).toBeVisible();
     expect(screen.getByText('当前使用 Key：已脱敏')).toBeVisible();
@@ -154,8 +177,88 @@ describe('PlaygroundPage', () => {
 
     fireEvent.change(screen.getByLabelText('图片提示词'), { target: { value: '临时提示词' } });
     fireEvent.click(screen.getByRole('button', { name: '重置图像参数' }));
-    expect(screen.getByLabelText('图片提示词')).toHaveValue('一只在雨中的橘猫');
+    expect(screen.getByLabelText('图片提示词')).toHaveValue('');
     expect(screen.queryByText('发送测试请求')).not.toBeInTheDocument();
+  });
+
+  it('accepts ordered reference images, supports ten outputs, and removes previews safely', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith('/api/user/models')) return jsonResponse(mediaCatalogResponse());
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<MemoryRouter initialEntries={['/console/workbench/image']}><PlaygroundPage initialMode="image" workbench /></MemoryRouter>);
+    expect(await screen.findByRole('heading', { name: '创建一张图片' })).toBeVisible();
+    const referenceInput = screen.getByLabelText('上传参考图');
+    const first = new File([new Uint8Array([1, 2])], 'first.png', { type: 'image/png' });
+    const second = new File([new Uint8Array([3, 4])], 'second.webp', { type: 'image/webp' });
+    fireEvent.change(referenceInput, { target: { files: [first, second] } });
+
+    expect(await screen.findByAltText('参考图 1')).toHaveAttribute('alt', '参考图 1');
+    expect(screen.getByAltText('参考图 2')).toHaveAttribute('alt', '参考图 2');
+    expect(screen.getByText('first.png')).toBeVisible();
+    expect(screen.getByText('second.webp')).toBeVisible();
+    expect(screen.getByRole('button', { name: '编辑图片' })).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: '删除参考图 1' }));
+    expect(screen.getByAltText('参考图 1')).toBeVisible();
+    expect(screen.queryByAltText('参考图 2')).not.toBeInTheDocument();
+    expect(screen.getByText('second.webp')).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a sixteenth reference image before any billable request', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith('/api/user/models')) return jsonResponse(mediaCatalogResponse());
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<MemoryRouter initialEntries={['/console/workbench/image']}><PlaygroundPage initialMode="image" workbench /></MemoryRouter>);
+    await screen.findByRole('heading', { name: '创建一张图片' });
+    const files = Array.from({ length: 16 }, (_, index) => new File([new Uint8Array([index])], `image-${index + 1}.png`, { type: 'image/png' }));
+    fireEvent.change(screen.getByLabelText('上传参考图'), { target: { files } });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('最多上传 15 张参考图');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes a multi-reference submission to the image edit endpoint with ten outputs', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.endsWith('/api/user/models')) return jsonResponse(mediaCatalogResponse());
+      if (url.endsWith('/pg/images/edits')) {
+        const body = init?.body as FormData;
+        expect(body.getAll('image')).toHaveLength(2);
+        expect(body.get('n')).toBe('10');
+        expect(body.get('prompt')).toBe('合成两张参考图');
+        return jsonResponse({ created: 1, data: [{ url: 'https://cdn.example/edited.png' }] }, 200, { 'X-Request-ID': 'req-edit-1' });
+      }
+      if (url.includes('/api/log/self?')) return jsonResponse({ success: true, data: { page: 1, page_size: 1, total: 0, items: [] } });
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<MemoryRouter initialEntries={['/console/workbench/image']}><PlaygroundPage initialMode="image" workbench /></MemoryRouter>);
+    await screen.findByRole('heading', { name: '创建一张图片' });
+    fireEvent.change(screen.getByLabelText('上传参考图'), {
+      target: {
+        files: [
+          new File([new Uint8Array([1])], 'first.png', { type: 'image/png' }),
+          new File([new Uint8Array([2])], 'second.png', { type: 'image/png' }),
+        ],
+      },
+    });
+    fireEvent.change(screen.getByLabelText('图片提示词'), { target: { value: '合成两张参考图' } });
+    fireEvent.change(screen.getByLabelText('图片数量'), { target: { value: '10' } });
+    fireEvent.click(await screen.findByRole('button', { name: '编辑图片' }));
+
+    expect(await screen.findByRole('img', { name: '生成结果 1' })).toHaveAttribute('src', 'https://cdn.example/edited.png');
+    expect(screen.getByText('req-edit-1')).toBeVisible();
+    expect(fetchMock.mock.calls.some(([input]) => input.toString().endsWith('/pg/images/generations'))).toBe(false);
   });
 
   it('renders a video task workspace with capability-driven controls and a result area', async () => {
@@ -167,7 +270,7 @@ describe('PlaygroundPage', () => {
 
     render(<MemoryRouter initialEntries={['/console/workbench/video']}><PlaygroundPage initialMode="video" workbench /></MemoryRouter>);
 
-    expect(await screen.findByRole('heading', { name: '视频工作台' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: '创建一段视频' })).toBeVisible();
     expect(screen.getByLabelText('视频模型')).toHaveValue('zt-video-2');
     expect(screen.getByText('生成模式')).toBeVisible();
     expect(screen.getByRole('button', { name: '文生视频' })).toBeVisible();
@@ -176,6 +279,21 @@ describe('PlaygroundPage', () => {
     expect(screen.getByText('生成结果')).toBeVisible();
     expect(screen.getByRole('button', { name: '生成视频' })).toBeVisible();
     expect(screen.queryByText('发送测试请求')).not.toBeInTheDocument();
+  });
+
+  it('shows a visible disabled reference-image state when the selected model is generation-only', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith('/api/user/models')) return jsonResponse(mediaCatalogWithoutEditsResponse());
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+
+    render(<MemoryRouter initialEntries={['/console/workbench/image']}><PlaygroundPage initialMode="image" workbench /></MemoryRouter>);
+
+    await screen.findByRole('heading', { name: '创建一张图片' });
+    expect(screen.getByText('参考图编辑未开放')).toBeVisible();
+    expect(screen.getByText('当前模型仅支持文本生成图片，请切换到支持图像编辑的模型。')).toBeVisible();
+    expect(screen.queryByLabelText('上传参考图')).not.toBeInTheDocument();
   });
 
   it('loads only compatible text models and runs a normally billed request', async () => {

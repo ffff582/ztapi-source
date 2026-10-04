@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	basecommon "github.com/QuantumNous/new-api/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/shopspring/decimal"
 	"github.com/tidwall/gjson"
@@ -156,7 +157,7 @@ func NormalizeZTAPIImageUsageCandidate(info *RelayInfo, handoff *ZTAPIValidatedI
 	if !ok || total != sum || total == 0 {
 		return pendingZTAPIMediaUsageEvidence(evidence, fmt.Errorf("%w: usage total does not equal the declared dimension sum", ErrZTAPIMediaUsagePending))
 	}
-	selectedRuleID, priceRuleIDs, err := selectZTAPIImageUsageRules(info.ZTAPIPublicationSnapshot.MediaPriceContractJSON, quantities)
+	selectedRuleID, priceRuleIDs, err := selectZTAPIImageUsageRules(info.ZTAPIPublicationSnapshot.MediaPriceContractJSON, quantities, ztapiImageOperation(info))
 	if err != nil {
 		return ZTAPIMediaUsageEvidence{}, err
 	}
@@ -231,17 +232,31 @@ func pendingZTAPIMediaUsageEvidence(evidence ZTAPIMediaUsageEvidence, err error)
 	return evidence, err
 }
 
-func selectZTAPIImageUsageRules(mediaPriceContractJSON string, quantities map[string]int64) (string, map[string]string, error) {
+func selectZTAPIImageUsageRules(mediaPriceContractJSON string, quantities map[string]int64, operation string) (string, map[string]string, error) {
 	contract, err := types.ParseZTAPIMediaPriceContract(mediaPriceContractJSON)
 	if err != nil {
 		return "", nil, fmt.Errorf("frozen ZTAPI media price contract is invalid: %w", err)
 	}
 	if _, tiered := contract.Rules[0].Conditions["prompt_tokens_tier"]; !tiered {
+		conditionsFor := func(bucket string) (map[string]string, error) {
+			conditions := map[string]string{"token_bucket": bucket}
+			if _, operationAware := contract.Rules[0].Conditions["image_operation"]; operationAware {
+				if operation != "generation" && operation != "edit" {
+					return nil, errors.New("unsupported image operation")
+				}
+				conditions["image_operation"] = operation
+			} else if operation == "edit" {
+				return nil, errors.New("image edit pricing is not published")
+			}
+			return conditions, nil
+		}
 		ruleIDs := make(map[string]string, len(quantities))
 		for dimension := range quantities {
-			rule, selectErr := types.SelectZTAPIMediaPriceRule(mediaPriceContractJSON, types.ZTAPIMediaPriceSelector{
-				Modality: "image", Conditions: map[string]string{"token_bucket": dimension},
-			})
+			conditions, conditionsErr := conditionsFor(dimension)
+			if conditionsErr != nil {
+				return "", nil, fmt.Errorf("frozen ZTAPI image media price rule is invalid: %w", conditionsErr)
+			}
+			rule, selectErr := types.SelectZTAPIMediaPriceRule(mediaPriceContractJSON, types.ZTAPIMediaPriceSelector{Modality: "image", Conditions: conditions})
 			if selectErr != nil {
 				return "", nil, fmt.Errorf("frozen ZTAPI image media price rule is invalid: %w", selectErr)
 			}
@@ -253,9 +268,18 @@ func selectZTAPIImageUsageRules(mediaPriceContractJSON string, quantities map[st
 	if quantities["input_tokens"] > 200000 {
 		tier = "gt_200k"
 	}
+	conditions := map[string]string{"prompt_tokens_tier": tier}
+	if _, operationAware := contract.Rules[0].Conditions["image_operation"]; operationAware {
+		if operation != "generation" && operation != "edit" {
+			return "", nil, errors.New("unsupported image operation")
+		}
+		conditions["image_operation"] = operation
+	} else if operation == "edit" {
+		return "", nil, errors.New("image edit pricing is not published")
+	}
 	rule, err := types.SelectZTAPIMediaPriceRule(mediaPriceContractJSON, types.ZTAPIMediaPriceSelector{
 		Modality:   "image",
-		Conditions: map[string]string{"prompt_tokens_tier": tier},
+		Conditions: conditions,
 	})
 	if err != nil {
 		return "", nil, fmt.Errorf("frozen ZTAPI image media price rule is invalid: %w", err)
@@ -291,10 +315,17 @@ func validateZTAPIMediaUsageAuthority(info *RelayInfo, handoff *ZTAPIValidatedIm
 	if contract.Usage.CacheSemantics == "included_in_input" {
 		return contract, fmt.Errorf("%w: included cache usage cannot be separated for pricing", ErrZTAPIMediaUsagePending)
 	}
-	if err := types.ValidateZTAPIImagePriceProtocolCompatibility(mediaContract, contract); err != nil {
+	if err := types.ValidateZTAPIImagePriceProtocolCompatibilityForOperation(mediaContract, contract, ztapiImageOperation(info)); err != nil {
 		return types.ZTAPIImageProtocolContract{}, fmt.Errorf("frozen ZTAPI image contracts mismatch: %w", err)
 	}
 	return contract, nil
+}
+
+func ztapiImageOperation(info *RelayInfo) string {
+	if info != nil && (info.RelayMode == relayconstant.RelayModeImagesEdits || strings.HasPrefix(info.RequestURLPath, "/v1/images/edits")) {
+		return "edit"
+	}
+	return "generation"
 }
 
 func exactZTAPIMediaUsageInteger(result gjson.Result) (int64, bool) {

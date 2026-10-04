@@ -206,9 +206,13 @@ func priceZTAPIImageAttemptBilling(parent model.ZTAPIRequestSettlement, submissi
 	if err != nil || contract.Modality != model.ZTAPIModalityImage {
 		return invalid, model.ErrZTAPIAttemptBillingInvalid
 	}
+	selector, selectorJSON, selectorErr := canonicalZTAPIMediaSelector(frozen.SelectorJSON)
+	if selectorErr != nil || selectorJSON != frozen.SelectorJSON {
+		return invalid, model.ErrZTAPIAttemptBillingInvalid
+	}
 	protocol, protocolJSON, err := types.ParseZTAPIImageProtocolContract(frozen.ImageProtocolContractJSON)
 	if err != nil || protocolJSON != frozen.ImageProtocolContractJSON || protocol.EvidenceHash != frozen.ProtocolEvidenceHash ||
-		types.ValidateZTAPIImagePriceProtocolCompatibility(contract, protocol) != nil {
+		types.ValidateZTAPIImagePriceProtocolCompatibilityForOperation(contract, protocol, selector.Operation) != nil {
 		return invalid, model.ErrZTAPIAttemptBillingInvalid
 	}
 	dimensions := make(map[string]decimal.Decimal, len(submission.Usage))
@@ -228,7 +232,7 @@ func priceZTAPIImageAttemptBilling(parent model.ZTAPIRequestSettlement, submissi
 		!matchesZTAPIImageRawUsage(protocol, submission.RawUsageJSON, dimensions) {
 		return invalid, model.ErrZTAPIAttemptBillingInvalid
 	}
-	selectedRuleID, ruleIDs, err := deriveZTAPIImageAttemptRules(contract, dimensions)
+	selectedRuleID, ruleIDs, err := deriveZTAPIImageAttemptRules(contract, dimensions, selector.Operation)
 	if err != nil || submission.SelectedRuleID != selectedRuleID || !equalZTAPIStringMaps(submission.PriceRuleIDs, ruleIDs) {
 		return invalid, model.ErrZTAPIAttemptBillingInvalid
 	}
@@ -307,7 +311,7 @@ func ztapiImageDimensionsMatchProtocol(dimensions map[string]decimal.Decimal, pr
 	return true
 }
 
-func deriveZTAPIImageAttemptRules(contract types.ZTAPIMediaPriceContract, dimensions map[string]decimal.Decimal) (string, map[string]string, error) {
+func deriveZTAPIImageAttemptRules(contract types.ZTAPIMediaPriceContract, dimensions map[string]decimal.Decimal, operation string) (string, map[string]string, error) {
 	if len(contract.Rules) == 0 || len(dimensions) == 0 {
 		return "", nil, model.ErrZTAPIAttemptBillingInvalid
 	}
@@ -326,7 +330,7 @@ func deriveZTAPIImageAttemptRules(contract types.ZTAPIMediaPriceContract, dimens
 			tier = "gt_200k"
 		}
 		for _, rule := range contract.Rules {
-			if rule.Conditions["prompt_tokens_tier"] == tier {
+			if rule.Conditions["prompt_tokens_tier"] == tier && ztapiImagePriceRuleMatchesOperation(rule, operation) {
 				ruleIDs["input_tokens"], ruleIDs["output_tokens"] = rule.ID, rule.ID
 				return rule.ID, ruleIDs, nil
 			}
@@ -339,7 +343,7 @@ func deriveZTAPIImageAttemptRules(contract types.ZTAPIMediaPriceContract, dimens
 			if len(rule.SaleUSD) != 1 {
 				return "", nil, model.ErrZTAPIAttemptBillingInvalid
 			}
-			if _, ok := rule.SaleUSD[dimension]; ok && rule.Conditions["token_bucket"] == dimension {
+			if _, ok := rule.SaleUSD[dimension]; ok && rule.Conditions["token_bucket"] == dimension && ztapiImagePriceRuleMatchesOperation(rule, operation) {
 				ruleIDs[dimension] = rule.ID
 				matched = true
 				break
@@ -350,6 +354,14 @@ func deriveZTAPIImageAttemptRules(contract types.ZTAPIMediaPriceContract, dimens
 		}
 	}
 	return "", ruleIDs, nil
+}
+
+func ztapiImagePriceRuleMatchesOperation(rule types.ZTAPIMediaPriceRule, operation string) bool {
+	declared, operationAware := rule.Conditions["image_operation"]
+	if !operationAware {
+		return operation == "generation"
+	}
+	return declared == operation
 }
 
 func ztapiAttemptTokenDimension(name string) bool {

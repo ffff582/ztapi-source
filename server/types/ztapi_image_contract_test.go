@@ -250,6 +250,96 @@ func TestZTAPIImageProtocolContractCloneDeepCopiesMutableFields(t *testing.T) {
 	require.Equal(t, "200000", original.Reservations[0].MaximumDimensions["input_tokens"])
 }
 
+func multiImageEditContractForTest() ZTAPIImageProtocolContract {
+	contract := syntheticZTAPIImageProtocolContract()
+	contract.Version = ZTAPIImageProtocolContractVersionV3
+	contract.Capabilities.SupportsEdits = true
+	contract.Capabilities.MaxCount = 10
+	contract.WireProtocol = ZTAPIImageWireProtocolOpenAIImages
+	contract.ProviderPath = "/v1/images/generations"
+	contract.RequestIDField = ""
+	contract.RequestIDSource = ZTAPIResponseIDSourceHeader
+	contract.RequestIDKey = "X-Request-ID"
+	contract.Edit = &ZTAPIImageEditEndpointContract{
+		Method:             "POST",
+		Path:               "/v1/images/edits",
+		ContentType:        "multipart/form-data",
+		WireProtocol:       ZTAPIImageWireProtocolOpenAIImagesEdit,
+		ProviderPath:       "/v1/images/edits",
+		InputField:         "image",
+		MaxInputFiles:      15,
+		MaxInputBytes:      20 << 20,
+		MaxTotalInputBytes: 256 << 20,
+		AllowedMimeTypes:   []string{"image/jpeg", "image/png", "image/webp"},
+		RequestFields: map[string]string{
+			"model": "required", "prompt": "required", "n": "required",
+			"size": "required", "quality": "optional", "response_format": "optional",
+		},
+	}
+	contract.Reservations = nil
+	for _, operation := range []string{"generation", "edit"} {
+		for _, size := range contract.Capabilities.Sizes {
+			for _, quality := range contract.Capabilities.Qualities {
+				for _, responseFormat := range contract.Capabilities.ResponseFormats {
+					for n := contract.Capabilities.MinCount; n <= contract.Capabilities.MaxCount; n++ {
+						contract.Reservations = append(contract.Reservations, ZTAPIImageReservationAuthority{
+							Operation: operation, Size: size, Quality: quality, ResponseFormat: responseFormat, N: n,
+							MaximumDimensions: map[string]string{"input_tokens": "200000", "output_tokens": "4096"},
+						})
+					}
+				}
+			}
+		}
+	}
+	return contract
+}
+
+func TestZTAPIImageProtocolContractAcceptsMultiImageEditContractAndTenOutputs(t *testing.T) {
+	sealed, canonical, err := SealZTAPIImageProtocolContract(multiImageEditContractForTest())
+	require.NoError(t, err)
+	require.NotEmpty(t, canonical)
+	require.Equal(t, ZTAPIImageProtocolContractVersionV3, sealed.Version)
+	require.True(t, sealed.Capabilities.SupportsEdits)
+	require.Equal(t, 10, sealed.Capabilities.MaxCount)
+	require.Len(t, sealed.Reservations, 160)
+	_, ok := sealed.FindReservationAuthority(ZTAPIImageSelector{Operation: "edit", Size: "1024x1024", Quality: "standard", ResponseFormat: "url", N: 10})
+	require.True(t, ok)
+	_, ok = sealed.FindReservationAuthority(ZTAPIImageSelector{Operation: "edit", Size: "1024x1024", Quality: "standard", ResponseFormat: "url", N: 11})
+	require.False(t, ok)
+	require.NotNil(t, sealed.Edit)
+	require.Equal(t, 15, sealed.Edit.MaxInputFiles)
+	require.Equal(t, int64(20<<20), sealed.Edit.MaxInputBytes)
+	require.Equal(t, int64(256<<20), sealed.Edit.MaxTotalInputBytes)
+	require.Equal(t, []string{"image/jpeg", "image/png", "image/webp"}, sealed.Edit.AllowedMimeTypes)
+
+	parsed, reparsed, err := ParseZTAPIImageProtocolContract(canonical)
+	require.NoError(t, err)
+	require.Equal(t, canonical, reparsed)
+	require.Equal(t, sealed, parsed)
+}
+
+func TestZTAPIImageProtocolContractRejectsInvalidMultiImageEditLimits(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*ZTAPIImageProtocolContract)
+	}{
+		{"missing edit contract", func(c *ZTAPIImageProtocolContract) { c.Edit = nil }},
+		{"zero input files", func(c *ZTAPIImageProtocolContract) { c.Edit.MaxInputFiles = 0 }},
+		{"too many input files", func(c *ZTAPIImageProtocolContract) { c.Edit.MaxInputFiles = 16 }},
+		{"zero per-file bytes", func(c *ZTAPIImageProtocolContract) { c.Edit.MaxInputBytes = 0 }},
+		{"total smaller than one file", func(c *ZTAPIImageProtocolContract) { c.Edit.MaxTotalInputBytes = c.Edit.MaxInputBytes - 1 }},
+		{"missing input mime", func(c *ZTAPIImageProtocolContract) { c.Edit.AllowedMimeTypes = nil }},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			contract := multiImageEditContractForTest()
+			tc.mutate(&contract)
+			_, _, err := SealZTAPIImageProtocolContract(contract)
+			require.Error(t, err)
+		})
+	}
+}
+
 func TestZTAPIImageProtocolReservationAuthorityCoversEveryAdmittedSelectorExactlyOnce(t *testing.T) {
 	sealed, _, err := SealZTAPIImageProtocolContract(syntheticZTAPIImageProtocolContract())
 	require.NoError(t, err)
@@ -265,6 +355,22 @@ func TestZTAPIImageProtocolReservationAuthorityCoversEveryAdmittedSelectorExactl
 		Size: "2048x2048", Quality: "high", ResponseFormat: "b64_json", N: 4,
 	})
 	require.False(t, ok)
+}
+
+func TestZTAPIImageReservationAuthoritySeparatesGenerationAndEditOperations(t *testing.T) {
+	contract := syntheticZTAPIImageProtocolContract()
+	contract.Capabilities.SupportsEdits = true
+	contract.Edit = &ZTAPIImageEditEndpointContract{}
+	contract.Reservations = []ZTAPIImageReservationAuthority{
+		{Operation: "generation", Size: "1024x1024", Quality: "standard", ResponseFormat: "url", N: 1, MaximumDimensions: map[string]string{"input_tokens": "20", "output_tokens": "10"}},
+		{Operation: "edit", Size: "1024x1024", Quality: "standard", ResponseFormat: "url", N: 1, MaximumDimensions: map[string]string{"input_tokens": "40", "output_tokens": "20"}},
+	}
+	generation, ok := contract.FindReservationAuthority(ZTAPIImageSelector{Operation: "generation", Size: "1024x1024", Quality: "standard", ResponseFormat: "url", N: 1})
+	require.True(t, ok)
+	require.Equal(t, "20", generation.MaximumDimensions["input_tokens"])
+	edit, ok := contract.FindReservationAuthority(ZTAPIImageSelector{Operation: "edit", Size: "1024x1024", Quality: "standard", ResponseFormat: "url", N: 1})
+	require.True(t, ok)
+	require.Equal(t, "40", edit.MaximumDimensions["input_tokens"])
 }
 
 func TestZTAPIImageProtocolReservationAuthorityRejectsIncompleteDuplicateAndInvalidBounds(t *testing.T) {

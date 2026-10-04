@@ -1,5 +1,5 @@
 import { CheckCircle2, CircleAlert, CircleDollarSign, Copy, Download, FilePlus2, Image as ImageIcon, Images, MessageCircle, Paperclip, Play, Plus, RefreshCw, RotateCcw, Send, Settings2, Sparkles, Video as VideoIcon } from 'lucide-react';
-import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ChangeEvent, DragEvent as ReactDragEvent, FormEvent, PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { apiClient, getAuthSession } from '../../api/client';
 import { parseUserLogPage, parseUserModelCatalog, type UserModelCatalogItem, type UserModelSupportedOptions } from '../../api/contracts';
@@ -15,10 +15,17 @@ import { markModelSelected } from '../onboarding/onboarding';
 
 type PlaygroundMode = 'text' | 'image' | 'video';
 
-const defaultPrompt = '请用一句话介绍你自己。';
-const imageDefaultPrompt = '一只在雨中的橘猫';
-const videoDefaultPrompt = '镜头缓慢推进一片森林';
+const defaultPrompt = '';
+const imageDefaultPrompt = '';
+const videoDefaultPrompt = '';
 const VIDEO_POLL_INTERVAL_MS = 1200;
+type ReferenceImage = {
+  file: File;
+  previewUrl: string;
+  objectUrl?: string;
+};
+
+type ImageEditInput = NonNullable<UserModelSupportedOptions['edit_input']>;
 
 function defaultPromptForMode(mode: PlaygroundMode) {
   if (mode === 'image') return imageDefaultPrompt;
@@ -118,6 +125,54 @@ function imageSource(image: PlaygroundImageResult['images'][number]) {
   return image.b64_json ? `data:image/png;base64,${image.b64_json}` : '';
 }
 
+function formatBytes(value: number) {
+  if (value >= 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  if (value >= 1024) return `${Math.max(1, Math.round(value / 1024))} KB`;
+  return `${value} B`;
+}
+
+function revokeReferencePreview(reference: ReferenceImage) {
+  if (reference.objectUrl !== undefined && typeof URL.revokeObjectURL === 'function') {
+    URL.revokeObjectURL(reference.objectUrl);
+  }
+}
+
+function createReferencePreview(file: File): ReferenceImage {
+  if (typeof URL.createObjectURL === 'function') {
+    const objectUrl = URL.createObjectURL(file);
+    return { file, previewUrl: objectUrl, objectUrl };
+  }
+  return { file, previewUrl: `data:${file.type || 'application/octet-stream'};base64,` };
+}
+
+function imageEditCapability(item: UserModelCatalogItem | null): ImageEditInput | null {
+  if (item?.modality !== 'image' || item.supported_options?.supports_edits !== true) return null;
+  return item.supported_options.edit_input ?? null;
+}
+
+function referenceValidationError(
+  existing: ReferenceImage[],
+  files: File[],
+  limits: ImageEditInput,
+) {
+  if (existing.length + files.length > limits.max_files) {
+    return `最多上传 ${limits.max_files} 张参考图。`;
+  }
+  for (const file of files) {
+    if (!limits.mime_types.includes(file.type)) {
+      return `不支持 ${file.type || '未知'} 格式，请上传 JPG、PNG 或 WebP。`;
+    }
+    if (file.size > limits.max_bytes) {
+      return `${file.name} 超过单张 ${formatBytes(limits.max_bytes)} 的大小限制。`;
+    }
+  }
+  const totalBytes = existing.reduce((total, item) => total + item.file.size, 0) + files.reduce((total, file) => total + file.size, 0);
+  if (totalBytes > limits.max_total_bytes) {
+    return `参考图总大小不能超过 ${formatBytes(limits.max_total_bytes)}。`;
+  }
+  return '';
+}
+
 type PlaygroundPageProps = {
   initialMode?: PlaygroundMode;
   workbench?: boolean;
@@ -149,7 +204,11 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
   const [videoSequence, setVideoSequence] = useState(0);
   const [videoStartedAt, setVideoStartedAt] = useState<number | null>(null);
   const [textAttachmentName, setTextAttachmentName] = useState('');
+  const [referenceImages, setReferenceImages] = useState<ReferenceImage[]>([]);
+  const [referenceError, setReferenceError] = useState('');
   const textAttachmentInput = useRef<HTMLInputElement>(null);
+  const referenceInput = useRef<HTMLInputElement>(null);
+  const referenceImagesRef = useRef<ReferenceImage[]>([]);
   const requestSequence = useRef(0);
 
   const model = modelByMode[mode];
@@ -162,7 +221,16 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
     [model, modeModels],
   );
   const selectedOptions = selectedCatalog?.supported_options;
+  const editInput = imageEditCapability(selectedCatalog);
   const example = useMemo(() => codeExample(mode, model), [mode, model]);
+
+  useEffect(() => {
+    referenceImagesRef.current = referenceImages;
+  }, [referenceImages]);
+
+  useEffect(() => () => {
+    referenceImagesRef.current.forEach(revokeReferencePreview);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -268,12 +336,30 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
   function handleModeChange(nextMode: PlaygroundMode) {
     if (nextMode === mode) return;
     clearResults();
+    if (mode === 'image' && nextMode !== 'image') {
+      setReferenceImages((current) => {
+        current.forEach(revokeReferencePreview);
+        return [];
+      });
+      setReferenceError('');
+    }
     setMode(nextMode);
     setPrompt(defaultPromptForMode(nextMode));
   }
 
   function handleModelChange(nextModel: string) {
     clearResults();
+    if (mode === 'image') {
+      const nextCatalog = models.find((item) => item.model_name === nextModel) ?? null;
+      const nextEditInput = imageEditCapability(nextCatalog);
+      if (nextEditInput === null || referenceValidationError([], referenceImages.map((reference) => reference.file), nextEditInput) !== '') {
+        setReferenceImages((current) => {
+          current.forEach(revokeReferencePreview);
+          return [];
+        });
+        setReferenceError(nextEditInput === null ? '当前模型不支持参考图，已清除已选文件。' : '当前模型的参考图限制更严格，已清除不兼容文件。');
+      }
+    }
     setModelByMode((current) => ({ ...current, [mode]: nextModel }));
     const userID = getAuthSession()?.user.id;
     if (userID !== undefined) markModelSelected(userID);
@@ -281,11 +367,50 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
 
   function resetImageForm() {
     clearResults();
-    setPrompt(imageDefaultPrompt);
+    setPrompt('');
+    setReferenceImages((current) => {
+      current.forEach(revokeReferencePreview);
+      return [];
+    });
+    setReferenceError('');
     setImageSize(firstOption(selectedOptions, 'sizes'));
     setImageQuality(firstOption(selectedOptions, 'qualities'));
     setImageResponseFormat(firstOption(selectedOptions, 'response_formats'));
     setImageCount(Math.max(1, selectedOptions?.min_count ?? 1));
+  }
+
+  function addReferenceImages(files: File[]) {
+    if (files.length === 0) return;
+    if (editInput === null) {
+      setReferenceError('当前模型不支持参考图。');
+      return;
+    }
+    const validationError = referenceValidationError(referenceImages, files, editInput);
+    if (validationError !== '') {
+      setReferenceError(validationError);
+      return;
+    }
+    setReferenceError('');
+    setReferenceImages((current) => [...current, ...files.map(createReferencePreview)]);
+  }
+
+  function handleReferenceImages(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = '';
+    addReferenceImages(files);
+  }
+
+  function handleReferenceDrop(event: ReactDragEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    addReferenceImages(Array.from(event.dataTransfer.files));
+  }
+
+  function removeReferenceImage(index: number) {
+    setReferenceImages((current) => current.filter((reference, referenceIndex) => {
+      if (referenceIndex !== index) return true;
+      revokeReferencePreview(reference);
+      return false;
+    }));
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -315,14 +440,17 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
         return;
       }
       if (mode === 'image') {
-        const value = await playgroundClient.imageGeneration({
+        const input = {
           model,
           prompt: normalizedPrompt,
           ...(imageSize === '' ? {} : { size: imageSize }),
           ...(imageQuality === '' ? {} : { quality: imageQuality }),
           n: imageCount,
           ...(imageResponseFormat === '' ? {} : { response_format: imageResponseFormat }),
-        });
+        };
+        const value = referenceImages.length === 0
+          ? await playgroundClient.imageGeneration(input)
+          : await playgroundClient.imageEdit(referenceImages.map((reference) => reference.file), input);
         if (sequence !== requestSequence.current) return;
         setElapsedMs(Math.max(0, Math.round(performance.now() - startedAt)));
         setImageResult(value);
@@ -367,6 +495,19 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
     }
   }
 
+  function handleWorkbenchPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.pointerType === 'touch' || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    const root = event.currentTarget;
+    const bounds = root.getBoundingClientRect();
+    root.style.setProperty('--zt-pointer-x', `${event.clientX - bounds.left}px`);
+    root.style.setProperty('--zt-pointer-y', `${event.clientY - bounds.top}px`);
+    root.style.setProperty('--zt-pointer-opacity', '1');
+  }
+
+  function handleWorkbenchPointerLeave(event: ReactPointerEvent<HTMLDivElement>) {
+    event.currentTarget.style.setProperty('--zt-pointer-opacity', '0');
+  }
+
   async function handleTextAttachment(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -383,7 +524,7 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
 
   function startTextConversation() {
     clearResults();
-    setPrompt(defaultPrompt);
+    setPrompt('');
     setTextAttachmentName('');
   }
 
@@ -403,6 +544,72 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
     );
   }
 
+  function renderImageReferenceField() {
+    if (editInput === null) {
+      return (
+        <div aria-disabled="true" className="zt-workbench__reference-field zt-workbench__reference-field--disabled">
+          <div className="zt-workbench__reference-heading">
+            <div>
+              <span className="zt-workbench__reference-label">参考图</span>
+              <p>当前模型仅支持文本生成图片，请切换到支持图像编辑的模型。</p>
+            </div>
+            <CircleAlert aria-hidden="true" size={17} />
+          </div>
+          <div className="zt-workbench__reference-disabled-state">
+            <Images aria-hidden="true" size={18} />
+            <strong>参考图编辑未开放</strong>
+          </div>
+        </div>
+      );
+    }
+    const referenceBytes = referenceImages.reduce((total, reference) => total + reference.file.size, 0);
+    return (
+      <div className="zt-workbench__reference-field">
+        <div className="zt-workbench__reference-heading">
+          <div>
+            <label htmlFor="workbench-image-references">参考图</label>
+            <p>最多 {editInput.max_files} 张，单张不超过 {formatBytes(editInput.max_bytes)}，总大小不超过 {formatBytes(editInput.max_total_bytes)}。</p>
+            <span className="zt-workbench__reference-summary">已选 {referenceImages.length} / {editInput.max_files} 张 · {formatBytes(referenceBytes)} / {formatBytes(editInput.max_total_bytes)}</span>
+          </div>
+          <button className="console-button console-button--secondary" type="button" onClick={() => referenceInput.current?.click()}>
+            <Plus aria-hidden="true" size={15} />添加参考图
+          </button>
+        </div>
+        <input
+          ref={referenceInput}
+          id="workbench-image-references"
+          aria-label="上传参考图"
+          accept={editInput.mime_types.join(',')}
+          hidden
+          multiple
+          type="file"
+          onChange={handleReferenceImages}
+        />
+        {referenceImages.length === 0 ? (
+          <button className="zt-workbench__reference-dropzone" type="button" onDragOver={(event) => event.preventDefault()} onDrop={handleReferenceDrop} onClick={() => referenceInput.current?.click()}>
+            <Images aria-hidden="true" size={20} />
+            <span>拖入参考图，或点击上传</span>
+            <small>支持 JPG、PNG、WebP，可一次选择多张</small>
+          </button>
+        ) : (
+          <div className="zt-workbench__reference-list" aria-label="已选参考图">
+            {referenceImages.map((reference, index) => (
+              <div className="zt-workbench__reference-item" key={`${reference.file.name}-${reference.file.lastModified}-${index}`}>
+                {reference.previewUrl === '' ? <Images aria-hidden="true" size={24} /> : <img alt={`参考图 ${index + 1}`} src={reference.previewUrl} />}
+                <div><strong>{reference.file.name}</strong><span>{formatBytes(reference.file.size)}</span></div>
+                <button aria-label={`删除参考图 ${index + 1}`} className="zt-workbench__reference-remove" type="button" onClick={() => removeReferenceImage(index)}>移除</button>
+              </div>
+            ))}
+            <button className="zt-workbench__reference-add" type="button" onClick={() => referenceInput.current?.click()}>
+              <Plus aria-hidden="true" size={16} />继续添加参考图
+            </button>
+          </div>
+        )}
+        {referenceError !== '' && <p className="zt-workbench__reference-error" role="alert">{referenceError}</p>}
+      </div>
+    );
+  }
+
   function renderCatalogState() {
     if (catalogStatus === 'loading') return <div className="console-state">{t('正在加载可测试模型...')}</div>;
     if (catalogStatus === 'error') return <div className="console-alert" role="alert">{t('可测试模型加载失败，请刷新后重试。')}</div>;
@@ -413,7 +620,8 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
 
   function renderTextWorkbench() {
     return (
-      <div className="zt-workbench zt-workbench--text">
+      <div className="zt-workbench zt-workbench--text" onPointerLeave={handleWorkbenchPointerLeave} onPointerMove={handleWorkbenchPointerMove}>
+        <div aria-hidden="true" className="zt-workbench__pointer-follow" />
         <aside className="zt-workbench__conversation-rail" aria-label="文本会话">
           <button className="zt-workbench__new-chat" type="button" onClick={startTextConversation}>
             <Plus aria-hidden="true" size={16} />
@@ -480,19 +688,22 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
 
   function renderImageWorkbench() {
     const gallery = imageHistory.flatMap((result) => result.images.map((image, index) => ({ image, index, requestID: result.request_id })));
+    const isEditing = referenceImages.length > 0;
     return (
-      <div className="zt-workbench zt-workbench--media">
+      <div className="zt-workbench zt-workbench--media" onPointerLeave={handleWorkbenchPointerLeave} onPointerMove={handleWorkbenchPointerMove}>
+        <div aria-hidden="true" className="zt-workbench__pointer-follow" />
         <section className="zt-workbench__config" aria-labelledby="image-config-heading">
-          <div className="zt-workbench__section-heading"><div><p className="console-eyebrow">图像生成</p><h2 id="image-config-heading">创建一张图片</h2></div><Settings2 aria-hidden="true" size={18} /></div>
+          <div className="zt-workbench__section-heading"><div><p className="console-eyebrow">{isEditing ? '图像编辑' : '图像生成'}</p><h2 id="image-config-heading">{isEditing ? '编辑一张图片' : '创建一张图片'}</h2></div><Settings2 aria-hidden="true" size={18} /></div>
           {renderBillingNote()}
           {renderCatalogState() ?? <form className="zt-workbench__media-form" onSubmit={handleSubmit}>
             <div className="console-field"><label htmlFor="workbench-image-model">图片模型</label><select id="workbench-image-model" value={model} onChange={(event) => handleModelChange(event.target.value)}>{modeModels.map((item) => <option key={item.model_name} value={item.model_name}>{item.model_name}</option>)}</select></div>
             <div className="zt-workbench__model-caption"><span>模型 ID</span><code>{model || '—'}</code></div>
+            {renderImageReferenceField()}
             <div className="console-field"><label htmlFor="workbench-image-prompt">图片提示词</label><textarea id="workbench-image-prompt" maxLength={4_000} rows={7} value={prompt} onChange={(event) => setPrompt(event.target.value)} /><p className="console-field__help">{prompt.length} / 4000 字符</p></div>
             <div className="playground-option-grid"><div className="console-field"><label htmlFor="workbench-image-size">图片尺寸</label><select id="workbench-image-size" value={imageSize} onChange={(event) => setImageSize(event.target.value)}>{selectedOptions?.sizes?.map((option) => <option key={option} value={option}>{option}</option>)}</select></div><div className="console-field"><label htmlFor="workbench-image-quality">图片质量</label><select id="workbench-image-quality" value={imageQuality} onChange={(event) => setImageQuality(event.target.value)}>{selectedOptions?.qualities?.map((option) => <option key={option} value={option}>{option}</option>)}</select></div><div className="console-field"><label htmlFor="workbench-image-count">图片数量</label><select id="workbench-image-count" value={imageCount} onChange={(event) => setImageCount(Number(event.target.value))}>{Array.from({ length: Math.max(1, (selectedOptions?.max_count ?? 1) - (selectedOptions?.min_count ?? 1) + 1) }, (_, index) => (selectedOptions?.min_count ?? 1) + index).map((count) => <option key={count} value={count}>{count}</option>)}</select></div><div className="console-field"><label htmlFor="workbench-image-format">返回格式</label><select id="workbench-image-format" value={imageResponseFormat} onChange={(event) => setImageResponseFormat(event.target.value)}>{selectedOptions?.response_formats?.map((option) => <option key={option} value={option}>{option}</option>)}</select></div></div>
             <div className="zt-workbench__action-row">
               <button aria-label="重置图像参数" className="zt-workbench__reset" title="重置图像参数" type="button" onClick={resetImageForm}><RotateCcw aria-hidden="true" size={17} /></button>
-              <button aria-label="生成图片" className="zt-workbench__run" disabled={requestStatus === 'sending' || model === '' || prompt.trim() === ''} type="submit"><Play aria-hidden="true" size={15} /><span>RUN</span><small>{requestStatus === 'sending' ? '生成中...' : '按实际 API 计费'}</small></button>
+              <button aria-label={isEditing ? '编辑图片' : '生成图片'} className="zt-workbench__run" disabled={requestStatus === 'sending' || model === '' || prompt.trim() === ''} type="submit"><Play aria-hidden="true" size={15} /><span>RUN</span><small>{requestStatus === 'sending' ? '生成中...' : '按实际 API 计费'}</small></button>
             </div>
             <p className="zt-workbench__key-footer"><span>当前使用 Key：已脱敏</span><Link to="/console/keys">更换</Link></p>
           </form>}
@@ -510,7 +721,8 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
   function renderVideoWorkbench() {
     const hasVideoInput = selectedOptions?.supports_video_input === true;
     return (
-      <div className="zt-workbench zt-workbench--media">
+      <div className="zt-workbench zt-workbench--media" onPointerLeave={handleWorkbenchPointerLeave} onPointerMove={handleWorkbenchPointerMove}>
+        <div aria-hidden="true" className="zt-workbench__pointer-follow" />
         <section className="zt-workbench__config" aria-labelledby="video-config-heading">
           <div className="zt-workbench__section-heading"><div><p className="console-eyebrow">视频生成</p><h2 id="video-config-heading">创建一段视频</h2></div><Settings2 aria-hidden="true" size={18} /></div>
           {renderBillingNote()}
@@ -536,11 +748,8 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
   if (workbench) {
     const title = mode === 'text' ? '文本工作台' : mode === 'image' ? '图像工作台' : '视频工作台';
     return (
-      <div className={`console-page playground-page workbench-page workbench-page--${mode}`}>
-        <header className="console-page__header">
-          <div><p className="console-eyebrow">工作台</p><h1>{t(title)}</h1></div>
-          <p>使用当前账号的 API Key，直接体验真实模型能力。</p>
-        </header>
+      <div aria-label={t(title)} className={`console-page playground-page workbench-page workbench-page--${mode}`}>
+        <h1 className="sr-only">{t(title)}</h1>
         {mode === 'text' ? renderTextWorkbench() : mode === 'image' ? renderImageWorkbench() : renderVideoWorkbench()}
         <section className="console-section workbench-code-section" aria-labelledby="playground-code-heading">
           <div className="console-section__heading"><div><p className="console-eyebrow">{t('接入代码')}</p><h2 id="playground-code-heading">{t('把相同模型接入你的程序')}</h2></div><button className="console-icon-action" type="button" onClick={copyExample}><Copy aria-hidden="true" size={15} />{t('复制代码')}</button></div>
@@ -605,6 +814,7 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
                     <textarea id={mode === 'text' ? 'playground-prompt' : `playground-${mode}-prompt`} maxLength={4_000} rows={mode === 'text' ? 7 : 5} value={prompt} onChange={(event) => setPrompt(event.target.value)} />
                     <p className="console-field__help">{t('{{count}} / 4000 字符', { count: prompt.length })}</p>
                   </div>
+                  {mode === 'image' && renderImageReferenceField()}
                   {mode === 'image' && selectedOptions && (
                     <div className="playground-option-grid">
                       <div className="console-field"><label htmlFor="playground-image-size">图片尺寸</label><select id="playground-image-size" value={imageSize} onChange={(event) => setImageSize(event.target.value)}>{selectedOptions.sizes?.map((option) => <option key={option} value={option}>{option}</option>)}</select></div>

@@ -65,6 +65,49 @@ describe('Media catalog contract', () => {
     expect(parsed.supported_options).toBeDefined();
   });
 
+  it('accepts a complete multi-reference image edit capability', () => {
+    const parsed = parseUserModelCatalog(envelope(mediaItem('image', {
+      supported_options: {
+        sizes: ['1024x1024'],
+        qualities: ['standard'],
+        response_formats: ['url'],
+        min_count: 1,
+        max_count: 10,
+        supports_edits: true,
+        edit_input: {
+          max_files: 15,
+          max_bytes: 20 * 1024 * 1024,
+          max_total_bytes: 256 * 1024 * 1024,
+          mime_types: ['image/jpeg', 'image/png', 'image/webp'],
+        },
+      },
+    }))).catalog[0];
+    expect(parsed.supported_options).toMatchObject({
+      supports_edits: true,
+      edit_input: { max_files: 15, max_bytes: 20 * 1024 * 1024, max_total_bytes: 256 * 1024 * 1024 },
+      max_count: 10,
+    });
+  });
+
+  it('rejects image edit capabilities beyond the published limits', () => {
+    expect(() => parseUserModelCatalog(envelope(mediaItem('image', {
+      supported_options: {
+        sizes: ['1024x1024'],
+        qualities: ['standard'],
+        response_formats: ['url'],
+        min_count: 1,
+        max_count: 11,
+        supports_edits: true,
+        edit_input: {
+          max_files: 16,
+          max_bytes: 20 * 1024 * 1024,
+          max_total_bytes: 256 * 1024 * 1024,
+          mime_types: ['image/png'],
+        },
+      },
+    })))).toThrow();
+  });
+
   it.each([
     ['video with chat endpoint', 'video', { supported_endpoint_types: ['openai'] }],
     ['image with video endpoint', 'image', { supported_endpoint_types: ['video-tasks'] }],

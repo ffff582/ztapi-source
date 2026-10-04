@@ -1,6 +1,7 @@
-import { expect, test, type Page, type Route } from '@playwright/test';
+import { expect, test, type Page, type Request, type Route } from '@playwright/test';
 
 const adminBaseURL = process.env.ZTAPI_ADMIN_E2E_BASE_URL ?? 'http://127.0.0.1:4174';
+const fixtureImageBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
 const userSession = {
   success: true,
@@ -36,11 +37,18 @@ const imageModel = {
   billing_unit: 'usd_per_million_tokens',
   pricing_version: 'media-browser-v1',
   supported_options: {
-    sizes: ['1024x1024'],
-    qualities: ['standard'],
-    response_formats: ['url'],
+    sizes: ['1024x1024', '1536x1024'],
+    qualities: ['standard', 'hd'],
+    response_formats: ['url', 'b64_json'],
     min_count: 1,
-    max_count: 2,
+    max_count: 10,
+    supports_edits: true,
+    edit_input: {
+      max_files: 15,
+      max_bytes: 20 * 1024 * 1024,
+      max_total_bytes: 256 * 1024 * 1024,
+      mime_types: ['image/jpeg', 'image/png', 'image/webp'],
+    },
   },
   pricing_rules: [
     {
@@ -234,7 +242,11 @@ function watchBrowser(page: Page) {
   return { browserErrors, failedAPIs };
 }
 
-async function installConsoleAPI(page: Page, unexpected: string[]) {
+async function installConsoleAPI(
+  page: Page,
+  unexpected: string[],
+  options: { onImageEdit?: (request: Request) => Promise<void> } = {},
+) {
   await page.route('**/pg/**', async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname === '/pg/chat/completions') {
@@ -246,6 +258,21 @@ async function installConsoleAPI(page: Page, unexpected: string[]) {
           id: 'chatcmpl-browser-001',
           choices: [{ message: { content: '在线测试连接正常。' }, finish_reason: 'stop' }],
           usage: { prompt_tokens: 120, completion_tokens: 48, total_tokens: 168 },
+        }),
+      });
+      return;
+    }
+    if (url.pathname === '/pg/images/edits') {
+      await options.onImageEdit?.(route.request());
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        headers: { 'X-Request-ID': 'req-browser-image-edit-001' },
+        body: JSON.stringify({
+          created: 10,
+          data: Array.from({ length: 10 }, (_, index) => ({
+            b64_json: fixtureImageBase64,
+          })),
         }),
       });
       return;
@@ -444,8 +471,9 @@ test('user media catalog, guide and wallet remain usable without data exposure',
   });
 
   await page.goto('/console/test?model=zt-claude-sonnet-5');
-  await expect(page.getByRole('heading', { level: 1, name: '文本工作台' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '开始一段对话' })).toBeVisible();
   await expect(page.getByLabel('文本模型')).toHaveValue('zt-claude-sonnet-5');
+  await page.getByLabel('输入消息').fill('请介绍你自己。');
   await page.getByRole('button', { name: '发送' }).click();
   await expect(page.getByText('在线测试连接正常。')).toBeVisible();
   await expect(page.getByText('0.004321 U')).toBeVisible();
@@ -454,14 +482,14 @@ test('user media catalog, guide and wallet remain usable without data exposure',
   await expectConsoleRegionsDoNotOverlap(page);
 
   await page.goto('/console/workbench/image');
-  await expect(page.getByRole('heading', { level: 1, name: '图像工作台' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '创建一张图片' })).toBeVisible();
   await expect(page.getByLabel('图片模型')).toHaveValue('zt-image-pro');
   await expect(page.getByLabel('图片提示词')).toBeVisible();
   await expect(page.getByText('最近生成')).toBeVisible();
   await expectNoHorizontalOverflow(page);
 
   await page.goto('/console/workbench/video');
-  await expect(page.getByRole('heading', { level: 1, name: '视频工作台' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '创建一段视频' })).toBeVisible();
   await expect(page.getByLabel('视频模型')).toHaveValue('zt-video-pro');
   await expect(page.getByRole('button', { name: '文生视频' })).toBeVisible();
   await expect(page.getByLabel('视频时长')).toBeVisible();
@@ -524,6 +552,118 @@ test('user media catalog, guide and wallet remain usable without data exposure',
     fullPage: true,
   });
 
+  expect(unexpected).toEqual([]);
+  expect(observed.failedAPIs).toEqual([]);
+  expect(observed.browserErrors).toEqual([]);
+});
+
+test('image workbench submits three references in order and renders ten outputs', async ({ page }, testInfo) => {
+  const unexpected: string[] = [];
+  const observed = watchBrowser(page);
+  const editBodies: string[] = [];
+  await installConsoleAPI(page, unexpected, {
+    onImageEdit: async (request) => {
+      editBodies.push((await request.postDataBuffer())?.toString('latin1') ?? '');
+    },
+  });
+  await page.addInitScript(() => window.localStorage.setItem('ztapi.locale', 'zh-CN'));
+
+  await page.goto('/console/workbench/image');
+  await expect(page.getByRole('heading', { name: '创建一张图片' })).toBeVisible();
+  const referenceInput = page.getByLabel('上传参考图');
+  await referenceInput.setInputFiles([
+    { name: 'reference-1.png', mimeType: 'image/png', buffer: Buffer.from([1]) },
+    { name: 'reference-2.png', mimeType: 'image/png', buffer: Buffer.from([2]) },
+    { name: 'reference-3.png', mimeType: 'image/png', buffer: Buffer.from([3]) },
+  ]);
+  await expect(page.getByText('已选 3 / 15 张')).toBeVisible();
+  await page.getByLabel('图片提示词').fill('合成三张参考图');
+  await page.getByLabel('图片数量').selectOption('10');
+  await page.getByRole('button', { name: '编辑图片' }).click();
+
+  await expect(page.getByRole('img', { name: '生成结果 10' })).toBeVisible();
+  await expect(page.getByText('10 张图片')).toBeVisible();
+  expect(editBodies).toHaveLength(1);
+  const body = editBodies[0];
+  const firstReference = body.indexOf('filename="reference-1.png"');
+  const secondReference = body.indexOf('filename="reference-2.png"');
+  const thirdReference = body.indexOf('filename="reference-3.png"');
+  expect(firstReference).toBeGreaterThan(-1);
+  expect(secondReference).toBeGreaterThan(firstReference);
+  expect(thirdReference).toBeGreaterThan(secondReference);
+  expect(body).toContain('name="n"');
+  expect(body).toContain('\r\n\r\n10');
+
+  const workbench = page.locator('.zt-workbench--media');
+  await expect(workbench.locator('.zt-workbench__pointer-follow')).toHaveCount(1);
+  const before = await workbench.boundingBox();
+  const viewport = page.viewportSize();
+  expect(viewport).not.toBeNull();
+  await page.mouse.move((viewport?.width ?? 430) * 0.55, (viewport?.height ?? 932) * 0.35);
+  await page.mouse.move((viewport?.width ?? 430) * 0.75, (viewport?.height ?? 932) * 0.55);
+  const after = await workbench.boundingBox();
+  expect(before).not.toBeNull();
+  expect(after).not.toBeNull();
+  expect(after!.width).toBeCloseTo(before!.width, 0);
+  expect(after!.height).toBeCloseTo(before!.height, 0);
+
+  await expectNoHorizontalOverflow(page);
+  await expectConsoleRegionsDoNotOverlap(page);
+  await page.screenshot({
+    path: `test-results/visual/image-edit-workbench-${testInfo.project.name}.png`,
+    fullPage: true,
+  });
+  expect(unexpected).toEqual([]);
+  expect(observed.failedAPIs).toEqual([]);
+  expect(observed.browserErrors).toEqual([]);
+});
+
+test('image workbench rejects an over-limit reference batch before editing', async ({ page }) => {
+  const unexpected: string[] = [];
+  const observed = watchBrowser(page);
+  let editRequests = 0;
+  await installConsoleAPI(page, unexpected, {
+    onImageEdit: async () => {
+      editRequests += 1;
+    },
+  });
+  await page.addInitScript(() => window.localStorage.setItem('ztapi.locale', 'zh-CN'));
+
+  await page.goto('/console/workbench/image');
+  await expect(page.getByRole('heading', { name: '创建一张图片' })).toBeVisible();
+  await page.getByLabel('上传参考图').setInputFiles(Array.from({ length: 16 }, (_, index) => ({
+    name: `over-limit-${index + 1}.png`,
+    mimeType: 'image/png',
+    buffer: Buffer.from([index]),
+  })));
+  await expect(page.getByRole('alert')).toHaveText('最多上传 15 张参考图。');
+  expect(editRequests).toBe(0);
+  expect(observed.failedAPIs).toEqual([]);
+  expect(unexpected).toEqual([]);
+});
+
+test('text workbench starts with an empty composer and keeps pointer effects non-layout', async ({ page }) => {
+  const unexpected: string[] = [];
+  const observed = watchBrowser(page);
+  await installConsoleAPI(page, unexpected);
+  await page.addInitScript(() => window.localStorage.setItem('ztapi.locale', 'zh-CN'));
+
+  await page.goto('/console/workbench/text');
+  await expect(page.getByRole('heading', { name: '开始一段对话' })).toBeVisible();
+  await expect(page.getByLabel('输入消息')).toHaveValue('');
+  await expect(page.getByRole('button', { name: '发送' })).toBeDisabled();
+  const workbench = page.locator('.zt-workbench--text');
+  await expect(workbench.locator('.zt-workbench__pointer-follow')).toHaveCount(1);
+  const before = await workbench.boundingBox();
+  await page.mouse.move(220, 220);
+  await page.mouse.move(980, 620);
+  const after = await workbench.boundingBox();
+  expect(before).not.toBeNull();
+  expect(after).not.toBeNull();
+  expect(after!.x).toBeCloseTo(before!.x, 0);
+  expect(after!.y).toBeCloseTo(before!.y, 0);
+  expect(after!.width).toBeCloseTo(before!.width, 0);
+  expect(after!.height).toBeCloseTo(before!.height, 0);
   expect(unexpected).toEqual([]);
   expect(observed.failedAPIs).toEqual([]);
   expect(observed.browserErrors).toEqual([]);

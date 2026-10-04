@@ -209,6 +209,7 @@ type ZTAPIManagedImageDispatch struct {
 	Body         []byte
 	ProviderPath string
 	WireProtocol string
+	ContentType  string
 }
 
 func cloneZTAPIManagedImageDispatch(source *ZTAPIManagedImageDispatch) *ZTAPIManagedImageDispatch {
@@ -221,7 +222,7 @@ func cloneZTAPIManagedImageDispatch(source *ZTAPIManagedImageDispatch) *ZTAPIMan
 }
 
 func (info *RelayInfo) SetZTAPIManagedImageDispatch(dispatch *ZTAPIManagedImageDispatch) bool {
-	if info == nil || dispatch == nil || len(dispatch.Body) == 0 || dispatch.ProviderPath == "" || dispatch.WireProtocol == "" {
+	if info == nil || dispatch == nil || len(dispatch.Body) == 0 || dispatch.ProviderPath == "" || dispatch.WireProtocol == "" || dispatch.ContentType == "" {
 		return false
 	}
 	info.ztapiImageResponseMu.Lock()

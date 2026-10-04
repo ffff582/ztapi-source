@@ -62,7 +62,7 @@ func BuildZTAPIABMediaPriceContract(row ZTAPIABQuotationEntry, image *types.ZTAP
 		if _, _, protocolErr := types.ParseZTAPIImageProtocolContract(string(protocolJSON)); protocolErr != nil {
 			return empty, fmt.Errorf("gpt-image-2 frozen image protocol evidence is invalid: %w", protocolErr)
 		}
-		contract, err = buildZTAPIABImage2Contract(row)
+		contract, err = buildZTAPIABImage2Contract(row, image.Capabilities.SupportsEdits)
 	case "D114":
 		return empty, errors.New("Gemini 2.5 Flash Image quotation is incomplete: only <=200K input is priced, text/image output prices differ, and the required >200K matrix is absent")
 	case "D116", "D117", "D118":
@@ -94,7 +94,10 @@ func BuildZTAPIABMediaPriceContract(row ZTAPIABQuotationEntry, image *types.ZTAP
 		return empty, fmt.Errorf("media quote does not form a complete price matrix: %w", err)
 	}
 	if image != nil {
-		err = types.ValidateZTAPIImagePriceProtocolCompatibility(contract, *image)
+		err = types.ValidateZTAPIImagePriceProtocolCompatibilityForOperation(contract, *image, "generation")
+		if err == nil && image.Capabilities.SupportsEdits {
+			err = types.ValidateZTAPIImagePriceProtocolCompatibilityForOperation(contract, *image, "edit")
+		}
 	} else {
 		err = types.ValidateZTAPIVideoPriceProtocolCompatibility(contract, *video)
 	}
@@ -104,7 +107,7 @@ func BuildZTAPIABMediaPriceContract(row ZTAPIABQuotationEntry, image *types.ZTAP
 	return contract, nil
 }
 
-func buildZTAPIABImage2Contract(row ZTAPIABQuotationEntry) (types.ZTAPIMediaPriceContract, error) {
+func buildZTAPIABImage2Contract(row ZTAPIABQuotationEntry, supportsEdits bool) (types.ZTAPIMediaPriceContract, error) {
 	parts := strings.Split(row.OfficialPriceText, "；")
 	if len(parts) != 2 {
 		return types.ZTAPIMediaPriceContract{}, errors.New("gpt-image-2 quotation must contain exact text and image buckets")
@@ -138,17 +141,29 @@ func buildZTAPIABImage2Contract(row ZTAPIABQuotationEntry) (types.ZTAPIMediaPric
 		frozenOfficial[rule.ID] = sale.Div(decimal.RequireFromString("0.8"))
 	}
 	contract := types.ZTAPIMediaPriceContract{Version: 1, Modality: "image"}
-	for _, price := range prices {
-		official, parseErr := decimal.NewFromString(price.official)
-		old, exists := frozenOfficial[price.id]
-		if parseErr != nil || !exists || !official.Equal(old) {
-			return types.ZTAPIMediaPriceContract{}, fmt.Errorf("gpt-image-2 %s price does not match frozen per-million-token unit evidence", price.id)
+	operations := []string{"generation"}
+	if supportsEdits {
+		operations = append(operations, "edit")
+	}
+	for _, operation := range operations {
+		for _, price := range prices {
+			official, parseErr := decimal.NewFromString(price.official)
+			old, exists := frozenOfficial[price.id]
+			if parseErr != nil || !exists || !official.Equal(old) {
+				return types.ZTAPIMediaPriceContract{}, fmt.Errorf("gpt-image-2 %s price does not match frozen per-million-token unit evidence", price.id)
+			}
+			id := price.id
+			conditions := map[string]string{"token_bucket": price.id}
+			if supportsEdits {
+				id = operation + "_" + price.id
+				conditions["image_operation"] = operation
+			}
+			rule, err := ztapiABMediaRule(row, id, conditions, price.official, price.id)
+			if err != nil {
+				return types.ZTAPIMediaPriceContract{}, err
+			}
+			contract.Rules = append(contract.Rules, rule)
 		}
-		rule, err := ztapiABMediaRule(row, price.id, map[string]string{"token_bucket": price.id}, price.official, price.id)
-		if err != nil {
-			return types.ZTAPIMediaPriceContract{}, err
-		}
-		contract.Rules = append(contract.Rules, rule)
 	}
 	return contract, nil
 }
@@ -189,8 +204,12 @@ func BuildZTAPIABImage2PriceSource(quote ZTAPIABQuotationManifest, old ZTAPIMode
 	for _, rule := range contract.Rules {
 		values[rule.ID] = rule
 	}
-	input, inputOK := values["text_input"]
-	output, outputOK := values["image_output"]
+	inputKey, outputKey := "text_input", "image_output"
+	if image != nil && image.Capabilities.SupportsEdits {
+		inputKey, outputKey = "generation_text_input", "generation_image_output"
+	}
+	input, inputOK := values[inputKey]
+	output, outputOK := values[outputKey]
 	if !inputOK || !outputOK {
 		return ZTAPIModelPriceSource{}, errors.New("gpt-image-2 quoted input or output bucket is missing")
 	}

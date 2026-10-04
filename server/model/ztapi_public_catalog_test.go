@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/glebarez/sqlite"
@@ -130,6 +131,87 @@ func TestZTAPIPublicCatalogMediaExposesOnlyPublicCapabilitiesAndSalePricing(t *t
 	require.NotContains(t, string(encoded), "cost_usd")
 	require.NotContains(t, string(encoded), "source_cells")
 	require.NotContains(t, string(encoded), "provider-video-exact")
+}
+
+func TestZTAPIPublicCatalogExposesMultiImageEditInputAndOutputLimits(t *testing.T) {
+	protocol := types.ZTAPIImageProtocolContract{
+		Version:       types.ZTAPIImageProtocolContractVersionV3,
+		ProviderModel: "multi-image-edit-v1",
+		EndpointType:  types.ZTAPIImageEndpointGeneration,
+		Method:        "POST",
+		Path:          "/v1/images/generations",
+		WireProtocol:  types.ZTAPIImageWireProtocolOpenAIImages,
+		ProviderPath:  "/v1/images/generations",
+		Capabilities: types.ZTAPIImageCapabilities{
+			Sizes: []string{"1024x1024"}, Qualities: []string{"standard"},
+			ResponseFormats: []string{"url"}, MinCount: 1, MaxCount: 10, SupportsEdits: true,
+		},
+		Edit: &types.ZTAPIImageEditEndpointContract{
+			Method: "POST", Path: "/v1/images/edits", ContentType: "multipart/form-data",
+			WireProtocol: types.ZTAPIImageWireProtocolOpenAIImagesEdit, ProviderPath: "/v1/images/edits",
+			InputField: "image", MaxInputFiles: 15, MaxInputBytes: 20 << 20, MaxTotalInputBytes: 256 << 20,
+			AllowedMimeTypes: []string{"image/jpeg", "image/png", "image/webp"},
+		},
+	}
+	items := buildZTAPIPublicCatalog([]ZTAPIRuntimePublication{{
+		Modality: ZTAPIModalityImage, SourceModel: "multi-image-edit-v1", PublicName: "zt-multi-image-edit-v1",
+		ProviderFamily: ZTAPIProviderOpenAI, Protocol: ZTAPIProtocolOpenAICompatible,
+		Groups: []string{"default"}, SnapshotID: 104, MediaPriceContractJSON: editAwareGPImage2ContractForTest(t),
+		ImageProtocolContract: &protocol,
+	}})
+	require.Len(t, items, 1)
+	options := items[0].SupportedOptions
+	require.NotNil(t, options)
+	require.True(t, options.SupportsEdits)
+	require.Equal(t, 15, options.EditInput.MaxFiles)
+	require.Equal(t, int64(20<<20), options.EditInput.MaxBytes)
+	require.Equal(t, int64(256<<20), options.EditInput.MaxTotalBytes)
+	require.Equal(t, []string{"image/jpeg", "image/png", "image/webp"}, options.EditInput.MimeTypes)
+	require.Equal(t, 1, options.MinCount)
+	require.Equal(t, 10, options.MaxCount)
+}
+
+func editAwareGPImage2ContractForTest(t *testing.T) string {
+	t.Helper()
+	base, err := types.ParseZTAPIMediaPriceContract(gpImage2ContractForTest(t))
+	require.NoError(t, err)
+	rules := make([]types.ZTAPIMediaPriceRule, 0, len(base.Rules)*2)
+	for _, operation := range []string{"generation", "edit"} {
+		for _, rule := range base.Rules {
+			clone := rule
+			clone.ID = operation + "_" + rule.ID
+			clone.Conditions = map[string]string{"image_operation": operation}
+			for key, value := range rule.Conditions {
+				clone.Conditions[key] = value
+			}
+			clone.CostUSD = copyZTAPIStringMap(rule.CostUSD)
+			clone.SaleUSD = copyZTAPIStringMap(rule.SaleUSD)
+			clone.SourceCells = copyZTAPIStringMap(rule.SourceCells)
+			rules = append(rules, clone)
+		}
+	}
+	raw, err := common.Marshal(types.ZTAPIMediaPriceContract{Version: 1, Modality: ZTAPIModalityImage, Rules: rules})
+	require.NoError(t, err)
+	canonical, err := types.CanonicalizeZTAPIMediaPriceContract(string(raw))
+	require.NoError(t, err)
+	return canonical
+}
+
+func TestZTAPIPublicCatalogHidesEditCapabilityWithoutEditPrice(t *testing.T) {
+	protocol := types.ZTAPIImageProtocolContract{
+		Version: types.ZTAPIImageProtocolContractVersionV3, ProviderModel: "multi-image-edit-v1",
+		EndpointType: types.ZTAPIImageEndpointGeneration, Method: "POST", Path: "/v1/images/generations",
+		Capabilities: types.ZTAPIImageCapabilities{Sizes: []string{"1024x1024"}, Qualities: []string{"standard"}, ResponseFormats: []string{"url"}, MinCount: 1, MaxCount: 10, SupportsEdits: true},
+		Edit:         &types.ZTAPIImageEditEndpointContract{Method: "POST", Path: "/v1/images/edits", ContentType: "multipart/form-data", WireProtocol: types.ZTAPIImageWireProtocolOpenAIImagesEdit, ProviderPath: "/v1/images/edits", InputField: "image", MaxInputFiles: 15, MaxInputBytes: 20 << 20, MaxTotalInputBytes: 256 << 20, AllowedMimeTypes: []string{"image/jpeg", "image/png", "image/webp"}},
+	}
+	items := buildZTAPIPublicCatalog([]ZTAPIRuntimePublication{{
+		Modality: ZTAPIModalityImage, SourceModel: "multi-image-edit-v1", PublicName: "zt-multi-image-edit-v1",
+		ProviderFamily: ZTAPIProviderOpenAI, Protocol: ZTAPIProtocolOpenAICompatible,
+		Groups: []string{"default"}, SnapshotID: 105, MediaPriceContractJSON: mustCanonicalZTAPIMediaPriceContract(t, gpImage2ContractForTest(t)), ImageProtocolContract: &protocol,
+	}})
+	require.Len(t, items, 1)
+	require.False(t, items[0].SupportedOptions.SupportsEdits)
+	require.Nil(t, items[0].SupportedOptions.EditInput)
 }
 
 func TestZTAPIPublicCatalogAppliesSaleMultiplierToTokenTiersAndMediaRules(t *testing.T) {

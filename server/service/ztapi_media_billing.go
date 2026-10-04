@@ -46,6 +46,7 @@ type ztapiMediaSelector struct {
 	Quality        string `json:"quality"`
 	ResponseFormat string `json:"response_format"`
 	Size           string `json:"size"`
+	Operation      string `json:"image_operation,omitempty"`
 }
 
 func BeginZTAPIMediaReservation(input ZTAPIMediaReservationInput) (*model.ZTAPIRequestSettlement, error) {
@@ -127,11 +128,24 @@ func canonicalZTAPIMediaSelector(raw string) (types.ZTAPIImageSelector, string, 
 		value.ResponseFormat == "" || value.ResponseFormat != strings.TrimSpace(value.ResponseFormat) {
 		return types.ZTAPIImageSelector{}, "", model.ErrZTAPISettlementInvalid
 	}
-	encoded, err := common.Marshal(value)
+	operation := value.Operation
+	if operation == "" {
+		operation = "generation"
+	}
+	if operation != "generation" && operation != "edit" {
+		return types.ZTAPIImageSelector{}, "", model.ErrZTAPISettlementInvalid
+	}
+	canonicalValue := value
+	if operation == "generation" {
+		// Keep legacy generation snapshots byte-compatible while the in-memory
+		// selector still carries an explicit operation for safe matching.
+		canonicalValue.Operation = ""
+	}
+	encoded, err := common.Marshal(canonicalValue)
 	if err != nil || len(encoded) > 8192 {
 		return types.ZTAPIImageSelector{}, "", model.ErrZTAPISettlementInvalid
 	}
-	return types.ZTAPIImageSelector{Size: value.Size, Quality: value.Quality, ResponseFormat: value.ResponseFormat, N: value.N}, string(encoded), nil
+	return types.ZTAPIImageSelector{Size: value.Size, Quality: value.Quality, ResponseFormat: value.ResponseFormat, N: value.N, Operation: operation}, string(encoded), nil
 }
 
 type ztapiImmutableMediaUsage struct {
@@ -335,8 +349,34 @@ func parseCanonicalZTAPIQuotaPerUnit(raw string) (decimal.Decimal, error) {
 
 func deriveZTAPIImageMaximumReservation(contractJSON string, protocol types.ZTAPIImageProtocolContract, selector types.ZTAPIImageSelector, quotaPerUnit decimal.Decimal) (map[string]string, int64, error) {
 	contract, err := types.ParseZTAPIMediaPriceContract(contractJSON)
-	if err != nil || types.ValidateZTAPIImagePriceProtocolCompatibility(contract, protocol) != nil {
+	if err != nil {
 		return nil, 0, model.ErrZTAPISettlementInvalid
+	}
+	operation := selector.Operation
+	if operation == "" {
+		operation = "generation"
+	}
+	if types.ValidateZTAPIImagePriceProtocolCompatibilityForOperation(contract, protocol, operation) != nil {
+		return nil, 0, model.ErrZTAPISettlementInvalid
+	}
+	operationAware := false
+	for _, rule := range contract.Rules {
+		if _, ok := rule.Conditions["image_operation"]; ok {
+			operationAware = true
+			break
+		}
+	}
+	if operationAware {
+		filtered := make([]types.ZTAPIMediaPriceRule, 0, len(contract.Rules)/2)
+		for _, rule := range contract.Rules {
+			if rule.Conditions["image_operation"] == operation {
+				filtered = append(filtered, rule)
+			}
+		}
+		if len(filtered) == 0 {
+			return nil, 0, model.ErrZTAPISettlementInvalid
+		}
+		contract.Rules = filtered
 	}
 	authority, ok := protocol.FindReservationAuthority(selector)
 	if !ok {

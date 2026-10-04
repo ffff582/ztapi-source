@@ -462,6 +462,22 @@ func TestZTAPIMediaPriceContractManifestRejectsMutatedEvidence(t *testing.T) {
 	}
 }
 
+func TestZTAPIPoolGPTImage2AllowsOnlyDerivedOperationAwareContract(t *testing.T) {
+	derived, err := deriveZTAPIGPTImage2OperationAwarePriceContract(gpImage2ContractForTest(t))
+	require.NoError(t, err)
+	source := validZTAPIPriceSourceForTest()
+	source.SourceModel = "gpt-image-2"
+	source.SourceDocumentChecksum = ZTAPIQuotationSHA256
+	source.PricePolicy = string(ZTAPIPricePolicyPoolOfficial80)
+	source.MediaPriceContractJSON = derived
+	require.NoError(t, validateZTAPIMediaPriceContractPolicy(&source))
+
+	mutated := source
+	mutated.MediaPriceContractJSON = mustCanonicalZTAPIMediaPriceContract(t, gpImage2ContractForTest(t))
+	mutated.MediaPriceContractJSON = strings.Replace(mutated.MediaPriceContractJSON, "text_input", "text_input_mutated", 1)
+	require.Error(t, validateZTAPIMediaPriceContractPolicy(&mutated))
+}
+
 func TestZTAPIMediaPriceContractImportCanonicalizesAndSnapshotCopies(t *testing.T) {
 	db := setupZTAPIModelEvidenceWriteTestDB(t)
 	require.NoError(t, db.AutoMigrate(&ZTAPIModelPublicationSnapshot{}))

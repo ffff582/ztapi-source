@@ -123,6 +123,13 @@ export interface UserModelSupportedOptions {
   response_formats?: string[];
   min_count?: number;
   max_count?: number;
+  supports_edits?: boolean;
+  edit_input?: {
+    max_files: number;
+    max_bytes: number;
+    max_total_bytes: number;
+    mime_types: string[];
+  };
   resolutions?: string[];
   duration_seconds?: number[];
   supports_video_input?: boolean;
@@ -412,14 +419,30 @@ function parseUserModelCatalogItem(value: unknown): UserModelCatalogItem {
       supportedOptions.sizes = parseRequiredStringArray(options.sizes);
       supportedOptions.qualities = parseRequiredStringArray(options.qualities);
       supportedOptions.response_formats = parseRequiredStringArray(options.response_formats);
-      if (!integer(options.min_count) || !integer(options.max_count) || options.min_count < 1 || options.max_count < options.min_count) {
+      if (!integer(options.min_count) || !integer(options.max_count) || options.min_count < 1 || options.max_count < options.min_count || options.max_count > 10) {
         throw new DataContractError();
       }
-      if ('resolutions' in options || 'duration_seconds' in options || 'supports_video_input' in options) {
+      if ('resolutions' in options || 'duration_seconds' in options || 'supports_video_input' in options || (options.supports_edits !== undefined && typeof options.supports_edits !== 'boolean')) {
         throw new DataContractError();
       }
       supportedOptions.min_count = options.min_count;
       supportedOptions.max_count = options.max_count;
+      const supportsEdits = options.supports_edits === true;
+      if (options.edit_input !== undefined && (!supportsEdits || !isRecord(options.edit_input))) {
+        throw new DataContractError();
+      }
+      if (supportsEdits) {
+        if (!isRecord(options.edit_input) || !integer(options.edit_input.max_files) || options.edit_input.max_files < 1 || options.edit_input.max_files > 15 || !integer(options.edit_input.max_bytes) || options.edit_input.max_bytes <= 0 || !integer(options.edit_input.max_total_bytes) || options.edit_input.max_total_bytes < options.edit_input.max_bytes || !Array.isArray(options.edit_input.mime_types) || options.edit_input.mime_types.length === 0 || options.edit_input.mime_types.some((mime) => !requiredString(mime))) {
+          throw new DataContractError();
+        }
+        supportedOptions.supports_edits = true;
+        supportedOptions.edit_input = {
+          max_files: options.edit_input.max_files,
+          max_bytes: options.edit_input.max_bytes,
+          max_total_bytes: options.edit_input.max_total_bytes,
+          mime_types: [...options.edit_input.mime_types],
+        };
+      }
     } else {
       supportedOptions.resolutions = parseRequiredStringArray(options.resolutions);
       if (!Array.isArray(options.duration_seconds) || options.duration_seconds.length === 0 || options.duration_seconds.some((duration) => !integer(duration) || duration <= 0) || typeof options.supports_video_input !== 'boolean') {
