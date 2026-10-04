@@ -1,4 +1,4 @@
-import { CheckCircle2, CircleAlert, CircleDollarSign, Copy, Download, FilePlus2, Image as ImageIcon, Images, MessageCircle, Paperclip, Play, Plus, RefreshCw, Send, Settings2, Sparkles, Video as VideoIcon } from 'lucide-react';
+import { CheckCircle2, CircleAlert, CircleDollarSign, Copy, Download, FilePlus2, Image as ImageIcon, Images, MessageCircle, Paperclip, Play, Plus, RefreshCw, RotateCcw, Send, Settings2, Sparkles, Video as VideoIcon } from 'lucide-react';
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { apiClient, getAuthSession } from '../../api/client';
@@ -16,7 +16,15 @@ import { markModelSelected } from '../onboarding/onboarding';
 type PlaygroundMode = 'text' | 'image' | 'video';
 
 const defaultPrompt = '请用一句话介绍你自己。';
+const imageDefaultPrompt = '一只在雨中的橘猫';
+const videoDefaultPrompt = '镜头缓慢推进一片森林';
 const VIDEO_POLL_INTERVAL_MS = 1200;
+
+function defaultPromptForMode(mode: PlaygroundMode) {
+  if (mode === 'image') return imageDefaultPrompt;
+  if (mode === 'video') return videoDefaultPrompt;
+  return defaultPrompt;
+}
 
 function isWorkbenchModel(item: UserModelCatalogItem) {
   if (item.modality === 'text') return item.supported_endpoint_types.includes('openai');
@@ -122,7 +130,7 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
   const [catalogStatus, setCatalogStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [mode, setMode] = useState<PlaygroundMode>(initialMode);
   const [modelByMode, setModelByMode] = useState<Record<PlaygroundMode, string>>({ text: '', image: '', video: '' });
-  const [prompt, setPrompt] = useState(defaultPrompt);
+  const [prompt, setPrompt] = useState(defaultPromptForMode(initialMode));
   const [requestStatus, setRequestStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
   const [chatResult, setChatResult] = useState<PlaygroundChatResult | null>(null);
   const [imageResult, setImageResult] = useState<PlaygroundImageResult | null>(null);
@@ -261,7 +269,7 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
     if (nextMode === mode) return;
     clearResults();
     setMode(nextMode);
-    setPrompt(nextMode === 'text' ? defaultPrompt : '');
+    setPrompt(defaultPromptForMode(nextMode));
   }
 
   function handleModelChange(nextModel: string) {
@@ -269,6 +277,15 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
     setModelByMode((current) => ({ ...current, [mode]: nextModel }));
     const userID = getAuthSession()?.user.id;
     if (userID !== undefined) markModelSelected(userID);
+  }
+
+  function resetImageForm() {
+    clearResults();
+    setPrompt(imageDefaultPrompt);
+    setImageSize(firstOption(selectedOptions, 'sizes'));
+    setImageQuality(firstOption(selectedOptions, 'qualities'));
+    setImageResponseFormat(firstOption(selectedOptions, 'response_formats'));
+    setImageCount(Math.max(1, selectedOptions?.min_count ?? 1));
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -473,7 +490,11 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
             <div className="zt-workbench__model-caption"><span>模型 ID</span><code>{model || '—'}</code></div>
             <div className="console-field"><label htmlFor="workbench-image-prompt">图片提示词</label><textarea id="workbench-image-prompt" maxLength={4_000} rows={7} value={prompt} onChange={(event) => setPrompt(event.target.value)} /><p className="console-field__help">{prompt.length} / 4000 字符</p></div>
             <div className="playground-option-grid"><div className="console-field"><label htmlFor="workbench-image-size">图片尺寸</label><select id="workbench-image-size" value={imageSize} onChange={(event) => setImageSize(event.target.value)}>{selectedOptions?.sizes?.map((option) => <option key={option} value={option}>{option}</option>)}</select></div><div className="console-field"><label htmlFor="workbench-image-quality">图片质量</label><select id="workbench-image-quality" value={imageQuality} onChange={(event) => setImageQuality(event.target.value)}>{selectedOptions?.qualities?.map((option) => <option key={option} value={option}>{option}</option>)}</select></div><div className="console-field"><label htmlFor="workbench-image-count">图片数量</label><select id="workbench-image-count" value={imageCount} onChange={(event) => setImageCount(Number(event.target.value))}>{Array.from({ length: Math.max(1, (selectedOptions?.max_count ?? 1) - (selectedOptions?.min_count ?? 1) + 1) }, (_, index) => (selectedOptions?.min_count ?? 1) + index).map((count) => <option key={count} value={count}>{count}</option>)}</select></div><div className="console-field"><label htmlFor="workbench-image-format">返回格式</label><select id="workbench-image-format" value={imageResponseFormat} onChange={(event) => setImageResponseFormat(event.target.value)}>{selectedOptions?.response_formats?.map((option) => <option key={option} value={option}>{option}</option>)}</select></div></div>
-            <button className="zt-workbench__run" disabled={requestStatus === 'sending' || model === '' || prompt.trim() === ''} type="submit"><Play aria-hidden="true" size={16} />{requestStatus === 'sending' ? '生成中...' : '生成图片'}</button>
+            <div className="zt-workbench__action-row">
+              <button aria-label="重置图像参数" className="zt-workbench__reset" title="重置图像参数" type="button" onClick={resetImageForm}><RotateCcw aria-hidden="true" size={17} /></button>
+              <button aria-label="生成图片" className="zt-workbench__run" disabled={requestStatus === 'sending' || model === '' || prompt.trim() === ''} type="submit"><Play aria-hidden="true" size={15} /><span>RUN</span><small>{requestStatus === 'sending' ? '生成中...' : '按实际 API 计费'}</small></button>
+            </div>
+            <p className="zt-workbench__key-footer"><span>当前使用 Key：已脱敏</span><Link to="/console/keys">更换</Link></p>
           </form>}
           {requestStatus === 'error' && <div className="console-alert playground-result-alert" role="alert">{t(errorMessage)}</div>}
         </section>

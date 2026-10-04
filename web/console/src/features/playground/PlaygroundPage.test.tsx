@@ -143,8 +143,18 @@ describe('PlaygroundPage', () => {
     expect(screen.getByLabelText('图片提示词')).toBeVisible();
     expect(screen.getByLabelText('图片尺寸')).toBeVisible();
     expect(screen.getByLabelText('图片质量')).toBeVisible();
+    expect(screen.getByText('模型 ID')).toBeVisible();
     expect(screen.getByText('最近生成')).toBeVisible();
     expect(screen.getByRole('button', { name: '生成图片' })).toBeVisible();
+    expect(screen.getByRole('button', { name: '重置图像参数' })).toBeVisible();
+    expect(screen.getByText('RUN')).toBeVisible();
+    expect(screen.getByText('按实际 API 计费')).toBeVisible();
+    expect(screen.getByText('当前使用 Key：已脱敏')).toBeVisible();
+    expect(screen.getByRole('link', { name: '更换' })).toHaveAttribute('href', '/console/keys');
+
+    fireEvent.change(screen.getByLabelText('图片提示词'), { target: { value: '临时提示词' } });
+    fireEvent.click(screen.getByRole('button', { name: '重置图像参数' }));
+    expect(screen.getByLabelText('图片提示词')).toHaveValue('一只在雨中的橘猫');
     expect(screen.queryByText('发送测试请求')).not.toBeInTheDocument();
   });
 

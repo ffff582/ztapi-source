@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "088c7f7dc9e48be180e54a1bccee46d3ccb53ea4",
+  "release_commit": "33634377b334cf3108d3eedd32ae0ab97ea15073",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-088c7f7dc9e48be180e54a1bccee46d3ccb53ea4",
+  "source_tag": "production-33634377b334cf3108d3eedd32ae0ab97ea15073",
   "files": [
     {
       "path": ".dockerignore",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "b5c726d9f1c38b0ff6838cc6f31d09ad9af13cad0e159fb4682b5bce3ea1c422",
+      "sha256": "01c9c85c862f3dfb8f42db4a31bad92f78d9ef375661a07e0e40c88ddc027eb9",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "c7a0fe2efb14fdfd1424d9966f47d91998f0b25030dbaaf262bcab2ade29573b",
+      "sha256": "aa0f625070fb46fb799cbf0fb5a793930c9768ee996caa80938cee68a5c07379",
       "size": 942
     },
     {
@@ -9721,8 +9721,8 @@
     },
     {
       "path": "web/console/src/brand/theme.css",
-      "sha256": "8b66fc379138d17c5ec3f03ef79945e7b7ad28dea7e1f3cf9bfc8d5aa365f2a4",
-      "size": 32841
+      "sha256": "e3c4ee339a144381f730ca090a0eb18404c903cc962ff294d48c918261419fdf",
+      "size": 33790
     },
     {
       "path": "web/console/src/brand/tokens.css",
@@ -10041,13 +10041,13 @@
     },
     {
       "path": "web/console/src/features/playground/PlaygroundPage.test.tsx",
-      "sha256": "ca98f21aa2cee4a63a58a3a2fb623b2b20efe23a333d94037a2a91b28245de71",
-      "size": 15575
+      "sha256": "812aab514282eb67048b3e8bf116d6b42a8cac5077dee6b9e5e49da3b36227a1",
+      "size": 16294
     },
     {
       "path": "web/console/src/features/playground/PlaygroundPage.tsx",
-      "sha256": "d03a828287d932724fd431febc933affd71db8876e3f8155336a6b62c0f93d9e",
-      "size": 44569
+      "sha256": "7d7d0e22fda623c184375094b073de4e6f9d1e37d56d7b2475f3256240983d8b",
+      "size": 45724
     },
     {
       "path": "web/console/src/features/wallet/AccountBalance.tsx",
