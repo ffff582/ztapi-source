@@ -872,6 +872,14 @@ test('newly quoted models are priced by the server and never by the release scri
   assert.ok(rollout.includes('.data.verification.video_settlement_idempotence_passed == true'));
   assert.ok(rollout.includes('.data.verification.invalid_key_classified == true'));
 
+  // A quotation row without a currently enabled managed route is not a
+  // deployment failure. If it was published by an older rollout, the release
+  // must remove it from the public catalog and continue with the rest.
+  assert.ok(rollout.includes('no_route_unpublished'));
+  assert.ok(rollout.includes('published:false'));
+  assert.ok(rollout.includes('quoted_rollout_skipped=\"${quoted_rollout_skipped}${quoted_public}:no_route'));
+  assert.ok(rollout.includes('continue'));
+
   const guard = source.slice(end - 700, end);
   assert.ok(
     guard.includes('if [ "$ZTAPI_NO_PAID_ACCEPTANCE" != true ]; then'),

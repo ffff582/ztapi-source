@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "d4c50f99d2e30190dbb236a4117c1073578b1956",
+  "release_commit": "3abdd7f80c978e5c522fc348ecd9b10269005cfb",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-d4c50f99d2e30190dbb236a4117c1073578b1956",
+  "source_tag": "production-3abdd7f80c978e5c522fc348ecd9b10269005cfb",
   "files": [
     {
       "path": ".dockerignore",
@@ -21,8 +21,8 @@
     },
     {
       "path": ".github/workflows/ztapi-deploy.yml",
-      "sha256": "23ddc7def50c3ff8ed06769850a958bf0439196237ac4470f8b0fc3ff42b9e13",
-      "size": 210679
+      "sha256": "e9bcf51b0a16af41ca595cf50f1756156b5af29fa3690805abbd9e616bb5e501",
+      "size": 213705
     },
     {
       "path": ".github/workflows/ztapi-edge-diagnostic.yml",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "903f69e25349a12b009e07894a92b8f0d26fb08cf2bdca64090499291707d3c8",
+      "sha256": "587f86d24f48483723ce39cb5f1c21f660a539fecb3aeb8f0bbee10d8faabcb3",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "b0528deba34221ddc7078d6fec2f4b21a6592069a239e0fdf4c0a5cd6ae1080b",
+      "sha256": "3a8aa0d50d5c380debf36bfcfb4152d3512ed2a99b9d3bf66789ce7eb05d6190",
       "size": 942
     },
     {
@@ -9436,8 +9436,8 @@
     },
     {
       "path": "tests/contracts/deployment-workflow.test.mjs",
-      "sha256": "fdce046c6d921a4b24e3c3f09e04f9f28bd9ccbf6da8bd014ef7be420d9b2660",
-      "size": 42551
+      "sha256": "151021014719e86de946fd08f4e11b19842ff0d406bb53b93d3b7d4c04af1163",
+      "size": 43032
     },
     {
       "path": "tests/contracts/deployment.test.mjs",

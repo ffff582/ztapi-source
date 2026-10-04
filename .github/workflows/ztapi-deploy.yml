@@ -2282,7 +2282,55 @@ jobs:
             esac
             if [[ ! "$quoted_channel_id" =~ ^[1-9][0-9]*$ ]]; then
               echo "no enabled managed route is available for $quoted_name" >&2
-              exit 1
+              # A stale quotation row must not block an otherwise healthy
+              # release. If an earlier rollout exposed it, remove it from the
+              # public catalog before continuing; otherwise record the skip.
+              quoted_model_list=$(curl --fail --silent --show-error \
+                --resolve admin.ztapi.vip:443:127.0.0.1 \
+                --header "Authorization: Bearer $admin_access_token" \
+                --header "New-API-User: $admin_user_id" \
+                "https://admin.ztapi.vip/api/models/ztapi/?keyword=$quoted_source&page_size=100")
+              quoted_model=$(echo "$quoted_model_list" | jq -cer --arg source "$quoted_source" \
+                '.data.items | map(select(.source_model == $source)) | select(length == 1) | .[0]' 2>/dev/null || true)
+              if [ -n "$quoted_model" ] && echo "$quoted_model" | jq -e '.published == true' >/dev/null; then
+                quoted_model_id=$(echo "$quoted_model" | jq -er '.id')
+                quoted_unpublish_payload=$(echo "$quoted_model" | jq -c '
+                  {
+                    version:.version,
+                    source_model:.source_model,
+                    public_name:.public_name,
+                    family:.family,
+                    input_cost_per_million:.input_cost_per_million,
+                    output_cost_per_million:.output_cost_per_million,
+                    input_price_per_million:.input_price_per_million,
+                    output_price_per_million:.output_price_per_million,
+                    cache_read_ratio:.cache_read_ratio,
+                    cache_creation_ratio:.cache_creation_ratio,
+                    cache_creation_5m_ratio:.cache_creation_5m_ratio,
+                    cache_creation_1h_ratio:.cache_creation_1h_ratio,
+                    image_ratio:.image_ratio,
+                    audio_ratio:.audio_ratio,
+                    audio_completion_ratio:.audio_completion_ratio,
+                    enabled_groups:["default"],
+                    published:false,
+                    confirm_below_cost:false,
+                    confirm:true
+                  }')
+                quoted_unpublish_result=$(printf '%s' "$quoted_unpublish_payload" | curl --fail --silent --show-error \
+                  --request PUT \
+                  --resolve admin.ztapi.vip:443:127.0.0.1 \
+                  --header 'Content-Type: application/json' \
+                  --header "Authorization: Bearer $admin_access_token" \
+                  --header "New-API-User: $admin_user_id" \
+                  --data-binary @- \
+                  "https://admin.ztapi.vip/api/models/ztapi/$quoted_model_id")
+                echo "$quoted_unpublish_result" | jq -e \
+                  '.success == true and .data.published == false' >/dev/null
+                quoted_rollout_skipped="${quoted_rollout_skipped}${quoted_public}:no_route_unpublished "
+              else
+                quoted_rollout_skipped="${quoted_rollout_skipped}${quoted_public}:no_route "
+              fi
+              continue
             fi
             # Discovery is a free model listing. It also proves the quoted
             # upstream ID is one this channel actually serves, so a name taken
