@@ -465,7 +465,7 @@ test('unchanged GPT Image 2 code and pricing skip paid deployment acceptance', (
   );
   assert.match(
     rollout,
-    /if \[ "\$current_image_price_sha" != "\$image_media_price_sha" \]; then[\s\S]*ztapi_image_requires_acceptance=true/,
+    /if \[ "\$current_image_price_fingerprint" = "\$image_media_price_fingerprint" \] \|\| \[ "\$current_image_price_fingerprint" != "\$image_edit_media_price_fingerprint" \]; then[\s\S]*ztapi_image_requires_acceptance=true/,
     'price-contract drift must force a fresh paid acceptance',
   );
   assert.match(
@@ -580,8 +580,8 @@ test('an unchanged published Gemini image product does not block unrelated deplo
 
   assert.match(
     rollout,
-    /gemini_image_requires_acceptance=true[\s\S]*if \[ "\$gemini_was_published" = true \]; then[\s\S]*gemini_image_requires_acceptance=false/,
-    'an already-published Gemini image product should start as acceptance-complete',
+    /if \[ "\$gemini_was_published" != true \]; then[\s\S]*gemini_image_requires_acceptance=false[\s\S]*else[\s\S]*gemini_image_requires_acceptance=false[\s\S]*ztapi_gemini_image_channel_id=/,
+    'an already-published Gemini image product should retain the acceptance path while an unpublished product stays gated off',
   );
   assert.match(
     rollout,
@@ -617,6 +617,25 @@ test('an unchanged published Gemini image product does not block unrelated deplo
     ordinaryAcceptance,
     /if \[ "\$gemini_image_requires_acceptance" = true \]; then[\s\S]*gemini_image_settlement=[\s\S]*fi/,
     'Gemini billing reconciliation must remain mandatory whenever a fresh paid call is required',
+  );
+});
+
+test('a preexisting unpublished Gemini image product stays unpublished during unrelated deployments', () => {
+  const source = read(workflowPath);
+  const rollout = source.slice(
+    source.indexOf('# Publish Gemini 2.5 Flash Image'),
+    source.indexOf("test \"$(curl --silent --output /dev/null", source.indexOf('# Publish Gemini 2.5 Flash Image')),
+  );
+
+  assert.match(
+    rollout,
+    /if \[ "\$gemini_was_published" != true \]; then[\s\S]*gemini_image_requires_acceptance=false/,
+    'a model that was already unpublished must remain outside the unrelated deployment acceptance gate',
+  );
+  assert.match(
+    rollout,
+    /if \[ "\$gemini_was_published" != true \]; then[\s\S]*gemini_image_requires_acceptance=false[\s\S]*else[\s\S]*gemini_image_requires_acceptance=false/,
+    'the Gemini rollout path must be explicitly separated from the preexisting unpublished state',
   );
 });
 
@@ -839,7 +858,7 @@ test('anonymous history evidence records parents, tag target, and private SHA ab
   const gate = source.slice(gateStart, sshStart);
   assert.match(gate, /public-parent-shas/);
   assert.match(gate, /parent_count/);
-  assert.match(gate, /git clone[\s\S]*?https:\/\/github\.com\/ffff582\/ztapi-source\.git/);
+  assert.match(gate, /git(?: -c http\.version=HTTP\/1\.1)? clone[\s\S]*?https:\/\/github\.com\/ffff582\/ztapi-source\.git/);
   assert.match(gate, /git -C[^\n]*rev-parse "refs\/tags\/\$source_tag\^\{commit\}"/);
   assert.match(gate, /git -C[^\n]*cat-file -e "\$ZTAPI_RELEASE_VERSION\^\{commit\}"/);
 });
