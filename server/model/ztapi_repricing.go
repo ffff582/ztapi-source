@@ -87,7 +87,15 @@ func buildZTAPICommercialPriceSourceV2(current ZTAPIModelPriceSource) (ZTAPIMode
 		next.PricePolicy = string(ZTAPIPricePolicyEnterprise20Margin)
 	}
 	if mediaRow, ok := ztapiMediaPriceRowFromManifest(ztapiQuotation, current.SourceModel); ok {
-		next.MediaPriceContractJSON = mediaRow.MediaPriceContractJSON
+		mediaContract := mediaRow.MediaPriceContractJSON
+		if current.SourceModel == "gpt-image-2" {
+			derived, err := deriveZTAPIGPTImage2OperationAwarePriceContract(mediaContract)
+			if err != nil {
+				return ZTAPIModelPriceSource{}, nil, err
+			}
+			mediaContract = derived
+		}
+		next.MediaPriceContractJSON = mediaContract
 	}
 
 	preview, err := BuildZTAPIModelPricePreview(&next)

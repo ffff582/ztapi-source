@@ -59,7 +59,21 @@ func TestBuildZTAPICommercialPriceSourceV2UsesPoolImageContract(t *testing.T) {
 	require.Equal(t, "9.9000000000", next.OutputPerMillion)
 	require.Equal(t, "4.0000000000", preview.InputSaleUSDPerMillion)
 	require.Equal(t, "24.0000000000", preview.OutputSaleUSDPerMillion)
-	require.Equal(t, mustCanonicalZTAPIMediaPriceContract(t, gpImage2ContractForTest(t)), next.MediaPriceContractJSON)
+	want, err := deriveZTAPIGPTImage2OperationAwarePriceContract(gpImage2ContractForTest(t))
+	require.NoError(t, err)
+	require.Equal(t, want, next.MediaPriceContractJSON)
+}
+
+func TestBuildZTAPICommercialPriceSourceV2PublishesGPTImage2EditPricing(t *testing.T) {
+	current := validZTAPIPriceSourceForTest()
+	current.SourceModel = "gpt-image-2"
+
+	next, _, err := buildZTAPICommercialPriceSourceV2(current)
+	require.NoError(t, err)
+
+	want, err := deriveZTAPIGPTImage2OperationAwarePriceContract(gpImage2ContractForTest(t))
+	require.NoError(t, err)
+	require.Equal(t, want, next.MediaPriceContractJSON)
 }
 
 func TestBuildZTAPICommercialPriceSourceV2UsesEnterpriseImageContract(t *testing.T) {
