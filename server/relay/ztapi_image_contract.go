@@ -197,6 +197,13 @@ func admitZTAPIImageEditRequest(c *gin.Context, info *relaycommon.RelayInfo, con
 	if !ok || request == nil {
 		return ztapiImageProtocolError(errors.New("managed image edit request body is invalid"))
 	}
+	if request.ResponseFormat == "" && len(contract.Capabilities.ResponseFormats) == 1 {
+		// Some verified edit protocols, including GPT Image 2, omit
+		// response_format on the wire while exposing one fixed result format.
+		// Normalize it before billing and response validation, without adding it
+		// back to the upstream multipart request.
+		request.ResponseFormat = contract.Capabilities.ResponseFormats[0]
+	}
 	modelName := formData.Get("model")
 	prompt := formData.Get("prompt")
 	if modelName != info.OriginModelName || modelName != info.ZTAPIPublicationSnapshot.PublicName {

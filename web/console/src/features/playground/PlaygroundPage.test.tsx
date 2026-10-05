@@ -148,6 +148,47 @@ describe('PlaygroundPage', () => {
     expect(screen.queryByText('发送测试请求')).not.toBeInTheDocument();
   });
 
+  it('keeps billing metrics and request ids out of the text conversation', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith('/api/user/models')) return jsonResponse(catalogResponse());
+      if (url.endsWith('/pg/chat/completions')) {
+        return jsonResponse({
+          id: 'chatcmpl-workbench',
+          choices: [{ message: { content: '工作台回复' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 },
+        }, 200, { 'X-Request-ID': 'req-workbench-1' });
+      }
+      if (url.includes('/api/log/self?')) {
+        return jsonResponse({
+          success: true,
+          data: {
+            page: 1,
+            page_size: 1,
+            total: 1,
+            items: [{
+              request_id: 'req-workbench-1',
+              total_tokens: 15,
+              billed_amount: 0.000024,
+            }],
+          },
+        });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<MemoryRouter initialEntries={['/console/workbench/text']}><PlaygroundPage initialMode="text" workbench /></MemoryRouter>);
+    fireEvent.change(await screen.findByLabelText('输入消息'), { target: { value: '你好' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送' }));
+
+    expect(await screen.findByText('工作台回复')).toBeVisible();
+    expect(screen.queryByText('15 tokens')).not.toBeInTheDocument();
+    expect(screen.queryByText('0.000024 U')).not.toBeInTheDocument();
+    expect(screen.queryByText('req-workbench-1')).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: '在使用日志中查看' })).not.toBeInTheDocument();
+  });
+
   it('renders an image generation workspace with a model panel and recent gallery', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();
@@ -235,6 +276,7 @@ describe('PlaygroundPage', () => {
         expect(body.getAll('image')).toHaveLength(2);
         expect(body.get('n')).toBe('10');
         expect(body.get('prompt')).toBe('合成两张参考图');
+        expect(body.has('response_format')).toBe(false);
         return jsonResponse({ created: 1, data: [{ url: 'https://cdn.example/edited.png' }] }, 200, { 'X-Request-ID': 'req-edit-1' });
       }
       if (url.includes('/api/log/self?')) return jsonResponse({ success: true, data: { page: 1, page_size: 1, total: 0, items: [] } });

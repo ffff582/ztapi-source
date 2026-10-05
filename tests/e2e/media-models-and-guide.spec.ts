@@ -476,8 +476,8 @@ test('user media catalog, guide and wallet remain usable without data exposure',
   await page.getByLabel('输入消息').fill('请介绍你自己。');
   await page.getByRole('button', { name: '发送' }).click();
   await expect(page.getByText('在线测试连接正常。')).toBeVisible();
-  await expect(page.getByText('0.004321 U')).toBeVisible();
-  await expect(page.getByText('req-browser-usage-001')).toBeVisible();
+  await expect(page.getByText('0.004321 U')).toHaveCount(0);
+  await expect(page.getByText('req-browser-usage-001')).toHaveCount(0);
   await expectNoHorizontalOverflow(page);
   await expectConsoleRegionsDoNotOverlap(page);
 

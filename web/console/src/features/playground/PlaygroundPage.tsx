@@ -446,7 +446,7 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
           ...(imageSize === '' ? {} : { size: imageSize }),
           ...(imageQuality === '' ? {} : { quality: imageQuality }),
           n: imageCount,
-          ...(imageResponseFormat === '' ? {} : { response_format: imageResponseFormat }),
+          ...(referenceImages.length === 0 && imageResponseFormat !== '' ? { response_format: imageResponseFormat } : {}),
         };
         const value = referenceImages.length === 0
           ? await playgroundClient.imageGeneration(input)
@@ -646,13 +646,6 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
               <div className="zt-workbench__thread">
                 <div className="zt-workbench__message zt-workbench__message--user"><span>你</span><p>{prompt}</p></div>
                 <div className="zt-workbench__message zt-workbench__message--assistant"><span>ZTAPI</span><div className="zt-workbench__answer">{chatResult.text}</div></div>
-                <dl className="playground-metrics">
-                  <div><dt>{t('Token 用量')}</dt><dd>{chatResult.usage?.total_tokens ?? 0} tokens</dd></div>
-                  <div><dt>{t('本次费用')}</dt><dd>{billedAmount === null ? t('入账中') : `${billedAmount.toFixed(6)} U`}</dd></div>
-                  <div><dt>{t('页面耗时')}</dt><dd>{elapsedMs === null ? '—' : `${elapsedMs} ms`}</dd></div>
-                  <div><dt>{t('结束原因')}</dt><dd>{chatResult.finish_reason || '—'}</dd></div>
-                </dl>
-                <ResultRequest requestID={chatResult.request_id} t={t} />
               </div>
             )}
           </div>
@@ -700,7 +693,7 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
             <div className="zt-workbench__model-caption"><span>模型 ID</span><code>{model || '—'}</code></div>
             {renderImageReferenceField()}
             <div className="console-field"><label htmlFor="workbench-image-prompt">图片提示词</label><textarea id="workbench-image-prompt" maxLength={4_000} rows={7} value={prompt} onChange={(event) => setPrompt(event.target.value)} /><p className="console-field__help">{prompt.length} / 4000 字符</p></div>
-            <div className="playground-option-grid"><div className="console-field"><label htmlFor="workbench-image-size">图片尺寸</label><select id="workbench-image-size" value={imageSize} onChange={(event) => setImageSize(event.target.value)}>{selectedOptions?.sizes?.map((option) => <option key={option} value={option}>{option}</option>)}</select></div><div className="console-field"><label htmlFor="workbench-image-quality">图片质量</label><select id="workbench-image-quality" value={imageQuality} onChange={(event) => setImageQuality(event.target.value)}>{selectedOptions?.qualities?.map((option) => <option key={option} value={option}>{option}</option>)}</select></div><div className="console-field"><label htmlFor="workbench-image-count">图片数量</label><select id="workbench-image-count" value={imageCount} onChange={(event) => setImageCount(Number(event.target.value))}>{Array.from({ length: Math.max(1, (selectedOptions?.max_count ?? 1) - (selectedOptions?.min_count ?? 1) + 1) }, (_, index) => (selectedOptions?.min_count ?? 1) + index).map((count) => <option key={count} value={count}>{count}</option>)}</select></div><div className="console-field"><label htmlFor="workbench-image-format">返回格式</label><select id="workbench-image-format" value={imageResponseFormat} onChange={(event) => setImageResponseFormat(event.target.value)}>{selectedOptions?.response_formats?.map((option) => <option key={option} value={option}>{option}</option>)}</select></div></div>
+            <div className="playground-option-grid"><div className="console-field"><label htmlFor="workbench-image-size">图片尺寸</label><select id="workbench-image-size" value={imageSize} onChange={(event) => setImageSize(event.target.value)}>{selectedOptions?.sizes?.map((option) => <option key={option} value={option}>{option}</option>)}</select></div><div className="console-field"><label htmlFor="workbench-image-quality">图片质量</label><select id="workbench-image-quality" value={imageQuality} onChange={(event) => setImageQuality(event.target.value)}>{selectedOptions?.qualities?.map((option) => <option key={option} value={option}>{option}</option>)}</select></div><div className="console-field"><label htmlFor="workbench-image-count">图片数量</label><select id="workbench-image-count" value={imageCount} onChange={(event) => setImageCount(Number(event.target.value))}>{Array.from({ length: Math.max(1, (selectedOptions?.max_count ?? 1) - (selectedOptions?.min_count ?? 1) + 1) }, (_, index) => (selectedOptions?.min_count ?? 1) + index).map((count) => <option key={count} value={count}>{count}</option>)}</select></div>{!isEditing && <div className="console-field"><label htmlFor="workbench-image-format">返回格式</label><select id="workbench-image-format" value={imageResponseFormat} onChange={(event) => setImageResponseFormat(event.target.value)}>{selectedOptions?.response_formats?.map((option) => <option key={option} value={option}>{option}</option>)}</select></div>}</div>
             <div className="zt-workbench__action-row">
               <button aria-label="重置图像参数" className="zt-workbench__reset" title="重置图像参数" type="button" onClick={resetImageForm}><RotateCcw aria-hidden="true" size={17} /></button>
               <button aria-label={isEditing ? '编辑图片' : '生成图片'} className="zt-workbench__run" disabled={requestStatus === 'sending' || model === '' || prompt.trim() === ''} type="submit"><Play aria-hidden="true" size={15} /><span>RUN</span><small>{requestStatus === 'sending' ? '生成中...' : '按实际 API 计费'}</small></button>

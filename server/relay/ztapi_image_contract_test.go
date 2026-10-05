@@ -174,6 +174,25 @@ func managedImageEditFields() map[string][]string {
 	}
 }
 
+func syntheticManagedImageEditOmitResponseFormatContract(t *testing.T) *types.ZTAPIImageProtocolContract {
+	t.Helper()
+	contract := syntheticManagedImageEditContract(t)
+	contract.Capabilities.ResponseFormats = []string{"b64_json"}
+	contract.Response.ResultFields = map[string]string{"b64_json": "b64_json"}
+	contract.UpstreamRequestFields["response_format"] = types.ZTAPIImageRequestFieldOmit
+	contract.Edit.RequestFields["response_format"] = types.ZTAPIImageRequestFieldOmit
+	filtered := make([]types.ZTAPIImageReservationAuthority, 0, len(contract.Reservations)/2)
+	for _, reservation := range contract.Reservations {
+		if reservation.ResponseFormat == "b64_json" {
+			filtered = append(filtered, reservation)
+		}
+	}
+	contract.Reservations = filtered
+	sealed, _, err := types.SealZTAPIImageProtocolContract(*contract)
+	require.NoError(t, err)
+	return &sealed
+}
+
 func managedImageEditPNG(index int) managedImageEditFile {
 	return managedImageEditFile{name: fmt.Sprintf("reference-%d.png", index), mime: "image/png", data: []byte{137, 80, 78, 71, 13, 10, 26, 10, byte(index)}}
 }
@@ -218,6 +237,34 @@ func TestZTAPIManagedImageEditAdmissionAcceptsFifteenReferences(t *testing.T) {
 		require.Equal(t, files[index].data, image)
 	}
 	require.Equal(t, "verified-provider-image", gotModel)
+}
+
+func TestZTAPIManagedImageEditAdmissionNormalizesOmittedSingleResponseFormat(t *testing.T) {
+	fields := managedImageEditFields()
+	delete(fields, "response_format")
+	c, info, _ := managedImageEditFixture(t, []managedImageEditFile{managedImageEditPNG(1)}, fields)
+	info.ZTAPIPublicationSnapshot.ImageProtocolContract = syntheticManagedImageEditOmitResponseFormatContract(t)
+	info.Request.(*dto.ImageRequest).ResponseFormat = ""
+
+	require.Nil(t, AdmitZTAPIImageRequest(c, info))
+	require.Equal(t, "b64_json", info.Request.(*dto.ImageRequest).ResponseFormat)
+
+	dispatch, apiErr := PrepareZTAPIManagedImageDispatch(c, info)
+	require.Nil(t, apiErr)
+	mediaType, params, err := mime.ParseMediaType(dispatch.ContentType)
+	require.NoError(t, err)
+	require.Equal(t, "multipart/form-data", mediaType)
+	reader := multipart.NewReader(bytes.NewReader(dispatch.Body), params["boundary"])
+	for {
+		part, nextErr := reader.NextPart()
+		if nextErr == io.EOF {
+			break
+		}
+		require.NoError(t, nextErr)
+		if part.FormName() == "response_format" {
+			t.Fatal("response_format must remain omitted from the verified upstream edit request")
+		}
+	}
 }
 
 func TestZTAPIManagedImageEditAdmissionRejectsMultipartAmbiguityAndLimits(t *testing.T) {

@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "113e44a59ce9a8c0b76937f59c4308b7c7d2b702",
+  "release_commit": "9c42eaf41662de30da390fc720e591bfa3a5bec5",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-113e44a59ce9a8c0b76937f59c4308b7c7d2b702",
+  "source_tag": "production-9c42eaf41662de30da390fc720e591bfa3a5bec5",
   "files": [
     {
       "path": ".dockerignore",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "41e609a9e55b54cecdc11b7c721307db1925e7b2338029c08a009a0b84231c16",
+      "sha256": "91557d79967cec2fed034885a2f65451b9224af45610022036157034db9b8ffd",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "d35c6333bf1eefd0d8f7a3e726a759e8a6a62dcf52880beb4551da00e25860d7",
+      "sha256": "af0c643a9d766b1ebbb06868e578f48509110d561e3b5a8ef703a950b32ee1d4",
       "size": 942
     },
     {
@@ -4291,13 +4291,13 @@
     },
     {
       "path": "server/relay/ztapi_image_contract.go",
-      "sha256": "a96dc267abfe470ce594dd9ef45a6bf26fca996b73e3eb8d14856db032c8c7c4",
-      "size": 34113
+      "sha256": "a66e95ff861012b14575f0f50a2c01593c19629f566062d2163b08f169227ec7",
+      "size": 34527
     },
     {
       "path": "server/relay/ztapi_image_contract_test.go",
-      "sha256": "c4ffec6bcd54e759ae90a46f6e4d6ce9451d8d1fc28838276d61aa37f8329e28",
-      "size": 39868
+      "sha256": "87a70b3608176dd866198b313064d3fe75a5bfb603dfa5a6e7727a29a0bf2c0f",
+      "size": 41860
     },
     {
       "path": "server/relay/ztapi_image_diagnostic.go",
@@ -9491,8 +9491,8 @@
     },
     {
       "path": "tests/e2e/media-models-and-guide.spec.ts",
-      "sha256": "a3db7a6cf57607415ca90083a2945082c44f943c0f8717997bd5b158358737bf",
-      "size": 26698
+      "sha256": "9e4c263c19dc766d9e40e114fefbe280bbafc1045f8dbbadab7422daaf993a56",
+      "size": 26700
     },
     {
       "path": "tests/e2e/public-pages.spec.ts",
@@ -10041,13 +10041,13 @@
     },
     {
       "path": "web/console/src/features/playground/PlaygroundPage.test.tsx",
-      "sha256": "ca8f63596ba0793e5a2c385e31aa6eacdcb8c6f6bae335d801e6b501f4366421",
-      "size": 22880
+      "sha256": "9ba57ad5c95c316af83a11d2a9238b87e4d9193b084f37d3301cb8b6b31acd57",
+      "size": 24734
     },
     {
       "path": "web/console/src/features/playground/PlaygroundPage.tsx",
-      "sha256": "2910f9884140942e40e9cd03f913195b40bbecd592d49bf6f2742761e2558822",
-      "size": 55342
+      "sha256": "30276aa6d3ab65d143db218a466447dcd6bde11e282efc3acab516f7cb12437e",
+      "size": 54774
     },
     {
       "path": "web/console/src/features/wallet/AccountBalance.tsx",
