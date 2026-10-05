@@ -661,6 +661,22 @@ test('catalog acceptance permits only models excluded by an open health circuit'
   );
 });
 
+test('catalog acceptance starts from the database publication state instead of republishing the pricing baseline', () => {
+  const source = readFileSync(workflowPath, 'utf8');
+
+  assert.match(source, /published_models_snapshot=/);
+  assert.match(
+    source,
+    /SELECT public_name[\s\S]*FROM ztapi_model_configs[\s\S]*WHERE published = 1[\s\S]*public_name <> ''/,
+    'the live publication flags must be the source of truth for the expected catalog',
+  );
+  assert.match(
+    source,
+    /LC_ALL=C sort -u "\$published_models_snapshot" > "\$expected_published_models"/,
+    'the catalog comparison must use the sorted live publication snapshot',
+  );
+});
+
 test('health-open catalog query keeps shell sorting outside the SQL heredoc', () => {
   const source = readFileSync(workflowPath, 'utf8');
 

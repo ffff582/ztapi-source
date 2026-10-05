@@ -2867,6 +2867,7 @@ jobs:
           health_unavailable_models=$(mktemp /tmp/ztapi-health-unavailable.XXXXXX)
           user_catalog_models=$(mktemp /tmp/ztapi-user-catalog.XXXXXX)
           openai_catalog_models=$(mktemp /tmp/ztapi-openai-catalog.XXXXXX)
+          published_models_snapshot=$(mktemp /tmp/ztapi-published-models-snapshot.XXXXXX)
           # Published after the pricing baseline was frozen. The list is counted
           # rather than restated as a number, because a release that adds a
           # model here otherwise has to remember to change the arithmetic too.
@@ -2918,6 +2919,20 @@ jobs:
           quoted_rollout_count=$(set -- $quoted_rollout_published; echo $#)
           expected_public_model_count=$((expected_pricing_model_count + published_since_baseline_count + quoted_rollout_count - retired_since_baseline_count))
           test "$(wc -l < "$expected_published_models" | tr -d ' ')" = "$expected_public_model_count"
+          # The frozen pricing and quotation sets validate policy arithmetic,
+          # but they must not republish historical rows that are currently
+          # unpublished or have no live upstream resource. The database
+          # publication flag is the source of truth for this release's catalog.
+          "${compose[@]}" exec -T mysql sh -c \
+            'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names' <<'SQL' > "$published_models_snapshot"
+          SELECT public_name
+          FROM ztapi_model_configs
+          WHERE published = 1
+            AND public_name <> ''
+          ORDER BY public_name;
+          SQL
+          test -s "$published_models_snapshot"
+          LC_ALL=C sort -u "$published_models_snapshot" > "$expected_published_models"
           jq -r '[.entries[] | select(.status == "mapping_pending" and .public_name != "") | .public_name] | unique[]' \
             "$quotation" | LC_ALL=C sort > "$expected_unpublished_models"
           test "$(jq -r '.entries | length' "$quotation")" = 46
@@ -2968,6 +2983,7 @@ jobs:
             "$expected_unpublished_models" "$health_open_models_raw" "$health_open_models" \
             "$health_unavailable_models" "$user_catalog_models" "$openai_catalog_models" \
             "$published_since_baseline" "$retired_since_baseline" "$baseline_models"             "$retired_sorted" "$expected_with_retired"
+          rm -f "$published_models_snapshot"
 
           test "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
             "$acceptance_origin/wallet")" = 200
