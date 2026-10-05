@@ -317,16 +317,29 @@ jobs:
           } > "$deploy_env"
           trap 'rm -f "$deploy_env"' EXIT
 
-          scp \
-            -o UserKnownHostsFile="$HOME/.ssh/ztapi_known_hosts" \
-            -o StrictHostKeyChecking=yes \
-            -o ConnectTimeout=60 \
-            -o ServerAliveInterval=30 \
-            -o ServerAliveCountMax=20 \
-            -o TCPKeepAlive=yes \
-            /tmp/ztapi-source.tgz \
-            "$deploy_env" \
-            ztapi-deploy@123.254.104.157:/tmp/
+          scp_succeeded=false
+          for transfer_attempt in 1 2 3 4 5; do
+            if scp \
+              -o UserKnownHostsFile="$HOME/.ssh/ztapi_known_hosts" \
+              -o StrictHostKeyChecking=yes \
+              -o ConnectTimeout=60 \
+              -o ConnectionAttempts=3 \
+              -o ServerAliveInterval=30 \
+              -o ServerAliveCountMax=20 \
+              -o TCPKeepAlive=yes \
+              /tmp/ztapi-source.tgz \
+              "$deploy_env" \
+              ztapi-deploy@123.254.104.157:/tmp/; then
+              scp_succeeded=true
+              break
+            fi
+            if [ "$transfer_attempt" -eq 5 ]; then
+              echo 'SCP source transfer failed after retries' >&2
+              exit 1
+            fi
+            sleep $((transfer_attempt * 2))
+          done
+          test "$scp_succeeded" = true
 
           # A deployment step that prints nothing for minutes -- a media
           # verification waiting on a generated video, say -- leaves this

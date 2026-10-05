@@ -59,6 +59,20 @@ test('ZTAPI only installs DNS tools when they are missing from the runner', () =
   assert.match(step.run, /sudo apt-get install -y dnsutils/);
 });
 
+test('ZTAPI retries the source transfer when SCP is dropped before authentication', () => {
+  const source = readText(workflowPath);
+  const deployStart = source.indexOf('- name: Deploy ZTAPI');
+  const remoteStart = source.indexOf('ssh \\\\', deployStart);
+  const deploy = source.slice(deployStart, remoteStart);
+
+  assert.match(deploy, /for transfer_attempt in 1 2 3 4 5; do/);
+  assert.match(deploy, /scp_succeeded=false/);
+  assert.match(deploy, /if scp /);
+  assert.match(deploy, /scp_succeeded=true/);
+  assert.match(deploy, /sleep \$\(\(transfer_attempt \* 2\)\)/);
+  assert.match(deploy, /SCP source transfer failed after retries/);
+});
+
 test('ZTAPI verifies exact anonymous corresponding source before SSH or mutation', () => {
   const source = readText(workflowPath);
   const gateStart = source.indexOf('- name: Verify corresponding public source');
