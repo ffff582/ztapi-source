@@ -37,6 +37,20 @@ test('public tag resolution uses authenticated metadata without weakening anonym
   assert.ok(steps.indexOf(resolver) < steps.indexOf(source));
 });
 
+test('exact release CI gate trusts the workflow-scoped success record without redundant filters', () => {
+  const workflow = YAML.parse(readText(workflowPath));
+  const step = workflow.jobs.deploy.steps.find(
+    ({ name }) => name === 'Verify mandatory CI for exact release',
+  );
+  assert.ok(step);
+  assert.match(step.run, /any\(\.workflow_runs\[\]\?;/);
+  assert.match(step.run, /\.head_sha == \$release_commit/);
+  assert.match(step.run, /\.status == "completed"/);
+  assert.match(step.run, /\.conclusion == "success"/);
+  assert.doesNotMatch(step.run, /\.path ==/);
+  assert.doesNotMatch(step.run, /\.event ==/);
+});
+
 test('ZTAPI only installs DNS tools when they are missing from the runner', () => {
   const workflow = YAML.parse(readText(workflowPath));
   const step = workflow.jobs.deploy.steps.find(({ name }) => name === 'Install SSH tooling');

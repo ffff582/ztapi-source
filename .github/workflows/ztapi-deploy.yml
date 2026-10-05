@@ -63,13 +63,11 @@ jobs:
             "https://api.github.com/repos/ffff582/kuaiyi-assistant-candidate/actions/workflows/ztapi-financial-ci.yml/runs?head_sha=$ZTAPI_RELEASE_COMMIT&event=workflow_dispatch&per_page=10")
           echo "$ci_runs" | jq -e \
             --arg release_commit "$ZTAPI_RELEASE_COMMIT" '
-              [.workflow_runs[] | select(
+              any(.workflow_runs[]?;
                 .head_sha == $release_commit
                 and .status == "completed"
                 and .conclusion == "success"
-                and .path == ".github/workflows/ztapi-financial-ci.yml"
-                and .event == "workflow_dispatch"
-              )] | length > 0' >/dev/null
+              )' >/dev/null
 
       - name: Resolve public source tag
         env:

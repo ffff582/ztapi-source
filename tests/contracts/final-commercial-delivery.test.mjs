@@ -70,10 +70,12 @@ test('deployment requires completed financial CI for the exact private commit', 
   assert.match(gate, /actions\/workflows\/ztapi-financial-ci\.yml\/runs/);
   assert.match(gate, /head_sha=\$ZTAPI_RELEASE_COMMIT/);
   assert.match(gate, /event=workflow_dispatch/);
+  assert.match(gate, /any\(\.workflow_runs\[\]\?;/);
   assert.match(gate, /\.head_sha == \$release_commit/);
   assert.match(gate, /\.status == "completed"/);
   assert.match(gate, /\.conclusion == "success"/);
-  assert.match(gate, /\.path == "\.github\/workflows\/ztapi-financial-ci\.yml"/);
+  assert.doesNotMatch(gate, /\.path ==/);
+  assert.doesNotMatch(gate, /\.event ==/);
   assert.doesNotMatch(gate, /329193222/);
 });
 
