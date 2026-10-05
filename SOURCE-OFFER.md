@@ -3,9 +3,9 @@
 This repository provides the complete corresponding source for the ZTAPI
 production release identified below under GNU AGPLv3.
 
-- Production release commit: `72e9c1aa33f179133b3bcb5767b55c617dda6bf4`
+- Production release commit: `c09843131469205486ad2a7e9118f6cbab3aebfd`
 - Public source repository: `https://github.com/ffff582/ztapi-source`
-- Public source tag: `production-72e9c1aa33f179133b3bcb5767b55c617dda6bf4`
+- Public source tag: `production-c09843131469205486ad2a7e9118f6cbab3aebfd`
 - Publication date: `2026-10-06`
 
 The immutable public commit is the resolved target of the production tag. Its

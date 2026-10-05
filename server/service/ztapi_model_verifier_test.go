@@ -560,6 +560,11 @@ func TestZTAPIVerificationRequestTimeoutAllowsSlowGPT5ProModels(t *testing.T) {
 	require.Equal(t, 20*time.Second, ztapiVerificationRequestTimeoutForModel("qwen3.7-max"))
 }
 
+func TestZTAPIVerificationRequestTimeoutAllowsGPTImage2EditModels(t *testing.T) {
+	require.Equal(t, 60*time.Second, ztapiVerificationRequestTimeoutForModel("gpt-image-2"))
+	require.Equal(t, 60*time.Second, ztapiVerificationRequestTimeoutForModel(" GPT-IMAGE-2 "))
+}
+
 func TestVerifyZTAPIModelExtendsOuterDeadlineForSlowModels(t *testing.T) {
 	channel, config := setupZTAPIModelVerifierTestDB(t)
 	require.NoError(t, model.DB.Model(&config).Update("source_model", "gpt-5.4-pro").Error)

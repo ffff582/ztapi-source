@@ -130,6 +130,9 @@ func ztapiVerificationRequestTimeoutForModel(sourceModel string) time.Duration {
 	if normalized == ztapiGemini25ImageModel {
 		return ztapiVerificationSlowRequestTimeout
 	}
+	if normalized == "gpt-image-2" {
+		return ztapiVerificationSlowRequestTimeout
+	}
 	if strings.HasPrefix(normalized, "gpt-5") && strings.Contains(normalized, "-pro") {
 		return ztapiVerificationSlowRequestTimeout
 	}
