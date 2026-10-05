@@ -720,7 +720,7 @@ func ztapiGeminiImageUsagePendingReason(usage dto.GeminiUsageMetadata) string {
 
 func ztapiImageResponseRequestID(contract *types.ZTAPIImageProtocolContract, root gjson.Result, headers http.Header) (string, error) {
 	field := contract.RequestIDField
-	if contract.Version == types.ZTAPIImageProtocolContractVersionV2 {
+	if contract.Version == types.ZTAPIImageProtocolContractVersionV2 || contract.Version == types.ZTAPIImageProtocolContractVersionV3 {
 		if contract.RequestIDSource == types.ZTAPIResponseIDSourceHeader {
 			var values []string
 			for name, entries := range headers {

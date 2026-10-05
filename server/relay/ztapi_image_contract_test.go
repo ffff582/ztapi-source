@@ -25,6 +25,7 @@ import (
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 func syntheticManagedImageContract(t *testing.T) *types.ZTAPIImageProtocolContract {
@@ -456,6 +457,22 @@ func TestZTAPIImageResponseValidationProducesRawTypedHandoff(t *testing.T) {
 	require.True(t, info.PromoteZTAPIValidatedImageResponse(raw, evidence))
 	publishedResponse, _ = info.GetZTAPIImageSettlementEvidence()
 	require.Equal(t, handoff, publishedResponse)
+}
+
+func TestZTAPIImageResponseV3ReadsConfiguredHeader(t *testing.T) {
+	contract := &types.ZTAPIImageProtocolContract{
+		Version:         types.ZTAPIImageProtocolContractVersionV3,
+		RequestIDSource: types.ZTAPIResponseIDSourceHeader,
+		RequestIDKey:    "X-Synthetic-Request-ID",
+	}
+
+	requestID, err := ztapiImageResponseRequestID(
+		contract,
+		gjson.Parse(`{"data":[]}`),
+		http.Header{"x-synthetic-request-id": {"v3-header-id"}},
+	)
+	require.NoError(t, err)
+	require.Equal(t, "v3-header-id", requestID)
 }
 
 func TestZTAPIImageResponsePreservesUntrustedUsageCandidate(t *testing.T) {
