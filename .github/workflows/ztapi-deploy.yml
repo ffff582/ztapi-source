@@ -1721,7 +1721,11 @@ jobs:
             --header "Authorization: Bearer $admin_access_token" \
             --header "New-API-User: $admin_user_id" \
             "https://admin.ztapi.vip/api/models/ztapi/$ztapi_image_model_id" | jq -cer '.data')
-          if ! echo "$ztapi_image_model" | jq -e '.published == true' >/dev/null; then
+          # Verification can upgrade an already-published image model from a
+          # generation-only snapshot to the V3 edit-capable snapshot. Rebuild
+          # the publication snapshot after verification so runtime admission
+          # cannot keep reading the stale contract.
+          if [ "$ztapi_image_requires_acceptance" = true ]; then
             image_publish_payload=$(echo "$ztapi_image_model" | jq -c '
               {
                 version:.version,

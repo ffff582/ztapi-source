@@ -8,13 +8,14 @@ permissions:
 
 jobs:
   diagnose:
-    runs-on: ubuntu-latest
+    environment: production
+    runs-on: [self-hosted, ztapi-local]
     timeout-minutes: 10
     steps:
-      - name: Install SSH tooling
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y sshpass
+      - name: Configure deployment SSH key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.ZTAPI_DEPLOY_SSH_KEY }}
 
       - name: Verify server host key
         run: |
@@ -24,16 +25,13 @@ jobs:
             grep 'SHA256:gz3lHpV1JPP65SRRGQjRv76qlMA3xsoHGZ1ak9n979g'
 
       - name: Inspect edge networking
-        env:
-          KUAIYI_SSH_PASSWORD: ${{ secrets.KUAIYI_SSH_PASSWORD }}
         run: |
           set -euo pipefail
-          export SSHPASS="$KUAIYI_SSH_PASSWORD"
-          sshpass -e ssh \
+          ssh \
             -o UserKnownHostsFile="$HOME/.ssh/ztapi_known_hosts" \
             -o StrictHostKeyChecking=yes \
             -o ConnectTimeout=60 \
-            root@123.254.104.157 "bash -s" <<'REMOTE'
+            ztapi-deploy@123.254.104.157 "sudo -n bash -s" <<'REMOTE'
           set -u
           echo '=== compose ==='
           cd /opt/ztapi
@@ -59,4 +57,11 @@ jobs:
           curl --fail --silent --show-error \
             --resolve ztapi.vip:443:127.0.0.1 \
             https://ztapi.vip/api/status
+          echo
+          echo '=== preserved image-edit rejection ==='
+          for response_file in /tmp/ztapi-image-edit-body.*; do
+            test -f "$response_file" || continue
+            printf 'file=%s\n' "$(basename "$response_file")"
+            jq -c '{error:{message:.error.message,type:.error.type,code:.error.code}}' "$response_file"
+          done
           REMOTE

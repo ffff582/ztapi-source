@@ -960,6 +960,25 @@ test('rollback backs up every media publication, not a fixed five', () => {
   assert.ok(!/= "[0-9]+"/.test(capture), 'no hard-coded media publication count');
 });
 
+test('image acceptance republishes the verified edit-capable snapshot', () => {
+  const source = readText(workflowPath);
+  const verification = source.indexOf('image_verification_result=$(jq -cn');
+  const publish = source.indexOf('image_publish_payload=$(echo "$ztapi_image_model"', verification);
+
+  assert.ok(verification >= 0, 'GPT Image 2 verification must exist');
+  assert.ok(publish > verification, 'publication must happen after protocol verification');
+  assert.match(
+    source.slice(publish - 260, publish + 80),
+    /if \[ "\$ztapi_image_requires_acceptance" = true \]; then/,
+    'an already-published image must be republished when its verified contract changes',
+  );
+  assert.match(
+    source.slice(verification, publish),
+    /\.capabilities\.supports_edits == true/,
+    'the V3 edit capability must be verified before republishing',
+  );
+});
+
 test('every session that changes the server keeps itself alive', () => {
   const source = readText(workflowPath);
   const sessions = source.split('ztapi-deploy@123.254.104.157').slice(0, -1);
