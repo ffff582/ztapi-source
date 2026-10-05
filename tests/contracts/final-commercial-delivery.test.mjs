@@ -432,6 +432,35 @@ test('deployment verifies, publishes, and bills GPT Image 2 through an ordinary 
   assert.match(source, /image:\{model:\$image_model,request_id:\$image_request_id,status:\$image_status,billed_amount:\$image_billed_amount\}/);
 });
 
+test('image discovery accepts the backend model-list response shape without iterating null', () => {
+  const source = read(workflowPath);
+  const gptDiscovery = source.slice(
+    source.indexOf('image_discovery_result='),
+    source.indexOf('gemini_image_discovery_result='),
+  );
+  const geminiDiscovery = source.slice(
+    source.indexOf('gemini_image_discovery_result='),
+    source.indexOf('gemini_image_model_list='),
+  );
+
+  for (const discovery of [gptDiscovery, geminiDiscovery]) {
+    assert.match(discovery, /\.data \| type\) == "array"/);
+    assert.match(discovery, /\.data\[\];/);
+    assert.match(discovery, /\.data\.model_ids \| type\) == "array"/);
+    assert.match(discovery, /\.data\.model_ids\[\];/);
+  }
+  assert.doesNotMatch(
+    gptDiscovery,
+    /\.success == true and any\(\.data\.model_ids\[\]\s*;/,
+    'discovery must not iterate a nullable model_ids field directly',
+  );
+  assert.doesNotMatch(
+    geminiDiscovery,
+    /\.success == true and any\(\.data\.model_ids\[\]\s*;/,
+    'discovery must not iterate a nullable model_ids field directly',
+  );
+});
+
 test('unchanged GPT Image 2 code and pricing skip paid deployment acceptance', () => {
   const source = read(workflowPath);
   const fingerprint = read('deploy/scripts/ztapi-image-acceptance-fingerprint.sh');

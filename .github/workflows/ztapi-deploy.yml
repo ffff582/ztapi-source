@@ -1545,7 +1545,14 @@ jobs:
             --header "New-API-User: $admin_user_id" \
             "https://admin.ztapi.vip/api/channel/ztapi/fetch_models/$ztapi_image_channel_id?import=true")
           echo "$image_discovery_result" | jq -e \
-            '.success == true and any(.data.model_ids[]; . == "gpt-image-2")' >/dev/null
+            '.success == true and (
+              if (.data | type) == "array" then
+                any(.data[]; . == "gpt-image-2")
+              elif (.data | type) == "object" and (.data.model_ids | type) == "array" then
+                any(.data.model_ids[]; . == "gpt-image-2")
+              else false
+              end
+            )' >/dev/null
 
           image_model_list=$(curl --fail --silent --show-error \
             --resolve admin.ztapi.vip:443:127.0.0.1 \
@@ -1805,7 +1812,14 @@ jobs:
             --header "New-API-User: $admin_user_id" \
             "https://admin.ztapi.vip/api/channel/ztapi/fetch_models/$ztapi_gemini_image_channel_id?import=true")
           echo "$gemini_image_discovery_result" | jq -e \
-            '.success == true and any(.data.model_ids[]; . == "gemini-2.5-flash-image")' >/dev/null
+            '.success == true and (
+              if (.data | type) == "array" then
+                any(.data[]; . == "gemini-2.5-flash-image")
+              elif (.data | type) == "object" and (.data.model_ids | type) == "array" then
+                any(.data.model_ids[]; . == "gemini-2.5-flash-image")
+              else false
+              end
+            )' >/dev/null
 
           gemini_image_model_list=$(curl --fail --silent --show-error \
             --resolve admin.ztapi.vip:443:127.0.0.1 \
