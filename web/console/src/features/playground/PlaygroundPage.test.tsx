@@ -189,6 +189,29 @@ describe('PlaygroundPage', () => {
     expect(screen.queryByRole('link', { name: '在使用日志中查看' })).not.toBeInTheDocument();
   });
 
+  it('clears an image prompt when the reused workbench instance switches to text', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith('/api/user/models')) return jsonResponse(mediaCatalogResponse());
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+
+    const { rerender } = render(
+      <MemoryRouter initialEntries={['/console/workbench/image']}>
+        <PlaygroundPage initialMode="image" workbench />
+      </MemoryRouter>,
+    );
+    fireEvent.change(await screen.findByLabelText('图片提示词'), { target: { value: '只用于图片生成的提示词' } });
+
+    rerender(
+      <MemoryRouter initialEntries={['/console/workbench/text']}>
+        <PlaygroundPage initialMode="text" workbench />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByLabelText('输入消息')).toHaveValue('');
+  });
+
   it('renders an image generation workspace with a model panel and recent gallery', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();

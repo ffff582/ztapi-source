@@ -185,7 +185,11 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
   const [catalogStatus, setCatalogStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [mode, setMode] = useState<PlaygroundMode>(initialMode);
   const [modelByMode, setModelByMode] = useState<Record<PlaygroundMode, string>>({ text: '', image: '', video: '' });
-  const [prompt, setPrompt] = useState(defaultPromptForMode(initialMode));
+  const [promptByMode, setPromptByMode] = useState<Record<PlaygroundMode, string>>({
+    text: defaultPromptForMode('text'),
+    image: defaultPromptForMode('image'),
+    video: defaultPromptForMode('video'),
+  });
   const [requestStatus, setRequestStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
   const [chatResult, setChatResult] = useState<PlaygroundChatResult | null>(null);
   const [imageResult, setImageResult] = useState<PlaygroundImageResult | null>(null);
@@ -223,6 +227,14 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
   const selectedOptions = selectedCatalog?.supported_options;
   const editInput = imageEditCapability(selectedCatalog);
   const example = useMemo(() => codeExample(mode, model), [mode, model]);
+  const prompt = promptByMode[mode];
+
+  function setPrompt(nextPrompt: string | ((current: string) => string)) {
+    setPromptByMode((current) => ({
+      ...current,
+      [mode]: typeof nextPrompt === 'function' ? nextPrompt(current[mode]) : nextPrompt,
+    }));
+  }
 
   useEffect(() => {
     referenceImagesRef.current = referenceImages;
@@ -344,7 +356,7 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
       setReferenceError('');
     }
     setMode(nextMode);
-    setPrompt(defaultPromptForMode(nextMode));
+    setPromptByMode((current) => ({ ...current, [nextMode]: defaultPromptForMode(nextMode) }));
   }
 
   function handleModelChange(nextModel: string) {
