@@ -625,7 +625,7 @@ test('deployment verifies, publishes, and bills Gemini 2.5 image through the nat
     rollbackSucceeded >= 0 && writeRollbackReceipt > rollbackSucceeded && removeGeminiBackup > writeRollbackReceipt,
     'the terminal rollback receipt and channel-backup cleanup must happen only after every rollback step succeeds',
   );
-  assert.match(source, /published_media_count:5/);
+  assert.match(source, /published_media_count:\$published_media_count/);
 });
 
 test('an unchanged published Gemini image product does not block unrelated deployments', () => {
@@ -773,7 +773,7 @@ test('deployment rollback restores every quotation-backed media publication befo
   assert.match(releaseControl, /rm -f "\$\{media_publication_backup:-\}"/);
 });
 
-test('deployment publishes and bills the exact three quotation-backed Seedance products', () => {
+test('deployment removes unavailable Seedance products without blocking image publication', () => {
   const source = read(workflowPath);
   assert.match(source, /ztapi-video-acceptance-fingerprint\.sh/);
   assert.match(
@@ -783,12 +783,12 @@ test('deployment publishes and bills the exact three quotation-backed Seedance p
   );
 
   const rollout = source.slice(
-    source.indexOf('# Publish the three quotation-backed Seedance products'),
-    source.indexOf('blocked_media_count=', source.indexOf('# Publish the three quotation-backed Seedance products')),
+    source.indexOf('# Remove Seedance products whose upstream route is unavailable'),
+    source.indexOf('roll_out_quoted_models() {'),
   );
-  assert.ok(rollout.length > 0, 'the Seedance rollout must run before the pre-cutover media guard');
-  assert.match(rollout, /fetch_models\/\$ztapi_video_channel_id\?import=true/);
-  assert.match(rollout, /c\.name = 'Yunxin enterprise'/);
+  assert.ok(rollout.length > 0, 'the unavailable Seedance cleanup must run before quoted rollout');
+  assert.match(rollout, /no_route_unpublished/);
+  assert.match(rollout, /published:false/);
   for (const [sourceModel, publicModel] of [
     ['doubao-seedance-2.0', 'zt-seedance-2.0'],
     ['doubao-seedance-2-0-fast', 'zt-seedance-2.0-fast'],
@@ -797,36 +797,18 @@ test('deployment publishes and bills the exact three quotation-backed Seedance p
     assert.match(rollout, new RegExp(sourceModel.replaceAll('.', '\\.')));
     assert.match(rollout, new RegExp(publicModel.replaceAll('.', '\\.')));
   }
-  assert.match(rollout, /\.quote_rows\[\][\s\S]*\.media_price_contract/);
-  assert.match(rollout, /resource_type:"original_resource"/);
-  assert.match(rollout, /price_policy:"enterprise_20_margin"/);
-  assert.match(rollout, /billing_dimensions:\["input_tokens"\]/);
-  assert.match(rollout, /models\/ztapi\/\$ztapi_video_model_id\/verify/);
-  assert.match(rollout, /\.data\.verification\.modality == "video"/);
-  assert.match(rollout, /\.data\.verification\.video_create_passed == true/);
-  assert.match(rollout, /\.data\.verification\.video_fetch_passed == true/);
-  assert.match(rollout, /\.data\.verification\.video_terminal_passed == true/);
-  assert.match(rollout, /\.data\.verification\.video_restart_recovery_passed == true/);
-  assert.match(rollout, /\.data\.verification\.video_settlement_idempotence_passed == true/);
-  assert.match(rollout, /\.data\.verification\.video_protocol_contract \| length/);
-  assert.match(
-    rollout,
-    /ztapi_video_requires_acceptance="\$ztapi_video_code_changed"[\s\S]*if \[ "\$ztapi_video_requires_acceptance" = true \]; then[\s\S]*ztapi_video_verification_result=/,
-    'paid video verification must be conditional on first publication or configuration drift',
-  );
+  assert.match(rollout, /cat > "\$video_models_tsv" <<'VIDEO_MODELS'\n\s*VIDEO_MODELS/);
+  assert.match(source, /expected_seedance_catalog_count=0/);
+  assert.match(source, /published_media_count=\$\(\(expected_image_catalog_count \+ expected_seedance_catalog_count\)\)/);
 
   const ordinaryAcceptance = source.slice(
     source.indexOf('seedance_acceptance_status='),
     source.indexOf('for acceptance_log_attempt in', source.indexOf('seedance_acceptance_status=')),
   );
   assert.match(ordinaryAcceptance, /if \[ "\$ztapi_any_video_requires_acceptance" = true \]; then/);
-  assert.match(ordinaryAcceptance, /"\$acceptance_origin\/v1\/videos"/);
-  assert.match(ordinaryAcceptance, /"\$acceptance_origin\/v1\/videos\/\$seedance_public_task_id"/);
-  assert.match(ordinaryAcceptance, /result_metadata_json/);
-  assert.match(ordinaryAcceptance, /raw_usage_json/);
-  assert.match(ordinaryAcceptance, /completion_tokens/);
+  assert.match(ordinaryAcceptance, /expected_seedance_catalog_count/);
   assert.match(source, /seedance_videos:\$seedance_videos/);
-  assert.match(source, /published_media_count:5/);
+  assert.match(source, /published_media_count:\$published_media_count/);
 });
 
 test('pre-cutover media guard permits all quotation-authorized media products', () => {
@@ -871,16 +853,13 @@ test('exact catalog comparison rejects an unpublished substitution at the same c
 		...sortedModelNames(baseline),
 		'zt-gp-image-2',
 		'zt-gemini-2.5-flash-image',
-		'zt-seedance-2.0',
-		'zt-seedance-2.0-fast',
-		'zt-seedance-2.0-mini',
 	].sort();
   const unpublished = quotation.entries
     .filter((entry) => entry.status === 'mapping_pending')
     .map((entry) => `zt-${entry.label.toLowerCase().replaceAll(' ', '-')}`)
     .sort();
 
-	assert.equal(expected.length, 44);
+	assert.equal(expected.length, 41);
   assert.equal(unpublished.length, 0, 'all quotation identities must be resolved');
 
 	const swapped = [...expected.slice(1), 'zt-not-quoted'];

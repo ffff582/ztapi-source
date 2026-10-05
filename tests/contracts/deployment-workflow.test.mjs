@@ -979,6 +979,41 @@ test('image acceptance republishes the verified edit-capable snapshot', () => {
   );
 });
 
+test('unavailable Seedance products are unpublished instead of blocking image publication', () => {
+  const source = readText(workflowPath);
+  const start = source.indexOf('# Remove Seedance products whose upstream route is unavailable');
+  const end = source.indexOf('roll_out_quoted_models() {', start);
+
+  assert.ok(start >= 0, 'the release must have an explicit unavailable-video cleanup gate');
+  assert.ok(end > start, 'the cleanup gate must run before quoted rollout');
+  const cleanup = source.slice(start, end);
+
+  for (const [sourceModel, publicModel] of [
+    ['doubao-seedance-2.0', 'zt-seedance-2.0'],
+    ['doubao-seedance-2-0-fast', 'zt-seedance-2.0-fast'],
+    ['doubao-seedance-2-0-mini', 'zt-seedance-2.0-mini'],
+  ]) {
+    assert.match(cleanup, new RegExp(sourceModel.replaceAll('.', '\\.')));
+    assert.match(cleanup, new RegExp(publicModel.replaceAll('.', '\\.')));
+  }
+  assert.match(cleanup, /published:false/);
+  assert.match(cleanup, /no_route_unpublished/);
+  assert.match(cleanup, /video_models_tsv/);
+  assert.match(
+    cleanup,
+    /cat > "\$video_models_tsv" <<'VIDEO_MODELS'\n\s*VIDEO_MODELS/,
+    'unavailable video products must not enter paid public acceptance',
+  );
+
+  assert.match(source, /expected_seedance_catalog_count=0/);
+  assert.match(
+    source,
+    /expected_seedance_catalog_count[\s\S]*\| length\) == \$expected_seedance_catalog_count/,
+    'catalog acceptance must expect zero unavailable Seedance products',
+  );
+  assert.match(source, /echo "\$seedance_videos" \| jq -er 'length'\)" = "\$expected_seedance_catalog_count/);
+});
+
 test('every session that changes the server keeps itself alive', () => {
   const source = readText(workflowPath);
   const sessions = source.split('ztapi-deploy@123.254.104.157').slice(0, -1);
@@ -1007,13 +1042,17 @@ test('the expected catalog counts the models it lists instead of restating a num
   // ordinary user's catalog no longer matches what the release expects.
   for (const modelName of [
     'zt-gp-image-2',
-    'zt-seedance-2.0',
-    'zt-seedance-2.0-fast',
-    'zt-seedance-2.0-mini',
     'zt-claude-fable-5',
     'zt-claude-opus-5',
   ]) {
     assert.ok(block.includes(`\n          ${modelName}\n`), `${modelName} must be expected`);
+  }
+  for (const modelName of [
+    'zt-seedance-2.0',
+    'zt-seedance-2.0-fast',
+    'zt-seedance-2.0-mini',
+  ]) {
+    assert.ok(!block.includes(`\n          ${modelName}\n`), `${modelName} must stay unpublished`);
   }
   assert.match(
     block,

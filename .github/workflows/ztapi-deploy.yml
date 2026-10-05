@@ -1993,44 +1993,79 @@ jobs:
           fi
           fi
 
-          # Publish the three quotation-backed Seedance products through the
-          # managed enterprise fallback. Paid verification is skipped on an
-          # unchanged, already accepted deployment.
-          ztapi_video_channel_id=$("${compose[@]}" exec -T mysql sh -c \
-            'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names' <<'SQL'
-          SELECT c.id
-          FROM channels c
-          WHERE c.status = 1
-            AND c.ztapi_managed = 1
-            AND c.ztapi_family = 'openai'
-            AND c.name = 'Yunxin enterprise'
-            AND FIND_IN_SET('default', c.`group`) > 0
-          ORDER BY COALESCE(c.priority, 0) ASC, c.id ASC
-          LIMIT 1;
-          SQL
-          )
-          if [[ ! "$ztapi_video_channel_id" =~ ^[1-9][0-9]*$ ]]; then
-            echo 'no enabled managed OpenAI enterprise fallback channel is available for Seedance discovery' >&2
-            exit 1
-          fi
-          video_discovery_result=$(curl --fail --silent --show-error \
-            --resolve admin.ztapi.vip:443:127.0.0.1 \
-            --header "Authorization: Bearer $admin_access_token" \
-            --header "New-API-User: $admin_user_id" \
-            "https://admin.ztapi.vip/api/channel/ztapi/fetch_models/$ztapi_video_channel_id?import=true")
-          echo "$video_discovery_result" | jq -e '
-            .success == true
-            and any(.data.model_ids[]; . == "doubao-seedance-2.0")
-            and any(.data.model_ids[]; . == "doubao-seedance-2-0-fast")
-            and any(.data.model_ids[]; . == "doubao-seedance-2-0-mini")' >/dev/null
+          # Remove Seedance products whose upstream route is unavailable.
+          # The last paid public acceptance returned route_not_found for these
+          # three upstream IDs. They stay in the admin inventory for a later
+          # re-verification, but must not remain customer-visible or block an
+          # otherwise healthy image release.
+          unavailable_video_models_tsv=$(mktemp /tmp/ztapi-unavailable-video-models.XXXXXX)
+          cat > "$unavailable_video_models_tsv" <<'UNAVAILABLE_VIDEO_MODELS'
+          doubao-seedance-2.0	zt-seedance-2.0
+          doubao-seedance-2-0-fast	zt-seedance-2.0-fast
+          doubao-seedance-2-0-mini	zt-seedance-2.0-mini
+          UNAVAILABLE_VIDEO_MODELS
+          unavailable_video_rollout_skipped=""
+          while IFS=$'\t' read -r unavailable_video_source unavailable_video_public; do
+            unavailable_video_model_list=$(curl --fail --silent --show-error \
+              --resolve admin.ztapi.vip:443:127.0.0.1 \
+              --header "Authorization: Bearer $admin_access_token" \
+              --header "New-API-User: $admin_user_id" \
+              "https://admin.ztapi.vip/api/models/ztapi/?keyword=$unavailable_video_source&page_size=100")
+            unavailable_video_model=$(echo "$unavailable_video_model_list" | jq -cer \
+              --arg source "$unavailable_video_source" \
+              '.data.items | map(select(.source_model == $source)) | select(length == 1) | .[0]' \
+              2>/dev/null || true)
+            if [ -z "$unavailable_video_model" ]; then
+              unavailable_video_rollout_skipped="${unavailable_video_rollout_skipped}${unavailable_video_public}:missing "
+              continue
+            fi
+            if echo "$unavailable_video_model" | jq -e '.published == true' >/dev/null; then
+              unavailable_video_model_id=$(echo "$unavailable_video_model" | jq -er '.id')
+              unavailable_video_unpublish_payload=$(echo "$unavailable_video_model" | jq -c '
+                {
+                  version:.version,
+                  source_model:.source_model,
+                  public_name:.public_name,
+                  family:.family,
+                  input_cost_per_million:.input_cost_per_million,
+                  output_cost_per_million:.output_cost_per_million,
+                  input_price_per_million:.input_price_per_million,
+                  output_price_per_million:.output_price_per_million,
+                  cache_read_ratio:.cache_read_ratio,
+                  cache_creation_ratio:.cache_creation_ratio,
+                  cache_creation_5m_ratio:.cache_creation_5m_ratio,
+                  cache_creation_1h_ratio:.cache_creation_1h_ratio,
+                  image_ratio:.image_ratio,
+                  audio_ratio:.audio_ratio,
+                  audio_completion_ratio:.audio_completion_ratio,
+                  enabled_groups:["default"],
+                  published:false,
+                  confirm_below_cost:false,
+                  confirm:true
+                }')
+              unavailable_video_unpublish_result=$(printf '%s' "$unavailable_video_unpublish_payload" | curl --fail --silent --show-error \
+                --request PUT \
+                --resolve admin.ztapi.vip:443:127.0.0.1 \
+                --header 'Content-Type: application/json' \
+                --header "Authorization: Bearer $admin_access_token" \
+                --header "New-API-User: $admin_user_id" \
+                --data-binary @- \
+                "https://admin.ztapi.vip/api/models/ztapi/$unavailable_video_model_id")
+              echo "$unavailable_video_unpublish_result" | jq -e \
+                '.success == true and .data.published == false' >/dev/null
+              unavailable_video_rollout_skipped="${unavailable_video_rollout_skipped}${unavailable_video_public}:no_route_unpublished "
+            else
+              unavailable_video_rollout_skipped="${unavailable_video_rollout_skipped}${unavailable_video_public}:already_unpublished "
+            fi
+          done < "$unavailable_video_models_tsv"
+          rm -f "$unavailable_video_models_tsv"
+          write_receipt unavailable_video_rollout "skipped=${unavailable_video_rollout_skipped:-none}"
+          require_receipt unavailable_video_rollout
 
           video_quote=/opt/ztapi/server/model/ztapi_quotation_v1.json
           video_quote_checksum=$(jq -er '.sha256' "$video_quote")
           video_models_tsv=$(mktemp /tmp/ztapi-video-models.XXXXXX)
           cat > "$video_models_tsv" <<'VIDEO_MODELS'
-          doubao-seedance-2.0	zt-seedance-2.0	6.2515277778	7.8144097223
-          doubao-seedance-2-0-fast	zt-seedance-2.0-fast	5.0284027778	6.2855034723
-          doubao-seedance-2-0-mini	zt-seedance-2.0-mini	3.1257638889	3.9072048611
           VIDEO_MODELS
           ztapi_any_video_requires_acceptance=false
           ztapi_video_acceptance_models=""
@@ -2233,7 +2268,7 @@ jobs:
             );
           SQL
           )
-          test "$seedance_published_count" = "3"
+          test "$seedance_published_count" = "0"
           blocked_media_count=$("${compose[@]}" exec -T mysql sh -c \
             'mysql --user="$MYSQL_USER" --password="$MYSQL_PASSWORD" "$MYSQL_DATABASE" --batch --skip-column-names' <<'SQL'
           SELECT COUNT(*)
@@ -2243,9 +2278,9 @@ jobs:
               'doubao-seedance-2-0-fast',
               'doubao-seedance-2-0-mini'
             )
+            AND published = 1
             AND (
-              published <> 1
-              OR protocol <> 'openai_compatible'
+              protocol <> 'openai_compatible'
               OR provider_family <> 'seedance'
               OR public_name NOT IN ('zt-seedance-2.0', 'zt-seedance-2.0-fast', 'zt-seedance-2.0-mini')
             );
@@ -2807,6 +2842,11 @@ jobs:
             # an intentional retirement fail the catalog gate.
             expected_image_catalog_count=1
           fi
+          # The Seedance 2.0 products were explicitly removed above after the
+          # upstream route returned route_not_found. Keep the expected count
+          # state-aware so a missing upstream cannot block image publication.
+          expected_seedance_catalog_count=0
+          published_media_count=$((expected_image_catalog_count + expected_seedance_catalog_count))
           acceptance_catalog=""
           catalog_accepted=false
           for catalog_attempt in {1..6}; do
@@ -2814,7 +2854,9 @@ jobs:
               --header "Authorization: Bearer $acceptance_user_access_token" \
               --header "New-API-User: $acceptance_user_id" \
               "$acceptance_origin/api/user/models") &&
-              echo "$acceptance_catalog" | jq -e --argjson expected_image_catalog_count "$expected_image_catalog_count" '
+              echo "$acceptance_catalog" | jq -e \
+                --argjson expected_image_catalog_count "$expected_image_catalog_count" \
+                --argjson expected_seedance_catalog_count "$expected_seedance_catalog_count" '
                 .success == true
                 and (all(.catalog[];
                   (.pricing_version | length) > 0
@@ -2849,7 +2891,7 @@ jobs:
                   .model_name == "zt-seedance-2.0"
                   or .model_name == "zt-seedance-2.0-fast"
                   or .model_name == "zt-seedance-2.0-mini"
-                ))] | length) == 3
+                ))] | length) == $expected_seedance_catalog_count
                 and ([.. | objects | keys[] | select(. == "source_model" or . == "channel_id")] | length) == 0' >/dev/null; then
               catalog_accepted=true
               break
@@ -2881,7 +2923,9 @@ jobs:
           fi
           acceptance_pricing=$(curl --fail --silent --show-error \
             "$acceptance_origin/api/pricing")
-          echo "$acceptance_pricing" | jq -e --argjson expected_image_catalog_count "$expected_image_catalog_count" '
+          echo "$acceptance_pricing" | jq -e \
+            --argjson expected_image_catalog_count "$expected_image_catalog_count" \
+            --argjson expected_seedance_catalog_count "$expected_seedance_catalog_count" '
             .success == true
             and (all(.data[];
               if (.modality == "image" or .modality == "video") then
@@ -2908,7 +2952,7 @@ jobs:
               .model_name == "zt-seedance-2.0"
               or .model_name == "zt-seedance-2.0-fast"
               or .model_name == "zt-seedance-2.0-mini"
-            ))] | length) == 3' >/dev/null
+            ))] | length) == $expected_seedance_catalog_count' >/dev/null
           acceptance_catalog_count=$(echo "$acceptance_catalog" | jq -er '.catalog | length')
           pricing_baseline=/opt/ztapi/server/model/testdata/ztapi_public_pricing_baseline_v1.json
           quotation=/opt/ztapi/server/model/ztapi_quotation_v1.json
@@ -2927,9 +2971,6 @@ jobs:
           published_since_baseline=$(mktemp /tmp/ztapi-published-since-baseline.XXXXXX)
           cat > "$published_since_baseline" <<'PUBLISHED_SINCE_BASELINE'
           zt-gp-image-2
-          zt-seedance-2.0
-          zt-seedance-2.0-fast
-          zt-seedance-2.0-mini
           zt-claude-fable-5
           zt-claude-opus-5
           PUBLISHED_SINCE_BASELINE
@@ -3440,7 +3481,7 @@ jobs:
                 --argjson billed_amount "$seedance_billed_amount" \
                 '$videos + [{model:$model,task_id:$task_id,request_id:$request_id,upstream_request_id:$upstream_request_id,billable_tokens:$billable_tokens,billed_amount:$billed_amount,status:"success",replay_idempotent:true}]')
             done <<< "$ztapi_video_acceptance_models"
-            test "$(echo "$seedance_videos" | jq -er 'length')" = 3
+            test "$(echo "$seedance_videos" | jq -er 'length')" = "$expected_seedance_catalog_count"
           fi
 
           refresh_acceptance_user_session
@@ -3718,6 +3759,7 @@ jobs:
             --arg gemini_image_status "$gemini_image_acceptance_status" \
             --arg gemini_image_request_id "$gemini_image_request_id" \
             --argjson gemini_image_billed_amount "$gemini_image_billed_amount" \
+            --argjson published_media_count "$published_media_count" \
             --arg seedance_status "$seedance_acceptance_status" \
             --argjson seedance_videos "$seedance_videos" \
             --argjson seed_ledger_id "$acceptance_seed_ledger_id" \
@@ -3736,7 +3778,7 @@ jobs:
               unpaid_usdt_order:{trade_no:$usdt_trade_no,created:"pending",cancelled_by_user:true,final:"expired",balance_credited:false},
               quotation_allowlist_count:46,
               public_catalog_count:$catalog_count,
-              published_media_count:5,
+              published_media_count:$published_media_count,
               text:{model:$chat_model,request_id:$chat_request_id,status:"success",billed_amount:$chat_billed_amount},
               playground:{model:$chat_model,request_id:$playground_request_id,status:"success",billed_amount:$playground_billed_amount},
               embedding:{model:$embedding_model,request_id:$embedding_request_id,status:"success",billed_amount:$embedding_billed_amount},
