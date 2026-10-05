@@ -19,13 +19,27 @@ func validateZTAPIRequestProtocol(c *gin.Context, channel *model.Channel, reques
 	if publication != nil {
 		if publication.Modality == "image" {
 			contract := publication.ImageProtocolContract
-			if contract == nil || contract.ProviderModel != publication.SourceModel ||
-				c.Request.Method != contract.Method || c.Request.URL.Path != contract.Path {
+			if contract == nil || contract.ProviderModel != publication.SourceModel {
+				return types.NewErrorWithStatusCode(errors.New("The managed image route does not match its frozen protocol contract."),
+					"unsupported_model_endpoint", http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+			}
+			isEdit := c.Request.URL.Path == "/v1/images/edits"
+			if isEdit {
+				if contract.Version != types.ZTAPIImageProtocolContractVersionV3 || !contract.Capabilities.SupportsEdits || contract.Edit == nil ||
+					c.Request.Method != contract.Edit.Method || c.Request.URL.Path != contract.Edit.Path {
+					return types.NewErrorWithStatusCode(errors.New("The managed image route does not match its frozen protocol contract."),
+						"unsupported_model_endpoint", http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+				}
+			} else if c.Request.Method != contract.Method || c.Request.URL.Path != contract.Path {
 				return types.NewErrorWithStatusCode(errors.New("The managed image route does not match its frozen protocol contract."),
 					"unsupported_model_endpoint", http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 			}
 			expectedChannelType := constant.ChannelTypeOpenAI
-			if contract.WireProtocol == types.ZTAPIImageWireProtocolGeminiGenerateContent {
+			wireProtocol := contract.WireProtocol
+			if isEdit {
+				wireProtocol = contract.Edit.WireProtocol
+			}
+			if wireProtocol == types.ZTAPIImageWireProtocolGeminiGenerateContent {
 				expectedChannelType = constant.ChannelTypeGemini
 			}
 			if channel == nil || channel.Type != expectedChannelType {

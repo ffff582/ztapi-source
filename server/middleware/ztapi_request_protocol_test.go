@@ -98,6 +98,64 @@ func TestZTAPIImageProtocolAllowsFrozenGeminiChannel(t *testing.T) {
 	}
 }
 
+func TestZTAPIImageProtocolAllowsOnlyVerifiedEditEndpoint(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		method      string
+		path        string
+		channelType int
+		mutate      func(*types.ZTAPIImageProtocolContract)
+		allowed     bool
+	}{
+		{name: "verified edit", allowed: true},
+		{name: "generation remains available", path: "/v1/images/generations", allowed: true},
+		{name: "edit capability disabled", mutate: func(c *types.ZTAPIImageProtocolContract) { c.Capabilities.SupportsEdits = false }},
+		{name: "edit endpoint absent", mutate: func(c *types.ZTAPIImageProtocolContract) { c.Edit = nil }},
+		{name: "legacy contract", mutate: func(c *types.ZTAPIImageProtocolContract) { c.Version = types.ZTAPIImageProtocolContractVersionV2 }},
+		{name: "different provider model", mutate: func(c *types.ZTAPIImageProtocolContract) { c.ProviderModel = "other-image" }},
+		{name: "unverified path", path: "/v1/images/variations"},
+		{name: "wrong method", method: http.MethodGet},
+		{name: "Azure is not the frozen family", channelType: constant.ChannelTypeAzure},
+		{name: "Gemini is not the frozen family", channelType: constant.ChannelTypeGemini},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			contract := types.ZTAPIImageProtocolContract{
+				Version: types.ZTAPIImageProtocolContractVersionV3, ProviderModel: "provider-image",
+				Method: http.MethodPost, Path: "/v1/images/generations", WireProtocol: types.ZTAPIImageWireProtocolOpenAIImages,
+				Capabilities: types.ZTAPIImageCapabilities{SupportsEdits: true},
+				Edit: &types.ZTAPIImageEditEndpointContract{
+					Method: http.MethodPost, Path: "/v1/images/edits", WireProtocol: types.ZTAPIImageWireProtocolOpenAIImagesEdit,
+				},
+			}
+			if tt.mutate != nil {
+				tt.mutate(&contract)
+			}
+			method, path, channelType := tt.method, tt.path, tt.channelType
+			if method == "" {
+				method = http.MethodPost
+			}
+			if path == "" {
+				path = "/v1/images/edits"
+			}
+			if channelType == 0 {
+				channelType = constant.ChannelTypeOpenAI
+			}
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(method, path, nil)
+			relaycommon.SetZTAPIPublicationSnapshot(c, &relaycommon.ZTAPIPublicationSnapshot{
+				PublicName: "zt-image", SourceModel: "provider-image", Modality: "image", ImageProtocolContract: &contract,
+			})
+			err := validateZTAPIRequestProtocol(c, &model.Channel{Type: channelType}, "zt-image")
+			if tt.allowed {
+				require.Nil(t, err)
+			} else {
+				require.NotNil(t, err)
+				require.Equal(t, http.StatusBadRequest, err.StatusCode)
+			}
+		})
+	}
+}
+
 func TestZTAPIResponsesProtocolChannelSetup(t *testing.T) {
 	for _, tt := range []struct {
 		name, path, source, requested, pattern                             string
