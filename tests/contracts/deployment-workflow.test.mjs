@@ -644,6 +644,32 @@ test('guarded deployment completes and cleans an ordinary-user production journe
   assert.ok(internalUnauthorized >= 0 && internalUnauthorized < postcheck);
 });
 
+test('long media acceptance refreshes the short-lived ordinary-user session before log checks', () => {
+  const source = readFileSync(workflowPath, 'utf8');
+  const refreshFunction = source.indexOf('refresh_acceptance_user_session()');
+  const seedanceLog = source.indexOf('seedance_user_log=$(curl', refreshFunction);
+  const replayLog = source.indexOf('seedance_user_log_replay=$(curl', refreshFunction);
+  const finalLogs = source.indexOf('for acceptance_log_attempt in $(seq 1 20)', refreshFunction);
+
+  assert.ok(refreshFunction >= 0);
+  assert.match(
+    source.slice(refreshFunction, seedanceLog),
+    /https:\/\/ztapi\.vip\/api\/auth\/login[\s\S]*\.data\.expires_in[\s\S]*-ge 900/,
+  );
+  assert.ok(
+    source.lastIndexOf('refresh_acceptance_user_session', seedanceLog) < seedanceLog,
+    'the seedance log request must be preceded by a session refresh',
+  );
+  assert.ok(
+    source.lastIndexOf('refresh_acceptance_user_session', replayLog) < replayLog,
+    'the replay log request must be preceded by a session refresh',
+  );
+  assert.ok(
+    source.lastIndexOf('refresh_acceptance_user_session', finalLogs) < finalLogs,
+    'the final log request must be preceded by a session refresh',
+  );
+});
+
 test('catalog acceptance permits only models excluded by an open health circuit', () => {
   const source = readFileSync(workflowPath, 'utf8');
 

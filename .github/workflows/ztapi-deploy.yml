@@ -2661,6 +2661,21 @@ jobs:
           acceptance_user_id=$(echo "$acceptance_login_result" | jq -er \
             'select(.success == true and .data.user.role == 1) | .data.user.id')
           acceptance_user_access_token=$(echo "$acceptance_login_result" | jq -er '.data.access_token')
+          refresh_acceptance_user_session() {
+            # The user session is intentionally short-lived (900 seconds). The
+            # media acceptance suite can outlive it, so refresh immediately
+            # before any user-scoped log or cleanup operation.
+            acceptance_refresh_result=$(printf '%s' "$acceptance_login_payload" |
+              curl --fail --silent --show-error \
+                --resolve ztapi.vip:443:127.0.0.1 \
+                --header 'Content-Type: application/json' \
+                --data-binary @- \
+                https://ztapi.vip/api/auth/login)
+            acceptance_user_access_token=$(echo "$acceptance_refresh_result" | jq -er \
+              --argjson user_id "$acceptance_user_id" \
+              'select(.success == true and .data.user.id == $user_id and .data.user.role == 1) | .data.access_token')
+            test "$(echo "$acceptance_refresh_result" | jq -er '.data.expires_in')" -ge 900
+          }
 
           admin_host_common_login_status=$(printf '%s' "$acceptance_login_payload" |
             curl --silent --show-error \
@@ -3314,6 +3329,7 @@ jobs:
                   and .reservation_delta == (-.initial_reserved_quota)
                   and .settlement_delta == (.initial_reserved_quota - .actual_quota)' >/dev/null
 
+              refresh_acceptance_user_session
               seedance_user_log=""
               for seedance_log_attempt in $(seq 1 60); do
                 seedance_user_log=$(curl --fail --silent --show-error \
@@ -3362,6 +3378,7 @@ jobs:
                 $after.actual_quota == $before.actual_quota
                 and $after.charged_quota == $before.charged_quota
                 and $after.ledger_count == 2' >/dev/null
+              refresh_acceptance_user_session
               seedance_user_log_replay=$(curl --fail --silent --show-error \
                 --header "Authorization: Bearer $acceptance_user_access_token" \
                 --header "New-API-User: $acceptance_user_id" \
@@ -3388,6 +3405,7 @@ jobs:
             test "$(echo "$seedance_videos" | jq -er 'length')" = 3
           fi
 
+          refresh_acceptance_user_session
           for acceptance_log_attempt in $(seq 1 20); do
             chat_user_log=$(curl --fail --silent --show-error \
               --header "Authorization: Bearer $acceptance_user_access_token" \
