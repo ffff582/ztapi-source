@@ -470,6 +470,11 @@ test('unchanged GPT Image 2 code and pricing skip paid deployment acceptance', (
   );
   assert.match(
     rollout,
+    /image_public_pricing=\$\(curl[\s\S]*\$acceptance_origin\/api\/pricing[\s\S]*if ! echo "\$image_public_pricing" \| jq -e '[\s\S]*supports_edits == true[\s\S]*edit_input[\s\S]*ztapi_image_requires_acceptance=true/,
+    'a stale generation-only public snapshot must force republish even when the stored price source is unchanged',
+  );
+  assert.match(
+    rollout,
     /if \[ "\$ztapi_image_requires_acceptance" = true \]; then[\s\S]*image_verification_result=[\s\S]*models\/ztapi\/\$ztapi_image_model_id\/verify[\s\S]*fi/,
     'the paid admin verifier must be conditional',
   );
@@ -482,6 +487,29 @@ test('unchanged GPT Image 2 code and pricing skip paid deployment acceptance', (
     source,
     /image:\{model:\$image_model,request_id:\$image_request_id,status:\$image_status,billed_amount:\$image_billed_amount\}/,
     'the receipt must distinguish a fresh image call from an unchanged prior acceptance',
+  );
+});
+
+test('image catalog acceptance requires the published reference-image edit capability', () => {
+  const source = read(workflowPath);
+  const acceptance = source.slice(
+    source.indexOf('acceptance_catalog=""'),
+    source.indexOf('acceptance_catalog_count=', source.indexOf('acceptance_catalog=""')),
+  );
+  assert.match(
+    acceptance,
+    /\.model_name == "zt-gp-image-2"[\s\S]*\.supported_options\.supports_edits == true[\s\S]*\.supported_options\.edit_input/,
+    'the user catalog gate must reject a published image that cannot accept reference images',
+  );
+
+  const pricing = source.slice(
+    source.indexOf('acceptance_pricing=$(curl'),
+    source.indexOf('acceptance_catalog_count=', source.indexOf('acceptance_pricing=$(curl')),
+  );
+  assert.match(
+    pricing,
+    /\.model_name == "zt-gp-image-2"[\s\S]*\.supported_options\.supports_edits == true[\s\S]*\.supported_options\.edit_input/,
+    'the public pricing gate must expose the same reference-image capability as the user catalog',
   );
 });
 

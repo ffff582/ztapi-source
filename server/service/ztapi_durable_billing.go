@@ -108,7 +108,11 @@ func ztapiImageReservationSelector(request any, info *relaycommon.RelayInfo) (st
 		selector["image_operation"] = "edit"
 	}
 	raw, err := common.Marshal(selector)
-	return string(raw), err
+	if err != nil {
+		return "", err
+	}
+	_, canonical, err := canonicalZTAPIMediaSelector(string(raw))
+	return canonical, err
 }
 
 func (s *ztapiDurableBilling) GetPreConsumedQuota() int {

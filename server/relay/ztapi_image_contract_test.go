@@ -347,6 +347,31 @@ func syntheticManagedImageMediaPriceContract(t *testing.T) string {
 	return canonical
 }
 
+func syntheticManagedImageEditMediaPriceContract(t *testing.T) string {
+	t.Helper()
+	rules := make([]types.ZTAPIMediaPriceRule, 0, 4)
+	for _, operation := range []string{"generation", "edit"} {
+		for index, tier := range []string{"gt_200k", "lte_200k"} {
+			rules = append(rules, types.ZTAPIMediaPriceRule{
+				ID: operation + "_" + tier,
+				Conditions: map[string]string{
+					"image_operation":    operation,
+					"prompt_tokens_tier": tier,
+				},
+				BillingUnit: types.ZTAPIMediaBillingUnitUSDPerMillionTokens,
+				CostUSD:     map[string]string{"input_tokens": "0.6", "output_tokens": "0.6"},
+				SaleUSD:     map[string]string{"input_tokens": "1", "output_tokens": "1"},
+				SourceCells: map[string]string{"input_tokens": fmt.Sprintf("A%d", index+1), "output_tokens": fmt.Sprintf("B%d", index+1)},
+			})
+		}
+	}
+	raw, err := common.Marshal(types.ZTAPIMediaPriceContract{Version: 1, Modality: "image", Rules: rules})
+	require.NoError(t, err)
+	canonical, err := types.CanonicalizeZTAPIMediaPriceContract(string(raw))
+	require.NoError(t, err)
+	return canonical
+}
+
 func managedImageFixture(t *testing.T, method, path string, body map[string]any) (*gin.Context, *relaycommon.RelayInfo) {
 	t.Helper()
 	raw, err := common.Marshal(body)

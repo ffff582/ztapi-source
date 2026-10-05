@@ -11,6 +11,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
@@ -151,4 +152,51 @@ func TestZTAPIImageSettlementRealChainInsufficientBalanceStopsBeforeIO(t *testin
 	})
 	require.NotNil(t, apiErr)
 	require.Zero(t, upstreamCalls.Load())
+}
+
+func TestZTAPIImageEditSettlementRealChainAcceptsOmittedResponseFormat(t *testing.T) {
+	service.InitHttpClient()
+	var upstreamCalls atomic.Int32
+	const responseBody = `{"data":[{"b64_json":"YQ=="}],"usage":{"input_tokens":10,"output_tokens":7,"total_tokens":17}}`
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamCalls.Add(1)
+		require.Equal(t, "/v1/images/edits", r.URL.Path)
+		require.NoError(t, r.ParseMultipartForm(1<<20))
+		require.NotContains(t, r.MultipartForm.Value, "response_format")
+		require.Len(t, r.MultipartForm.File["image"], 2)
+		defer r.MultipartForm.RemoveAll()
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Request-ID", "req-image-edit-settle")
+		_, _ = io.WriteString(w, responseBody)
+	}))
+	t.Cleanup(upstream.Close)
+	fields := managedImageEditFields()
+	fields["n"] = []string{"1"}
+	delete(fields, "response_format")
+	c, info, _ := managedImageEditFixture(t, []managedImageEditFile{managedImageEditPNG(1), managedImageEditPNG(2)}, fields)
+	info.ZTAPIPublicationSnapshot.ImageProtocolContract = syntheticManagedImageEditOmitResponseFormatContract(t)
+	info.ZTAPIPublicationSnapshot.MediaPriceContractJSON = syntheticManagedImageEditMediaPriceContract(t)
+	info.Request.(*dto.ImageRequest).ResponseFormat = ""
+	info.RelayMode = relayconstant.RelayModeImagesEdits
+	common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, upstream.URL)
+	db := setupZTAPIImageBillingChain(t, c, info, 100, -1)
+
+	apiErr := WithZTAPIImageAdmission(c, info, func() *types.NewAPIError {
+		return service.PreConsumeBilling(c, 20, info)
+	})
+	require.Nil(t, apiErr)
+	require.Equal(t, "b64_json", info.Request.(*dto.ImageRequest).ResponseFormat)
+
+	apiErr = ImageHelper(c, info)
+	require.Nil(t, apiErr)
+	require.Equal(t, int32(1), upstreamCalls.Load())
+	var row model.ZTAPIRequestSettlement
+	require.NoError(t, db.Where("request_id = ?", info.RequestId).Take(&row).Error)
+	require.Equal(t, model.ZTAPISettlementSettled, row.Status)
+	require.EqualValues(t, 9, row.ChargedQuota)
+	require.Equal(t, 1, row.FinalAttempt)
+	var consumeLog model.Log
+	require.NoError(t, db.Where("request_id = ? AND type = ?", info.RequestId, model.LogTypeConsume).Take(&consumeLog).Error)
+	require.Equal(t, "req-image-edit-settle", consumeLog.UpstreamRequestId)
+	require.EqualValues(t, row.ChargedQuota, consumeLog.Quota)
 }
