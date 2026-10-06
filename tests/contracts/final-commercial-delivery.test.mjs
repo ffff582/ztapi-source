@@ -27,17 +27,16 @@ function assertExactCatalog(actual, expected) {
   assert.deepEqual([...actual].sort(), [...expected].sort());
 }
 
-test('public source gate hashes the anonymous exact commit tree before SSH', () => {
+test('public source gate hashes the exact commit tree fetched over Git before SSH', () => {
   const source = read(workflowPath);
   const gateStart = source.indexOf('- name: Verify corresponding public source');
   const sshStart = source.indexOf('- name: Install SSH tooling');
   assert.ok(gateStart >= 0 && sshStart > gateStart);
   const gate = source.slice(gateStart, sshStart);
 
-  assert.match(gate, /codeload\.github\.com\/ffff582\/ztapi-source\/tar\.gz\/\$public_source_commit/);
-  assert.match(gate, /tar -tzf "\$public_archive"/);
-  assert.match(gate, /grep -Eq '\(\^\/\|\(\^\|\/\)\\\.\\\.\(\/\|\$\)\)'/);
-  assert.match(gate, /--strip-components=1/);
+  assert.match(gate, /git -c http\.version=HTTP\/1\.1 clone/);
+  assert.match(gate, /git -C "\$verification_root\/public-history" archive --format=tar/);
+  assert.match(gate, /--no-same-owner/);
   assert.match(gate, /find "\$public_tree" -type f/);
   assert.match(gate, /PUBLIC-SOURCE-MANIFEST\.json/);
   assert.match(gate, /cmp -s "\$expected_paths" "\$actual_paths"/);
@@ -47,14 +46,14 @@ test('public source gate hashes the anonymous exact commit tree before SSH', () 
   assert.doesNotMatch(gate, /Authorization:/i);
 });
 
-test('archive safety checks a captured listing without a pipefail SIGPIPE bypass', () => {
+test('public source extraction rejects symlinks and unexpected paths', () => {
   const source = read(workflowPath);
   const gateStart = source.indexOf('- name: Verify corresponding public source');
   const sshStart = source.indexOf('- name: Install SSH tooling');
   const gate = source.slice(gateStart, sshStart);
-  assert.match(gate, /tar -tzf "\$public_archive" > "\$archive_entries"/);
-  assert.match(gate, /grep -Eq[^\n]* "\$archive_entries"/);
-  assert.doesNotMatch(gate, /tar -tzf "\$public_archive" \| grep/);
+  assert.match(gate, /find "\$public_tree" -type l -print -quit/);
+  assert.match(gate, /cmp -s "\$expected_paths" "\$actual_paths"/);
+  assert.match(gate, /source_path.*!= \*"\.\."\*/);
 });
 
 test('deployment requires completed financial CI for the exact private commit', () => {
@@ -506,7 +505,7 @@ test('unchanged GPT Image 2 code and pricing skip paid deployment acceptance', (
   );
   assert.match(
     rollout,
-    /if \[ "\$ztapi_image_requires_acceptance" = true \]; then[\s\S]*image_verification_result=[\s\S]*models\/ztapi\/\$ztapi_image_model_id\/verify[\s\S]*fi/,
+    /if \[ "\$ztapi_image_requires_acceptance" = true \]; then[\s\S]*models\/ztapi\/\$ztapi_image_model_id\/verify[\s\S]*image_verification_result=\$\(cat[\s\S]*fi/,
     'the paid admin verifier must be conditional',
   );
   assert.match(
