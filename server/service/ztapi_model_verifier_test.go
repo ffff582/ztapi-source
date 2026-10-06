@@ -142,7 +142,12 @@ func TestVerifyZTAPIModelPersistsFailureWithoutRawResponse(t *testing.T) {
 	channel, config := setupZTAPIModelVerifierTestDB(t)
 	previousRunner := ztapiModelVerificationProbeRunner
 	ztapiModelVerificationProbeRunner = func(context.Context, *model.Channel, string) (ztapiModelProbeResult, error) {
-		return ztapiModelProbeResult{StatusCategory: "upstream_response"}, errors.New("RAW_SECRET_RESPONSE")
+		return ztapiModelProbeResult{
+			StatusCategory:        "upstream_response",
+			UpstreamStatusCode:    422,
+			UpstreamRequestID:     "sha256:request-id",
+			UpstreamErrorMetadata: `{"error":{"code":"model_not_found","message":"provider rejected the model"}}`,
+		}, errors.New("RAW_SECRET_RESPONSE")
 	}
 	t.Cleanup(func() { ztapiModelVerificationProbeRunner = previousRunner })
 
@@ -154,6 +159,31 @@ func TestVerifyZTAPIModelPersistsFailureWithoutRawResponse(t *testing.T) {
 	var stored model.ZTAPIModelVerification
 	require.NoError(t, model.DB.First(&stored, verification.ID).Error)
 	require.Equal(t, "upstream_response", stored.StatusCategory)
+	require.Zero(t, stored.UpstreamStatusCode)
+	require.Empty(t, stored.UpstreamRequestID)
+	require.Empty(t, stored.UpstreamErrorMetadata)
+	require.Equal(t, 422, verification.UpstreamStatusCode)
+	require.Equal(t, "sha256:request-id", verification.UpstreamRequestID)
+	require.Contains(t, verification.UpstreamErrorMetadata, "model_not_found")
+}
+
+func TestZTAPIUpstreamFailureEvidenceIsSafeAndBounded(t *testing.T) {
+	response := &http.Response{
+		StatusCode: http.StatusUnprocessableEntity,
+		Header:     http.Header{"X-Request-Id": {"provider-request-123"}},
+		Body:       io.NopCloser(strings.NewReader(`{"error":{"type":"invalid_request_error","code":"model_not_found","message":"bad key synthetic-verifier-key","param":"model"},"data":[{"b64_json":"MTAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAw"}],"secret":"do-not-retain"}`)),
+	}
+	err := newZTAPIUpstreamFailureEvidence(response, "image generation", "synthetic-verifier-key")
+	var evidence *ztapiUpstreamFailureEvidence
+	require.ErrorAs(t, err, &evidence)
+	require.Equal(t, http.StatusUnprocessableEntity, evidence.StatusCode)
+	require.NotEmpty(t, evidence.RequestID)
+	require.Contains(t, evidence.Metadata, "model_not_found")
+	require.Contains(t, evidence.Metadata, "bad key")
+	require.Contains(t, evidence.Metadata, "redacted")
+	require.NotContains(t, evidence.Metadata, "synthetic-verifier-key")
+	require.NotContains(t, evidence.Metadata, "do-not-retain")
+	require.LessOrEqual(t, len(evidence.Metadata), ztapiVerificationFailureMetadataLimit)
 }
 
 func TestZTAPIModelVerifierClassifiesSafeErrorCategories(t *testing.T) {

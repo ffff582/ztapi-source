@@ -1676,14 +1676,38 @@ jobs:
           fi
 
           if [ "$ztapi_image_requires_acceptance" = true ]; then
-            image_verification_result=$(jq -cn --argjson channel_id "$ztapi_image_channel_id" \
-              '{channel_id:$channel_id}' | curl --fail --silent --show-error \
+            image_verification_body=$(mktemp)
+            set +e
+            jq -cn --argjson channel_id "$ztapi_image_channel_id" \
+              '{channel_id:$channel_id}' | curl --silent --show-error \
+                --output "$image_verification_body" \
+                --write-out '%{http_code}' \
                 --resolve admin.ztapi.vip:443:127.0.0.1 \
                 --header 'Content-Type: application/json' \
                 --header "Authorization: Bearer $admin_access_token" \
                 --header "New-API-User: $admin_user_id" \
                 --data-binary @- \
-                "https://admin.ztapi.vip/api/models/ztapi/$ztapi_image_model_id/verify")
+                "https://admin.ztapi.vip/api/models/ztapi/$ztapi_image_model_id/verify" > "$image_verification_body.status"
+            image_verification_curl_status=$?
+            set -e
+            image_verification_http_status=$(cat "$image_verification_body.status")
+            image_verification_result=$(cat "$image_verification_body")
+            if [ "$image_verification_curl_status" -ne 0 ] || [ "$image_verification_http_status" != "200" ]; then
+              echo "$image_verification_result" | jq -c '
+                {
+                  success,
+                  message,
+                  verification: ((.verification // .data.verification // null)
+                    | if . == null then null else {
+                        status_category,
+                        upstream_status_code,
+                        upstream_request_id,
+                        upstream_error_metadata
+                      } end)
+                }'
+              echo "ZTAPI image verification failed: curl_status=$image_verification_curl_status http_status=$image_verification_http_status" >&2
+              exit 1
+            fi
             echo "$image_verification_result" | jq -e '
               .success == true
               and .data.verification.modality == "image"

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -28,13 +29,14 @@ import (
 )
 
 const (
-	ztapiVerificationRequestTimeout     = 20 * time.Second
-	ztapiVerificationSlowRequestTimeout = 60 * time.Second
-	ztapiVerificationVideoTimeout       = 5 * time.Minute
-	ztapiVerificationBodyLimit          = 1 << 20
-	ztapiVerificationDefaultTokens      = 1024
-	ztapiGemini25ImageModel             = "gemini-2.5-flash-image"
-	ztapiGemini25ImagePath              = "/v1beta/models/gemini-2.5-flash-image:generateContent"
+	ztapiVerificationRequestTimeout       = 20 * time.Second
+	ztapiVerificationSlowRequestTimeout   = 60 * time.Second
+	ztapiVerificationVideoTimeout         = 5 * time.Minute
+	ztapiVerificationBodyLimit            = 1 << 20
+	ztapiVerificationFailureMetadataLimit = 2048
+	ztapiVerificationDefaultTokens        = 1024
+	ztapiGemini25ImageModel               = "gemini-2.5-flash-image"
+	ztapiGemini25ImagePath                = "/v1beta/models/gemini-2.5-flash-image:generateContent"
 )
 
 type ztapiModelProbeResult struct {
@@ -59,6 +61,125 @@ type ztapiModelProbeResult struct {
 	VideoTerminalPassed              bool
 	VideoRestartRecoveryPassed       bool
 	VideoSettlementIdempotencePassed bool
+	UpstreamStatusCode               int
+	UpstreamRequestID                string
+	UpstreamErrorMetadata            string
+}
+
+type ztapiUpstreamFailureEvidence struct {
+	StatusCode int
+	RequestID  string
+	Metadata   string
+	operation  string
+}
+
+func (e *ztapiUpstreamFailureEvidence) Error() string {
+	if e == nil || e.operation == "" {
+		return "upstream verification request failed"
+	}
+	return fmt.Sprintf("upstream %s request failed", e.operation)
+}
+
+func newZTAPIUpstreamFailureEvidence(response *http.Response, operation, key string) error {
+	evidence := &ztapiUpstreamFailureEvidence{operation: operation}
+	if response == nil {
+		evidence.Metadata = `{"response":"missing"}`
+		return evidence
+	}
+	evidence.StatusCode = response.StatusCode
+	evidence.RequestID = ztapiVerificationResponseIDHash(response.Header)
+	body, err := io.ReadAll(io.LimitReader(response.Body, ztapiVerificationBodyLimit+1))
+	if err != nil {
+		evidence.Metadata = `{"response":"read_failed"}`
+		return evidence
+	}
+	if len(body) > ztapiVerificationBodyLimit {
+		evidence.Metadata = `{"response":"metadata_omitted","reason":"body_limit_exceeded"}`
+		return evidence
+	}
+	evidence.Metadata = sanitizeZTAPIUpstreamFailureMetadata(body, key)
+	return evidence
+}
+
+func applyZTAPIUpstreamFailureEvidence(result *ztapiModelProbeResult, err error) {
+	if result == nil || err == nil {
+		return
+	}
+	var evidence *ztapiUpstreamFailureEvidence
+	if !errors.As(err, &evidence) || evidence == nil {
+		return
+	}
+	result.UpstreamStatusCode = evidence.StatusCode
+	result.UpstreamRequestID = evidence.RequestID
+	result.UpstreamErrorMetadata = evidence.Metadata
+}
+
+func ztapiVerificationResponseIDHash(header http.Header) string {
+	for _, name := range []string{"X-Request-ID", "Request-ID", "X-Aihub-Request-ID"} {
+		value := strings.TrimSpace(header.Get(name))
+		if value == "" {
+			continue
+		}
+		return fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(value)))
+	}
+	return ""
+}
+
+func sanitizeZTAPIUpstreamFailureMetadata(raw []byte, key string) string {
+	var root map[string]any
+	if err := json.Unmarshal(raw, &root); err != nil || root == nil {
+		return `{"response":"non_json"}`
+	}
+	metadata := map[string]any{}
+	if errorValue, ok := root["error"]; ok {
+		switch typed := errorValue.(type) {
+		case map[string]any:
+			metadata["error"] = sanitizeZTAPIUpstreamFailureObject(typed, key)
+		case string:
+			metadata["error"] = sanitizeZTAPIUpstreamFailureString(typed, key)
+		}
+	}
+	for _, field := range []string{"code", "type", "message", "param", "status"} {
+		if value, ok := root[field].(string); ok {
+			metadata[field] = sanitizeZTAPIUpstreamFailureString(value, key)
+		}
+	}
+	if requestID, ok := root["request_id"].(string); ok && strings.TrimSpace(requestID) != "" {
+		metadata["request_id_hash"] = fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(requestID)))
+	}
+	encoded, err := json.Marshal(metadata)
+	if err != nil || len(encoded) == 0 {
+		return `{"response":"metadata_omitted"}`
+	}
+	if len(encoded) > ztapiVerificationFailureMetadataLimit {
+		return `{"response":"metadata_omitted","reason":"metadata_limit_exceeded"}`
+	}
+	return string(encoded)
+}
+
+func sanitizeZTAPIUpstreamFailureObject(value map[string]any, key string) map[string]any {
+	result := map[string]any{}
+	for _, field := range []string{"code", "type", "message", "param", "status"} {
+		if raw, ok := value[field].(string); ok {
+			result[field] = sanitizeZTAPIUpstreamFailureString(raw, key)
+		}
+	}
+	if requestID, ok := value["request_id"].(string); ok && strings.TrimSpace(requestID) != "" {
+		result["request_id_hash"] = fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(requestID)))
+	}
+	return result
+}
+
+func sanitizeZTAPIUpstreamFailureString(value, key string) string {
+	value = strings.TrimSpace(value)
+	if key != "" {
+		value = strings.ReplaceAll(value, key, "<redacted>")
+	}
+	value = strings.ReplaceAll(value, "Bearer ", "Bearer <redacted>")
+	if len(value) > 512 {
+		value = value[:512] + "..."
+	}
+	return value
 }
 
 type ztapiProbeUsage struct {
@@ -520,8 +641,7 @@ func performZTAPIGPTImageProbe(
 	defer response.Body.Close()
 	const imageBodyLimit = 20 << 20
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, ztapiVerificationBodyLimit))
-		return ztapiProbeUsage{}, "", response.StatusCode, errors.New("upstream rejected image verification request")
+		return ztapiProbeUsage{}, "", response.StatusCode, newZTAPIUpstreamFailureEvidence(response, "image generation", key)
 	}
 	body, err = io.ReadAll(io.LimitReader(response.Body, imageBodyLimit+1))
 	if err != nil || len(body) > imageBodyLimit || common.RejectDuplicateJsonObjectMembers(bytes.NewReader(body)) != nil {
@@ -604,8 +724,7 @@ func performZTAPIGPTImageEditProbe(
 	defer response.Body.Close()
 	const imageBodyLimit = 20 << 20
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, ztapiVerificationBodyLimit))
-		return ztapiProbeUsage{}, "", response.StatusCode, errors.New("upstream rejected image edit verification request")
+		return ztapiProbeUsage{}, "", response.StatusCode, newZTAPIUpstreamFailureEvidence(response, "image edit", key)
 	}
 	responseBody, err := io.ReadAll(io.LimitReader(response.Body, imageBodyLimit+1))
 	if err != nil || len(responseBody) > imageBodyLimit || common.RejectDuplicateJsonObjectMembers(bytes.NewReader(responseBody)) != nil {
@@ -1035,6 +1154,7 @@ func runZTAPIModelVerificationProbes(ctx context.Context, channel *model.Channel
 		usage, contractJSON, status, err := probe(ctx, client, endpoint, key)
 		result.LatencyMilliseconds = time.Since(started).Milliseconds()
 		if err != nil {
+			applyZTAPIUpstreamFailureEvidence(&result, err)
 			result.StatusCategory = classifyZTAPIVerificationFailure(status, err)
 			return result, fmt.Errorf("image verification failed: %s", result.StatusCategory)
 		}
@@ -1042,6 +1162,7 @@ func runZTAPIModelVerificationProbes(ctx context.Context, channel *model.Channel
 			editEndpoint := strings.TrimSuffix(endpoint, "/generations") + "/edits"
 			_, editContractJSON, editStatus, editErr := performZTAPIGPTImageEditProbe(ctx, client, editEndpoint, key)
 			if editErr != nil {
+				applyZTAPIUpstreamFailureEvidence(&result, editErr)
 				result.StatusCategory = classifyZTAPIVerificationFailure(editStatus, editErr)
 				return result, fmt.Errorf("image edit verification failed: %s", result.StatusCategory)
 			}
@@ -1150,6 +1271,9 @@ func VerifyZTAPIModel(
 		VideoCreatePassed:         result.VideoCreatePassed, VideoFetchPassed: result.VideoFetchPassed,
 		VideoTerminalPassed: result.VideoTerminalPassed, VideoRestartRecoveryPassed: result.VideoRestartRecoveryPassed,
 		VideoSettlementIdempotencePassed: result.VideoSettlementIdempotencePassed,
+		UpstreamStatusCode:               result.UpstreamStatusCode,
+		UpstreamRequestID:                result.UpstreamRequestID,
+		UpstreamErrorMetadata:            result.UpstreamErrorMetadata,
 	}
 	if err := model.DB.Create(verification).Error; err != nil {
 		return nil, err

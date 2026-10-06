@@ -671,6 +671,9 @@ type ZTAPIModelVerification struct {
 	TotalTokens                      int    `json:"total_tokens" gorm:"not null;default:0"`
 	ImageProtocolContractJSON        string `json:"image_protocol_contract,omitempty" gorm:"column:image_protocol_contract_json;type:mediumtext"`
 	VideoProtocolContractJSON        string `json:"video_protocol_contract,omitempty" gorm:"column:video_protocol_contract_json;type:text"`
+	UpstreamStatusCode               int    `json:"upstream_status_code,omitempty" gorm:"-"`
+	UpstreamRequestID                string `json:"upstream_request_id,omitempty" gorm:"-"`
+	UpstreamErrorMetadata            string `json:"upstream_error_metadata,omitempty" gorm:"-"`
 	OperatorID                       int    `json:"operator_id" gorm:"not null"`
 	VerifiedAt                       int64  `json:"verified_at" gorm:"bigint;not null;index"`
 }
