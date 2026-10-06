@@ -452,6 +452,28 @@ func TestZTAPIImageContractAdmissionRejectsBeforeNextStage(t *testing.T) {
 	}
 }
 
+func TestZTAPIImageContractAdmissionRejectsUnmappedRenderPair(t *testing.T) {
+	body := validManagedImageBody()
+	body["quality"] = "high"
+	c, info := managedImageFixture(t, http.MethodPost, "/v1/images/generations", body)
+	contract := info.ZTAPIPublicationSnapshot.ImageProtocolContract.Clone()
+	contract.Capabilities.RenderOptions = []types.ZTAPIImageRenderOption{
+		{AspectRatio: "1:1", Resolution: "1K", Size: "1024x1024", Quality: "standard"},
+	}
+	filtered := make([]types.ZTAPIImageReservationAuthority, 0, 4)
+	for _, entry := range contract.Reservations {
+		if entry.Size == "1024x1024" && entry.Quality == "standard" {
+			filtered = append(filtered, entry)
+		}
+	}
+	contract.Reservations = filtered
+	sealed, _, err := types.SealZTAPIImageProtocolContract(contract)
+	require.NoError(t, err)
+	info.ZTAPIPublicationSnapshot.ImageProtocolContract = &sealed
+
+	require.NotNil(t, AdmitZTAPIImageRequest(c, info))
+}
+
 func TestZTAPIImageContractAdmissionDoesNotGuessGeminiOrChangeLegacy(t *testing.T) {
 	body := validManagedImageBody()
 	body["model"] = "gemini-2.5-flash-image"

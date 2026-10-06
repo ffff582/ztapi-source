@@ -398,3 +398,25 @@ func TestZTAPIImageProtocolReservationAuthorityRejectsIncompleteDuplicateAndInva
 		})
 	}
 }
+
+func TestZTAPIImageRenderOptionsRestrictUnsupportedSizeQualityPairs(t *testing.T) {
+	contract := syntheticZTAPIImageProtocolContract()
+	contract.Capabilities.RenderOptions = []ZTAPIImageRenderOption{
+		{AspectRatio: "1:1", Resolution: "1K", Size: "1024x1024", Quality: "standard"},
+	}
+	filtered := make([]ZTAPIImageReservationAuthority, 0, 4)
+	for _, entry := range contract.Reservations {
+		if entry.Size == "1024x1024" && entry.Quality == "standard" {
+			filtered = append(filtered, entry)
+		}
+	}
+	contract.Reservations = filtered
+
+	sealed, _, err := SealZTAPIImageProtocolContract(contract)
+	require.NoError(t, err)
+	require.True(t, sealed.Capabilities.SupportsRenderOption("1024x1024", "standard"))
+	require.False(t, sealed.Capabilities.SupportsRenderOption("1024x1024", "high"))
+	require.False(t, sealed.Capabilities.SupportsRenderOption("512x512", "standard"))
+	_, ok := sealed.FindReservationAuthority(ZTAPIImageSelector{Size: "1024x1024", Quality: "high", ResponseFormat: "url", N: 1})
+	require.False(t, ok)
+}

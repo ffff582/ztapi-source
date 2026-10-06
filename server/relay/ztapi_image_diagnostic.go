@@ -215,8 +215,7 @@ func validateZTAPIImageDiagnosticRequest(request dto.ImageRequest, contract type
 	}
 	count := int(*request.N)
 	if count < contract.Capabilities.MinCount || count > contract.Capabilities.MaxCount ||
-		!containsZTAPIImageCapability(contract.Capabilities.Sizes, request.Size) ||
-		!containsZTAPIImageCapability(contract.Capabilities.Qualities, request.Quality) ||
+		!contract.Capabilities.SupportsRenderOption(request.Size, request.Quality) ||
 		!containsZTAPIImageCapability(contract.Capabilities.ResponseFormats, request.ResponseFormat) {
 		return errors.New("diagnostic request is outside the frozen image capabilities")
 	}

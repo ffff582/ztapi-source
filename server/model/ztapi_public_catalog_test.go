@@ -149,6 +149,22 @@ func TestZTAPIPublicImageRenderOptionsPreserveProviderResolutionValues(t *testin
 	}, options)
 }
 
+func TestZTAPIPublicImageRenderOptionsUseExplicitProviderMappings(t *testing.T) {
+	options := ztapiPublicImageRenderOptions(types.ZTAPIImageCapabilities{
+		Sizes:     []string{"1024x1024", "3840x2160"},
+		Qualities: []string{"low"},
+		RenderOptions: []types.ZTAPIImageRenderOption{
+			{AspectRatio: "16:9", Resolution: "4K", Size: "3840x2160", Quality: "low"},
+			{AspectRatio: "1:1", Resolution: "1K", Size: "1024x1024", Quality: "low"},
+		},
+	})
+
+	require.Equal(t, []ZTAPIPublicImageRenderOption{
+		{AspectRatio: "16:9", Resolution: "4K", Size: "3840x2160", Quality: "low"},
+		{AspectRatio: "1:1", Resolution: "1K", Size: "1024x1024", Quality: "low"},
+	}, options)
+}
+
 func TestZTAPIPublicCatalogExposesMultiImageEditInputAndOutputLimits(t *testing.T) {
 	protocol := types.ZTAPIImageProtocolContract{
 		Version:       types.ZTAPIImageProtocolContractVersionV3,

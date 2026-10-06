@@ -615,6 +615,34 @@ func TestVerifyZTAPIModelExtendsOuterDeadlineForGeminiImageGeneration(t *testing
 	require.NoError(t, err)
 }
 
+func TestZTAPIGPTImage2ContractPublishesMappedAspectRatiosAndResolutions(t *testing.T) {
+	contract, _, err := ztapiGPTImage2ProtocolContract("X-Request-ID")
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{
+		"1024x1024", "1024x576", "576x1024", "1024x768", "768x1024", "1152x768", "768x1152",
+		"2048x2048", "2048x1152", "1152x2048", "2048x1536", "1536x2048", "2304x1536", "1536x2304",
+		"3840x2160", "2160x3840", "3072x2304", "2304x3072", "3456x2304", "2304x3456",
+	}, contract.Capabilities.Sizes)
+	require.Equal(t, []string{"low"}, contract.Capabilities.Qualities)
+	require.ElementsMatch(t, []string{
+		"1:1/1K", "16:9/1K", "9:16/1K", "4:3/1K", "3:4/1K", "3:2/1K", "2:3/1K",
+		"1:1/2K", "16:9/2K", "9:16/2K", "4:3/2K", "3:4/2K", "3:2/2K", "2:3/2K",
+		"16:9/4K", "9:16/4K", "4:3/4K", "3:4/4K", "3:2/4K", "2:3/4K",
+	}, renderOptionKeys(contract.Capabilities.RenderOptions))
+
+	for _, size := range []string{"1024x1024", "2048x2048", "3840x2160", "2160x3840", "1024x768", "2304x1536"} {
+		require.Contains(t, contract.Capabilities.Sizes, size)
+	}
+}
+
+func renderOptionKeys(options []types.ZTAPIImageRenderOption) []string {
+	keys := make([]string, 0, len(options))
+	for _, option := range options {
+		keys = append(keys, option.AspectRatio+"/"+option.Resolution)
+	}
+	return keys
+}
+
 func TestVerifyZTAPIGPTImage2UsesRealGenerationAndPersistsExactProtocol(t *testing.T) {
 	channel, config := setupZTAPIModelVerifierTestDB(t)
 	require.NoError(t, model.DB.Model(&config).Update("source_model", "gpt-image-2").Error)
@@ -712,7 +740,7 @@ func TestVerifyZTAPIGPTImage2UsesRealGenerationAndPersistsExactProtocol(t *testi
 	require.Equal(t, map[string]string{"text_input": "200000", "image_input": "0", "image_output": "196"}, generation.MaximumDimensions)
 	edit, ok := contract.FindReservationAuthority(types.ZTAPIImageSelector{Operation: "edit", Size: "1024x1024", Quality: "low", ResponseFormat: "b64_json", N: 10})
 	require.True(t, ok)
-	require.Equal(t, map[string]string{"text_input": "200000", "image_input": "200000", "image_output": "196"}, edit.MaximumDimensions)
+	require.Equal(t, map[string]string{"text_input": "200000", "image_input": "200000", "image_output": "1960"}, edit.MaximumDimensions)
 	require.Equal(t, types.ZTAPIImageRequestFieldOmit, contract.UpstreamRequestFields["response_format"])
 
 	var stored model.ZTAPIModelVerification

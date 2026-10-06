@@ -137,7 +137,7 @@ func AdmitZTAPIImageRequest(c *gin.Context, info *relaycommon.RelayInfo) *types.
 	if !sizeOK || !containsZTAPIImageCapability(contract.Capabilities.Sizes, size) || request.Size != size {
 		return ztapiImageProtocolError(errors.New("managed image size is not supported by the frozen contract"))
 	}
-	if !qualityOK || !containsZTAPIImageCapability(contract.Capabilities.Qualities, quality) || request.Quality != quality {
+	if !qualityOK || !contract.Capabilities.SupportsRenderOption(size, quality) || request.Quality != quality {
 		return ztapiImageProtocolError(errors.New("managed image quality is not supported by the frozen contract"))
 	}
 	if !formatOK || !containsZTAPIImageCapability(contract.Capabilities.ResponseFormats, responseFormat) || request.ResponseFormat != responseFormat {
@@ -235,6 +235,9 @@ func admitZTAPIImageEditRequest(c *gin.Context, info *relaycommon.RelayInfo, con
 		if !containsZTAPIImageCapability(field.bound, formValue) || field.value != formValue {
 			return ztapiImageProtocolError(fmt.Errorf("managed image edit field %q is not supported by the frozen contract", field.name))
 		}
+	}
+	if !contract.Capabilities.SupportsRenderOption(request.Size, request.Quality) {
+		return ztapiImageProtocolError(errors.New("managed image edit size and quality combination is not supported by the frozen contract"))
 	}
 	if streamValue := strings.TrimSpace(formData.Get("stream")); streamValue != "" {
 		stream, parseErr := strconv.ParseBool(streamValue)

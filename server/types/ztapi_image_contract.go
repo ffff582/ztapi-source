@@ -52,12 +52,23 @@ type ZTAPIImageProtocolContract struct {
 }
 
 type ZTAPIImageCapabilities struct {
-	Sizes           []string `json:"sizes"`
-	Qualities       []string `json:"qualities"`
-	ResponseFormats []string `json:"response_formats"`
-	MinCount        int      `json:"min_count"`
-	MaxCount        int      `json:"max_count"`
-	SupportsEdits   bool     `json:"supports_edits"`
+	Sizes           []string                 `json:"sizes"`
+	Qualities       []string                 `json:"qualities"`
+	RenderOptions   []ZTAPIImageRenderOption `json:"render_options,omitempty"`
+	ResponseFormats []string                 `json:"response_formats"`
+	MinCount        int                      `json:"min_count"`
+	MaxCount        int                      `json:"max_count"`
+	SupportsEdits   bool                     `json:"supports_edits"`
+}
+
+// ZTAPIImageRenderOption is the public presentation mapping for one admitted
+// upstream size/quality pair. It prevents the UI from inventing combinations
+// when a provider supports only a subset of the cartesian product.
+type ZTAPIImageRenderOption struct {
+	AspectRatio string `json:"aspect_ratio"`
+	Resolution  string `json:"resolution"`
+	Size        string `json:"size"`
+	Quality     string `json:"quality"`
 }
 
 type ZTAPIImageResponseContract struct {
@@ -118,6 +129,7 @@ func (contract ZTAPIImageProtocolContract) Clone() ZTAPIImageProtocolContract {
 	contract.UpstreamRequestFields = cloneZTAPIImageStringMap(contract.UpstreamRequestFields)
 	contract.Capabilities.Sizes = append([]string(nil), contract.Capabilities.Sizes...)
 	contract.Capabilities.Qualities = append([]string(nil), contract.Capabilities.Qualities...)
+	contract.Capabilities.RenderOptions = append([]ZTAPIImageRenderOption(nil), contract.Capabilities.RenderOptions...)
 	contract.Capabilities.ResponseFormats = append([]string(nil), contract.Capabilities.ResponseFormats...)
 	contract.Response.ResultFields = cloneZTAPIImageStringMap(contract.Response.ResultFields)
 	contract.Usage.Fields = cloneZTAPIImageStringMap(contract.Usage.Fields)
@@ -132,6 +144,21 @@ func (contract ZTAPIImageProtocolContract) Clone() ZTAPIImageProtocolContract {
 		contract.Reservations[index].MaximumDimensions = cloneZTAPIImageStringMap(contract.Reservations[index].MaximumDimensions)
 	}
 	return contract
+}
+
+func (capabilities ZTAPIImageCapabilities) SupportsRenderOption(size, quality string) bool {
+	if !containsZTAPIImageString(capabilities.Sizes, size) || !containsZTAPIImageString(capabilities.Qualities, quality) {
+		return false
+	}
+	if len(capabilities.RenderOptions) == 0 {
+		return true
+	}
+	for _, option := range capabilities.RenderOptions {
+		if option.Size == size && option.Quality == quality {
+			return true
+		}
+	}
+	return false
 }
 
 func (contract ZTAPIImageProtocolContract) FindReservationAuthority(selector ZTAPIImageSelector) (ZTAPIImageReservationAuthority, bool) {
@@ -320,7 +347,11 @@ func validateZTAPIImageResponseIDSource(contract *ZTAPIImageProtocolContract) (s
 }
 
 func normalizeAndValidateZTAPIImageReservations(contract *ZTAPIImageProtocolContract) error {
-	want := len(contract.Capabilities.Sizes) * len(contract.Capabilities.Qualities) *
+	selectorOptionCount := len(contract.Capabilities.Sizes) * len(contract.Capabilities.Qualities)
+	if len(contract.Capabilities.RenderOptions) > 0 {
+		selectorOptionCount = len(contract.Capabilities.RenderOptions)
+	}
+	want := selectorOptionCount *
 		len(contract.Capabilities.ResponseFormats) * (contract.Capabilities.MaxCount - contract.Capabilities.MinCount + 1)
 	if contract.Capabilities.SupportsEdits {
 		want *= 2
@@ -335,8 +366,7 @@ func normalizeAndValidateZTAPIImageReservations(contract *ZTAPIImageProtocolCont
 	seen := make(map[string]struct{}, want)
 	for index := range contract.Reservations {
 		entry := &contract.Reservations[index]
-		if !containsZTAPIImageString(contract.Capabilities.Sizes, entry.Size) ||
-			!containsZTAPIImageString(contract.Capabilities.Qualities, entry.Quality) ||
+		if !contract.Capabilities.SupportsRenderOption(entry.Size, entry.Quality) ||
 			!containsZTAPIImageString(contract.Capabilities.ResponseFormats, entry.ResponseFormat) ||
 			entry.N < contract.Capabilities.MinCount || entry.N > contract.Capabilities.MaxCount {
 			return errors.New("image reservation authority contains an unadmitted selector")
@@ -436,6 +466,33 @@ func normalizeZTAPIImageCapabilities(capabilities *ZTAPIImageCapabilities) error
 	}
 	if err := validate(capabilities.Qualities, ztapiImageOptionPattern.MatchString); err != nil {
 		return err
+	}
+	if len(capabilities.RenderOptions) > 0 {
+		seenDisplay := make(map[string]struct{}, len(capabilities.RenderOptions))
+		seenUpstream := make(map[string]struct{}, len(capabilities.RenderOptions))
+		for _, option := range capabilities.RenderOptions {
+			if option.AspectRatio == "" || option.AspectRatio != strings.TrimSpace(option.AspectRatio) ||
+				option.Resolution == "" || option.Resolution != strings.TrimSpace(option.Resolution) ||
+				!containsZTAPIImageString(capabilities.Sizes, option.Size) || !containsZTAPIImageString(capabilities.Qualities, option.Quality) {
+				return errors.New("image render option is invalid")
+			}
+			displayKey := option.AspectRatio + "\x00" + option.Resolution
+			if _, exists := seenDisplay[displayKey]; exists {
+				return errors.New("image render options contain a duplicate presentation")
+			}
+			upstreamKey := option.Size + "\x00" + option.Quality
+			if _, exists := seenUpstream[upstreamKey]; exists {
+				return errors.New("image render options contain a duplicate selector")
+			}
+			seenDisplay[displayKey] = struct{}{}
+			seenUpstream[upstreamKey] = struct{}{}
+		}
+		sort.Slice(capabilities.RenderOptions, func(i, j int) bool {
+			left, right := capabilities.RenderOptions[i], capabilities.RenderOptions[j]
+			leftKey := left.AspectRatio + "\x00" + left.Resolution + "\x00" + left.Size + "\x00" + left.Quality
+			rightKey := right.AspectRatio + "\x00" + right.Resolution + "\x00" + right.Size + "\x00" + right.Quality
+			return leftKey < rightKey
+		})
 	}
 	if err := validate(capabilities.ResponseFormats, func(value string) bool { return value == "url" || value == "b64_json" }); err != nil {
 		return err
@@ -628,7 +685,7 @@ func validateZTAPIImageJSONFields(raw []byte) error {
 	if common.Unmarshal(root["capabilities"], &capabilities) != nil {
 		return errors.New("image capabilities must be an object")
 	}
-	if err := exactZTAPIImageJSONFields(capabilities, "sizes", "qualities", "response_formats", "min_count", "max_count", "supports_edits"); err != nil {
+	if err := exactZTAPIImageJSONFieldsOptional(capabilities, []string{"sizes", "qualities", "response_formats", "min_count", "max_count", "supports_edits"}, "render_options"); err != nil {
 		return err
 	}
 	var response map[string]json.RawMessage

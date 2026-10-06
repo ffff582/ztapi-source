@@ -333,7 +333,13 @@ func ztapiGPTImage2ProtocolContract(requestIDHeader string) (types.ZTAPIImagePro
 		WireProtocol:  types.ZTAPIImageWireProtocolOpenAIImages,
 		ProviderPath:  "/v1/images/generations",
 		Capabilities: types.ZTAPIImageCapabilities{
-			Sizes: []string{"1024x1024"}, Qualities: []string{"low"},
+			Sizes: []string{
+				"1024x1024", "1024x576", "576x1024", "1024x768", "768x1024", "1152x768", "768x1152",
+				"2048x2048", "2048x1152", "1152x2048", "2048x1536", "1536x2048", "2304x1536", "1536x2304",
+				"3840x2160", "2160x3840", "3072x2304", "2304x3072", "3456x2304", "2304x3456",
+			},
+			Qualities:       []string{"low"},
+			RenderOptions:   ztapiGPTImage2RenderOptions(),
 			ResponseFormats: []string{"b64_json"}, MinCount: 1, MaxCount: 10, SupportsEdits: true,
 		},
 		Response: types.ZTAPIImageResponseContract{
@@ -368,18 +374,71 @@ func ztapiGPTImage2ProtocolContract(requestIDHeader string) (types.ZTAPIImagePro
 		},
 	}
 	for _, operation := range []string{"generation", "edit"} {
-		for n := 1; n <= contract.Capabilities.MaxCount; n++ {
-			imageInput := "0"
-			if operation == "edit" {
-				imageInput = "200000"
+		for _, option := range contract.Capabilities.RenderOptions {
+			for n := 1; n <= contract.Capabilities.MaxCount; n++ {
+				imageInput := "0"
+				if operation == "edit" {
+					imageInput = "200000"
+				}
+				contract.Reservations = append(contract.Reservations, types.ZTAPIImageReservationAuthority{
+					Operation: operation, Size: option.Size, Quality: option.Quality, ResponseFormat: "b64_json", N: n,
+					MaximumDimensions: map[string]string{"text_input": "200000", "image_input": imageInput, "image_output": ztapiGPTImage2MaximumImageOutput(option.Size, n)},
+				})
 			}
-			contract.Reservations = append(contract.Reservations, types.ZTAPIImageReservationAuthority{
-				Operation: operation, Size: "1024x1024", Quality: "low", ResponseFormat: "b64_json", N: n,
-				MaximumDimensions: map[string]string{"text_input": "200000", "image_input": imageInput, "image_output": "196"},
-			})
 		}
 	}
 	return types.SealZTAPIImageProtocolContract(contract)
+}
+
+func ztapiGPTImage2RenderOptions() []types.ZTAPIImageRenderOption {
+	return []types.ZTAPIImageRenderOption{
+		{AspectRatio: "1:1", Resolution: "1K", Size: "1024x1024", Quality: "low"},
+		{AspectRatio: "16:9", Resolution: "1K", Size: "1024x576", Quality: "low"},
+		{AspectRatio: "9:16", Resolution: "1K", Size: "576x1024", Quality: "low"},
+		{AspectRatio: "4:3", Resolution: "1K", Size: "1024x768", Quality: "low"},
+		{AspectRatio: "3:4", Resolution: "1K", Size: "768x1024", Quality: "low"},
+		{AspectRatio: "3:2", Resolution: "1K", Size: "1152x768", Quality: "low"},
+		{AspectRatio: "2:3", Resolution: "1K", Size: "768x1152", Quality: "low"},
+		{AspectRatio: "1:1", Resolution: "2K", Size: "2048x2048", Quality: "low"},
+		{AspectRatio: "16:9", Resolution: "2K", Size: "2048x1152", Quality: "low"},
+		{AspectRatio: "9:16", Resolution: "2K", Size: "1152x2048", Quality: "low"},
+		{AspectRatio: "4:3", Resolution: "2K", Size: "2048x1536", Quality: "low"},
+		{AspectRatio: "3:4", Resolution: "2K", Size: "1536x2048", Quality: "low"},
+		{AspectRatio: "3:2", Resolution: "2K", Size: "2304x1536", Quality: "low"},
+		{AspectRatio: "2:3", Resolution: "2K", Size: "1536x2304", Quality: "low"},
+		{AspectRatio: "16:9", Resolution: "4K", Size: "3840x2160", Quality: "low"},
+		{AspectRatio: "9:16", Resolution: "4K", Size: "2160x3840", Quality: "low"},
+		{AspectRatio: "4:3", Resolution: "4K", Size: "3072x2304", Quality: "low"},
+		{AspectRatio: "3:4", Resolution: "4K", Size: "2304x3072", Quality: "low"},
+		{AspectRatio: "3:2", Resolution: "4K", Size: "3456x2304", Quality: "low"},
+		{AspectRatio: "2:3", Resolution: "4K", Size: "2304x3456", Quality: "low"},
+	}
+}
+
+func ztapiGPTImage2MaximumImageOutput(size string, count int) string {
+	const (
+		basePixels      = int64(1024 * 1024)
+		baseImageTokens = int64(196)
+		maximumTokens   = int64(200000)
+	)
+	parts := strings.Split(size, "x")
+	if len(parts) != 2 {
+		return strconv.FormatInt(maximumTokens, 10)
+	}
+	width, widthErr := strconv.ParseInt(parts[0], 10, 64)
+	height, heightErr := strconv.ParseInt(parts[1], 10, 64)
+	if widthErr != nil || heightErr != nil || width <= 0 || height <= 0 || count <= 0 || width > maximumTokens || height > maximumTokens {
+		return strconv.FormatInt(maximumTokens, 10)
+	}
+	pixels := width * height
+	perImage := (baseImageTokens*pixels + basePixels - 1) / basePixels
+	if perImage < baseImageTokens {
+		perImage = baseImageTokens
+	}
+	if perImage > maximumTokens/int64(count) {
+		return strconv.FormatInt(maximumTokens, 10)
+	}
+	return strconv.FormatInt(perImage*int64(count), 10)
 }
 
 func ztapiGemini25ImageProtocolContract() (types.ZTAPIImageProtocolContract, string, error) {

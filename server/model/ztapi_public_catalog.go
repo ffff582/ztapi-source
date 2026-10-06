@@ -61,6 +61,18 @@ type ZTAPIPublicImageRenderOption struct {
 }
 
 func ztapiPublicImageRenderOptions(capabilities types.ZTAPIImageCapabilities) []ZTAPIPublicImageRenderOption {
+	if len(capabilities.RenderOptions) > 0 {
+		options := make([]ZTAPIPublicImageRenderOption, 0, len(capabilities.RenderOptions))
+		for _, option := range capabilities.RenderOptions {
+			options = append(options, ZTAPIPublicImageRenderOption{
+				AspectRatio: option.AspectRatio,
+				Resolution:  option.Resolution,
+				Size:        option.Size,
+				Quality:     option.Quality,
+			})
+		}
+		return options
+	}
 	options := make([]ZTAPIPublicImageRenderOption, 0, len(capabilities.Sizes)*len(capabilities.Qualities))
 	seenPresentation := make(map[string]struct{}, len(capabilities.Sizes)*len(capabilities.Qualities))
 	for _, size := range capabilities.Sizes {
