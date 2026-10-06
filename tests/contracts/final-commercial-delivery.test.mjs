@@ -34,8 +34,11 @@ test('public source gate hashes the exact commit tree fetched over Git before SS
   assert.ok(gateStart >= 0 && sshStart > gateStart);
   const gate = source.slice(gateStart, sshStart);
 
-  assert.match(gate, /git -c http\.version=HTTP\/1\.1 clone/);
+  assert.match(gate, /git -c http\.version=HTTP\/1\.1 clone --quiet --no-checkout/);
+  assert.match(gate, /public_archive="\$verification_root\/public-source\.tar"/);
   assert.match(gate, /git -C "\$verification_root\/public-history" archive --format=tar/);
+  assert.match(gate, /test -s "\$public_archive"/);
+  assert.match(gate, /tar -xf "\$public_archive"/);
   assert.match(gate, /--no-same-owner/);
   assert.match(gate, /find "\$public_tree" -type f/);
   assert.match(gate, /PUBLIC-SOURCE-MANIFEST\.json/);

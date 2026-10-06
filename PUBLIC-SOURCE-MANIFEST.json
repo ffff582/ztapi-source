@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "86f8ba1d043bbc6e804d2000edb4a5b6e8f8f53c",
+  "release_commit": "173b373629b144e3014f135b4e18fb2526e3da33",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-86f8ba1d043bbc6e804d2000edb4a5b6e8f8f53c",
+  "source_tag": "production-173b373629b144e3014f135b4e18fb2526e3da33",
   "files": [
     {
       "path": ".dockerignore",
@@ -21,8 +21,8 @@
     },
     {
       "path": ".github/workflows/ztapi-deploy.yml",
-      "sha256": "13d6b5b41d5c70552fc9de57715000b5957675c5a2ad16ec5cc1e130d18f65c8",
-      "size": 222864
+      "sha256": "8df12941dbb9f584fc48f40130e3eb7d93f12bbe6b8383f474e5059f0567b5ab",
+      "size": 223031
     },
     {
       "path": ".github/workflows/ztapi-edge-diagnostic.yml",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "4a2c6fcfe6b21f8662c97d1b05546cd53731c20102af196e621b6c813a354f19",
+      "sha256": "75641f914188a4ca7d604c3722ace137e18a3f436c5166ef6543489493f927d1",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "4337bba46be4bc673781cdff9e237111a64b3c6615bb08e0a9d1c0c6abbb14b1",
+      "sha256": "1309d3ec21ac065cc6e6c0a7a44ac8b6566090ee9d1d7a3d2cdb4cd3c0bdc395",
       "size": 942
     },
     {
@@ -9436,8 +9436,8 @@
     },
     {
       "path": "tests/contracts/deployment-workflow.test.mjs",
-      "sha256": "5fb31feafe0c4bf2287d8ca2fccf0ee5bf1327aea0bd1c3fdfeb5df5ed291040",
-      "size": 49139
+      "sha256": "5febbfc2aa94f0cd68208b244500d9db52d9acde5785ba140c9fb2f5292fba41",
+      "size": 49526
     },
     {
       "path": "tests/contracts/deployment.test.mjs",
@@ -9446,8 +9446,8 @@
     },
     {
       "path": "tests/contracts/final-commercial-delivery.test.mjs",
-      "sha256": "5dd334dd37268b2fa4ad9f9fddb0331747d24b11aabaff0780908af6bccbb7fc",
-      "size": 44908
+      "sha256": "fe6371062cb060aafaadb6deea4f63c276c1ec01291bc84c70c269da7f99491b",
+      "size": 45116
     },
     {
       "path": "tests/contracts/financial-ci-workflow.test.mjs",

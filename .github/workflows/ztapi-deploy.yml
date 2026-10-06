@@ -125,11 +125,11 @@ jobs:
 
           # codeload.github.com is not reachable from every production runner.
           # Fetch the same immutable public repository over Git, then archive
-          # the resolved commit locally; the manifest and hash checks below
-          # still validate every extracted file.
+          # the resolved commit locally. Keep the archive on disk so a runner
+          # failure cannot be hidden by a pipe or a downstream SIGPIPE.
           for clone_attempt in 1 2 3 4 5; do
             rm -rf "$verification_root/public-history"
-            if git -c http.version=HTTP/1.1 clone --quiet --filter=blob:none --no-checkout \
+            if git -c http.version=HTTP/1.1 clone --quiet --no-checkout \
                 https://github.com/ffff582/ztapi-source.git "$verification_root/public-history"; then
               break
             fi
@@ -139,8 +139,12 @@ jobs:
             fi
             sleep $((clone_attempt * 2))
           done
-          git -C "$verification_root/public-history" archive --format=tar "$public_source_commit" \
-            | tar -x --directory "$public_tree" --no-same-owner --no-same-permissions
+          public_archive="$verification_root/public-source.tar"
+          git -C "$verification_root/public-history" archive --format=tar \
+            "$public_source_commit" > "$public_archive"
+          test -s "$public_archive"
+          tar -xf "$public_archive" --directory "$public_tree" \
+            --no-same-owner --no-same-permissions
           test -z "$(find "$public_tree" -type l -print -quit)"
           public_manifest="$public_tree/PUBLIC-SOURCE-MANIFEST.json"
           test -s "$public_manifest"

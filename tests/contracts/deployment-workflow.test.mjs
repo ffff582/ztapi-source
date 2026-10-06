@@ -31,8 +31,10 @@ test('public tag resolution uses authenticated metadata without weakening anonym
   const source = steps.find(step => step.name === 'Verify corresponding public source');
   assert.equal(source.env.ZTAPI_SOURCE_RESOLVED_COMMIT, '${{ env.ZTAPI_SOURCE_RESOLVED_COMMIT }}');
   assert.doesNotMatch(source.run, /Authorization:|GH_TOKEN|secrets\./);
-  assert.match(source.run, /git -c http\.version=HTTP\/1\.1 clone/);
+  assert.match(source.run, /git -c http\.version=HTTP\/1\.1 clone --quiet --no-checkout/);
+  assert.match(source.run, /public_archive="\$verification_root\/public-source\.tar"/);
   assert.match(source.run, /git -C "\$verification_root\/public-history" archive --format=tar/);
+  assert.match(source.run, /tar -xf "\$public_archive"/);
   assert.match(source.run, /sha256sum/);
   assert.ok(steps.indexOf(resolver) > steps.findIndex(step => step.name === 'Verify mandatory CI for exact release'));
   assert.ok(steps.indexOf(resolver) < steps.indexOf(source));
@@ -85,7 +87,10 @@ test('ZTAPI verifies exact anonymous corresponding source before SSH or mutation
   const gate = source.slice(gateStart, sshStart);
   assert.match(source, /https:\/\/api\.github\.com\/repos\/ffff582\/ztapi-source\/git\/ref\/tags\/production-\$ZTAPI_RELEASE_VERSION/);
   assert.match(gate, /https:\/\/github\.com\/ffff582\/ztapi-source\.git/);
+  assert.match(gate, /git -c http\.version=HTTP\/1\.1 clone --quiet --no-checkout/);
+  assert.match(gate, /public_archive="\$verification_root\/public-source\.tar"/);
   assert.match(gate, /git -C "\$verification_root\/public-history" archive --format=tar/);
+  assert.match(gate, /tar -xf "\$public_archive"/);
   assert.match(gate, /\.release_commit == \$release_commit/);
   assert.match(gate, /\.source_tag == \$source_tag/);
   assert.match(gate, /tools\/public-source\/export\.mjs/);
