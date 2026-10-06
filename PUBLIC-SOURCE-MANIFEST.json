@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "07cf932ac540385a166d16196948e7b574288f2e",
+  "release_commit": "66abc8fbf82dbc03e22c7c264c5f93b138297bd9",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-07cf932ac540385a166d16196948e7b574288f2e",
+  "source_tag": "production-66abc8fbf82dbc03e22c7c264c5f93b138297bd9",
   "files": [
     {
       "path": ".dockerignore",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "6b857ff9e43f61cb2a615899b5a0c37443cb1133f9be1686b1a5c5c247226f7f",
+      "sha256": "13299aa5ca90b9cf9911e4d0694cc4f75d9a73e48c6b2e20a2b6fec9219e3bd7",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "eb469a791a09ad17ad37a541c62df72c736a4a02686491aca202b3509fc4f74b",
+      "sha256": "ef89b74664d8aa235c35f3c9e975afd89732a5a4f986a0cccb58081e2b19a95a",
       "size": 942
     },
     {
@@ -9481,8 +9481,8 @@
     },
     {
       "path": "tests/contracts/public-source-export.test.mjs",
-      "sha256": "54bee3bc60ed78a811d213f72ef6e3e3fcffcfc5d711046e41377126489190f6",
-      "size": 9904
+      "sha256": "b0964fa1f15c9b721e1ad00dbc1e31f040ffef92f35c4b7f6e3b72845b4357e9",
+      "size": 10009
     },
     {
       "path": "tests/contracts/usdt-replay-ci.test.mjs",

@@ -101,6 +101,8 @@ test('exports a buildable public snapshot from an exact commit', privateHistoryO
       'deploy/nginx/ztapi.conf',
       '.github/workflows/ztapi-financial-ci.yml',
       '.github/workflows/ztapi-deploy.yml',
+      'web/console/src/features/logs/LogsPage.tsx',
+      'web/console/src/features/logs/logs.test.tsx',
       '.gitattributes',
       'README.md',
       'MODIFICATIONS.md',
