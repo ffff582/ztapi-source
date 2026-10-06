@@ -777,6 +777,29 @@ test('deployment rollback restores every quotation-backed media publication befo
   assert.match(releaseControl, /rm -f "\$\{media_publication_backup:-\}"/);
 });
 
+test('rollback falls back to the current images when the old release cannot boot after a schema widening', () => {
+  const workflow = read(workflowPath);
+  const releaseControl = read('deploy/scripts/ztapi-release-control.sh');
+
+  assert.match(workflow, /printf 'current_server_image=%q\\n' "\$server_image_id"/);
+  assert.match(workflow, /printf 'current_nginx_image=%q\\n' "\$nginx_image_id"/);
+  assert.match(
+    workflow,
+    /restore_previous_release\(\)[\s\S]*?forward_compat_compose_args=\(env[\s\S]*?ZTAPI_SERVER_IMAGE="\$server_image_id"[\s\S]*?ZTAPI_NGINX_IMAGE="\$nginx_image_id"/,
+    'internal rollback must have a current-image fallback after the old image fails to boot',
+  );
+  assert.match(
+    releaseControl,
+    /current_server_image=\$\{current_server_image:-\}[\s\S]*?current_nginx_image=\$\{current_nginx_image:-\}/,
+    'external rollback state must carry the current image identities',
+  );
+  assert.match(
+    releaseControl,
+    /forward_compat_compose=\(env[\s\S]*?ZTAPI_SERVER_IMAGE="\$current_server_image"[\s\S]*?ZTAPI_NGINX_IMAGE="\$current_nginx_image"/,
+    'external rollback must recover with the current images when the previous schema is no longer bootable',
+  );
+});
+
 test('deployment removes unavailable Seedance products without blocking image publication', () => {
   const source = read(workflowPath);
   assert.match(source, /ztapi-video-acceptance-fingerprint\.sh/);

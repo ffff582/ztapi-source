@@ -50,6 +50,9 @@ test "$ZTAPI_RELEASE_EXECUTION_ID" = "$release_execution_id"
 # backed-up runtime environment without inheriting the failed release metadata.
 unset ZTAPI_RELEASE_VERSION ZTAPI_SOURCE_COMMIT ZTAPI_SOURCE_TAG ZTAPI_SERVER_IMAGE ZTAPI_NGINX_IMAGE
 
+current_server_image=${current_server_image:-}
+current_nginx_image=${current_nginx_image:-}
+
 write_receipt() {
   phase=$1
   detail=${2:-}
@@ -180,9 +183,29 @@ case "$action" in
       restore_media_publication_state
       restore_gemini_rollout_state
       restore_registration_options
-      "${compose[@]}" up -d --force-recreate server --wait --wait-timeout 180
-      "${compose[@]}" up -d --force-recreate nginx --wait --wait-timeout 120
-      verify_runtime
+      compose_restore_status=0
+      ( "${compose[@]}" up -d --force-recreate server --wait --wait-timeout 180 &&
+        "${compose[@]}" up -d --force-recreate nginx --wait --wait-timeout 120 ) || compose_restore_status=$?
+      restore_mode=previous_release
+      if [ "$compose_restore_status" -ne 0 ] || ! verify_runtime; then
+        test -n "$current_server_image"
+        test -n "$current_nginx_image"
+        forward_compat_compose=(env \
+          -u ZTAPI_RELEASE_VERSION \
+          -u ZTAPI_SOURCE_COMMIT \
+          -u ZTAPI_SOURCE_TAG \
+          -u ZTAPI_SERVER_IMAGE \
+          -u ZTAPI_NGINX_IMAGE \
+          ZTAPI_SERVER_IMAGE="$current_server_image" \
+          ZTAPI_NGINX_IMAGE="$current_nginx_image" \
+          docker compose --env-file /opt/ztapi/.env \
+          -f /opt/ztapi/deploy/docker/docker-compose.prod.yml)
+        "${forward_compat_compose[@]}" up -d --force-recreate server --wait --wait-timeout 180
+        "${forward_compat_compose[@]}" up -d --force-recreate nginx --wait --wait-timeout 120
+        verify_runtime
+        restore_mode=forward_compatible_current_images
+        echo "release rollback used current images after previous release restore failed with status $compose_restore_status" >&2
+      fi
     else
       # The first unlock still mutates the persistent options table. Restore it
       # while the new MySQL stack is available, then remove the unaccepted stack.
@@ -204,7 +227,7 @@ case "$action" in
       cmp -s "$unrelated_before" "$unrelated_after" || rollback_status=$?
     fi
     test "$rollback_status" -eq 0
-    write_receipt rollback "external_acceptance=failed restore_status=$rollback_status"
+    write_receipt rollback "external_acceptance=failed restore_status=$rollback_status restore_mode=${restore_mode:-not_applicable}"
     remove_rollback_tags
     rm -f "${gemini_channel_backup:-}"
     rm -f "${media_publication_backup:-}"

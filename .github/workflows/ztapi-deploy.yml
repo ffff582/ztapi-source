@@ -525,10 +525,34 @@ jobs:
                 "${old_compose_args[@]}" up -d mysql redis server --wait --wait-timeout 180
                 "${old_compose_args[@]}" up -d nginx --wait --wait-timeout 120
               ) || compose_restore_status=$?
-              verify_ztapi_runtime || return 1
-              if [ "$compose_restore_status" -ne 0 ]; then
-                echo "ZTAPI rollback Compose returned $compose_restore_status, but final runtime health verification passed." >&2
+              restore_mode=previous_release
+              if [ "$compose_restore_status" -ne 0 ] || ! verify_ztapi_runtime; then
+                # A forward migration can make an older binary unbootable (for
+                # example, GORM trying to narrow MEDIUMTEXT back to TEXT). Keep
+                # production available with the already-built current images;
+                # the failed release remains explicitly unfinalized.
+                forward_compat_compose_args=(env \
+                  -u ZTAPI_RELEASE_VERSION \
+                  -u ZTAPI_SOURCE_COMMIT \
+                  -u ZTAPI_SOURCE_TAG \
+                  -u ZTAPI_SERVER_IMAGE \
+                  -u ZTAPI_NGINX_IMAGE \
+                  ZTAPI_SERVER_IMAGE="$server_image_id" \
+                  ZTAPI_NGINX_IMAGE="$nginx_image_id" \
+                  docker compose --env-file "$old_compose_environment_file")
+                for compose_file in "${old_compose_paths[@]}"; do
+                  forward_compat_compose_args+=(-f "$compose_file")
+                done
+                (
+                  cd "$old_compose_working_dir"
+                  "${forward_compat_compose_args[@]}" up -d mysql redis server --wait --wait-timeout 180
+                  "${forward_compat_compose_args[@]}" up -d nginx --wait --wait-timeout 120
+                ) || return 1
+                verify_ztapi_runtime || return 1
+                restore_mode=forward_compatible_current_images
+                echo "ZTAPI rollback used current images after previous release restore failed with status $compose_restore_status." >&2
               fi
+              echo "ZTAPI rollback runtime mode: $restore_mode" >&2
             elif [ "$release_mutated" = true ]; then
               if [ -s /opt/ztapi/.env ] && [ -s /opt/ztapi/deploy/docker/docker-compose.prod.yml ]; then
                 docker compose --env-file /opt/ztapi/.env \
@@ -1455,6 +1479,8 @@ jobs:
               printf 'env_backup=%q\n' "$env_backup"
               printf 'rollback_server_image=%q\n' "$rollback_server_image"
               printf 'rollback_nginx_image=%q\n' "$rollback_nginx_image"
+              printf 'current_server_image=%q\n' "$server_image_id"
+              printf 'current_nginx_image=%q\n' "$nginx_image_id"
               printf 'previous_register_enabled=%q\n' "$previous_register_enabled"
               printf 'previous_password_register_enabled=%q\n' "$previous_password_register_enabled"
               printf 'host_nginx_was_active=%q\n' "$host_nginx_was_active"
@@ -3830,6 +3856,8 @@ jobs:
             printf 'env_backup=%q\n' "$env_backup"
             printf 'rollback_server_image=%q\n' "$rollback_server_image"
             printf 'rollback_nginx_image=%q\n' "$rollback_nginx_image"
+            printf 'current_server_image=%q\n' "$server_image_id"
+            printf 'current_nginx_image=%q\n' "$nginx_image_id"
             printf 'previous_register_enabled=%q\n' "$previous_register_enabled"
             printf 'previous_password_register_enabled=%q\n' "$previous_password_register_enabled"
             printf 'host_nginx_was_active=%q\n' "$host_nginx_was_active"
