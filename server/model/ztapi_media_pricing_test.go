@@ -586,6 +586,25 @@ func TestZTAPIImageProtocolContractColumnsMigrateLegacyEvidenceTables(t *testing
 	require.True(t, db.Migrator().HasColumn(&ZTAPIModelPublicationSnapshot{}, "ImageProtocolContractJSON"))
 }
 
+func TestZTAPIImageProtocolContractColumnsHaveCapacityForFullRenderMatrix(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(t.TempDir()+"/image-protocol-capacity.db"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
+	require.NoError(t, db.AutoMigrate(&ZTAPIModelVerification{}, &ZTAPIModelPublicationSnapshot{}))
+
+	for _, table := range []string{"ztapi_model_verifications", "ztapi_model_publication_snapshots"} {
+		rows, err := db.Raw("SELECT type FROM pragma_table_info(?) WHERE name = ?", table, "image_protocol_contract_json").Rows()
+		require.NoError(t, err)
+		require.True(t, rows.Next(), "image protocol column missing from %s", table)
+		var columnType string
+		require.NoError(t, rows.Scan(&columnType))
+		require.NoError(t, rows.Close())
+		require.Equal(t, "mediumtext", strings.ToLower(columnType), "image protocol evidence must not be limited to MySQL TEXT capacity")
+	}
+}
+
 func TestZTAPIVideoProtocolContractColumnsMigrateLegacyEvidenceTables(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(t.TempDir()+"/legacy-video-protocol.db"), &gorm.Config{})
 	require.NoError(t, err)

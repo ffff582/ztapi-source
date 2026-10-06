@@ -669,7 +669,7 @@ type ZTAPIModelVerification struct {
 	PromptTokens                     int    `json:"prompt_tokens" gorm:"not null;default:0"`
 	CompletionTokens                 int    `json:"completion_tokens" gorm:"not null;default:0"`
 	TotalTokens                      int    `json:"total_tokens" gorm:"not null;default:0"`
-	ImageProtocolContractJSON        string `json:"image_protocol_contract,omitempty" gorm:"column:image_protocol_contract_json;type:text"`
+	ImageProtocolContractJSON        string `json:"image_protocol_contract,omitempty" gorm:"column:image_protocol_contract_json;type:mediumtext"`
 	VideoProtocolContractJSON        string `json:"video_protocol_contract,omitempty" gorm:"column:video_protocol_contract_json;type:text"`
 	OperatorID                       int    `json:"operator_id" gorm:"not null"`
 	VerifiedAt                       int64  `json:"verified_at" gorm:"bigint;not null;index"`
@@ -844,7 +844,7 @@ type ZTAPIModelPublicationSnapshot struct {
 	SaleMultiplier            string  `json:"sale_multiplier" gorm:"type:decimal(12,10);not null;default:1"`
 	TokenPriceRulesJSON       string  `json:"token_price_rules,omitempty" gorm:"column:token_price_rules_json;type:text"`
 	MediaPriceContractJSON    string  `json:"media_price_contract,omitempty" gorm:"column:media_price_contract_json;type:text"`
-	ImageProtocolContractJSON string  `json:"image_protocol_contract,omitempty" gorm:"column:image_protocol_contract_json;type:text"`
+	ImageProtocolContractJSON string  `json:"image_protocol_contract,omitempty" gorm:"column:image_protocol_contract_json;type:mediumtext"`
 	VideoProtocolContractJSON string  `json:"video_protocol_contract,omitempty" gorm:"column:video_protocol_contract_json;type:text"`
 	InputPricePerMillion      float64 `json:"input_price_per_million" gorm:"type:decimal(20,8);not null;default:0"`
 	OutputPricePerMillion     float64 `json:"output_price_per_million" gorm:"type:decimal(20,8);not null;default:0"`

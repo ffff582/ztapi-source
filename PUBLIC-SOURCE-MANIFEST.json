@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "e10439238037d59f5b1788475b70488617a6603c",
+  "release_commit": "2d32333463d7efb0c22ed9ca682ee5398f9485ef",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-e10439238037d59f5b1788475b70488617a6603c",
+  "source_tag": "production-2d32333463d7efb0c22ed9ca682ee5398f9485ef",
   "files": [
     {
       "path": ".dockerignore",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "e347f7e90ce381ea17ff867666724d741b6302727e16f7d08c8a3c4ca77cfc9c",
+      "sha256": "cb649ab49ba2e36016a4b3eb886870aa7347e8b5880f66a5eea07bad6043492f",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "e99ee677b44a985e5a58fddbb014b99ebff57625beae8be5b54aeb118da2c93f",
+      "sha256": "4fe4cf469c46119295270f1c227c3aeb584fa7730cf0669a2a5ae8ab290da827",
       "size": 942
     },
     {
@@ -2591,8 +2591,8 @@
     },
     {
       "path": "server/model/ztapi_media_pricing_test.go",
-      "sha256": "96fba9063e70e3467cfecbba333538c7452f514308e97dbcaaa8aa56dce2f95c",
-      "size": 37745
+      "sha256": "61ce4521bb82f134afeddc3cf8c010684aef1145990f9e6b2774a2209754873b",
+      "size": 38728
     },
     {
       "path": "server/model/ztapi_media_task.go",
@@ -2641,8 +2641,8 @@
     },
     {
       "path": "server/model/ztapi_model_evidence.go",
-      "sha256": "9d06cb4196387e5d2b62a403775cb3462941e3b72dce94500be02d823e0d1b48",
-      "size": 44009
+      "sha256": "ab8bc5ff67624f2e895e2fc5af820c6c4cda591f9f6319754baa50aaf19e83d8",
+      "size": 44021
     },
     {
       "path": "server/model/ztapi_model_evidence_test.go",
