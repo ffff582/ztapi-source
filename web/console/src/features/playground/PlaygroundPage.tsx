@@ -105,6 +105,45 @@ function firstOption(options: UserModelSupportedOptions | undefined, key: 'sizes
   return options?.[key]?.[0] ?? '';
 }
 
+type ImageRenderOption = NonNullable<UserModelSupportedOptions['render_options']>[number];
+
+function imagePresentationFromSize(size: string, quality = '') {
+  if (size === 'auto') return { aspect_ratio: 'auto', resolution: 'auto' };
+  const [rawWidth, rawHeight] = size.split('x');
+  const width = Number(rawWidth);
+  const height = Number(rawHeight);
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
+    return { aspect_ratio: size, resolution: 'custom' };
+  }
+  let left = width;
+  let right = height;
+  while (right !== 0) {
+    [left, right] = [right, left % right];
+  }
+  const resolutionFromQuality = ['1k', '2k', '4k'].includes(quality.toLowerCase()) ? quality.toUpperCase() : '';
+  return {
+    aspect_ratio: `${width / left}:${height / left}`,
+    resolution: resolutionFromQuality || `${Math.ceil(Math.max(width, height) / 1024)}K`,
+  };
+}
+
+function getImageRenderOptions(options: UserModelSupportedOptions | undefined): ImageRenderOption[] {
+  if (options?.render_options !== undefined && options.render_options.length > 0) {
+    return options.render_options;
+  }
+  const seenPresentation = new Set<string>();
+  return (options?.sizes ?? []).flatMap((size) => (options?.qualities ?? []).map((quality) => ({
+      ...imagePresentationFromSize(size, quality),
+      size,
+      quality,
+    })).filter((option) => {
+      const key = `${option.aspect_ratio}\u0000${option.resolution}`;
+      if (seenPresentation.has(key)) return false;
+      seenPresentation.add(key);
+      return true;
+    }));
+}
+
 function videoStatusLabel(status: PlaygroundVideoTask['status']) {
   switch (status) {
     case 'queued':
@@ -225,6 +264,19 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
     [model, modeModels],
   );
   const selectedOptions = selectedCatalog?.supported_options;
+  const imageRenderOptions = useMemo(() => getImageRenderOptions(selectedOptions), [selectedOptions]);
+  const selectedImageRenderOption = useMemo(
+    () => imageRenderOptions.find((option) => option.size === imageSize && option.quality === imageQuality) ?? imageRenderOptions[0],
+    [imageQuality, imageRenderOptions, imageSize],
+  );
+  const imageAspectRatios = useMemo(
+    () => [...new Set(imageRenderOptions.map((option) => option.aspect_ratio))],
+    [imageRenderOptions],
+  );
+  const imageResolutions = useMemo(
+    () => [...new Set(imageRenderOptions.map((option) => option.resolution))],
+    [imageRenderOptions],
+  );
   const editInput = imageEditCapability(selectedCatalog);
   const example = useMemo(() => codeExample(mode, model), [mode, model]);
   const prompt = promptByMode[mode];
@@ -234,6 +286,24 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
       ...current,
       [mode]: typeof nextPrompt === 'function' ? nextPrompt(current[mode]) : nextPrompt,
     }));
+  }
+
+  function setImageRenderOption(option: ImageRenderOption | undefined) {
+    if (option === undefined) return;
+    setImageSize(option.size);
+    setImageQuality(option.quality);
+  }
+
+  function handleImageAspectRatioChange(nextAspectRatio: string) {
+    const option = imageRenderOptions.find((candidate) => candidate.aspect_ratio === nextAspectRatio && candidate.resolution === selectedImageRenderOption?.resolution)
+      ?? imageRenderOptions.find((candidate) => candidate.aspect_ratio === nextAspectRatio);
+    setImageRenderOption(option);
+  }
+
+  function handleImageResolutionChange(nextResolution: string) {
+    const option = imageRenderOptions.find((candidate) => candidate.resolution === nextResolution && candidate.aspect_ratio === selectedImageRenderOption?.aspect_ratio)
+      ?? imageRenderOptions.find((candidate) => candidate.resolution === nextResolution);
+    setImageRenderOption(option);
   }
 
   useEffect(() => {
@@ -279,8 +349,7 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
 
   useEffect(() => {
     if (mode === 'image') {
-      setImageSize(firstOption(selectedOptions, 'sizes'));
-      setImageQuality(firstOption(selectedOptions, 'qualities'));
+      setImageRenderOption(getImageRenderOptions(selectedOptions)[0]);
       setImageResponseFormat(firstOption(selectedOptions, 'response_formats'));
       setImageCount(Math.max(1, selectedOptions?.min_count ?? 1));
     }
@@ -385,8 +454,7 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
       return [];
     });
     setReferenceError('');
-    setImageSize(firstOption(selectedOptions, 'sizes'));
-    setImageQuality(firstOption(selectedOptions, 'qualities'));
+    setImageRenderOption(getImageRenderOptions(selectedOptions)[0]);
     setImageResponseFormat(firstOption(selectedOptions, 'response_formats'));
     setImageCount(Math.max(1, selectedOptions?.min_count ?? 1));
   }
@@ -691,6 +759,25 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
     );
   }
 
+  function renderImageRenderControls(idPrefix: 'workbench' | 'playground') {
+    return (
+      <>
+        <div className="console-field">
+          <label htmlFor={`${idPrefix}-image-aspect-ratio`}>图片比例</label>
+          <select id={`${idPrefix}-image-aspect-ratio`} value={selectedImageRenderOption?.aspect_ratio ?? ''} onChange={(event) => handleImageAspectRatioChange(event.target.value)}>
+            {imageAspectRatios.map((option) => <option key={option} value={option}>{option}</option>)}
+          </select>
+        </div>
+        <div className="console-field">
+          <label htmlFor={`${idPrefix}-image-resolution`}>图片分辨率</label>
+          <select id={`${idPrefix}-image-resolution`} value={selectedImageRenderOption?.resolution ?? ''} onChange={(event) => handleImageResolutionChange(event.target.value)}>
+            {imageResolutions.map((option) => <option key={option} value={option}>{option}</option>)}
+          </select>
+        </div>
+      </>
+    );
+  }
+
   function renderImageWorkbench() {
     const gallery = imageHistory.flatMap((result) => result.images.map((image, index) => ({ image, index, requestID: result.request_id })));
     const isEditing = referenceImages.length > 0;
@@ -705,7 +792,7 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
             <div className="zt-workbench__model-caption"><span>模型 ID</span><code>{model || '—'}</code></div>
             {renderImageReferenceField()}
             <div className="console-field"><label htmlFor="workbench-image-prompt">图片提示词</label><textarea id="workbench-image-prompt" maxLength={4_000} rows={7} value={prompt} onChange={(event) => setPrompt(event.target.value)} /><p className="console-field__help">{prompt.length} / 4000 字符</p></div>
-            <div className="playground-option-grid"><div className="console-field"><label htmlFor="workbench-image-size">图片尺寸</label><select id="workbench-image-size" value={imageSize} onChange={(event) => setImageSize(event.target.value)}>{selectedOptions?.sizes?.map((option) => <option key={option} value={option}>{option}</option>)}</select></div><div className="console-field"><label htmlFor="workbench-image-quality">图片质量</label><select id="workbench-image-quality" value={imageQuality} onChange={(event) => setImageQuality(event.target.value)}>{selectedOptions?.qualities?.map((option) => <option key={option} value={option}>{option}</option>)}</select></div><div className="console-field"><label htmlFor="workbench-image-count">图片数量</label><select id="workbench-image-count" value={imageCount} onChange={(event) => setImageCount(Number(event.target.value))}>{Array.from({ length: Math.max(1, (selectedOptions?.max_count ?? 1) - (selectedOptions?.min_count ?? 1) + 1) }, (_, index) => (selectedOptions?.min_count ?? 1) + index).map((count) => <option key={count} value={count}>{count}</option>)}</select></div>{!isEditing && <div className="console-field"><label htmlFor="workbench-image-format">返回格式</label><select id="workbench-image-format" value={imageResponseFormat} onChange={(event) => setImageResponseFormat(event.target.value)}>{selectedOptions?.response_formats?.map((option) => <option key={option} value={option}>{option}</option>)}</select></div>}</div>
+            <div className="playground-option-grid">{renderImageRenderControls('workbench')}<div className="console-field"><label htmlFor="workbench-image-count">图片数量</label><select id="workbench-image-count" value={imageCount} onChange={(event) => setImageCount(Number(event.target.value))}>{Array.from({ length: Math.max(1, (selectedOptions?.max_count ?? 1) - (selectedOptions?.min_count ?? 1) + 1) }, (_, index) => (selectedOptions?.min_count ?? 1) + index).map((count) => <option key={count} value={count}>{count}</option>)}</select></div>{!isEditing && <div className="console-field"><label htmlFor="workbench-image-format">返回格式</label><select id="workbench-image-format" value={imageResponseFormat} onChange={(event) => setImageResponseFormat(event.target.value)}>{selectedOptions?.response_formats?.map((option) => <option key={option} value={option}>{option}</option>)}</select></div>}</div>
             <div className="zt-workbench__action-row">
               <button aria-label="重置图像参数" className="zt-workbench__reset" title="重置图像参数" type="button" onClick={resetImageForm}><RotateCcw aria-hidden="true" size={17} /></button>
               <button aria-label={isEditing ? '编辑图片' : '生成图片'} className="zt-workbench__run" disabled={requestStatus === 'sending' || model === '' || prompt.trim() === ''} type="submit"><Play aria-hidden="true" size={15} /><span>RUN</span><small>{requestStatus === 'sending' ? '生成中...' : '按实际 API 计费'}</small></button>
@@ -822,8 +909,7 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
                   {mode === 'image' && renderImageReferenceField()}
                   {mode === 'image' && selectedOptions && (
                     <div className="playground-option-grid">
-                      <div className="console-field"><label htmlFor="playground-image-size">图片尺寸</label><select id="playground-image-size" value={imageSize} onChange={(event) => setImageSize(event.target.value)}>{selectedOptions.sizes?.map((option) => <option key={option} value={option}>{option}</option>)}</select></div>
-                      <div className="console-field"><label htmlFor="playground-image-quality">图片质量</label><select id="playground-image-quality" value={imageQuality} onChange={(event) => setImageQuality(event.target.value)}>{selectedOptions.qualities?.map((option) => <option key={option} value={option}>{option}</option>)}</select></div>
+                      {renderImageRenderControls('playground')}
                       <div className="console-field"><label htmlFor="playground-image-count">图片数量</label><select id="playground-image-count" value={imageCount} onChange={(event) => setImageCount(Number(event.target.value))}>{Array.from({ length: Math.max(1, (selectedOptions.max_count ?? 1) - (selectedOptions.min_count ?? 1) + 1) }, (_, index) => (selectedOptions.min_count ?? 1) + index).map((count) => <option key={count} value={count}>{count}</option>)}</select></div>
                       <div className="console-field"><label htmlFor="playground-image-format">图片格式</label><select id="playground-image-format" value={imageResponseFormat} onChange={(event) => setImageResponseFormat(event.target.value)}>{selectedOptions.response_formats?.map((option) => <option key={option} value={option}>{option}</option>)}</select></div>
                     </div>

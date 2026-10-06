@@ -51,6 +51,10 @@ function mediaCatalogResponse() {
     supported_options: {
       sizes: ['1024x1024', '1536x1024'],
       qualities: ['standard', 'hd'],
+      render_options: [
+        { aspect_ratio: '1:1', resolution: '1K', size: '1024x1024', quality: 'standard' },
+        { aspect_ratio: '3:2', resolution: '2K', size: '1536x1024', quality: 'hd' },
+      ],
       response_formats: ['url', 'b64_json'],
       min_count: 1,
       max_count: 10,
@@ -226,8 +230,8 @@ describe('PlaygroundPage', () => {
     expect(document.querySelector('.console-page__header')).not.toBeInTheDocument();
     expect(screen.getByLabelText('图片模型')).toHaveValue('zt-image-2');
     expect(screen.getByLabelText('图片提示词')).toBeVisible();
-    expect(screen.getByLabelText('图片尺寸')).toBeVisible();
-    expect(screen.getByLabelText('图片质量')).toBeVisible();
+    expect(screen.getByLabelText('图片比例')).toBeVisible();
+    expect(screen.getByLabelText('图片分辨率')).toBeVisible();
     expect(screen.getByText('模型 ID')).toBeVisible();
     expect(screen.getByText('最近生成')).toBeVisible();
     expect(screen.getByRole('button', { name: '生成图片' })).toBeVisible();
@@ -485,8 +489,8 @@ describe('PlaygroundPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '图片' }));
     expect(await screen.findByLabelText('图片模型')).toHaveValue('zt-image-2');
     fireEvent.change(screen.getByLabelText('图片提示词'), { target: { value: '一只在雨中的橘猫' } });
-    fireEvent.change(screen.getByLabelText('图片尺寸'), { target: { value: '1536x1024' } });
-    fireEvent.change(screen.getByLabelText('图片质量'), { target: { value: 'hd' } });
+    fireEvent.change(screen.getByLabelText('图片比例'), { target: { value: '3:2' } });
+    fireEvent.change(screen.getByLabelText('图片分辨率'), { target: { value: '2K' } });
     fireEvent.click(screen.getByRole('button', { name: '生成图片' }));
 
     const image = await screen.findByRole('img', { name: '生成结果 1' });

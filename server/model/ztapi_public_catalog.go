@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -39,16 +40,95 @@ type ZTAPIPublicCatalogItem struct {
 }
 
 type ZTAPIPublicSupportedOptions struct {
-	Sizes              []string                   `json:"sizes,omitempty"`
-	Qualities          []string                   `json:"qualities,omitempty"`
-	ResponseFormats    []string                   `json:"response_formats,omitempty"`
-	MinCount           int                        `json:"min_count,omitempty"`
-	MaxCount           int                        `json:"max_count,omitempty"`
-	SupportsEdits      bool                       `json:"supports_edits,omitempty"`
-	EditInput          *ZTAPIPublicImageEditInput `json:"edit_input,omitempty"`
-	Resolutions        []string                   `json:"resolutions,omitempty"`
-	DurationSeconds    []int                      `json:"duration_seconds,omitempty"`
-	SupportsVideoInput *bool                      `json:"supports_video_input,omitempty"`
+	Sizes              []string                       `json:"sizes,omitempty"`
+	Qualities          []string                       `json:"qualities,omitempty"`
+	RenderOptions      []ZTAPIPublicImageRenderOption `json:"render_options,omitempty"`
+	ResponseFormats    []string                       `json:"response_formats,omitempty"`
+	MinCount           int                            `json:"min_count,omitempty"`
+	MaxCount           int                            `json:"max_count,omitempty"`
+	SupportsEdits      bool                           `json:"supports_edits,omitempty"`
+	EditInput          *ZTAPIPublicImageEditInput     `json:"edit_input,omitempty"`
+	Resolutions        []string                       `json:"resolutions,omitempty"`
+	DurationSeconds    []int                          `json:"duration_seconds,omitempty"`
+	SupportsVideoInput *bool                          `json:"supports_video_input,omitempty"`
+}
+
+type ZTAPIPublicImageRenderOption struct {
+	AspectRatio string `json:"aspect_ratio"`
+	Resolution  string `json:"resolution"`
+	Size        string `json:"size"`
+	Quality     string `json:"quality"`
+}
+
+func ztapiPublicImageRenderOptions(capabilities types.ZTAPIImageCapabilities) []ZTAPIPublicImageRenderOption {
+	options := make([]ZTAPIPublicImageRenderOption, 0, len(capabilities.Sizes)*len(capabilities.Qualities))
+	seenPresentation := make(map[string]struct{}, len(capabilities.Sizes)*len(capabilities.Qualities))
+	for _, size := range capabilities.Sizes {
+		for _, quality := range capabilities.Qualities {
+			aspectRatio, resolution := ztapiPublicImagePresentation(size, quality)
+			presentationKey := aspectRatio + "\x00" + resolution
+			if _, exists := seenPresentation[presentationKey]; exists {
+				continue
+			}
+			seenPresentation[presentationKey] = struct{}{}
+			options = append(options, ZTAPIPublicImageRenderOption{
+				AspectRatio: aspectRatio,
+				Resolution:  resolution,
+				Size:        size,
+				Quality:     quality,
+			})
+		}
+	}
+	return options
+}
+
+func ztapiPublicImagePresentation(size, quality string) (string, string) {
+	if resolution := ztapiPublicImageResolutionFromQuality(quality); resolution != "" {
+		aspectRatio, _ := ztapiPublicImagePresentationFromSize(size)
+		return aspectRatio, resolution
+	}
+	return ztapiPublicImagePresentationFromSize(size)
+}
+
+func ztapiPublicImagePresentationFromSize(size string) (string, string) {
+	if size == "auto" {
+		return "auto", "auto"
+	}
+	parts := strings.Split(size, "x")
+	if len(parts) != 2 {
+		return size, "custom"
+	}
+	width, widthErr := strconv.Atoi(parts[0])
+	height, heightErr := strconv.Atoi(parts[1])
+	if widthErr != nil || heightErr != nil || width <= 0 || height <= 0 {
+		return size, "custom"
+	}
+	common := ztapiPublicImageGCD(width, height)
+	maxDimension := width
+	if height > maxDimension {
+		maxDimension = height
+	}
+	resolution := (maxDimension + 1023) / 1024
+	return fmt.Sprintf("%d:%d", width/common, height/common), fmt.Sprintf("%dK", resolution)
+}
+
+func ztapiPublicImageResolutionFromQuality(quality string) string {
+	switch strings.ToLower(quality) {
+	case "1k", "2k", "4k":
+		return strings.ToUpper(quality)
+	default:
+		return ""
+	}
+}
+
+func ztapiPublicImageGCD(left, right int) int {
+	for right != 0 {
+		left, right = right, left%right
+	}
+	if left < 0 {
+		return -left
+	}
+	return left
 }
 
 type ZTAPIPublicImageEditInput struct {
@@ -434,6 +514,7 @@ func ztapiPublicMediaMetadata(publication ZTAPIRuntimePublication) (*ZTAPIPublic
 		capabilities := publication.ImageProtocolContract.Capabilities
 		options.Sizes = append([]string(nil), capabilities.Sizes...)
 		options.Qualities = append([]string(nil), capabilities.Qualities...)
+		options.RenderOptions = ztapiPublicImageRenderOptions(capabilities)
 		options.ResponseFormats = append([]string(nil), capabilities.ResponseFormats...)
 		options.MinCount = capabilities.MinCount
 		options.MaxCount = capabilities.MaxCount

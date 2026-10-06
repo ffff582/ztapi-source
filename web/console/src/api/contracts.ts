@@ -120,6 +120,7 @@ export type UserModelEndpointType =
 export interface UserModelSupportedOptions {
   sizes?: string[];
   qualities?: string[];
+  render_options?: UserModelImageRenderOption[];
   response_formats?: string[];
   min_count?: number;
   max_count?: number;
@@ -133,6 +134,13 @@ export interface UserModelSupportedOptions {
   resolutions?: string[];
   duration_seconds?: number[];
   supports_video_input?: boolean;
+}
+
+export interface UserModelImageRenderOption {
+  aspect_ratio: string;
+  resolution: string;
+  size: string;
+  quality: string;
 }
 
 export interface UserModelPricingRule {
@@ -418,6 +426,34 @@ function parseUserModelCatalogItem(value: unknown): UserModelCatalogItem {
     if (modality === 'image') {
       supportedOptions.sizes = parseRequiredStringArray(options.sizes);
       supportedOptions.qualities = parseRequiredStringArray(options.qualities);
+      if (options.render_options !== undefined) {
+        const seenDisplayOptions = new Set<string>();
+        const seenUpstreamOptions = new Set<string>();
+        if (!Array.isArray(options.render_options) || options.render_options.length === 0 || options.render_options.some((option) => {
+          if (!isRecord(option) || !requiredString(option.aspect_ratio) || !requiredString(option.resolution) || !requiredString(option.size) || !requiredString(option.quality)) {
+            return true;
+          }
+          if (!supportedOptions.sizes?.includes(option.size) || !supportedOptions.qualities?.includes(option.quality)) {
+            return true;
+          }
+          const displayKey = `${option.aspect_ratio}\u0000${option.resolution}`;
+          const upstreamKey = `${option.size}\u0000${option.quality}`;
+          if (seenDisplayOptions.has(displayKey) || seenUpstreamOptions.has(upstreamKey)) {
+            return true;
+          }
+          seenDisplayOptions.add(displayKey);
+          seenUpstreamOptions.add(upstreamKey);
+          return false;
+        })) {
+          throw new DataContractError();
+        }
+        supportedOptions.render_options = options.render_options.map((option) => ({
+          aspect_ratio: String((option as Record<string, unknown>).aspect_ratio),
+          resolution: String((option as Record<string, unknown>).resolution),
+          size: String((option as Record<string, unknown>).size),
+          quality: String((option as Record<string, unknown>).quality),
+        }));
+      }
       supportedOptions.response_formats = parseRequiredStringArray(options.response_formats);
       if (!integer(options.min_count) || !integer(options.max_count) || options.min_count < 1 || options.max_count < options.min_count || options.max_count > 10) {
         throw new DataContractError();
@@ -448,7 +484,7 @@ function parseUserModelCatalogItem(value: unknown): UserModelCatalogItem {
       if (!Array.isArray(options.duration_seconds) || options.duration_seconds.length === 0 || options.duration_seconds.some((duration) => !integer(duration) || duration <= 0) || typeof options.supports_video_input !== 'boolean') {
         throw new DataContractError();
       }
-      if ('sizes' in options || 'qualities' in options || 'response_formats' in options || 'min_count' in options || 'max_count' in options) {
+      if ('sizes' in options || 'qualities' in options || 'render_options' in options || 'response_formats' in options || 'min_count' in options || 'max_count' in options) {
         throw new DataContractError();
       }
       supportedOptions.duration_seconds = [...options.duration_seconds];

@@ -21,6 +21,9 @@ function mediaItem(modality: 'image' | 'video', overrides: Record<string, unknow
       ? {
           sizes: ['1024x1024', '512x512'],
           qualities: ['standard'],
+          render_options: [
+            { aspect_ratio: '1:1', resolution: '1K', size: '1024x1024', quality: 'standard' },
+          ],
           response_formats: ['url'],
           min_count: 1,
           max_count: 2,
@@ -87,6 +90,42 @@ describe('Media catalog contract', () => {
       edit_input: { max_files: 15, max_bytes: 20 * 1024 * 1024, max_total_bytes: 256 * 1024 * 1024 },
       max_count: 10,
     });
+  });
+
+  it('accepts render options that map display controls to upstream selectors', () => {
+    const parsed = parseUserModelCatalog(envelope(mediaItem('image', {
+      supported_options: {
+        sizes: ['1024x1024', '1536x1024'],
+        qualities: ['standard', 'hd'],
+        render_options: [
+          { aspect_ratio: '1:1', resolution: '1K', size: '1024x1024', quality: 'standard' },
+          { aspect_ratio: '3:2', resolution: '2K', size: '1536x1024', quality: 'hd' },
+        ],
+        response_formats: ['url'],
+        min_count: 1,
+        max_count: 10,
+      },
+    }))).catalog[0];
+    expect(parsed.supported_options?.render_options).toEqual([
+      { aspect_ratio: '1:1', resolution: '1K', size: '1024x1024', quality: 'standard' },
+      { aspect_ratio: '3:2', resolution: '2K', size: '1536x1024', quality: 'hd' },
+    ]);
+  });
+
+  it('rejects ambiguous render options that map the same display choice twice', () => {
+    expect(() => parseUserModelCatalog(envelope(mediaItem('image', {
+      supported_options: {
+        sizes: ['1024x1024'],
+        qualities: ['standard'],
+        render_options: [
+          { aspect_ratio: '1:1', resolution: '1K', size: '1024x1024', quality: 'standard' },
+          { aspect_ratio: '1:1', resolution: '1K', size: '1024x1024', quality: 'standard' },
+        ],
+        response_formats: ['url'],
+        min_count: 1,
+        max_count: 1,
+      },
+    })))).toThrow();
   });
 
   it('rejects image edit capabilities beyond the published limits', () => {

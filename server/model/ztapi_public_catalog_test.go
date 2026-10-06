@@ -99,6 +99,9 @@ func TestZTAPIPublicCatalogMediaExposesOnlyPublicCapabilitiesAndSalePricing(t *t
 	require.Equal(t, []constant.EndpointType{constant.EndpointTypeImages}, imageItem.SupportedEndpointTypes)
 	require.Equal(t, []string{"1024x1024", "512x512"}, imageItem.SupportedOptions.Sizes)
 	require.Equal(t, []string{"standard"}, imageItem.SupportedOptions.Qualities)
+	require.Equal(t, []ZTAPIPublicImageRenderOption{
+		{AspectRatio: "1:1", Resolution: "1K", Size: "1024x1024", Quality: "standard"},
+	}, imageItem.SupportedOptions.RenderOptions)
 	require.Equal(t, []string{"url"}, imageItem.SupportedOptions.ResponseFormats)
 	require.Equal(t, 1, imageItem.SupportedOptions.MinCount)
 	require.Equal(t, 2, imageItem.SupportedOptions.MaxCount)
@@ -131,6 +134,19 @@ func TestZTAPIPublicCatalogMediaExposesOnlyPublicCapabilitiesAndSalePricing(t *t
 	require.NotContains(t, string(encoded), "cost_usd")
 	require.NotContains(t, string(encoded), "source_cells")
 	require.NotContains(t, string(encoded), "provider-video-exact")
+}
+
+func TestZTAPIPublicImageRenderOptionsPreserveProviderResolutionValues(t *testing.T) {
+	options := ztapiPublicImageRenderOptions(types.ZTAPIImageCapabilities{
+		Sizes:     []string{"1024x1024"},
+		Qualities: []string{"1k", "2k", "4k"},
+	})
+
+	require.Equal(t, []ZTAPIPublicImageRenderOption{
+		{AspectRatio: "1:1", Resolution: "1K", Size: "1024x1024", Quality: "1k"},
+		{AspectRatio: "1:1", Resolution: "2K", Size: "1024x1024", Quality: "2k"},
+		{AspectRatio: "1:1", Resolution: "4K", Size: "1024x1024", Quality: "4k"},
+	}, options)
 }
 
 func TestZTAPIPublicCatalogExposesMultiImageEditInputAndOutputLimits(t *testing.T) {
