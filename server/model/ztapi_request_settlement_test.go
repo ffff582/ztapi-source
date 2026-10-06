@@ -2,6 +2,7 @@ package model
 
 import (
 	"errors"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -73,6 +74,47 @@ func assertZTAPISettlementBalances(t *testing.T, db *gorm.DB, row ZTAPIRequestSe
 	}
 	if u.Quota != wallet || k.RemainQuota != token {
 		t.Fatalf("wallet/token=%d/%d want %d/%d", u.Quota, k.RemainQuota, wallet, token)
+	}
+}
+
+func TestZTAPISettlementLargePriceSnapshotIsDurableAndReplaySafe(t *testing.T) {
+	db, input := setupZTAPISettlement(t)
+	input.PriceSnapshotJSON = `{"protocol_evidence":"` + strings.Repeat("x", 80*1024) + `"}`
+	row, err := BeginZTAPIRequestSettlement(input)
+	require.NoError(t, err)
+	var stored ZTAPIRequestSettlement
+	require.NoError(t, db.First(&stored, row.ID).Error)
+	require.Equal(t, input.PriceSnapshotJSON, stored.PriceSnapshotJSON)
+	assertZTAPISettlementBalances(t, db, stored, 800, 800)
+	replayed, err := BeginZTAPIRequestSettlement(input)
+	require.NoError(t, err)
+	require.Equal(t, row.ID, replayed.ID)
+	assertZTAPISettlementBalances(t, db, *replayed, 800, 800)
+	input.PriceSnapshotJSON = `{"protocol_evidence":"changed"}`
+	_, err = BeginZTAPIRequestSettlement(input)
+	require.ErrorIs(t, err, ErrZTAPISettlementConflict)
+}
+
+func TestZTAPISettlementRejectsOversizedPriceSnapshotWithoutReservingFunds(t *testing.T) {
+	db, input := setupZTAPISettlement(t)
+	input.PriceSnapshotJSON = `{"protocol_evidence":"` + strings.Repeat("x", 256*1024) + `"}`
+	_, err := BeginZTAPIRequestSettlement(input)
+	require.ErrorIs(t, err, ErrZTAPISettlementInvalid)
+	assertZTAPISettlementBalances(t, db, input, 1000, 1000)
+	var holds, ledgers int64
+	require.NoError(t, db.Model(&ZTAPIRequestSettlement{}).Count(&holds).Error)
+	require.NoError(t, db.Model(&BalanceLedger{}).Where("request_id = ?", input.RequestID).Count(&ledgers).Error)
+	require.Zero(t, holds)
+	require.Zero(t, ledgers)
+}
+
+func TestZTAPISettlementPriceSnapshotStorageIncludesRefundAnchors(t *testing.T) {
+	db, _ := setupZTAPISettlement(t)
+	require.NoError(t, MigrateZTAPISupplierRefund(db))
+	for _, value := range []interface{}{ZTAPIRequestSettlement{}, ZTAPISupplierRefundCharge{}} {
+		field, ok := reflect.TypeOf(value).FieldByName("PriceSnapshotJSON")
+		require.True(t, ok)
+		require.Contains(t, field.Tag.Get("gorm"), "type:mediumtext")
 	}
 }
 

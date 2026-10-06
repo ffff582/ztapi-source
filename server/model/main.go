@@ -359,6 +359,9 @@ func migrateDB() error {
 	if err != nil {
 		return err
 	}
+	if err := MigrateZTAPIPriceSnapshotStorage(DB); err != nil {
+		return err
+	}
 	if err := cancelOrphanedZTAPIHealthVerificationCases(DB); err != nil {
 		return err
 	}
@@ -514,6 +517,9 @@ func migrateDBFast() error {
 		if err != nil {
 			return err
 		}
+	}
+	if err := MigrateZTAPIPriceSnapshotStorage(DB); err != nil {
+		return err
 	}
 	if err := cancelOrphanedZTAPIHealthVerificationCases(DB); err != nil {
 		return err

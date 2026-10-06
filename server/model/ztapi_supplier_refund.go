@@ -35,7 +35,7 @@ type ZTAPISupplierRefundCharge struct {
 	UpstreamRequestID  string `gorm:"type:varchar(256);not null"`
 	UpstreamTaskID     string `gorm:"type:varchar(256);not null"`
 	UpstreamBillID     string `gorm:"type:varchar(256);not null"`
-	PriceSnapshotJSON  string `gorm:"type:text;not null"`
+	PriceSnapshotJSON  string `gorm:"type:mediumtext;not null"`
 	DimensionsJSON     string `gorm:"type:text;not null"`
 	OriginalLedgerID   int    `gorm:"not null"`
 	ChargedQuota       int64  `gorm:"type:bigint;not null"`

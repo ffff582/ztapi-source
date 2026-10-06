@@ -18,6 +18,11 @@ const (
 	ZTAPISettlementPending  = "pending"
 	ZTAPISettlementSettled  = "settled"
 	ZTAPISettlementReleased = "released"
+
+	// Media protocol contracts are frozen into the settlement snapshot. Keep a
+	// bounded limit, but leave enough room for the signed image contract and
+	// future capability metadata.
+	ztapiMaxPriceSnapshotBytes = 256 * 1024
 )
 
 var (
@@ -36,7 +41,7 @@ type ZTAPIRequestSettlement struct {
 	TokenID               int       `gorm:"not null" json:"token_id"`
 	TokenUnlimited        bool      `gorm:"not null" json:"token_unlimited"`
 	PublicModel           string    `gorm:"type:varchar(200);not null" json:"model"`
-	PriceSnapshotJSON     string    `gorm:"type:text;not null" json:"price_snapshot"`
+	PriceSnapshotJSON     string    `gorm:"type:mediumtext;not null" json:"price_snapshot"`
 	Status                string    `gorm:"type:varchar(16);not null;index" json:"status"`
 	ReservedQuota         int64     `gorm:"type:bigint;not null" json:"reserved_quota"`
 	InitialReservedQuota  int64     `gorm:"type:bigint;not null" json:"initial_reserved_quota"`
@@ -57,6 +62,27 @@ type ZTAPIRequestSettlement struct {
 }
 
 func (ZTAPIRequestSettlement) TableName() string { return "ztapi_request_settlements" }
+
+// MigrateZTAPIPriceSnapshotStorage upgrades existing MySQL tables that were
+// created while price snapshots used TEXT. SQLite maps MEDIUMTEXT to TEXT and
+// does not need an in-place type change.
+func MigrateZTAPIPriceSnapshotStorage(db *gorm.DB) error {
+	if db == nil {
+		return ErrZTAPISettlementInvalid
+	}
+	if db.Dialector.Name() == "sqlite" {
+		return nil
+	}
+	for _, table := range []interface{}{&ZTAPIRequestSettlement{}, &ZTAPISupplierRefundCharge{}} {
+		if !db.Migrator().HasTable(table) {
+			continue
+		}
+		if err := db.Migrator().AlterColumn(table, "PriceSnapshotJSON"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 func ztapiSettlementTransaction(fn func(*gorm.DB) error) error {
 	if DB == nil {
@@ -91,7 +117,7 @@ func ztapiSettlementOwners(tx *gorm.DB, row *ZTAPIRequestSettlement) (*User, *To
 }
 
 func BeginZTAPIRequestSettlement(input ZTAPIRequestSettlement) (*ZTAPIRequestSettlement, error) {
-	if strings.TrimSpace(input.OperationID) == "" || len(input.OperationID) > 64 || strings.TrimSpace(input.RequestID) == "" || len(input.RequestID) > 64 || input.UserID <= 0 || input.TokenID <= 0 || input.ReservedQuota < 0 || input.ReservedQuota > maxBalanceLedgerQuota || input.PublicModel == "" || len(input.PriceSnapshotJSON) > 65536 || !validZTAPISettlementJSON(input.PriceSnapshotJSON) {
+	if strings.TrimSpace(input.OperationID) == "" || len(input.OperationID) > 64 || strings.TrimSpace(input.RequestID) == "" || len(input.RequestID) > 64 || input.UserID <= 0 || input.TokenID <= 0 || input.ReservedQuota < 0 || input.ReservedQuota > maxBalanceLedgerQuota || input.PublicModel == "" || len(input.PriceSnapshotJSON) > ztapiMaxPriceSnapshotBytes || !validZTAPISettlementJSON(input.PriceSnapshotJSON) {
 		return nil, ErrZTAPISettlementInvalid
 	}
 	var row *ZTAPIRequestSettlement

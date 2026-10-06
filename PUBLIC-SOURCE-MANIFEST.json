@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "66abc8fbf82dbc03e22c7c264c5f93b138297bd9",
+  "release_commit": "7094c5941eec0d87067ef887c5f4281bb500afe0",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-66abc8fbf82dbc03e22c7c264c5f93b138297bd9",
+  "source_tag": "production-7094c5941eec0d87067ef887c5f4281bb500afe0",
   "files": [
     {
       "path": ".dockerignore",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "13299aa5ca90b9cf9911e4d0694cc4f75d9a73e48c6b2e20a2b6fec9219e3bd7",
+      "sha256": "edf6812c05c936f3d9e6a7c625b4cd73729e46b23cf2da0de4f559c6c3b6da31",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "ef89b74664d8aa235c35f3c9e975afd89732a5a4f986a0cccb58081e2b19a95a",
+      "sha256": "e528271b36df2be6d55974d1135da707d87705b43524226f8e11de767d078394",
       "size": 942
     },
     {
@@ -2176,8 +2176,8 @@
     },
     {
       "path": "server/model/main.go",
-      "sha256": "391f8c57f314acea0a320de6ac3c4ca88ee96a7f2a1aa73890b20788e04c4a2a",
-      "size": 28614
+      "sha256": "3e9bf4e322017e1e64be69760edaac66ade145e3fd76d96e42ba1b1b54c00653",
+      "size": 28770
     },
     {
       "path": "server/model/midjourney.go",
@@ -2836,8 +2836,8 @@
     },
     {
       "path": "server/model/ztapi_request_settlement.go",
-      "sha256": "1d94659688101d64d57f136c3c77101a46c926d2f16e210087800372c47e1b91",
-      "size": 39505
+      "sha256": "f7d84088f84b669354f1cc531e52a70414b107317fd8f4c3420074dbeb20cef1",
+      "size": 40389
     },
     {
       "path": "server/model/ztapi_request_settlement_intent_test.go",
@@ -2851,8 +2851,8 @@
     },
     {
       "path": "server/model/ztapi_request_settlement_test.go",
-      "sha256": "ed07ef9ee85701303831b0bf24f05691adbe2e622241d87bdab4a80b365d440e",
-      "size": 15216
+      "sha256": "c90336981c65654b36a2eb444417c98c5c99a1726d1c92dbdad6f1b00d365d5c",
+      "size": 17126
     },
     {
       "path": "server/model/ztapi_responses_catalog_test.go",
@@ -2891,8 +2891,8 @@
     },
     {
       "path": "server/model/ztapi_supplier_refund.go",
-      "sha256": "69ec5c5aaad5ef0f22d500840381b1900fafd518a12f3081fb520e51e61e92b6",
-      "size": 22707
+      "sha256": "2781797cde2416dd0a5715c8b93a6a9fbdd8c004f6e4ca72f0e89c2e5dbcc8c6",
+      "size": 22713
     },
     {
       "path": "server/model/ztapi_supplier_refund_amount.go",
