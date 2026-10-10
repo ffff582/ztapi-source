@@ -6,11 +6,60 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
+
+type legacyZTAPISettlementCreatedAtRow struct {
+	ID        uint       `gorm:"primaryKey"`
+	Status    string     `gorm:"type:varchar(16)"`
+	CreatedAt *time.Time `gorm:"column:created_at"`
+	UpdatedAt *time.Time `gorm:"column:updated_at"`
+}
+
+func (legacyZTAPISettlementCreatedAtRow) TableName() string { return "ztapi_request_settlements" }
+
+func TestMigrateZTAPIRequestSettlementCreatedAtBackfillsAndEnforcesInvariant(t *testing.T) {
+	db := setupBalanceLedgerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&legacyZTAPISettlementCreatedAtRow{}))
+	updatedAt := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	require.NoError(t, db.Create(&legacyZTAPISettlementCreatedAtRow{Status: ZTAPISettlementPending, UpdatedAt: &updatedAt}).Error)
+
+	require.NoError(t, MigrateZTAPIRequestSettlementCreatedAt(db))
+
+	var pendingWithoutCreatedAt int64
+	require.NoError(t, db.Model(&legacyZTAPISettlementCreatedAtRow{}).
+		Where("status = ? AND created_at IS NULL", ZTAPISettlementPending).
+		Count(&pendingWithoutCreatedAt).Error)
+	require.Zero(t, pendingWithoutCreatedAt)
+
+	columns, err := db.Migrator().ColumnTypes(&legacyZTAPISettlementCreatedAtRow{})
+	require.NoError(t, err)
+	for _, column := range columns {
+		if column.Name() != "created_at" {
+			continue
+		}
+		nullable, ok := column.Nullable()
+		require.True(t, ok)
+		require.False(t, nullable)
+		return
+	}
+	t.Fatal("created_at column was not found")
+}
+
+func TestZTAPIRequestSettlementCreatedAtIsRequiredOnTheWritePath(t *testing.T) {
+	field, ok := reflect.TypeOf(ZTAPIRequestSettlement{}).FieldByName("CreatedAt")
+	require.True(t, ok)
+	require.Contains(t, field.Tag.Get("gorm"), "not null")
+
+	_, input := setupZTAPISettlement(t)
+	row, err := BeginZTAPIRequestSettlement(input)
+	require.NoError(t, err)
+	require.False(t, row.CreatedAt.IsZero())
+}
 
 func TestZTAPIReasoningSettlementPrivacy(t *testing.T) {
 	log := Log{Other: `{

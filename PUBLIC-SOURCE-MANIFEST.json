@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "ca3f7a4cba31418e700e9144854aa771a356c579",
+  "release_commit": "fbf6d2c48fed5c60c8fbeaed9dff47978d837fc8",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-ca3f7a4cba31418e700e9144854aa771a356c579",
+  "source_tag": "production-fbf6d2c48fed5c60c8fbeaed9dff47978d837fc8",
   "files": [
     {
       "path": ".dockerignore",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "e601f7cc4f1b998fd52f72b1e0fc5249ef50cf564e8e228e77d42d417ee9b00f",
+      "sha256": "79d83ef786b148faa1c17e89b2ba8790fc7a23df86e2f8653637f53b985c4601",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "54022c9548faf63fefc68fe141b45ed81de97a2a4df127e73a94d51e01d188e9",
+      "sha256": "a4529fb90ef96ae32df20c15087605622ee2d2f2204457f7a7ea16ae59c647bc",
       "size": 942
     },
     {
@@ -78,6 +78,11 @@
       "path": "UPSTREAM.md",
       "sha256": "c6a1059a7c45fb3cb9e8a7ab44ffc744aee0b1a9bfe4903dc8758ea225ed9914",
       "size": 685
+    },
+    {
+      "path": "deploy/cron/ztapi-database-backup",
+      "sha256": "39600ecc31a83f4305373c8cd6175780b49489ba899162201ea75fe66bce14d0",
+      "size": 149
     },
     {
       "path": "deploy/docker/.env.example",
@@ -133,6 +138,11 @@
       "path": "deploy/nginx/ztapi.conf",
       "sha256": "d4a80eaa9f9b5ba8aa3cb670c42a0a0cc20187b1b619e5565d76a0605a6631a2",
       "size": 16132
+    },
+    {
+      "path": "deploy/scripts/ztapi-database-backup.sh",
+      "sha256": "6de13c6cf8fe97230c866a518efa1661f5060728e9bc5430dddb09efcaaa7eaa",
+      "size": 3126
     },
     {
       "path": "deploy/scripts/ztapi-disk-cache-maintenance.cron",
@@ -2176,8 +2186,8 @@
     },
     {
       "path": "server/model/main.go",
-      "sha256": "3e9bf4e322017e1e64be69760edaac66ade145e3fd76d96e42ba1b1b54c00653",
-      "size": 28770
+      "sha256": "c74b75f2afc4b1b32dad5815e680045e53566a234d0126edc028fdceaf8a5bce",
+      "size": 28938
     },
     {
       "path": "server/model/midjourney.go",
@@ -2476,8 +2486,8 @@
     },
     {
       "path": "server/model/ztapi_finance_alert.go",
-      "sha256": "7ba17db9e3a804285df1fd0b9cc8f7919c3a33ae931baee5c525485962265be0",
-      "size": 15585
+      "sha256": "e3958acfcb42aa6f3889c73ee7c2968359d6aad7d2b6c3949d1c699ecd5ed9cc",
+      "size": 15635
     },
     {
       "path": "server/model/ztapi_finance_alert_test.go",
@@ -2836,8 +2846,8 @@
     },
     {
       "path": "server/model/ztapi_request_settlement.go",
-      "sha256": "f7d84088f84b669354f1cc531e52a70414b107317fd8f4c3420074dbeb20cef1",
-      "size": 40389
+      "sha256": "471b36df9984178f474ba919bb5cffac5a916418c47aa03b3998e0857f008e2f",
+      "size": 41631
     },
     {
       "path": "server/model/ztapi_request_settlement_intent_test.go",
@@ -2851,8 +2861,8 @@
     },
     {
       "path": "server/model/ztapi_request_settlement_test.go",
-      "sha256": "c90336981c65654b36a2eb444417c98c5c99a1726d1c92dbdad6f1b00d365d5c",
-      "size": 17126
+      "sha256": "c93c906a9e01e78f7bb3f27a8c1a9e9f7676857cfe64f1f0d8b4c594544c3c1e",
+      "size": 18919
     },
     {
       "path": "server/model/ztapi_responses_catalog_test.go",

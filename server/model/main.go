@@ -280,6 +280,9 @@ func migrateDB() error {
 	if err := migrateZTAPIFXPricingColumns(DB); err != nil {
 		return err
 	}
+	if err := MigrateZTAPIRequestSettlementCreatedAt(DB); err != nil {
+		return err
+	}
 
 	err := DB.AutoMigrate(
 		&Channel{},
@@ -412,6 +415,9 @@ func migrateDBFast() error {
 		return err
 	}
 	if err := migrateZTAPIFXPricingColumns(DB); err != nil {
+		return err
+	}
+	if err := MigrateZTAPIRequestSettlementCreatedAt(DB); err != nil {
 		return err
 	}
 

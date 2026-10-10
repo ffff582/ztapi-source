@@ -57,11 +57,41 @@ type ZTAPIRequestSettlement struct {
 	Dispatched            bool      `gorm:"not null" json:"dispatched"`
 	CacheSyncPending      bool      `gorm:"not null;index" json:"cache_sync_pending"`
 	CacheLastAttemptAt    int64     `gorm:"not null;default:0;index" json:"-"`
-	CreatedAt             time.Time `json:"created_at"`
+	CreatedAt             time.Time `gorm:"not null" json:"created_at"`
 	UpdatedAt             time.Time `gorm:"index" json:"updated_at"`
 }
 
 func (ZTAPIRequestSettlement) TableName() string { return "ztapi_request_settlements" }
+
+// MigrateZTAPIRequestSettlementCreatedAt repairs the nullable legacy column
+// before AutoMigrate applies the NOT NULL invariant. UpdatedAt is the closest
+// durable timestamp for old rows; CURRENT_TIMESTAMP is the final fallback.
+func MigrateZTAPIRequestSettlementCreatedAt(db *gorm.DB) error {
+	if db == nil {
+		return ErrZTAPISettlementInvalid
+	}
+	if !db.Migrator().HasTable(&ZTAPIRequestSettlement{}) {
+		return nil
+	}
+	if err := db.Exec(`UPDATE ztapi_request_settlements
+SET created_at = COALESCE(created_at, updated_at, CURRENT_TIMESTAMP)
+WHERE created_at IS NULL`).Error; err != nil {
+		return err
+	}
+	if err := db.Migrator().AlterColumn(&ZTAPIRequestSettlement{}, "CreatedAt"); err != nil {
+		return err
+	}
+	var pendingWithoutCreatedAt int64
+	if err := db.Model(&ZTAPIRequestSettlement{}).
+		Where("status = ? AND created_at IS NULL", ZTAPISettlementPending).
+		Count(&pendingWithoutCreatedAt).Error; err != nil {
+		return err
+	}
+	if pendingWithoutCreatedAt != 0 {
+		return fmt.Errorf("ztapi settlement created_at invariant failed: %d pending rows are NULL", pendingWithoutCreatedAt)
+	}
+	return nil
+}
 
 // MigrateZTAPIPriceSnapshotStorage upgrades existing MySQL tables that were
 // created while price snapshots used TEXT. SQLite maps MEDIUMTEXT to TEXT and
@@ -136,7 +166,11 @@ func BeginZTAPIRequestSettlement(input ZTAPIRequestSettlement) (*ZTAPIRequestSet
 		if !errors.Is(e, gorm.ErrRecordNotFound) {
 			return e
 		}
-		row = &ZTAPIRequestSettlement{OperationID: input.OperationID, RequestID: input.RequestID, UserID: input.UserID, TokenID: input.TokenID, TokenUnlimited: input.TokenUnlimited, PublicModel: input.PublicModel, PriceSnapshotJSON: input.PriceSnapshotJSON, Status: ZTAPISettlementReserved, ReservedQuota: input.ReservedQuota, InitialReservedQuota: input.ReservedQuota, CacheSyncPending: true, UsageJSON: "{}", ChargeDimensionsJSON: "[]", MissingDimensionsJSON: "[]"}
+		createdAt := input.CreatedAt
+		if createdAt.IsZero() {
+			createdAt = time.Now().UTC()
+		}
+		row = &ZTAPIRequestSettlement{OperationID: input.OperationID, RequestID: input.RequestID, UserID: input.UserID, TokenID: input.TokenID, TokenUnlimited: input.TokenUnlimited, PublicModel: input.PublicModel, PriceSnapshotJSON: input.PriceSnapshotJSON, Status: ZTAPISettlementReserved, ReservedQuota: input.ReservedQuota, InitialReservedQuota: input.ReservedQuota, CacheSyncPending: true, UsageJSON: "{}", ChargeDimensionsJSON: "[]", MissingDimensionsJSON: "[]", CreatedAt: createdAt}
 		user, token, e := ztapiSettlementOwners(tx, row)
 		if e != nil {
 			return e

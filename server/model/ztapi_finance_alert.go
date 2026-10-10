@@ -74,7 +74,7 @@ SELECT 'settlement' AS source_kind, r.id AS source_record_id, r.updated_at AS so
  CASE WHEN r.status = ? THEN '["stale_reserved_hold"]' ELSE r.missing_dimensions_json END AS reason_raw,
  0 AS source_settlement_id, 0 AS source_attempt, '' AS request_raw
 FROM ztapi_request_settlements r
-WHERE (r.status = ? OR (r.status = ? AND r.created_at <= ?)) AND NOT EXISTS (
+WHERE (r.status = ? OR (r.status = ? AND COALESCE(r.created_at, r.updated_at, ?) <= ?)) AND NOT EXISTS (
  SELECT 1 FROM ztapi_finance_alert_outboxes o WHERE o.source_kind = 'settlement' AND o.source_record_id = r.id AND o.source_updated_at >= r.updated_at)
  AND NOT EXISTS (
  SELECT 1 FROM ztapi_health_requests h WHERE h.request_id = r.request_id AND h.source = 'acceptance')
@@ -94,7 +94,7 @@ WHERE r.status = ? AND NOT EXISTS (
  SELECT 1 FROM ztapi_request_settlements s JOIN ztapi_health_requests h ON h.request_id = s.request_id AND h.source = 'acceptance'
  WHERE s.id = r.settlement_id)
 ORDER BY source_updated_at ASC, source_kind ASC, source_record_id ASC LIMIT ?`, ZTAPISettlementReserved, ZTAPISettlementPending,
-		ZTAPISettlementReserved, now.Add(-ZTAPIFinanceStaleReservationAge), "pending", "pending", limit).Scan(&sources).Error
+		ZTAPISettlementReserved, time.Unix(0, 0).UTC(), now.Add(-ZTAPIFinanceStaleReservationAge), "pending", "pending", limit).Scan(&sources).Error
 	if err != nil {
 		return 0, err
 	}
