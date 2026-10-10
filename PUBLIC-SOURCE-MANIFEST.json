@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "7094c5941eec0d87067ef887c5f4281bb500afe0",
+  "release_commit": "ca3f7a4cba31418e700e9144854aa771a356c579",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-7094c5941eec0d87067ef887c5f4281bb500afe0",
+  "source_tag": "production-ca3f7a4cba31418e700e9144854aa771a356c579",
   "files": [
     {
       "path": ".dockerignore",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "edf6812c05c936f3d9e6a7c625b4cd73729e46b23cf2da0de4f559c6c3b6da31",
+      "sha256": "e601f7cc4f1b998fd52f72b1e0fc5249ef50cf564e8e228e77d42d417ee9b00f",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "e528271b36df2be6d55974d1135da707d87705b43524226f8e11de767d078394",
+      "sha256": "54022c9548faf63fefc68fe141b45ed81de97a2a4df127e73a94d51e01d188e9",
       "size": 942
     },
     {
@@ -10041,13 +10041,13 @@
     },
     {
       "path": "web/console/src/features/playground/PlaygroundPage.test.tsx",
-      "sha256": "1a667b7a1643fb744776f6f5af0391bde533e266a05315f37f91ef3ecbf47bac",
-      "size": 25866
+      "sha256": "b61ffdd7c9f8a10717e25662fefac17b42f93c3ccf3f67a9139bd8e304f660e4",
+      "size": 27686
     },
     {
       "path": "web/console/src/features/playground/PlaygroundPage.tsx",
-      "sha256": "8e33f9e83f608ffecc8f47e324fa8ff4b2ebf80b2d732100508870da1d91ab64",
-      "size": 58021
+      "sha256": "0f58823156524390bcf135db9c4d0f383fe766c0dc305fc3ff3943a979524183",
+      "size": 63851
     },
     {
       "path": "web/console/src/features/wallet/AccountBalance.tsx",

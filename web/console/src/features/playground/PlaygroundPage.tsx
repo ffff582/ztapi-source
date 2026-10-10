@@ -217,6 +217,76 @@ type PlaygroundPageProps = {
   workbench?: boolean;
 };
 
+type TextConversationMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+};
+
+type TextConversation = {
+  id: string;
+  title: string;
+  model: string;
+  updatedAt: number;
+  messages: TextConversationMessage[];
+};
+
+const TEXT_CONVERSATIONS_STORAGE_PREFIX = 'ztapi:workbench:text-conversations:v1:';
+const MAX_TEXT_CONVERSATIONS = 20;
+
+function textConversationsStorageKey(userID: number | undefined) {
+  return userID === undefined ? '' : `${TEXT_CONVERSATIONS_STORAGE_PREFIX}${userID}`;
+}
+
+function isTextConversationMessage(value: unknown): value is TextConversationMessage {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as Partial<TextConversationMessage>;
+  return (candidate.role === 'user' || candidate.role === 'assistant') && typeof candidate.content === 'string';
+}
+
+function readTextConversations(userID: number | undefined): TextConversation[] {
+  const key = textConversationsStorageKey(userID);
+  if (key === '' || typeof window === 'undefined') return [];
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(key) ?? 'null') as unknown;
+    if (!Array.isArray(stored)) return [];
+    return stored
+      .filter((value): value is TextConversation => {
+        if (typeof value !== 'object' || value === null) return false;
+        const candidate = value as Partial<TextConversation>;
+        return typeof candidate.id === 'string' && typeof candidate.title === 'string' &&
+          typeof candidate.model === 'string' && typeof candidate.updatedAt === 'number' &&
+          Array.isArray(candidate.messages) && candidate.messages.some(isTextConversationMessage);
+      })
+      .map((conversation) => ({
+        ...conversation,
+        messages: conversation.messages.filter(isTextConversationMessage),
+      }))
+      .filter((conversation) => conversation.messages.length > 0)
+      .slice(0, MAX_TEXT_CONVERSATIONS);
+  } catch {
+    return [];
+  }
+}
+
+function writeTextConversations(userID: number | undefined, conversations: TextConversation[]) {
+  const key = textConversationsStorageKey(userID);
+  if (key === '' || typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(key, JSON.stringify(conversations.slice(0, MAX_TEXT_CONVERSATIONS)));
+  } catch {
+    // An unavailable localStorage must not block a paid request.
+  }
+}
+
+function createTextConversationID() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  return `text-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function textConversationTitle(prompt: string) {
+  return prompt.trim().replace(/\s+/g, ' ').slice(0, 48) || '新的文本对话';
+}
+
 export function PlaygroundPage({ initialMode = 'text', workbench = false }: PlaygroundPageProps) {
   const { t } = useLocale();
   const [searchParams] = useSearchParams();
@@ -247,6 +317,9 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
   const [videoSequence, setVideoSequence] = useState(0);
   const [videoStartedAt, setVideoStartedAt] = useState<number | null>(null);
   const [textAttachmentName, setTextAttachmentName] = useState('');
+  const [textConversations, setTextConversations] = useState<TextConversation[]>([]);
+  const [activeTextConversationID, setActiveTextConversationID] = useState<string | null>(null);
+  const [textHistoryReady, setTextHistoryReady] = useState(!workbench || initialMode !== 'text');
   const [referenceImages, setReferenceImages] = useState<ReferenceImage[]>([]);
   const [referenceError, setReferenceError] = useState('');
   const textAttachmentInput = useRef<HTMLInputElement>(null);
@@ -280,6 +353,8 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
   const editInput = imageEditCapability(selectedCatalog);
   const example = useMemo(() => codeExample(mode, model), [mode, model]);
   const prompt = promptByMode[mode];
+  const userID = getAuthSession()?.user.id;
+  const activeTextConversation = textConversations.find((conversation) => conversation.id === activeTextConversationID) ?? null;
 
   function setPrompt(nextPrompt: string | ((current: string) => string)) {
     setPromptByMode((current) => ({
@@ -309,6 +384,23 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
   useEffect(() => {
     referenceImagesRef.current = referenceImages;
   }, [referenceImages]);
+
+  useEffect(() => {
+    if (!workbench || mode !== 'text') {
+      setTextHistoryReady(true);
+      return;
+    }
+    setTextHistoryReady(false);
+    const restoredConversations = readTextConversations(userID);
+    setTextConversations(restoredConversations);
+    setActiveTextConversationID(restoredConversations[0]?.id ?? null);
+    setTextHistoryReady(true);
+  }, [mode, userID, workbench]);
+
+  useEffect(() => {
+    if (!workbench || mode !== 'text' || !textHistoryReady) return;
+    writeTextConversations(userID, textConversations);
+  }, [mode, textConversations, textHistoryReady, userID, workbench]);
 
   useEffect(() => () => {
     referenceImagesRef.current.forEach(revokeReferencePreview);
@@ -424,6 +516,7 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
       });
       setReferenceError('');
     }
+    if (nextMode !== 'text') setActiveTextConversationID(null);
     setMode(nextMode);
     setPromptByMode((current) => ({ ...current, [nextMode]: defaultPromptForMode(nextMode) }));
   }
@@ -515,6 +608,37 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
         if (sequence !== requestSequence.current) return;
         setElapsedMs(Math.max(0, Math.round(performance.now() - startedAt)));
         setChatResult(value);
+        if (workbench) {
+          const conversationID = activeTextConversationID ?? createTextConversationID();
+          setTextConversations((current) => {
+            const existing = current.find((conversation) => conversation.id === conversationID);
+            const nextConversation: TextConversation = existing === undefined
+              ? {
+                id: conversationID,
+                title: textConversationTitle(normalizedPrompt),
+                model,
+                updatedAt: Date.now(),
+                messages: [
+                  { role: 'user', content: normalizedPrompt },
+                  { role: 'assistant', content: value.text },
+                ],
+              }
+              : {
+                ...existing,
+                model,
+                updatedAt: Date.now(),
+                messages: [
+                  ...existing.messages,
+                  { role: 'user', content: normalizedPrompt },
+                  { role: 'assistant', content: value.text },
+                ],
+              };
+            return [nextConversation, ...current.filter((conversation) => conversation.id !== conversationID)].slice(0, MAX_TEXT_CONVERSATIONS);
+          });
+          setActiveTextConversationID(conversationID);
+          setPrompt('');
+          setTextAttachmentName('');
+        }
         setRequestStatus('success');
         await loadBilling(value.request_id, sequence);
         return;
@@ -604,6 +728,14 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
 
   function startTextConversation() {
     clearResults();
+    setActiveTextConversationID(null);
+    setPrompt('');
+    setTextAttachmentName('');
+  }
+
+  function openTextConversation(conversationID: string) {
+    clearResults();
+    setActiveTextConversationID(conversationID);
     setPrompt('');
     setTextAttachmentName('');
   }
@@ -708,15 +840,22 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
             <span>新对话</span>
           </button>
           <div className="zt-workbench__conversation-list">
-            <button className="zt-workbench__conversation is-active" type="button" onClick={startTextConversation}>
-              <MessageCircle aria-hidden="true" size={16} />
-              <span>{prompt.trim() || '新的文本对话'}</span>
-            </button>
+            {textConversations.map((conversation) => (
+              <button
+                className={conversation.id === activeTextConversationID ? 'zt-workbench__conversation is-active' : 'zt-workbench__conversation'}
+                key={conversation.id}
+                type="button"
+                onClick={() => openTextConversation(conversation.id)}
+              >
+                <MessageCircle aria-hidden="true" size={16} />
+                <span>{conversation.title}</span>
+              </button>
+            ))}
           </div>
         </aside>
         <main className="zt-workbench__chat">
           <div className="zt-workbench__chat-scroll">
-            {chatResult === null ? (
+            {activeTextConversation === null ? (
               <div className="zt-workbench__empty">
                 <div className="zt-workbench__empty-mark"><Sparkles aria-hidden="true" size={22} /></div>
                 <h2>开始一段对话</h2>
@@ -724,8 +863,12 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
               </div>
             ) : (
               <div className="zt-workbench__thread">
-                <div className="zt-workbench__message zt-workbench__message--user"><span>你</span><p>{prompt}</p></div>
-                <div className="zt-workbench__message zt-workbench__message--assistant"><span>ZTAPI</span><div className="zt-workbench__answer">{chatResult.text}</div></div>
+                {activeTextConversation.messages.map((message, index) => (
+                  <div className={`zt-workbench__message zt-workbench__message--${message.role}`} key={`${activeTextConversation.id}-${index}`}>
+                    <span>{message.role === 'user' ? '你' : 'ZTAPI'}</span>
+                    {message.role === 'user' ? <p>{message.content}</p> : <div className="zt-workbench__answer">{message.content}</div>}
+                  </div>
+                ))}
               </div>
             )}
           </div>

@@ -130,6 +130,7 @@ describe('PlaygroundPage', () => {
 
   afterEach(() => {
     clearAuthSession();
+    window.localStorage.clear();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -150,6 +151,38 @@ describe('PlaygroundPage', () => {
     expect(screen.getByRole('button', { name: '添加附件' })).toBeVisible();
     expect(screen.getByRole('button', { name: '发送' })).toBeVisible();
     expect(screen.queryByText('发送测试请求')).not.toBeInTheDocument();
+  });
+
+  it('creates a text conversation only after sending and restores it after refresh', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith('/api/user/models')) return jsonResponse(catalogResponse());
+      if (url.endsWith('/pg/chat/completions')) {
+        return jsonResponse({
+          id: 'chatcmpl-history',
+          choices: [{ message: { content: '已保存的回复' }, finish_reason: 'stop' }],
+        }, 200, { 'X-Request-ID': 'req-history-1' });
+      }
+      if (url.includes('/api/log/self?')) {
+        return jsonResponse({ success: true, data: { page: 1, page_size: 1, total: 0, items: [] } });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const firstRender = render(<MemoryRouter initialEntries={['/console/workbench/text']}><PlaygroundPage initialMode="text" workbench /></MemoryRouter>);
+    fireEvent.change(await screen.findByLabelText('输入消息'), { target: { value: '第一次提问' } });
+    expect(screen.queryByRole('button', { name: '第一次提问' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '发送' }));
+    expect(await screen.findByText('已保存的回复')).toBeVisible();
+    expect(screen.getByRole('button', { name: '第一次提问' })).toBeVisible();
+    expect(screen.getByLabelText('输入消息')).toHaveValue('');
+
+    firstRender.unmount();
+    render(<MemoryRouter initialEntries={['/console/workbench/text']}><PlaygroundPage initialMode="text" workbench /></MemoryRouter>);
+    expect(await screen.findByRole('button', { name: '第一次提问' })).toBeVisible();
+    expect(screen.getByText('已保存的回复')).toBeVisible();
   });
 
   it('keeps billing metrics and request ids out of the text conversation', async () => {
