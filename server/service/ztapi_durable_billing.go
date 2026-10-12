@@ -161,7 +161,14 @@ func (s *ztapiDurableBilling) Refund(c *gin.Context) error {
 	var row *model.ZTAPIRequestSettlement
 	var err error
 	if s.row.Dispatched {
-		row, err = model.PendZTAPIRequestSettlement(s.row.OperationID, "{}", `["upstream_billing_unconfirmed"]`)
+		// A dispatched request may already have cost us money upstream, so the
+		// reservation is only returned when the recorded attempts prove the
+		// supplier rejected it before running anything. Otherwise it parks for
+		// review rather than guessing with the customer wallet.
+		row, err = model.ReleaseZTAPIDispatchedRejectedSettlement(s.row.OperationID)
+		if errors.Is(err, model.ErrZTAPISettlementPending) {
+			row, err = model.PendZTAPIRequestSettlement(s.row.OperationID, "{}", model.ZTAPIMissingUpstreamBillingUnconfirmed)
+		}
 	} else {
 		row, err = model.ReleaseZTAPIRequestSettlement(s.row.OperationID)
 	}

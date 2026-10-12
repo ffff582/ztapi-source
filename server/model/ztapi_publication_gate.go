@@ -111,6 +111,47 @@ func ztapiRouteMatchesEvidence(route ztapiRouteAuthority, config *ZTAPIModelConf
 	return ok && routeFamily == family
 }
 
+// ztapiMappedUpstreamModelByChannelTx reports, per enabled channel, the model
+// name that channel actually sends upstream for sourceModel.  Only channels
+// that declare an explicit, non-empty model_mapping entry are returned; every
+// other channel keeps using the catalog source model verbatim.
+func ztapiMappedUpstreamModelByChannelTx(tx *gorm.DB, sourceModel string) (map[int]string, error) {
+	sourceModel = strings.TrimSpace(sourceModel)
+	if sourceModel == "" {
+		return map[int]string{}, nil
+	}
+	type channelMappingRow struct {
+		ChannelID    int    `gorm:"column:id"`
+		ModelMapping string `gorm:"column:model_mapping"`
+	}
+	var rows []channelMappingRow
+	if err := tx.Table("channels").
+		Select("channels.id AS id, channels.model_mapping AS model_mapping").
+		Where("channels.status = ?", common.ChannelStatusEnabled).
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	mapped := make(map[int]string, len(rows))
+	for _, row := range rows {
+		raw := strings.TrimSpace(row.ModelMapping)
+		if raw == "" || raw == "{}" {
+			continue
+		}
+		decoded := map[string]string{}
+		if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+			// A malformed mapping must never widen the evidence set; fall back
+			// to the catalog name for that channel.
+			continue
+		}
+		target := strings.TrimSpace(decoded[sourceModel])
+		if target == "" || target == sourceModel {
+			continue
+		}
+		mapped[row.ChannelID] = target
+	}
+	return mapped, nil
+}
+
 func ztapiPublicationRouteIDsByGroupTx(
 	tx *gorm.DB,
 	config *ZTAPIModelConfig,
@@ -194,19 +235,47 @@ func ztapiPublicationBlockersTx(tx *gorm.DB, config *ZTAPIModelConfig) ([]string
 	}
 
 	cutoff := time.Now().UTC().Add(-ztapiPublicationEvidenceMaxAge).Unix()
+	// A channel may rename the catalog source model on its way upstream through
+	// model_mapping (for example "claude-opus-5" -> "claude-opus-5-hc" once the
+	// supplier renames a pool product).  Discovery evidence records whatever the
+	// upstream actually advertises, so it has to be matched against the mapped
+	// name for those channels; matching the catalog name alone makes a correctly
+	// mapped channel look undiscovered and silently blocks publication.
+	mappedByChannel, err := ztapiMappedUpstreamModelByChannelTx(tx, config.SourceModel)
+	if err != nil {
+		return nil, evidence, err
+	}
+	discoveryNames := make([]string, 0, len(mappedByChannel)+1)
+	discoveryNames = append(discoveryNames, config.SourceModel)
+	seenName := map[string]struct{}{config.SourceModel: {}}
+	for _, mapped := range mappedByChannel {
+		if _, ok := seenName[mapped]; ok {
+			continue
+		}
+		seenName[mapped] = struct{}{}
+		discoveryNames = append(discoveryNames, mapped)
+	}
 	type discoveryRow struct {
-		ChannelID int `gorm:"column:channel_id"`
+		ChannelID   int    `gorm:"column:channel_id"`
+		SourceModel string `gorm:"column:source_model"`
 	}
 	var discoveryRows []discoveryRow
 	if err := tx.Table("ztapi_discovered_models").
-		Select("DISTINCT ztapi_discovered_models.channel_id AS channel_id").
+		Select("DISTINCT ztapi_discovered_models.channel_id AS channel_id, ztapi_discovered_models.source_model AS source_model").
 		Joins("JOIN ztapi_discovery_snapshots ON ztapi_discovery_snapshots.id = ztapi_discovered_models.snapshot_id").
-		Where("ztapi_discovered_models.source_model = ? AND ztapi_discovery_snapshots.fetched_at >= ?", config.SourceModel, cutoff).
+		Where("ztapi_discovered_models.source_model IN ? AND ztapi_discovery_snapshots.fetched_at >= ?", discoveryNames, cutoff).
 		Scan(&discoveryRows).Error; err != nil {
 		return nil, evidence, err
 	}
 	freshDiscoveryChannels := make(map[int]struct{}, len(discoveryRows))
 	for _, row := range discoveryRows {
+		expected := config.SourceModel
+		if mapped, ok := mappedByChannel[row.ChannelID]; ok {
+			expected = mapped
+		}
+		if row.SourceModel != expected {
+			continue
+		}
 		freshDiscoveryChannels[row.ChannelID] = struct{}{}
 	}
 	if len(freshDiscoveryChannels) == 0 {

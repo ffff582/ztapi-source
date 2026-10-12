@@ -50,7 +50,7 @@ func TestZTAPIDurableBillingDispatchErrorKeepsPendingHold(t *testing.T) {
 	if err := db.Model(token).Update("unlimited_quota", false).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.ZTAPIRequestSettlement{}, &model.ZTAPISettlementFinalizationIntent{}); err != nil {
+	if err := db.AutoMigrate(&model.ZTAPIRequestSettlement{}, &model.ZTAPISettlementFinalizationIntent{}, &model.ZTAPIRequestAttempt{}); err != nil {
 		t.Fatal(err)
 	}
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
@@ -230,7 +230,7 @@ func TestZTAPIDurablePostUsageDoesNotPriceUnquotedCache(t *testing.T) {
 	if err := db.AutoMigrate(&model.Channel{}, &model.Log{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.ZTAPIRequestSettlement{}, &model.ZTAPISettlementFinalizationIntent{}); err != nil {
+	if err := db.AutoMigrate(&model.ZTAPIRequestSettlement{}, &model.ZTAPISettlementFinalizationIntent{}, &model.ZTAPIRequestAttempt{}); err != nil {
 		t.Fatal(err)
 	}
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
@@ -260,7 +260,7 @@ func TestZTAPIDurableBillingUndispatchedRefundAtomic(t *testing.T) {
 	if err := db.Model(token).Update("unlimited_quota", false).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.ZTAPIRequestSettlement{}, &model.ZTAPISettlementFinalizationIntent{}); err != nil {
+	if err := db.AutoMigrate(&model.ZTAPIRequestSettlement{}, &model.ZTAPISettlementFinalizationIntent{}, &model.ZTAPIRequestAttempt{}); err != nil {
 		t.Fatal(err)
 	}
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())

@@ -270,7 +270,7 @@ func PendZTAPIRequestSettlement(op, usage, missing string) (*ZTAPIRequestSettlem
 		// Deferred HTTP cleanup has no new usage evidence. It must not erase
 		// an already durable finalization after a failed debit/pending handoff.
 		// Actual missing-dimension or conflicting-evidence holds remain blocked.
-		if missing == `["upstream_billing_unconfirmed"]` && (row.Status == ZTAPISettlementReserved ||
+		if missing == ZTAPIMissingUpstreamBillingUnconfirmed && (row.Status == ZTAPISettlementReserved ||
 			(row.Status == ZTAPISettlementPending && row.MissingDimensionsJSON == `["settlement_retry_required"]`)) {
 			intent, _, err := loadZTAPISettlementFinalizationIntentTx(tx, row)
 			if err == nil {
@@ -1005,4 +1005,127 @@ func RetryZTAPISettlementCaches(limit int) error {
 		syncZTAPISettlementCaches(&rows[i])
 	}
 	return nil
+}
+
+// ZTAPIMissingUpstreamBillingUnconfirmed marks a reservation whose request
+// reached the supplier but whose billing outcome we could not establish.
+const ZTAPIMissingUpstreamBillingUnconfirmed = `["upstream_billing_unconfirmed"]`
+
+// ztapiUpstreamRejectedBeforeInference reports whether an upstream status proves
+// the supplier answered without running a model, so it has nothing to bill.
+//
+// Any 4xx is the gateway refusing the request itself: malformed, unauthorised,
+// unsupported or rate limited. 503 is the gateway declining to route it at all.
+// 500, 502 and 504 are deliberately excluded, because the backend may have run
+// the model and billed for it before failing; those stay unresolved for review.
+func ztapiUpstreamRejectedBeforeInference(status int) bool {
+	if status >= 400 && status < 500 {
+		return true
+	}
+	return status == 503
+}
+
+// ReleaseZTAPIDispatchedRejectedSettlement returns a reservation whose request was
+// dispatched but rejected by the supplier before any inference ran.
+//
+// Holding a dispatched reservation is the safe default, because a request we sent
+// may have been billed. Holding one forever is not safe: the quota is debited from
+// the customer wallet when it is reserved, so a hold nothing can release is
+// indistinguishable from an overcharge. Where every recorded attempt carries a
+// status that proves the supplier could not have billed, the reservation is
+// released automatically. Anything else, including a 2xx, an ambiguous 5xx, or a
+// transport failure that never produced a status, returns ErrZTAPISettlementPending
+// so the caller parks it for review instead of guessing with customer funds.
+func ReleaseZTAPIDispatchedRejectedSettlement(op string) (*ZTAPIRequestSettlement, error) {
+	return mutateZTAPISettlement(op, func(tx *gorm.DB, row *ZTAPIRequestSettlement) error {
+		if row.Status == ZTAPISettlementReleased {
+			return nil
+		}
+		if row.Status == ZTAPISettlementSettled {
+			return ErrZTAPISettlementConflict
+		}
+		if row.Status != ZTAPISettlementReserved && row.Status != ZTAPISettlementPending {
+			return ErrZTAPISettlementPending
+		}
+		// Only the unconfirmed-billing hold is ours to resolve this way. Other
+		// pending reasons are waiting on different evidence.
+		if row.Status == ZTAPISettlementPending && row.MissingDimensionsJSON != ZTAPIMissingUpstreamBillingUnconfirmed {
+			return ErrZTAPISettlementPending
+		}
+		if row.ChargedQuota != 0 || row.TokenChargedQuota != 0 {
+			return ErrZTAPISettlementConflict
+		}
+		var attempts []ZTAPIRequestAttempt
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("settlement_id = ?", row.ID).Order("attempt").Find(&attempts).Error; err != nil {
+			return err
+		}
+		// A dispatched settlement with no recorded attempt tells us nothing.
+		if len(attempts) == 0 {
+			return ErrZTAPISettlementPending
+		}
+		for _, attempt := range attempts {
+			if !ztapiUpstreamRejectedBeforeInference(attempt.HTTPStatus) {
+				return ErrZTAPISettlementPending
+			}
+		}
+		if exists, err := HasZTAPISettlementFinalizationIntentTx(tx, row.RequestID); err != nil {
+			return err
+		} else if exists {
+			return ErrZTAPISettlementConflict
+		}
+		user, token, err := ztapiSettlementOwners(tx, row)
+		if err != nil {
+			return err
+		}
+		entry, err := ztapiSettlementWalletDeltaTx(tx, user, row.ReservedQuota, row.RequestID, "ztapi:"+op+":upstream-rejected", "supplier rejected the request before inference, releasing the original reservation", BalanceLedgerSourceBillingRefund, false)
+		if err != nil {
+			return err
+		}
+		if !row.TokenUnlimited {
+			if _, err = ztapiSettlementTokenDeltaTx(tx, token, row.TokenReservedQuota, false); err != nil {
+				return err
+			}
+		}
+		if entry != nil {
+			row.LastLedgerID = entry.ID
+		}
+		row.Status = ZTAPISettlementReleased
+		row.MissingDimensionsJSON = "[]"
+		row.FinalAttempt = attempts[len(attempts)-1].Attempt
+		return nil
+	})
+}
+
+// ReleaseZTAPIRejectedDispatchedHolds sweeps reservations parked on the
+// unconfirmed-billing hold and returns the ones whose recorded attempts prove
+// the supplier never billed.
+//
+// The hold exists because a dispatched request may have cost us money, which is
+// the right default. Without a sweep it also outlives the risk it guards: one
+// supplier outage parks thousands of holds that nothing will ever resolve, and
+// the quota stays debited from customer wallets the whole time. Rows that cannot
+// be proven unbilled are left exactly where they are, for a reviewer.
+func ReleaseZTAPIRejectedDispatchedHolds(limit int) (int, error) {
+	if DB == nil || limit <= 0 {
+		return 0, nil
+	}
+	var rows []ZTAPIRequestSettlement
+	if err := DB.Where("status = ? AND missing_dimensions_json = ?", ZTAPISettlementPending, ZTAPIMissingUpstreamBillingUnconfirmed).
+		Order("id").Limit(limit).Find(&rows).Error; err != nil {
+		return 0, err
+	}
+	released := 0
+	for _, row := range rows {
+		_, err := ReleaseZTAPIDispatchedRejectedSettlement(row.OperationID)
+		switch {
+		case err == nil:
+			released++
+		case errors.Is(err, ErrZTAPISettlementPending), errors.Is(err, ErrZTAPISettlementConflict):
+			// Not provable from the recorded attempts, or another writer owns the
+			// row. Either way it stays parked rather than guessing.
+		default:
+			return released, err
+		}
+	}
+	return released, nil
 }

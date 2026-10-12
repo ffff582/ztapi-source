@@ -966,3 +966,52 @@ func TestZTAPIPublicationSnapshotFreezesEligibleChannelSet(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []int{fixture.channel.Id}, ids)
 }
+
+// A supplier may rename a pool product upstream (for example
+// "deepseek-v4-flash" -> "deepseek-v4-flash-hc") while the catalog keeps the
+// stable source model and the channel translates the name outbound through
+// model_mapping.  Discovery evidence then carries the upstream name, and the
+// gate must accept it for that channel instead of reporting stale discovery.
+func TestZTAPIPublicationGateAcceptsDiscoveryUnderChannelModelMapping(t *testing.T) {
+	fixture := setupZTAPIPublicationGateFixture(t)
+	upstreamName := fixture.config.SourceModel + "-hc"
+	mapping := `{"` + fixture.config.SourceModel + `":"` + upstreamName + `"}`
+	require.NoError(t, fixture.db.Model(&Channel{}).
+		Where("id = ?", fixture.channel.Id).
+		Update("model_mapping", mapping).Error)
+	require.NoError(t, fixture.db.Model(&ZTAPIDiscoveredModel{}).
+		Where("snapshot_id = ? AND channel_id = ?", fixture.snapshot.ID, fixture.channel.Id).
+		Update("source_model", upstreamName).Error)
+
+	blockers, err := ZTAPIPublicationBlockers(fixture.config.ID)
+	require.NoError(t, err)
+	require.Empty(t, blockers)
+}
+
+// Without an explicit mapping entry the renamed upstream model is still not
+// evidence for the catalog source model, so publication must stay blocked.
+func TestZTAPIPublicationGateBlocksRenamedDiscoveryWithoutModelMapping(t *testing.T) {
+	fixture := setupZTAPIPublicationGateFixture(t)
+	require.NoError(t, fixture.db.Model(&ZTAPIDiscoveredModel{}).
+		Where("snapshot_id = ? AND channel_id = ?", fixture.snapshot.ID, fixture.channel.Id).
+		Update("source_model", fixture.config.SourceModel+"-hc").Error)
+
+	blockers, err := ZTAPIPublicationBlockers(fixture.config.ID)
+	require.NoError(t, err)
+	require.Contains(t, blockers, ZTAPIPublicationBlockerDiscoveryStale)
+	require.Contains(t, blockers, ZTAPIPublicationBlockerRouteUnavailable)
+}
+
+// A mapping that points somewhere else must not let unrelated discovery rows
+// stand in as evidence for this model.
+func TestZTAPIPublicationGateIgnoresDiscoveryForUnmappedUpstreamName(t *testing.T) {
+	fixture := setupZTAPIPublicationGateFixture(t)
+	mapping := `{"` + fixture.config.SourceModel + `":"` + fixture.config.SourceModel + `-hc"}`
+	require.NoError(t, fixture.db.Model(&Channel{}).
+		Where("id = ?", fixture.channel.Id).
+		Update("model_mapping", mapping).Error)
+	// Upstream still advertises only the unmapped catalog name.
+	blockers, err := ZTAPIPublicationBlockers(fixture.config.ID)
+	require.NoError(t, err)
+	require.Contains(t, blockers, ZTAPIPublicationBlockerDiscoveryStale)
+}
