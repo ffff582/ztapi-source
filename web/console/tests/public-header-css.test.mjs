@@ -17,6 +17,6 @@ test('uses a responsive, toggleable mobile navigation layout with visible focus'
     /\.public-header__nav\[data-open="true"\]\s*{[^}]*display: grid;/s,
   );
   expect(publicHeaderCss).toMatch(
-    /\.public-header__menu:focus-visible\s*{[^}]*outline: 2px solid var\(--state-cyan\);/s,
+    /\.public-header__menu:focus-visible\s*{[^}]*outline: 2px solid var\(--brand\);/s,
   );
 });

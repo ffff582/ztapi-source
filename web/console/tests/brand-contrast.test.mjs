@@ -5,8 +5,9 @@ import { expect, test } from 'vitest';
 
 const tokens = readFileSync(resolve(cwd(), 'src/brand/tokens.css'), 'utf8');
 
-function token(name) {
-  return tokens.match(new RegExp(`--${name}:\\s*(#[0-9a-f]{6})`, 'i'))?.[1];
+// Every theme block declares its own value, in declaration order.
+function tokenValues(name) {
+  return [...tokens.matchAll(new RegExp(`--${name}:\\s*(#[0-9a-f]{6})`, 'gi'))].map((match) => match[1]);
 }
 
 function luminance(hex) {
@@ -25,5 +26,14 @@ function contrast(foreground, background) {
 }
 
 test('primary action text meets WCAG AA contrast', () => {
-  expect(contrast(token('text-on-ink'), token('action-blue'))).toBeGreaterThanOrEqual(4.5);
+  const ink = tokenValues('action-ink');
+  // Dark and light themes each define a resting and a hover action colour.
+  for (const name of ['action', 'action-hover']) {
+    const backgrounds = tokenValues(name);
+    expect(backgrounds).toHaveLength(2);
+    expect(ink).toHaveLength(backgrounds.length);
+    backgrounds.forEach((background, index) => {
+      expect(contrast(ink[index], background)).toBeGreaterThanOrEqual(4.5);
+    });
+  }
 });
