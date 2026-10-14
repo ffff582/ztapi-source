@@ -218,14 +218,18 @@ func TestZTAPIManagedRetryDispatchSettlementLogAndTrustedRefundJourney(t *testin
 }
 
 func TestZTAPIManagedRetryRejectsUnsafeErrors(t *testing.T) {
+	// The supplier rejected each request without running a model, so the hold
+	// is released, except for content-safety outcomes: a supplier may block
+	// output after the model ran and billed, so those stay pending for review.
 	for _, tc := range []struct {
 		name, code string
 		status     int
+		settlement string
 	}{
-		{"parameter", "invalid_request_error", 422},
-		{"safety", "content_filter", 503},
-		{"refusal", "safety_refusal", 403},
-		{"ambiguous forbidden", "permission_denied", 403},
+		{"parameter", "invalid_request_error", 422, model.ZTAPISettlementReleased},
+		{"safety", "content_filter", 503, model.ZTAPISettlementPending},
+		{"refusal", "safety_refusal", 403, model.ZTAPISettlementPending},
+		{"ambiguous forbidden", "permission_denied", 403, model.ZTAPISettlementReleased},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newZTAPIHealthE2EFixture(t)
@@ -241,7 +245,7 @@ func TestZTAPIManagedRetryRejectsUnsafeErrors(t *testing.T) {
 			require.NoError(t, err)
 			require.False(t, state.Open)
 			require.Zero(t, state.ConsecutiveFailures)
-			f.assertSettlement(t, 0, model.ZTAPISettlementPending, ids[:1])
+			f.assertSettlement(t, 0, tc.settlement, ids[:1])
 		})
 	}
 }

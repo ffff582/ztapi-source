@@ -1395,6 +1395,26 @@
   font-size: var(--fs-xs);
 }
 
+.key-secret {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.key-secret code {
+  white-space: nowrap;
+}
+
+.key-secret__confirm {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--warning);
+  font-size: var(--fs-xs);
+}
+
 .key-limits {
   max-width: 280px;
   color: var(--text-3);

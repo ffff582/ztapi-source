@@ -300,6 +300,13 @@ func (f *ztapiE2EFixture) assertSettlement(t *testing.T, index int, status strin
 		require.Empty(t, logs, "unknown billing must not produce a final consume log")
 		require.Empty(t, outboxes)
 		require.NotEqual(t, "[]", row.MissingDimensionsJSON)
+	} else if status == model.ZTAPISettlementReleased {
+		require.Zero(t, row.ChargedQuota)
+		require.Zero(t, row.TokenChargedQuota)
+		require.Equal(t, len(channels), row.FinalAttempt)
+		require.Empty(t, logs, "a released hold must not produce a consume log")
+		require.Empty(t, outboxes)
+		require.Equal(t, "[]", row.MissingDimensionsJSON)
 	} else {
 		require.Equal(t, model.ZTAPISettlementSettled, status)
 		require.EqualValues(t, 17, row.ChargedQuota)
@@ -382,7 +389,13 @@ func TestZTAPIHealthE2EFinalFailuresCreateVerificationWithoutOpeningCircuit(t *t
 					require.Equal(t, "upstream_rate_limit", outcome.Reason)
 				}
 				require.Equal(t, int64((i+1)*2), f.calls.Load())
-				f.assertSettlement(t, i, model.ZTAPISettlementPending, ids)
+				// A rate limit is refused before any model runs, so the hold is
+				// released; a 502 may follow a billed run and stays pending.
+				settlement := model.ZTAPISettlementPending
+				if tt.status == 429 {
+					settlement = model.ZTAPISettlementReleased
+				}
+				f.assertSettlement(t, i, settlement, ids)
 			}
 			events := f.events(t)
 			require.NotEqual(t, events[0].ExecutionID, events[1].ExecutionID)

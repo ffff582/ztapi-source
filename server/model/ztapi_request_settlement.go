@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -1014,15 +1015,20 @@ const ZTAPIMissingUpstreamBillingUnconfirmed = `["upstream_billing_unconfirmed"]
 // ztapiUpstreamRejectedBeforeInference reports whether an upstream status proves
 // the supplier answered without running a model, so it has nothing to bill.
 //
-// Any 4xx is the gateway refusing the request itself: malformed, unauthorised,
+// A 4xx is the gateway refusing the request itself: malformed, unauthorised,
 // unsupported or rate limited. 503 is the gateway declining to route it at all.
-// 500, 502 and 504 are deliberately excluded, because the backend may have run
-// the model and billed for it before failing; those stay unresolved for review.
+// 408 is excluded because a timeout can fire after the model already ran, and
+// 500, 502 and 504 are excluded because the backend may have run the model and
+// billed for it before failing; those stay unresolved for review. Content-safety
+// blocks are marked on the attempt separately and are never released here.
 func ztapiUpstreamRejectedBeforeInference(status int) bool {
+	if status == http.StatusRequestTimeout {
+		return false
+	}
 	if status >= 400 && status < 500 {
 		return true
 	}
-	return status == 503
+	return status == http.StatusServiceUnavailable
 }
 
 // ReleaseZTAPIDispatchedRejectedSettlement returns a reservation whose request was
@@ -1064,7 +1070,7 @@ func ReleaseZTAPIDispatchedRejectedSettlement(op string) (*ZTAPIRequestSettlemen
 			return ErrZTAPISettlementPending
 		}
 		for _, attempt := range attempts {
-			if !ztapiUpstreamRejectedBeforeInference(attempt.HTTPStatus) {
+			if attempt.SafetyOutcome || !ztapiUpstreamRejectedBeforeInference(attempt.HTTPStatus) {
 				return ErrZTAPISettlementPending
 			}
 		}

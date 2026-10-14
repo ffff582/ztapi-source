@@ -17,6 +17,8 @@ type Token struct {
 	UserId             int            `json:"user_id" gorm:"index"`
 	KeyHash            string         `json:"-" gorm:"column:key_hash;type:char(64);uniqueIndex"`
 	KeyPrefix          string         `json:"key_prefix" gorm:"column:key_prefix;type:varchar(20);index"`
+	KeyCiphertext      string         `json:"-" gorm:"column:key_ciphertext;type:text"`
+	KeyCopyable        bool           `json:"key_copyable" gorm:"-"`
 	Status             int            `json:"status" gorm:"default:1"`
 	Name               string         `json:"name" gorm:"index" `
 	CreatedTime        int64          `json:"created_time" gorm:"bigint"`
@@ -35,6 +37,7 @@ type Token struct {
 
 func (token *Token) Clean() {
 	token.KeyHash = ""
+	token.KeyCiphertext = ""
 }
 
 func MaskTokenKey(key string) string {

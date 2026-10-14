@@ -9,7 +9,7 @@ import { KeyCreatedDialog } from './KeyCreatedDialog';
 
 interface OneTimeSecretContextValue {
   secretPending: boolean;
-  showOneTimeSecret: (secret: string) => void;
+  showOneTimeSecret: (secret: string, copyableLater?: boolean) => void;
 }
 
 const OneTimeSecretContext = createContext<OneTimeSecretContextValue | null>(
@@ -17,11 +17,15 @@ const OneTimeSecretContext = createContext<OneTimeSecretContextValue | null>(
 );
 
 export function OneTimeSecretProvider({ children }: PropsWithChildren) {
-  const [secret, setSecret] = useState<string | null>(null);
+  const [secret, setSecret] = useState<{
+    key: string;
+    copyableLater: boolean;
+  } | null>(null);
   const value = useMemo(
     () => ({
       secretPending: secret !== null,
-      showOneTimeSecret: setSecret,
+      showOneTimeSecret: (key: string, copyableLater = false) =>
+        setSecret({ key, copyableLater }),
     }),
     [secret],
   );
@@ -31,7 +35,8 @@ export function OneTimeSecretProvider({ children }: PropsWithChildren) {
       {children}
       {secret !== null && (
         <KeyCreatedDialog
-          plaintextKey={secret}
+          copyableLater={secret.copyableLater}
+          plaintextKey={secret.key}
           onAcknowledge={() => setSecret(null)}
         />
       )}

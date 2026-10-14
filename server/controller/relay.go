@@ -203,6 +203,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 
 	defer func() {
+		if ztapiSafetyOutcomeError(newAPIError) {
+			service.MarkZTAPIBillingSafetyOutcome(relayInfo)
+		}
 		if finishErr := service.FinishZTAPIBilling(c, relayInfo); finishErr != nil {
 			logger.LogError(c, "durable billing finalization requires reconciliation: "+finishErr.Error())
 		}
@@ -467,6 +470,27 @@ func ztapiRouteUnavailableError(err *types.NewAPIError) bool {
 	return err != nil && err.GetErrorCode() == types.ErrorCode("ztapi_route_temporarily_unavailable")
 }
 
+var ztapiSafetyErrorCodes = map[string]bool{
+	"sensitive_words_detected": true, "prompt_blocked": true, "content_filter": true,
+	"content_policy_violation": true, "policy_violation": true, "safety": true,
+	"safety_refusal": true, "refusal": true, "violation_fee.grok.csam": true,
+}
+
+// ztapiSafetyOutcomeError reports a content-safety block or refusal. Such a
+// request is never retried, and its billing hold is never auto-released.
+func ztapiSafetyOutcomeError(err *types.NewAPIError) bool {
+	if err == nil {
+		return false
+	}
+	wire := err.ToOpenAIError()
+	for _, code := range []string{string(err.GetErrorCode()), fmt.Sprint(wire.Code), wire.Type} {
+		if ztapiSafetyErrorCodes[strings.ToLower(strings.TrimSpace(code))] {
+			return true
+		}
+	}
+	return false
+}
+
 func ztapiRetryableError(err *types.NewAPIError) bool {
 	if operation_setting.IsAlwaysSkipRetryCode(err.GetErrorCode()) || operation_setting.IsAlwaysSkipRetryStatusCode(err.StatusCode) {
 		return false
@@ -486,11 +510,12 @@ func ztapiRetryableError(err *types.NewAPIError) bool {
 				return false
 			}
 		case "invalid_argument", "invalid_parameter", "invalid_parameters", "context_length_exceeded", "bad_request", "bad_request_body",
-			"convert_request_failed", "read_request_body_failed", "channel:param_override_invalid", "channel:header_override_invalid",
-			"sensitive_words_detected", "prompt_blocked", "content_filter", "content_policy_violation", "policy_violation",
-			"safety", "safety_refusal", "refusal", "violation_fee.grok.csam":
+			"convert_request_failed", "read_request_body_failed", "channel:param_override_invalid", "channel:header_override_invalid":
 			return false
 		}
+	}
+	if ztapiSafetyOutcomeError(err) {
+		return false
 	}
 	if err.StatusCode >= 400 && err.StatusCode < 500 {
 		switch err.StatusCode {

@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/netip"
@@ -23,6 +24,8 @@ func buildMaskedTokenResponse(token *model.Token) *model.Token {
 	}
 	maskedToken := *token
 	maskedToken.KeyPrefix = token.GetMaskedKey()
+	maskedToken.KeyCopyable = token.KeyCiphertext != ""
+	maskedToken.KeyCiphertext = ""
 	return &maskedToken
 }
 
@@ -309,6 +312,7 @@ func AddToken(c *gin.Context) {
 		Name:               token.Name,
 		KeyHash:            keyHash,
 		KeyPrefix:          keyPrefix,
+		KeyCiphertext:      sealTokenKeyForLaterCopy(plaintext),
 		Status:             token.Status,
 		CreatedTime:        common.GetTimestamp(),
 		AccessedTime:       common.GetTimestamp(),
@@ -329,9 +333,87 @@ func AddToken(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"id":         cleanToken.Id,
-			"key":        plaintext,
-			"key_prefix": keyPrefix,
+			"id":           cleanToken.Id,
+			"key":          plaintext,
+			"key_prefix":   keyPrefix,
+			"key_copyable": cleanToken.KeyCiphertext != "",
+		},
+	})
+}
+
+// sealTokenKeyForLaterCopy encrypts a new key so its owner can copy it again.
+// Key creation must not fail on this, so a missing master key only means the
+// key falls back to being shown once.
+func sealTokenKeyForLaterCopy(plaintext string) string {
+	ciphertext, err := model.EncryptZTAPITokenKey(plaintext)
+	if err != nil {
+		common.SysError("failed to encrypt token key for later copy: " + err.Error())
+		return ""
+	}
+	return ciphertext
+}
+
+// RevealTokenKey returns the full key of one of the caller's own tokens.
+func RevealTokenKey(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	token, err := model.GetTokenByIds(id, c.GetInt("id"))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	plaintext, err := model.DecryptZTAPITokenKey(token.KeyCiphertext)
+	if errors.Is(err, model.ErrTokenKeyNotRecoverable) {
+		c.JSON(http.StatusConflict, gin.H{
+			"success": false,
+			"message": "这个 API Key 创建时只保存了校验值，无法再次显示。请重新生成后再复制。",
+		})
+		return
+	}
+	if err != nil {
+		common.SysError(fmt.Sprintf("failed to decrypt token %d key: %v", token.Id, err))
+		common.ApiErrorMsg(c, "暂时无法读取这个 API Key，请稍后重试。")
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	common.ApiSuccess(c, gin.H{"key": plaintext})
+}
+
+// RegenerateTokenKey issues a new key for one of the caller's tokens. The old
+// key stops working at once; quota, limits and usage stay with the token.
+func RegenerateTokenKey(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	userId := c.GetInt("id")
+	if _, err := model.GetTokenByIds(id, userId); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	plaintext, keyHash, keyPrefix, err := common.GenerateZTAPIKey()
+	if err != nil {
+		common.ApiErrorI18n(c, i18n.MsgTokenGenerateFailed)
+		common.SysLog("failed to generate token key: " + err.Error())
+		return
+	}
+	ciphertext := sealTokenKeyForLaterCopy(plaintext)
+	if err := model.RegenerateTokenKey(id, userId, keyHash, keyPrefix, ciphertext); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"id":           id,
+			"key":          plaintext,
+			"key_prefix":   keyPrefix,
+			"key_copyable": ciphertext != "",
 		},
 	})
 }

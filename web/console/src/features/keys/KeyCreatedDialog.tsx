@@ -5,11 +5,14 @@ import { useLocale } from '../../i18n/locale';
 
 interface KeyCreatedDialogProps {
   plaintextKey: string;
+  /** The key is stored encrypted, so it can be copied again from the list. */
+  copyableLater?: boolean;
   onAcknowledge: () => void;
 }
 
 export function KeyCreatedDialog({
   plaintextKey,
+  copyableLater = false,
   onAcknowledge,
 }: KeyCreatedDialogProps) {
   const { t } = useLocale();
@@ -100,12 +103,16 @@ export function KeyCreatedDialog({
       <div className="key-dialog__heading">
         <ShieldAlert aria-hidden="true" size={22} />
         <div>
-          <p className="console-eyebrow">{t('仅显示一次')}</p>
+          <p className="console-eyebrow">
+            {copyableLater ? t('新的 API Key') : t('仅显示一次')}
+          </p>
           <h2 id="created-key-title">{t('保存新的 API Key')}</h2>
         </div>
       </div>
       <p id="created-key-warning" className="key-dialog__warning">
-        {t('请立即保存。确认后，ZTAPI 不会再次显示完整 Key。')}
+        {copyableLater
+          ? t('完整 Key 已加密保存，之后可以在密钥列表中随时复制。请勿发给他人。')
+          : t('请立即保存。确认后，ZTAPI 不会再次显示完整 Key。')}
       </p>
       <code className="key-dialog__secret">{plaintextKey}</code>
       <div className="key-dialog__actions">

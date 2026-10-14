@@ -24,6 +24,7 @@ type ztapiDurableBilling struct {
 	usageJSON      string
 	dimensionsJSON string
 	attempt        *model.ZTAPIRequestAttempt
+	safetyOutcome  bool
 }
 
 func newZTAPIDurableBilling(info *relaycommon.RelayInfo, amount int) (*ztapiDurableBilling, *types.NewAPIError) {
@@ -165,8 +166,21 @@ func (s *ztapiDurableBilling) Refund(c *gin.Context) error {
 		// reservation is only returned when the recorded attempts prove the
 		// supplier rejected it before running anything. Otherwise it parks for
 		// review rather than guessing with the customer wallet.
-		row, err = model.ReleaseZTAPIDispatchedRejectedSettlement(s.row.OperationID)
-		if errors.Is(err, model.ErrZTAPISettlementPending) {
+		released := false
+		if s.safetyOutcome {
+			// A safety block may have been billed after the model ran. Mark it
+			// before parking, so the background sweep never releases it either.
+			if markErr := model.MarkZTAPIRequestSafetyOutcome(s.row.OperationID); markErr != nil {
+				common.SysError("failed to mark safety outcome on settlement " + s.row.OperationID + ": " + markErr.Error())
+			}
+		} else {
+			row, err = model.ReleaseZTAPIDispatchedRejectedSettlement(s.row.OperationID)
+			released = err == nil
+			if errors.Is(err, model.ErrZTAPISettlementPending) {
+				err = nil
+			}
+		}
+		if !released && err == nil {
 			row, err = model.PendZTAPIRequestSettlement(s.row.OperationID, "{}", model.ZTAPIMissingUpstreamBillingUnconfirmed)
 		}
 	} else {
@@ -318,6 +332,21 @@ func PendZTAPIImageBilling(info *relaycommon.RelayInfo, evidence relaycommon.ZTA
 		s.row = row
 	}
 	return err
+}
+
+// MarkZTAPIBillingSafetyOutcome tells the billing session that the request
+// ended in a content-safety block or refusal. Call it before finishing billing.
+func MarkZTAPIBillingSafetyOutcome(info *relaycommon.RelayInfo) {
+	if info == nil {
+		return
+	}
+	s, ok := info.Billing.(*ztapiDurableBilling)
+	if !ok {
+		return
+	}
+	s.mu.Lock()
+	s.safetyOutcome = true
+	s.mu.Unlock()
 }
 
 func IsZTAPIDurableBilling(info *relaycommon.RelayInfo) bool {

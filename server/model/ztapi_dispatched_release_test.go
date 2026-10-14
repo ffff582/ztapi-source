@@ -210,6 +210,35 @@ func TestZTAPIDispatchedReleaseLeavesUnrelatedPendingReasonsAlone(t *testing.T) 
 	assertDispatchedStillHeld(t, db, *row, err)
 }
 
+// A timeout can fire after the model already ran, so 408 is not proof that
+// nothing was billed.
+func TestZTAPIDispatchedReleaseKeepsTimeoutHeld(t *testing.T) {
+	db, row := setupDispatchedRejection(t, 408)
+	_, err := ReleaseZTAPIDispatchedRejectedSettlement(row.OperationID)
+	assertDispatchedStillHeld(t, db, row, err)
+}
+
+// A content-safety block can follow a billed model run, so even a status that
+// would otherwise prove a pre-inference rejection must not release it, and the
+// background sweep must leave it alone too.
+func TestZTAPIDispatchedReleaseKeepsSafetyOutcomeHeld(t *testing.T) {
+	db, row := setupDispatchedRejection(t, 503)
+	if err := MarkZTAPIRequestSafetyOutcome(row.OperationID); err != nil {
+		t.Fatal(err)
+	}
+	_, err := ReleaseZTAPIDispatchedRejectedSettlement(row.OperationID)
+	assertDispatchedStillHeld(t, db, row, err)
+
+	released, err := ReleaseZTAPIRejectedDispatchedHolds(50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if released != 0 {
+		t.Fatalf("sweep released=%d want 0", released)
+	}
+	assertDispatchedStillHeld(t, db, row, ErrZTAPISettlementPending)
+}
+
 // The sweep is what clears a backlog an outage already created. It must return
 // only the holds it can prove, and leave the rest untouched.
 func TestZTAPIRejectedHoldSweepReturnsOnlyProvableHolds(t *testing.T) {
@@ -293,12 +322,12 @@ func TestZTAPIRejectedHoldSweepRespectsLimitAndIsIdempotent(t *testing.T) {
 }
 
 func TestZTAPIUpstreamRejectedBeforeInferenceBoundaries(t *testing.T) {
-	for _, status := range []int{400, 401, 403, 404, 408, 422, 429, 499, 503} {
+	for _, status := range []int{400, 401, 403, 404, 422, 429, 499, 503} {
 		if !ztapiUpstreamRejectedBeforeInference(status) {
 			t.Fatalf("status %d should prove non-billing", status)
 		}
 	}
-	for _, status := range []int{0, 200, 201, 204, 301, 399, 500, 502, 504, 505} {
+	for _, status := range []int{0, 200, 201, 204, 301, 399, 408, 500, 502, 504, 505} {
 		if ztapiUpstreamRejectedBeforeInference(status) {
 			t.Fatalf("status %d must not prove non-billing", status)
 		}

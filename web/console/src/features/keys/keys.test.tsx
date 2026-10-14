@@ -126,7 +126,7 @@ function statusResponse(quotaPerUnit = 500_000) {
 }
 
 function tokenPageResponse(
-  items: typeof enabledToken[],
+  items: Array<typeof enabledToken & { key_copyable?: boolean }>,
   {
     page = 1,
     pageSize = 100,
@@ -754,6 +754,137 @@ describe('ZTAPI one-time API keys', () => {
     expect(
       screen.queryByRole('button', { name: /查看完整 Key/ }),
     ).not.toBeInTheDocument();
+  });
+
+  it('copies the full key of an encrypted key straight from the list', async () => {
+    const storedKey = 'sk-zt-stored-encrypted';
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = requestUrl(input);
+        const method = requestMethod(init);
+
+        if (url.endsWith('/api/auth/refresh')) {
+          return authResponse();
+        }
+        if (url.endsWith('/api/status')) {
+          return statusResponse();
+        }
+        if (url.endsWith('/api/pricing')) {
+          return pricingResponse();
+        }
+        if (url.includes('/api/token/') && method === 'GET') {
+          return tokenPageResponse([{ ...enabledToken, key_copyable: true }]);
+        }
+        if (url.endsWith('/api/token/7/key') && method === 'POST') {
+          return jsonResponse({ success: true, data: { key: storedKey } });
+        }
+        return jsonResponse({ success: false, message: 'unexpected' }, 500);
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    renderKeys();
+
+    const row = (await screen.findByText('enabled-key')).closest('tr');
+    expect(row).not.toBeNull();
+    expect(
+      within(row as HTMLElement).queryByRole('button', { name: /重新生成/ }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(
+      within(row as HTMLElement).getByRole('button', {
+        name: '复制 enabled-key 的完整 Key',
+      }),
+    );
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(storedKey));
+    expect(
+      await within(row as HTMLElement).findByRole('button', {
+        name: '已复制 enabled-key 的完整 Key',
+      }),
+    ).toBeVisible();
+    expect(document.body.textContent).not.toContain(storedKey);
+    expect(storageContents(localStorage)).not.toContain(storedKey);
+    expect(storageContents(sessionStorage)).not.toContain(storedKey);
+    Reflect.deleteProperty(navigator, 'clipboard');
+  });
+
+  it('regenerates a hash-only key after confirmation and shows the new key', async () => {
+    const regeneratedKey = 'sk-zt-regenerated-key';
+    let regenerated = false;
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = requestUrl(input);
+        const method = requestMethod(init);
+
+        if (url.endsWith('/api/auth/refresh')) {
+          return authResponse();
+        }
+        if (url.endsWith('/api/status')) {
+          return statusResponse();
+        }
+        if (url.endsWith('/api/pricing')) {
+          return pricingResponse();
+        }
+        if (url.includes('/api/token/') && method === 'GET') {
+          return tokenPageResponse([
+            regenerated
+              ? { ...enabledToken, key_prefix: 'sk-zt-regene...', key_copyable: true }
+              : enabledToken,
+          ]);
+        }
+        if (url.endsWith('/api/token/7/regenerate') && method === 'POST') {
+          regenerated = true;
+          return jsonResponse({
+            success: true,
+            data: {
+              id: 7,
+              key: regeneratedKey,
+              key_prefix: 'sk-zt-regene',
+              key_copyable: true,
+            },
+          });
+        }
+        return jsonResponse({ success: false, message: 'unexpected' }, 500);
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    renderKeys();
+
+    const row = (await screen.findByText('enabled-key')).closest('tr');
+    expect(row).not.toBeNull();
+    expect(
+      within(row as HTMLElement).queryByRole('button', { name: /复制/ }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(
+      within(row as HTMLElement).getByRole('button', {
+        name: '重新生成 enabled-key 的 Key',
+      }),
+    );
+    expect(within(row as HTMLElement).getByText('旧 Key 会立即失效')).toBeVisible();
+    expect(regenerated).toBe(false);
+
+    fireEvent.click(
+      within(row as HTMLElement).getByRole('button', { name: '确认重新生成' }),
+    );
+    const dialog = await screen.findByRole('dialog', { name: '保存新的 API Key' });
+    expect(within(dialog).getByText(regeneratedKey)).toBeVisible();
+    expect(
+      within(dialog).getByText(
+        '完整 Key 已加密保存，之后可以在密钥列表中随时复制。请勿发给他人。',
+      ),
+    ).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: '我已安全保存' }));
+    expect(screen.queryByText(regeneratedKey)).not.toBeInTheDocument();
+    expect(await screen.findByText('sk-zt-regene...')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: '复制 enabled-key 的完整 Key' }),
+    ).toBeVisible();
   });
 
   it('navigates key pages and can revoke a key beyond the first page', async () => {

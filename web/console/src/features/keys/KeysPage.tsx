@@ -1,15 +1,19 @@
 import {
   Ban,
+  Check,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  Copy,
   KeyRound,
   Plus,
+  RefreshCw,
   Trash2,
 } from 'lucide-react';
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type FormEvent,
 } from 'react';
@@ -19,6 +23,7 @@ import {
   getPublicModelFamily,
   parseCreatedToken,
   parsePricingEnvelope,
+  parseRevealedTokenKey,
   parseRuntimeStatus,
   parseUserTokenResponse,
   type PricingModel,
@@ -291,6 +296,12 @@ export function KeysPage() {
   const [submitting, setSubmitting] = useState(false);
   const [busyTokenID, setBusyTokenID] = useState<number | null>(null);
   const [confirmRevokeID, setConfirmRevokeID] = useState<number | null>(null);
+  const [confirmRegenerateID, setConfirmRegenerateID] = useState<number | null>(
+    null,
+  );
+  const [copiedTokenID, setCopiedTokenID] = useState<number | null>(null);
+  const [keyActionError, setKeyActionError] = useState<string | null>(null);
+  const copiedTimer = useRef<number | undefined>(undefined);
   const { secretPending, showOneTimeSecret } = useOneTimeSecret();
   const blocker = useBlocker(secretPending);
 
@@ -336,6 +347,8 @@ export function KeysPage() {
     }
   }, [blocker, secretPending]);
 
+  useEffect(() => () => window.clearTimeout(copiedTimer.current), []);
+
   async function createToken(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (quotaPerUnit === null || creationStatus !== 'ready') {
@@ -353,7 +366,7 @@ export function KeysPage() {
     try {
       const value = await apiClient.post<unknown>('/token/', result.payload);
       const created = parseCreatedToken(value);
-      showOneTimeSecret(created.key);
+      showOneTimeSecret(created.key, created.key_copyable);
       setForm(initialForm);
       revalidateTokenPage(createdPage);
     } catch {
@@ -423,6 +436,56 @@ export function KeysPage() {
       setConfirmRevokeID(null);
     } catch {
       setOperationError(true);
+    } finally {
+      setBusyTokenID(null);
+    }
+  }
+
+  async function copyTokenKey(token: UserToken) {
+    setBusyTokenID(token.id);
+    setKeyActionError(null);
+    try {
+      const value = await apiClient.post<unknown>(`/token/${token.id}/key`);
+      await navigator.clipboard.writeText(parseRevealedTokenKey(value));
+      setCopiedTokenID(token.id);
+      window.clearTimeout(copiedTimer.current);
+      copiedTimer.current = window.setTimeout(() => setCopiedTokenID(null), 2000);
+    } catch {
+      setKeyActionError('复制失败，请稍后重试。');
+    } finally {
+      setBusyTokenID(null);
+    }
+  }
+
+  async function regenerateTokenKey(tokenID: number) {
+    const regeneratedPage = tokenPageNumber;
+    setBusyTokenID(tokenID);
+    setKeyActionError(null);
+    try {
+      const value = await apiClient.post<unknown>(`/token/${tokenID}/regenerate`);
+      const regenerated = parseCreatedToken(value);
+      commitTokenMutation(regeneratedPage, (current) => {
+        if (!current.items.some((item) => item.id === tokenID)) {
+          return null;
+        }
+        return {
+          ...current,
+          items: current.items.map((item) =>
+            item.id === tokenID
+              ? {
+                  ...item,
+                  key_prefix: `${regenerated.key_prefix}...`,
+                  key_copyable: regenerated.key_copyable,
+                }
+              : item,
+          ),
+        };
+      });
+      setConfirmRegenerateID(null);
+      showOneTimeSecret(regenerated.key, regenerated.key_copyable);
+      revalidateTokenPage(regeneratedPage);
+    } catch {
+      setKeyActionError('重新生成失败，原来的 Key 仍然有效，请稍后重试。');
     } finally {
       setBusyTokenID(null);
     }
@@ -663,6 +726,11 @@ export function KeysPage() {
         )}
         {tokenLoadStatus === 'ready' && tokens.length > 0 && (
           <>
+            {keyActionError && (
+              <p className="console-alert" role="alert">
+                {t(keyActionError)}
+              </p>
+            )}
             <div className="console-table-wrap">
               <table className="console-table">
                 <thead>
@@ -682,7 +750,69 @@ export function KeysPage() {
                         <strong>{token.name}</strong>
                       </td>
                       <td>
-                        <code>{token.key_prefix}</code>
+                        <div className="key-secret">
+                          <code>{token.key_prefix}</code>
+                          {token.key_copyable ? (
+                            <button
+                              aria-label={
+                                copiedTokenID === token.id
+                                  ? t('已复制 {{name}} 的完整 Key', {
+                                      name: token.name,
+                                    })
+                                  : t('复制 {{name}} 的完整 Key', {
+                                      name: token.name,
+                                    })
+                              }
+                              className="console-icon-action"
+                              disabled={busyTokenID === token.id}
+                              type="button"
+                              onClick={() => void copyTokenKey(token)}
+                            >
+                              {copiedTokenID === token.id ? (
+                                <Check aria-hidden="true" size={16} />
+                              ) : (
+                                <Copy aria-hidden="true" size={16} />
+                              )}
+                              {copiedTokenID === token.id
+                                ? t('已复制')
+                                : t('复制')}
+                            </button>
+                          ) : confirmRegenerateID === token.id ? (
+                            <span className="key-secret__confirm">
+                              <span>{t('旧 Key 会立即失效')}</span>
+                              <button
+                                className="console-icon-action console-icon-action--danger"
+                                disabled={busyTokenID === token.id}
+                                type="button"
+                                onClick={() => void regenerateTokenKey(token.id)}
+                              >
+                                <RefreshCw aria-hidden="true" size={16} />
+                                {t('确认重新生成')}
+                              </button>
+                              <button
+                                className="console-icon-action"
+                                type="button"
+                                onClick={() => setConfirmRegenerateID(null)}
+                              >
+                                {t('取消')}
+                              </button>
+                            </span>
+                          ) : (
+                            <button
+                              aria-label={t('重新生成 {{name}} 的 Key', {
+                                name: token.name,
+                              })}
+                              className="console-icon-action"
+                              disabled={busyTokenID === token.id}
+                              title={t('这个 Key 创建较早，无法再次显示。重新生成后即可随时复制。')}
+                              type="button"
+                              onClick={() => setConfirmRegenerateID(token.id)}
+                            >
+                              <RefreshCw aria-hidden="true" size={16} />
+                              {t('重新生成')}
+                            </button>
+                          )}
+                        </div>
                       </td>
                       <td>
                         <span

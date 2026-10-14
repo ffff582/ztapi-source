@@ -8,16 +8,19 @@ import (
 )
 
 type ZTAPIRequestAttempt struct {
-	ID                uint      `gorm:"primaryKey" json:"id"`
-	SettlementID      uint      `gorm:"not null;uniqueIndex:ztapi_request_attempt_seq;uniqueIndex:ztapi_request_attempt_channel" json:"settlement_id"`
-	Attempt           int       `gorm:"not null;uniqueIndex:ztapi_request_attempt_seq" json:"attempt"`
-	ChannelID         int       `gorm:"not null;uniqueIndex:ztapi_request_attempt_channel" json:"channel_id"`
-	CredentialVersion string    `gorm:"type:varchar(64);not null" json:"credential_version"`
-	Protocol          string    `gorm:"type:varchar(64);not null" json:"protocol"`
-	UpstreamRequestID string    `gorm:"type:varchar(200);not null" json:"upstream_request_id"`
-	HTTPStatus        int       `json:"http_status"`
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
+	ID                uint   `gorm:"primaryKey" json:"id"`
+	SettlementID      uint   `gorm:"not null;uniqueIndex:ztapi_request_attempt_seq;uniqueIndex:ztapi_request_attempt_channel" json:"settlement_id"`
+	Attempt           int    `gorm:"not null;uniqueIndex:ztapi_request_attempt_seq" json:"attempt"`
+	ChannelID         int    `gorm:"not null;uniqueIndex:ztapi_request_attempt_channel" json:"channel_id"`
+	CredentialVersion string `gorm:"type:varchar(64);not null" json:"credential_version"`
+	Protocol          string `gorm:"type:varchar(64);not null" json:"protocol"`
+	UpstreamRequestID string `gorm:"type:varchar(200);not null" json:"upstream_request_id"`
+	HTTPStatus        int    `json:"http_status"`
+	// SafetyOutcome marks a content-safety block or refusal. The supplier may
+	// have run the model before blocking it, so the hold is never auto-released.
+	SafetyOutcome bool      `gorm:"not null;default:false" json:"safety_outcome"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 func (ZTAPIRequestAttempt) TableName() string { return "ztapi_request_attempts" }
@@ -54,6 +57,16 @@ func BeginZTAPIRequestAttempt(op string, channelID int, credentialVersion, proto
 		return nil, err
 	}
 	return &attempt, nil
+}
+
+// MarkZTAPIRequestSafetyOutcome records that the request ended in a
+// content-safety block or refusal, so no release path treats it as a plain
+// pre-inference rejection.
+func MarkZTAPIRequestSafetyOutcome(op string) error {
+	_, err := mutateZTAPISettlement(op, func(tx *gorm.DB, row *ZTAPIRequestSettlement) error {
+		return tx.Model(&ZTAPIRequestAttempt{}).Where("settlement_id = ?", row.ID).Update("safety_outcome", true).Error
+	})
+	return err
 }
 
 func RecordZTAPIRequestAttemptResponse(op string, index, channelID, status int, upstreamID string) error {

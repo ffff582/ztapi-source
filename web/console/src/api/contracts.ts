@@ -214,12 +214,15 @@ export interface UserToken {
   model_limits: string;
   allow_ips: string;
   key_prefix: string;
+  /** False for keys created before keys were stored encrypted. */
+  key_copyable: boolean;
 }
 
 export interface CreatedToken {
   id: number;
   key: string;
   key_prefix: string;
+  key_copyable: boolean;
 }
 
 export interface USDTTopUpInfo {
@@ -1084,6 +1087,7 @@ function parseUserToken(value: unknown): UserToken {
     model_limits: value.model_limits,
     allow_ips: typeof allowIPs === 'string' ? allowIPs : '',
     key_prefix: value.key_prefix,
+    key_copyable: value.key_copyable === true,
   };
 }
 
@@ -1113,5 +1117,17 @@ export function parseCreatedToken(value: unknown): CreatedToken {
     id: value.id,
     key: value.key,
     key_prefix: value.key_prefix,
+    key_copyable: value.key_copyable === true,
   };
+}
+
+export function parseRevealedTokenKey(value: unknown): string {
+  if (
+    !isRecord(value) ||
+    !requiredString(value.key) ||
+    !value.key.startsWith('sk-zt-')
+  ) {
+    throw new DataContractError();
+  }
+  return value.key;
 }

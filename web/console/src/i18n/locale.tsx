@@ -600,6 +600,20 @@ const english: Record<string, string> = {
   '复制唯一付款金额': 'Copy exact payment amount',
   '复制金额': 'Copy amount',
   '复制': 'Copy',
+  '复制 {{name}} 的完整 Key': 'Copy the full key for {{name}}',
+  '已复制 {{name}} 的完整 Key': 'Copied the full key for {{name}}',
+  '复制失败，请稍后重试。': 'Copy failed. Please try again later.',
+  '重新生成': 'Regenerate',
+  '重新生成 {{name}} 的 Key': 'Regenerate the key for {{name}}',
+  '确认重新生成': 'Confirm regenerate',
+  '旧 Key 会立即失效': 'The old key stops working immediately',
+  '这个 Key 创建较早，无法再次显示。重新生成后即可随时复制。':
+    'This key was created before keys could be shown again. Regenerate it to copy it any time.',
+  '重新生成失败，原来的 Key 仍然有效，请稍后重试。':
+    'Regeneration failed. The current key still works; please try again later.',
+  '新的 API Key': 'New API key',
+  '完整 Key 已加密保存，之后可以在密钥列表中随时复制。请勿发给他人。':
+    'The full key is stored encrypted, so you can copy it from the key list any time. Do not share it.',
   '网络': 'Network',
   '收款地址': 'Receiving address',
   '复制收款地址': 'Copy receiving address',
