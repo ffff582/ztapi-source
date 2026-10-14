@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "b27eb5dcc04f69eeab7091956d1c73e79476a456",
+  "release_commit": "f9509658b4b746d53fc9be5bd5a6b564fb5f8a9d",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-b27eb5dcc04f69eeab7091956d1c73e79476a456",
+  "source_tag": "production-f9509658b4b746d53fc9be5bd5a6b564fb5f8a9d",
   "files": [
     {
       "path": ".dockerignore",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "784e3b92fe88e91f31bb9a8d6f712ae13115467f5f9fb522559e37de7db60492",
+      "sha256": "5e848911a699cae15d25003287bc45abe08fc93925b3c3d4949144f6507b1902",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "09699d2debd68b4f5c7df0a8ee5ede337b05209cc27ea34382dc1d150c3b70df",
+      "sha256": "54ede5fb4634082cc827b533b0d6b89a8738770f8c699167a776b41899eb895d",
       "size": 942
     },
     {
@@ -9736,8 +9736,8 @@
     },
     {
       "path": "web/console/src/brand/theme.css",
-      "sha256": "b25ace70d7291e0b5304d875df35afbc148799cfa203611ceb7fe9c2fd5ed4db",
-      "size": 70795
+      "sha256": "56f8127b7a5b719d6111fbc45161b151b9775365d3e22fd6991ba6c3586957a2",
+      "size": 71234
     },
     {
       "path": "web/console/src/brand/tokens.css",

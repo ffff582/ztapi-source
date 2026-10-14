@@ -9,11 +9,17 @@
  * ======================================================= */
 
 .console-shell {
+  --console-sidebar-width: 248px;
   display: grid;
-  grid-template-columns: 248px minmax(0, 1fr);
+  grid-template-columns: var(--console-sidebar-width) minmax(0, 1fr);
   min-height: 100vh;
   /* The sidebar column keeps its surface the full height of long pages. */
-  background: linear-gradient(90deg, var(--surface) 0 247px, var(--border) 247px 248px, var(--bg) 248px);
+  background: linear-gradient(
+    90deg,
+    var(--surface) 0 calc(var(--console-sidebar-width) - 1px),
+    var(--border) calc(var(--console-sidebar-width) - 1px) var(--console-sidebar-width),
+    var(--bg) var(--console-sidebar-width)
+  );
 }
 
 .console-sidebar {
@@ -141,9 +147,9 @@
   min-width: 0;
 }
 
+/* The header scrolls with the page so it never covers the content below it. */
 .console-header {
-  position: sticky;
-  top: 0;
+  position: relative;
   z-index: 30;
   display: flex;
   align-items: center;
@@ -2380,6 +2386,50 @@
 
 @media (max-width: 900px) {
   .console-shell {
+    --console-sidebar-width: 208px;
+  }
+
+  .console-header {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 60px;
+    padding: 10px 16px;
+  }
+
+  .console-content {
+    padding: 20px 16px 48px;
+  }
+
+  .console-page__header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .console-page__header > p {
+    text-align: left;
+  }
+
+  .dashboard-metrics,
+  .dashboard-summary,
+  .guide-steps,
+  .guide-reference__grid,
+  .key-form {
+    grid-template-columns: 1fr;
+  }
+
+  .catalog-model summary {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .catalog-model__end {
+    justify-content: flex-start;
+  }
+}
+
+/* Below tablet width the sidebar folds into a scrolling strip above the header. */
+@media (max-width: 640px) {
+  .console-shell {
     grid-template-columns: 1fr;
     background: var(--bg);
   }
@@ -2418,43 +2468,6 @@
 
   .console-nav__link--active::before {
     display: none;
-  }
-
-  .console-header {
-    position: static;
-    flex-wrap: wrap;
-    height: auto;
-    padding: 10px 16px;
-  }
-
-  .console-content {
-    padding: 20px 16px 48px;
-  }
-
-  .console-page__header {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .console-page__header > p {
-    text-align: left;
-  }
-
-  .dashboard-metrics,
-  .dashboard-summary,
-  .guide-steps,
-  .guide-reference__grid,
-  .key-form {
-    grid-template-columns: 1fr;
-  }
-
-  .catalog-model summary {
-    grid-template-columns: 1fr;
-    gap: 12px;
-  }
-
-  .catalog-model__end {
-    justify-content: flex-start;
   }
 }
 
