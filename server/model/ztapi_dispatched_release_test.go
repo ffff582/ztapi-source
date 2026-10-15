@@ -239,6 +239,67 @@ func TestZTAPIDispatchedReleaseKeepsSafetyOutcomeHeld(t *testing.T) {
 	assertDispatchedStillHeld(t, db, row, ErrZTAPISettlementPending)
 }
 
+// On 2026-10-15 a hold whose owner had been hard-deleted made every sweep stop
+// at it, so the holds behind it were never returned. The sweep must report such
+// a row, keep going, and reach holds beyond its first page.
+func TestZTAPIRejectedHoldSweepContinuesPastBrokenRows(t *testing.T) {
+	db, input := setupZTAPISettlement(t)
+	if err := db.AutoMigrate(&ZTAPIRequestAttempt{}, &Channel{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&Channel{Id: 81}).Error; err != nil {
+		t.Fatal(err)
+	}
+	gone := createBalanceLedgerTestUser(t, db, "deleted-owner", 1000)
+	goneToken := Token{UserId: gone.Id, KeyHash: "deleted-owner-token", Status: 1, RemainQuota: 1000, ExpiredTime: -1}
+	if err := db.Create(&goneToken).Error; err != nil {
+		t.Fatal(err)
+	}
+	seed := func(op string, userID, tokenID int) {
+		row := input
+		row.OperationID, row.RequestID, row.UserID, row.TokenID = op, op+"-request", userID, tokenID
+		if _, err := BeginZTAPIRequestSettlement(row); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := BeginZTAPIRequestAttempt(op, 81, "cred-v1", "responses"); err != nil {
+			t.Fatal(err)
+		}
+		if err := RecordZTAPIRequestAttemptResponse(op, 1, 81, 503, "wire"); err != nil {
+			t.Fatal(err)
+		}
+		if err := MarkZTAPIRequestDispatched(op); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := PendZTAPIRequestSettlement(op, "{}", ZTAPIMissingUpstreamBillingUnconfirmed); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seed("broken-owner", gone.Id, goneToken.Id)
+	for _, op := range []string{"after-1", "after-2", "after-3"} {
+		seed(op, input.UserID, input.TokenID)
+	}
+	if err := db.Unscoped().Delete(&User{}, gone.Id).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	// A page size of one forces the sweep to walk past its first page.
+	released, err := ReleaseZTAPIRejectedDispatchedHolds(1)
+	if err == nil {
+		t.Fatal("the broken row must still be reported")
+	}
+	if released != 3 {
+		t.Fatalf("released=%d want 3", released)
+	}
+	var broken ZTAPIRequestSettlement
+	if err := db.Where("operation_id = ?", "broken-owner").Take(&broken).Error; err != nil {
+		t.Fatal(err)
+	}
+	if broken.Status != ZTAPISettlementPending {
+		t.Fatalf("broken row status=%q want pending", broken.Status)
+	}
+	assertZTAPISettlementBalances(t, db, input, 1000, 1000)
+}
+
 // The sweep is what clears a backlog an outage already created. It must return
 // only the holds it can prove, and leave the rest untouched.
 func TestZTAPIRejectedHoldSweepReturnsOnlyProvableHolds(t *testing.T) {

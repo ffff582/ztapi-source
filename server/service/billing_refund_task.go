@@ -80,10 +80,12 @@ func runZTAPICommercialMaintenance(ctx context.Context) {
 	if err := model.RetryZTAPIAttemptBillings(billingRefundRetryBatch, EnqueueZTAPIAttemptBillingLogTx); err != nil {
 		logger.LogWarn(ctx, fmt.Sprintf("ZTAPI verified attempt billing retry failed: %v", err))
 	}
-	if released, err := model.ReleaseZTAPIRejectedDispatchedHolds(billingRefundRetryBatch); err != nil {
-		logger.LogWarn(ctx, fmt.Sprintf("ZTAPI rejected hold release failed: %v", err))
-	} else if released > 0 {
+	released, err := model.ReleaseZTAPIRejectedDispatchedHolds(billingRefundRetryBatch)
+	if released > 0 {
 		logger.LogInfo(ctx, fmt.Sprintf("ZTAPI returned %d reservations the supplier rejected before inference", released))
+	}
+	if err != nil {
+		logger.LogWarn(ctx, fmt.Sprintf("ZTAPI rejected hold release failed: %v", err))
 	}
 	if err := model.RetryZTAPISettlementCaches(billingRefundRetryBatch); err != nil {
 		logger.LogWarn(ctx, fmt.Sprintf("ZTAPI balance cache retry failed: %v", err))

@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "e53c42fbbe5400927c7bf69b1bcba6aa14aefd67",
+  "release_commit": "aca8ba87feadd5ac752395a16036b8268f3a3fb6",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-e53c42fbbe5400927c7bf69b1bcba6aa14aefd67",
+  "source_tag": "production-aca8ba87feadd5ac752395a16036b8268f3a3fb6",
   "files": [
     {
       "path": ".dockerignore",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "dee2b247a2b99224a35c0c2b3ca07169bda9ad3ce869ecea23dc088fed20cb4b",
+      "sha256": "3d2e735d1262579c1e0c68f70dc0d781b7e40b5b48c73ecaef4eb06367512c3d",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "7ebd6a847b93eeef3362d3370d7e2e80d1cd928f11ac2bc4c6175a950f143d2e",
+      "sha256": "5bfbe17770449306f2372a2a5c4e4512d8ac6e4ecaf749ba9a552ea7cdf8f843",
       "size": 942
     },
     {
@@ -2476,8 +2476,8 @@
     },
     {
       "path": "server/model/ztapi_dispatched_release_test.go",
-      "sha256": "e83053992ed615e937858fff702db0dd275d45cc91833b8516535badd3cab2b1",
-      "size": 11539
+      "sha256": "dc7c042b5bdf0b7577dca7efdc3972c55ca449519b81eb68557edf6a12ebe8dd",
+      "size": 13770
     },
     {
       "path": "server/model/ztapi_embedding_contract_test.go",
@@ -2856,8 +2856,8 @@
     },
     {
       "path": "server/model/ztapi_request_settlement.go",
-      "sha256": "ae791b333d4860dff365af6640153b1db8cccd3846d6db38545a8b6f505b59ee",
-      "size": 47185
+      "sha256": "c14abe8914867555c05fbe9ba1aa28385d973bec7ed5942e9cde360741cde834",
+      "size": 47854
     },
     {
       "path": "server/model/ztapi_request_settlement_intent_test.go",
@@ -4466,8 +4466,8 @@
     },
     {
       "path": "server/service/billing_refund_task.go",
-      "sha256": "223e3d0bc9f1643449371c0c0ab04799451bd672f8345a2cf6258d1c75cfe576",
-      "size": 3595
+      "sha256": "dc46f652f49d88b13f5f8395380e6638fc8544c40169c4b9e2dea91c4f8a1b67",
+      "size": 3591
     },
     {
       "path": "server/service/billing_session.go",

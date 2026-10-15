@@ -1111,27 +1111,43 @@ func ReleaseZTAPIDispatchedRejectedSettlement(op string) (*ZTAPIRequestSettlemen
 // supplier outage parks thousands of holds that nothing will ever resolve, and
 // the quota stays debited from customer wallets the whole time. Rows that cannot
 // be proven unbilled are left exactly where they are, for a reviewer.
+//
+// limit is the page size; every parked hold is visited on each call. The error
+// is the first row that failed for a reason other than missing proof.
 func ReleaseZTAPIRejectedDispatchedHolds(limit int) (int, error) {
 	if DB == nil || limit <= 0 {
 		return 0, nil
 	}
-	var rows []ZTAPIRequestSettlement
-	if err := DB.Where("status = ? AND missing_dimensions_json = ?", ZTAPISettlementPending, ZTAPIMissingUpstreamBillingUnconfirmed).
-		Order("id").Limit(limit).Find(&rows).Error; err != nil {
-		return 0, err
-	}
+	// Holds that can never be proven stay parked forever, so a single page from
+	// the start would eventually see nothing else. Walk every hold page by page.
 	released := 0
-	for _, row := range rows {
-		_, err := ReleaseZTAPIDispatchedRejectedSettlement(row.OperationID)
-		switch {
-		case err == nil:
-			released++
-		case errors.Is(err, ErrZTAPISettlementPending), errors.Is(err, ErrZTAPISettlementConflict):
-			// Not provable from the recorded attempts, or another writer owns the
-			// row. Either way it stays parked rather than guessing.
-		default:
+	var firstErr error
+	lastID := uint(0)
+	for {
+		var rows []ZTAPIRequestSettlement
+		if err := DB.Where("status = ? AND missing_dimensions_json = ? AND id > ?", ZTAPISettlementPending, ZTAPIMissingUpstreamBillingUnconfirmed, lastID).
+			Order("id").Limit(limit).Find(&rows).Error; err != nil {
 			return released, err
 		}
+		for _, row := range rows {
+			lastID = row.ID
+			_, err := ReleaseZTAPIDispatchedRejectedSettlement(row.OperationID)
+			switch {
+			case err == nil:
+				released++
+			case errors.Is(err, ErrZTAPISettlementPending), errors.Is(err, ErrZTAPISettlementConflict):
+				// Not provable from the recorded attempts, or another writer owns the
+				// row. Either way it stays parked rather than guessing.
+			default:
+				// One broken row, such as an owner that no longer exists, must not
+				// stall every hold behind it. Report it and keep going.
+				if firstErr == nil {
+					firstErr = fmt.Errorf("release hold %s: %w", row.OperationID, err)
+				}
+			}
+		}
+		if len(rows) < limit {
+			return released, firstErr
+		}
 	}
-	return released, nil
 }
