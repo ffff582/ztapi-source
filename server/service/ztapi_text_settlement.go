@@ -2,8 +2,10 @@ package service
 
 import (
 	"fmt"
-	"github.com/QuantumNous/new-api/common"
+	"strings"
 	"time"
+
+	"github.com/QuantumNous/new-api/common"
 
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
@@ -88,6 +90,7 @@ func postZTAPIDurableTextQuota(c *gin.Context, info *relaycommon.RelayInfo, usag
 	if tier != "" {
 		otherInfo["billing_tier"] = tier
 	}
+	appendZTAPIClientInfo(c, otherInfo)
 	appendReasoningAuditInfo(info, otherInfo)
 	other, _ := common.Marshal(otherInfo)
 	elapsed := 0
@@ -112,6 +115,32 @@ func postZTAPIDurableTextQuota(c *gin.Context, info *relaycommon.RelayInfo, usag
 		logger.LogError(c, "managed billing log delivery deferred: "+err.Error())
 	}
 	return true
+}
+
+// ztapiClientUserAgentLimit bounds the client-supplied User-Agent kept in logs.
+const ztapiClientUserAgentLimit = 120
+
+// appendZTAPIClientInfo records which endpoint and client software made the
+// request, so compatibility problems can be traced from the usage log.
+func appendZTAPIClientInfo(c *gin.Context, otherInfo map[string]any) {
+	if c == nil || c.Request == nil {
+		return
+	}
+	if c.Request.URL != nil && c.Request.URL.Path != "" {
+		otherInfo["request_path"] = c.Request.URL.Path
+	}
+	agent := strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, c.Request.UserAgent())
+	if runes := []rune(agent); len(runes) > ztapiClientUserAgentLimit {
+		agent = string(runes[:ztapiClientUserAgentLimit])
+	}
+	if agent = strings.TrimSpace(agent); agent != "" {
+		otherInfo["client_user_agent"] = agent
+	}
 }
 
 func ztapiUsageValidationInfo(info *relaycommon.RelayInfo, snapshot *relaycommon.ZTAPIPublicationSnapshot) *relaycommon.RelayInfo {

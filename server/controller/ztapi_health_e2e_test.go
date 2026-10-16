@@ -46,11 +46,18 @@ type ztapiE2EFixture struct {
 	config                       model.ZTAPIModelConfig
 	mu                           sync.Mutex
 	replies                      []ztapiE2EReply
+	upstreamPaths                []string
+	upstreamBodies               [][]byte
 	calls                        atomic.Int64
 	quotaWrites                  atomic.Int64
 }
 
 func newZTAPIHealthE2EFixture(t *testing.T) *ztapiE2EFixture {
+	t.Helper()
+	return newZTAPIHealthE2EFixtureForModel(t, "zt-gpt-5.5", "gpt-5.5")
+}
+
+func newZTAPIHealthE2EFixtureForModel(t *testing.T, publicName, sourceModel string) *ztapiE2EFixture {
 	t.Helper()
 	t.Setenv("ZTAPI_HEALTH_ENABLED", "true")
 	t.Setenv("ZTAPI_HEALTH_PROBE_USER_ID", "0")
@@ -80,8 +87,8 @@ func newZTAPIHealthE2EFixture(t *testing.T) *ztapiE2EFixture {
 	settings.PingIntervalEnabled = false
 	require.NoError(t, i18n.Init())
 	service.InitTokenEncoders() // Embedded codecs only, no downloads.
-	f := &ztapiE2EFixture{db: setupTokenControllerTestDB(t), publicName: "zt-gpt-5.5"}
-	f.sourceModel = "gpt-5.5"
+	f := &ztapiE2EFixture{db: setupTokenControllerTestDB(t), publicName: publicName}
+	f.sourceModel = sourceModel
 	require.NoError(t, f.db.AutoMigrate(&model.User{}, &model.Channel{}, &model.BalanceLedger{}, &model.BillingRefundPending{}, &model.Log{}, &model.ZTAPIAuditEvent{}, &model.ZTAPICatalogLock{}))
 	require.NoError(t, f.db.AutoMigrate(
 		&model.ZTAPIRequestSettlement{}, &model.ZTAPIRequestAttempt{}, &model.ZTAPIPendingResolution{},
@@ -98,12 +105,20 @@ func newZTAPIHealthE2EFixture(t *testing.T) *ztapiE2EFixture {
 	require.NoError(t, f.db.Model(f.token).Updates(map[string]any{"unlimited_quota": false, "remain_quota": ztapiE2EInitialQuota, "group": "", "model_limits_enabled": true, "model_limits": f.publicName}).Error)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n := f.calls.Add(1)
+		raw, err := io.ReadAll(io.LimitReader(r.Body, 64<<10))
+		if err != nil {
+			t.Errorf("read outbound request: %v", err)
+		}
 		var body struct {
 			Model string `json:"model"`
 		}
-		if err := common.DecodeJson(io.LimitReader(r.Body, 64<<10), &body); err != nil {
+		if err := common.Unmarshal(raw, &body); err != nil {
 			t.Errorf("decode outbound request: %v", err)
 		}
+		f.mu.Lock()
+		f.upstreamPaths = append(f.upstreamPaths, r.URL.Path)
+		f.upstreamBodies = append(f.upstreamBodies, raw)
+		f.mu.Unlock()
 		if body.Model != f.sourceModel {
 			t.Errorf("publication did not map outbound model: %q", body.Model)
 		}

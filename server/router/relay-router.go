@@ -87,6 +87,8 @@ func SetRelayRouter(router *gin.Engine) {
 			controller.Relay(c, types.RelayFormatOpenAIRealtime)
 		})
 	}
+	// A local estimate: no channel is selected and nothing is billed.
+	relayV1Router.POST("/messages/count_tokens", controller.CountClaudeMessageTokens)
 	{
 		//http router
 		httpRouter := relayV1Router.Group("")

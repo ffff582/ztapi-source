@@ -135,6 +135,7 @@ func ZTAPILogin(c *gin.Context) {
 		writeZTAPIAuthError(c, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
+	model.UpdateUserLastLoginAt(user.Id)
 	issueZTAPIAuthSession(c, user)
 }
 

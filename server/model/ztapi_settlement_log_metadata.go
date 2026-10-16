@@ -28,9 +28,18 @@ type ztapiSettlementLogMetadata struct {
 	ReasoningEffortForwarded string                        `json:"reasoning_effort_forwarded,omitempty"`
 	ReasoningEffortSource    string                        `json:"reasoning_effort_source,omitempty"`
 	ReasoningTokensReported  *int                          `json:"reasoning_tokens_reported,omitempty"`
+	RequestPath              string                        `json:"request_path,omitempty"`
+	ClientUserAgent          string                        `json:"client_user_agent,omitempty"`
 }
 
 var ztapiSettlementLogDimensionName = regexp.MustCompile(`^[a-z][a-z0-9_:.-]{0,127}$`)
+
+// Only the relay endpoint and a short client name are kept: enough to trace a
+// compatibility problem, never request content.
+var (
+	ztapiSettlementLogRequestPath = regexp.MustCompile(`^/v1(beta)?/[A-Za-z0-9_./:-]{1,160}$`)
+	ztapiSettlementLogUserAgent   = regexp.MustCompile(`^[\x20-\x7e]{1,120}$`)
+)
 
 func validZTAPIReasoningEffort(value string) bool {
 	switch value {
@@ -69,6 +78,13 @@ func sanitizeZTAPISettlementLogMetadata(log *Log) error {
 	}
 	if metadata.ModelRatio != nil && (math.IsNaN(*metadata.ModelRatio) || math.IsInf(*metadata.ModelRatio, 0) || *metadata.ModelRatio < 0) {
 		return ErrZTAPISettlementLogInvalid
+	}
+	// Diagnostic fields are optional; a malformed one is dropped, not fatal.
+	if !ztapiSettlementLogRequestPath.MatchString(metadata.RequestPath) {
+		metadata.RequestPath = ""
+	}
+	if !ztapiSettlementLogUserAgent.MatchString(metadata.ClientUserAgent) {
+		metadata.ClientUserAgent = ""
 	}
 	for _, dimension := range metadata.BillingDimensions {
 		price, err := decimal.NewFromString(dimension.UnitPriceUSD)

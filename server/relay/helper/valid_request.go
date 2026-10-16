@@ -50,6 +50,7 @@ func ValidateAndNormalizeZTAPIReasoningJSON(info *relaycommon.RelayInfo, body []
 	if info == nil || info.ZTAPIPublicationSnapshot == nil {
 		return body, nil
 	}
+	body = applyZTAPIReasoningOutputFloor(info, body, format)
 	requested := relaycommon.ReasoningEffortFromJSON(body, format)
 	if requested == "" {
 		return body, nil

@@ -14,6 +14,7 @@ import (
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/service/openaicompat"
 	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/types"
 
@@ -73,6 +74,15 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 		return types.NewError(fmt.Errorf("invalid api type: %d", info.ApiType), types.ErrorCodeInvalidApiType, types.ErrOptionWithSkipRetry())
 	}
 	adaptor.Init(info)
+	if info.ZTAPIPublicationSnapshot != nil && info.RelayMode == relayconstant.RelayModeResponses &&
+		info.ApiType == appconstant.APITypeOpenAI && openaicompat.ShouldResponsesUseChatCompletions(info.UpstreamModelName) {
+		usage, apiErr := responsesViaChatCompletions(c, info, adaptor, request)
+		if apiErr != nil {
+			return apiErr
+		}
+		service.PostTextConsumeQuota(c, info, usage, nil)
+		return nil
+	}
 	var requestBody io.Reader
 	passThrough := info.ZTAPIPublicationSnapshot == nil && (model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSetting.PassThroughBodyEnabled)
 	if passThrough {

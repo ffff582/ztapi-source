@@ -3,6 +3,7 @@ package model
 import (
 	"errors"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -301,4 +302,22 @@ func TestZTAPISettlementLogReceiptFailureRollsBackInsertedLog(t *testing.T) {
 	n, err := ProcessPendingZTAPISettlementLogs(1)
 	require.NoError(t, err)
 	require.Equal(t, 1, n)
+}
+
+func TestZTAPISettlementLogKeepsOnlyWellFormedClientDiagnostics(t *testing.T) {
+	kept := Log{Other: `{"billing_source":"wallet","request_path":"/v1beta/models/zt-gemini-3.5-flash:streamGenerateContent","client_user_agent":"claude-cli/2.1.296 (external, cli)"}`}
+	if err := sanitizeZTAPISettlementLogMetadata(&kept); err != nil {
+		t.Fatalf("sanitize: %v", err)
+	}
+	if !strings.Contains(kept.Other, `"request_path":"/v1beta/models/zt-gemini-3.5-flash:streamGenerateContent"`) || !strings.Contains(kept.Other, `"client_user_agent":"claude-cli/2.1.296 (external, cli)"`) {
+		t.Fatalf("well-formed diagnostics were dropped: %s", kept.Other)
+	}
+
+	dropped := Log{Other: `{"billing_source":"wallet","request_path":"/api/user/self?token=secret","client_user_agent":"x\ninjected"}`}
+	if err := sanitizeZTAPISettlementLogMetadata(&dropped); err != nil {
+		t.Fatalf("a malformed diagnostic must not fail the log: %v", err)
+	}
+	if strings.Contains(dropped.Other, "request_path") || strings.Contains(dropped.Other, "client_user_agent") {
+		t.Fatalf("malformed diagnostics were kept: %s", dropped.Other)
+	}
 }

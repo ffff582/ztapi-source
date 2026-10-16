@@ -1115,3 +1115,39 @@ func sha256HexForControllerTest(value string) string {
 	digest := sha256.Sum256([]byte(value))
 	return fmt.Sprintf("%x", digest[:])
 }
+
+// Operators judge who still uses the service by this column; it stayed zero
+// for every account before logins recorded it.
+func TestAuthLoginRecordsLastLoginTime(t *testing.T) {
+	db := setupZTAPIAuthControllerTest(t)
+	engine := newZTAPIAuthControllerEngine()
+	register := performZTAPIAuthRequest(t, engine, http.MethodPost, "/auth/register",
+		`{"username":"carol","password":"at-least-ten","captcha_id":"captcha-1","captcha_code":"k7fn"}`, nil)
+	if register.Code != http.StatusOK {
+		t.Fatalf("register fixture: status=%d body=%s", register.Code, register.Body.String())
+	}
+
+	failed := performZTAPIAuthRequest(t, engine, http.MethodPost, "/auth/login", `{"username":"carol","password":"wrong-password"}`, nil)
+	if failed.Code != http.StatusUnauthorized {
+		t.Fatalf("wrong password status = %d", failed.Code)
+	}
+	var user model.User
+	if err := db.Where("username = ?", "carol").First(&user).Error; err != nil {
+		t.Fatalf("load user: %v", err)
+	}
+	if user.LastLoginAt != 0 {
+		t.Fatalf("a failed login recorded last_login_at=%d", user.LastLoginAt)
+	}
+
+	before := common.GetTimestamp()
+	login := performZTAPIAuthRequest(t, engine, http.MethodPost, "/auth/login", `{"username":"carol","password":"at-least-ten"}`, nil)
+	if login.Code != http.StatusOK {
+		t.Fatalf("login status = %d body=%s", login.Code, login.Body.String())
+	}
+	if err := db.Where("username = ?", "carol").First(&user).Error; err != nil {
+		t.Fatalf("reload user: %v", err)
+	}
+	if user.LastLoginAt < before {
+		t.Fatalf("last_login_at = %d, want at least %d", user.LastLoginAt, before)
+	}
+}
