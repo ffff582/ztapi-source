@@ -531,7 +531,8 @@ func isAnthropicCredentialPath(request *http.Request) bool {
 		return false
 	}
 	path := request.URL.Path
-	if path == "/v1/messages" {
+	// Includes /v1/messages/count_tokens, which Claude Code calls with x-api-key.
+	if path == "/v1/messages" || strings.HasPrefix(path, "/v1/messages/") {
 		return true
 	}
 	isModelRoute := path == "/v1/models" || strings.HasPrefix(path, "/v1/models/")

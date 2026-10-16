@@ -328,6 +328,14 @@ func TestTokenAuthAcceptsCompleteZTAPICredentialTransports(t *testing.T) {
 			},
 		},
 		{
+			name:   "anthropic x-api-key on count_tokens",
+			method: http.MethodPost,
+			target: "/v1/messages/count_tokens",
+			configure: func(request *http.Request, key string) {
+				request.Header.Set("x-api-key", key)
+			},
+		},
+		{
 			name:   "gemini x-goog-api-key",
 			method: http.MethodPost,
 			target: "/v1beta/models/gemini-test:generateContent",
@@ -399,6 +407,14 @@ func TestTokenAuthScrubsCredentialsBeforeLoggerAndRelayMetadata(t *testing.T) {
 			name:   "anthropic x-api-key",
 			method: http.MethodPost,
 			target: "/v1/messages",
+			configure: func(request *http.Request, key string) {
+				request.Header.Set("x-api-key", key)
+			},
+		},
+		{
+			name:   "anthropic x-api-key on count_tokens",
+			method: http.MethodPost,
+			target: "/v1/messages/count_tokens",
 			configure: func(request *http.Request, key string) {
 				request.Header.Set("x-api-key", key)
 			},

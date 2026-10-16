@@ -52,3 +52,22 @@ func TestReasoningOutputFloorLeavesDeliberateLimitsAlone(t *testing.T) {
 		})
 	}
 }
+
+// The supplier answers any reasoning control on Claude chat with 422, which
+// failed nearly every Claude Code turn; the request must reach it without one.
+func TestClaudeChatRequestsDropReasoningControls(t *testing.T) {
+	body := `{"model":"claude-sonnet-5","max_tokens":64,"reasoning_effort":"high","thinking":{"type":"enabled","budget_tokens":1024},"messages":[{"role":"user","content":"hi"}]}`
+	out, err := ValidateAndNormalizeZTAPIReasoningJSON(managedInfo("claude-sonnet-5"), []byte(body), types.RelayFormatOpenAI)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"model":"claude-sonnet-5","max_tokens":64,"messages":[{"role":"user","content":"hi"}]}`, string(out))
+
+	// Other models and non-chat formats keep their reasoning controls.
+	gpt := `{"max_tokens":4096,"reasoning_effort":"high"}`
+	out, err = ValidateAndNormalizeZTAPIReasoningJSON(managedInfo("gpt-5.5"), []byte(gpt), types.RelayFormatOpenAI)
+	require.NoError(t, err)
+	require.Equal(t, "high", gjson.GetBytes(out, "reasoning_effort").String())
+	native := `{"max_tokens":4096,"thinking":{"type":"enabled","budget_tokens":1024}}`
+	out, err = ValidateAndNormalizeZTAPIReasoningJSON(managedInfo("claude-sonnet-5"), []byte(native), types.RelayFormatClaude)
+	require.NoError(t, err)
+	require.JSONEq(t, native, string(out))
+}

@@ -51,6 +51,7 @@ func ValidateAndNormalizeZTAPIReasoningJSON(info *relaycommon.RelayInfo, body []
 		return body, nil
 	}
 	body = applyZTAPIReasoningOutputFloor(info, body, format)
+	body = stripZTAPIClaudeChatReasoning(info, body, format)
 	requested := relaycommon.ReasoningEffortFromJSON(body, format)
 	if requested == "" {
 		return body, nil
