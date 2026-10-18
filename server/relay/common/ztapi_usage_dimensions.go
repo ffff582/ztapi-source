@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 
+	basecommon "github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
@@ -46,8 +48,34 @@ func ValidateZTAPIUsageDimensions(c *gin.Context, info *RelayInfo, usage *dto.Us
 	if info == nil || info.ZTAPIPublicationSnapshot == nil {
 		return ZTAPIUsageDimensionResult{}
 	}
-	result := ZTAPIUsageDimensionResult{Managed: true, UsageMissing: usage == nil}
+	localEstimate := (usage != nil && usage.UsageSource == "local_estimate") ||
+		(c != nil && basecommon.GetContextKeyBool(c, constant.ContextKeyLocalCountTokens))
+	result := ZTAPIUsageDimensionResult{Managed: true, UsageMissing: usage == nil || localEstimate}
 	invalid := make(map[string]bool)
+	complete := false
+	if info.ZTAPIMetering != nil {
+		complete = info.ZTAPIMetering.UsageIntegrityComplete
+		for _, reason := range types.SanitizeZTAPIUsageIntegrityReasons(info.ZTAPIMetering.UsageIntegrityReasons) {
+			invalid[reason] = true
+		}
+	}
+	if c != nil {
+		complete = complete || c.GetBool(usageIntegrityCompleteKey)
+		value, _ := c.Get(usageIntegrityReasonsKey)
+		reasons, _ := value.([]string)
+		for _, reason := range types.SanitizeZTAPIUsageIntegrityReasons(reasons) {
+			invalid[reason] = true
+		}
+	}
+	mergeAlias := func(name string, first, second int) int {
+		if first != 0 && second != 0 && first != second {
+			invalid[name] = true
+		}
+		if first == 0 {
+			return second
+		}
+		return first
+	}
 	quantities := make(map[string]int64)
 	units := make(map[string]string)
 	add := func(name, unit string, quantity int64) {
@@ -122,12 +150,12 @@ func ValidateZTAPIUsageDimensions(c *gin.Context, info *RelayInfo, usage *dto.Us
 					invalid[name] = true
 				}
 			}
-			details.CachedTokens = max(details.CachedTokens, other.CachedTokens)
-			details.CachedCreationTokens = max(details.CachedCreationTokens, other.CachedCreationTokens)
-			details.ImageTokens = max(details.ImageTokens, other.ImageTokens)
-			details.AudioTokens = max(details.AudioTokens, other.AudioTokens)
+			details.CachedTokens = mergeAlias("cache_read", details.CachedTokens, other.CachedTokens)
+			details.CachedCreationTokens = mergeAlias("cache_write", details.CachedCreationTokens, other.CachedCreationTokens)
+			details.ImageTokens = mergeAlias("image_input_tokens", details.ImageTokens, other.ImageTokens)
+			details.AudioTokens = mergeAlias("audio_input_tokens", details.AudioTokens, other.AudioTokens)
 		}
-		cacheRead := int64(max(details.CachedTokens, usage.PromptCacheHitTokens))
+		cacheRead := int64(mergeAlias("cache_read", details.CachedTokens, usage.PromptCacheHitTokens))
 		write5m, write1h := int64(usage.ClaudeCacheCreation5mTokens), int64(usage.ClaudeCacheCreation1hTokens)
 		cacheWrite := max(int64(details.CachedCreationTokens), write5m+write1h)
 		// The generic write count is a total, not another charge on top of TTLs.
@@ -180,7 +208,8 @@ func ValidateZTAPIUsageDimensions(c *gin.Context, info *RelayInfo, usage *dto.Us
 		}
 		result.Dimensions = append(result.Dimensions, dimension)
 	}
-	if !result.UsageMissing && len(result.Dimensions) == 0 {
+	confirmedZero := complete && usage != nil && usage.UsageSource == "upstream_reported" && usage.UsageSemantic == "openai"
+	if !result.UsageMissing && len(result.Dimensions) == 0 && !confirmedZero {
 		invalid["usage_zero_unconfirmed"] = true
 	}
 	for name := range invalid {

@@ -51,7 +51,7 @@ func postZTAPIDurableTextQuota(c *gin.Context, info *relaycommon.RelayInfo, usag
 		_ = pendZTAPIBilling(info, usage, []string{"charge_calculation_invalid"})
 		return true
 	}
-	rawUsage, err := common.Marshal(usage)
+	rawUsage, err := marshalZTAPIBillingUsage(info, usage)
 	if err != nil {
 		return true
 	}
@@ -87,6 +87,9 @@ func postZTAPIDurableTextQuota(c *gin.Context, info *relaycommon.RelayInfo, usag
 		}
 	}
 	otherInfo := map[string]any{"billing_source": "wallet", "billing_status": "settled", "billing_dimensions": check.Dimensions, "publication_version": snapshot.Version, "price_source_version": snapshot.PriceSourceVersion, "usage_semantic": check.UsageSemantic}
+	if evidence := ztapiMeteringSnapshot(info, usage); evidence != nil {
+		otherInfo["ztapi_metering_evidence"] = evidence
+	}
 	if tier != "" {
 		otherInfo["billing_tier"] = tier
 	}
@@ -151,5 +154,6 @@ func ztapiUsageValidationInfo(info *relaycommon.RelayInfo, snapshot *relaycommon
 		FinalRequestRelayFormat:  info.GetFinalRequestRelayFormat(),
 		ResponsesUsageInfo:       info.ResponsesUsageInfo,
 		ZTAPIPublicationSnapshot: snapshot,
+		ZTAPIMetering:            info.ZTAPIMetering,
 	}
 }

@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -36,6 +37,12 @@ func ClaudeToOpenAIRequest(claudeRequest dto.ClaudeRequest, info *relaycommon.Re
 	}
 
 	isOpenRouter := info.ChannelType == constant.ChannelTypeOpenRouter
+	isOpenRouterClaude := isOpenRouter && strings.HasPrefix(info.UpstreamModelName, "anthropic/claude")
+	preserveClaudeCache := info.ZTAPIPublicationSnapshot != nil &&
+		(strings.HasPrefix(info.UpstreamModelName, "claude-") || isOpenRouterClaude)
+	if preserveClaudeCache {
+		openAIRequest.CacheControl = claudeRequest.CacheControl
+	}
 
 	if isOpenRouter {
 		if effort := claudeRequest.GetEfforts(); effort != "" {
@@ -87,6 +94,9 @@ func ClaudeToOpenAIRequest(claudeRequest dto.ClaudeRequest, info *relaycommon.Re
 				Parameters:  claudeTool.InputSchema,
 			},
 		}
+		if preserveClaudeCache {
+			openAITool.CacheControl = claudeTool.CacheControl
+		}
 		openAITools = append(openAITools, openAITool)
 	}
 	openAIRequest.Tools = openAITools
@@ -108,8 +118,16 @@ func ClaudeToOpenAIRequest(claudeRequest dto.ClaudeRequest, info *relaycommon.Re
 				openAIMessage := dto.Message{
 					Role: "system",
 				}
-				isOpenRouterClaude := isOpenRouter && strings.HasPrefix(info.UpstreamModelName, "anthropic/claude")
-				if isOpenRouterClaude {
+				preserveSystemBlocks := isOpenRouterClaude
+				if preserveClaudeCache {
+					for _, system := range systems {
+						if len(system.CacheControl) > 0 {
+							preserveSystemBlocks = true
+							break
+						}
+					}
+				}
+				if preserveSystemBlocks {
 					systemMediaMessages := make([]dto.MediaContent, 0, len(systems))
 					for _, system := range systems {
 						message := dto.MediaContent{
@@ -230,16 +248,31 @@ func buildClaudeUsageFromOpenAIUsage(oaiUsage *dto.Usage) *dto.ClaudeUsage {
 	if oaiUsage == nil {
 		return nil
 	}
-	cacheCreation5m, cacheCreation1h := NormalizeCacheCreationSplit(
-		oaiUsage.PromptTokensDetails.CachedCreationTokens,
-		oaiUsage.ClaudeCacheCreation5mTokens,
-		oaiUsage.ClaudeCacheCreation1hTokens,
-	)
+	cacheRead := max(oaiUsage.PromptTokensDetails.CachedTokens, oaiUsage.PromptCacheHitTokens, 0)
+	cacheCreationTotal := max(oaiUsage.PromptTokensDetails.CachedCreationTokens, 0)
+	if details := oaiUsage.InputTokensDetails; details != nil {
+		cacheRead = max(cacheRead, details.CachedTokens)
+		cacheCreationTotal = max(cacheCreationTotal, details.CachedCreationTokens)
+	}
+	// Bound only the client projection; retain raw billing counts for validation.
+	cacheCreation1h := max(oaiUsage.ClaudeCacheCreation1hTokens, 0)
+	cacheCreation5m := min(max(oaiUsage.ClaudeCacheCreation5mTokens, 0), math.MaxInt-cacheCreation1h)
+	cacheCreation := cacheCreation5m + cacheCreation1h
+	if cacheCreationTotal > cacheCreation {
+		cacheCreation5m += cacheCreationTotal - cacheCreation
+		cacheCreation = cacheCreationTotal
+	}
+	inputTokens := max(oaiUsage.PromptTokens, 0)
+	// OpenAI prompt totals include cache reads and writes; native Anthropic input does not.
+	if oaiUsage.UsageSemantic != "anthropic" {
+		inputTokens -= min(inputTokens, cacheRead)
+		inputTokens -= min(inputTokens, cacheCreation)
+	}
 	usage := &dto.ClaudeUsage{
-		InputTokens:              oaiUsage.PromptTokens,
-		OutputTokens:             oaiUsage.CompletionTokens,
-		CacheCreationInputTokens: oaiUsage.PromptTokensDetails.CachedCreationTokens,
-		CacheReadInputTokens:     oaiUsage.PromptTokensDetails.CachedTokens,
+		InputTokens:              inputTokens,
+		OutputTokens:             max(oaiUsage.CompletionTokens, 0),
+		CacheCreationInputTokens: cacheCreation,
+		CacheReadInputTokens:     cacheRead,
 	}
 	if cacheCreation5m > 0 || cacheCreation1h > 0 {
 		usage.CacheCreation = &dto.ClaudeCacheCreationUsage{

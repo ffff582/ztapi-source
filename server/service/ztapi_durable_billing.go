@@ -181,7 +181,16 @@ func (s *ztapiDurableBilling) Refund(c *gin.Context) error {
 			}
 		}
 		if !released && err == nil {
-			row, err = model.PendZTAPIRequestSettlement(s.row.OperationID, "{}", model.ZTAPIMissingUpstreamBillingUnconfirmed)
+			usageJSON := "{}"
+			if s.info.ZTAPIMetering != nil {
+				var raw []byte
+				raw, err = marshalZTAPIBillingUsage(s.info, (*dto.Usage)(nil))
+				if err != nil {
+					return err
+				}
+				usageJSON = string(raw)
+			}
+			row, err = model.PendZTAPIRequestSettlement(s.row.OperationID, usageJSON, model.ZTAPIMissingUpstreamBillingUnconfirmed)
 		}
 	} else {
 		row, err = model.ReleaseZTAPIRequestSettlement(s.row.OperationID)
@@ -263,7 +272,7 @@ func pendZTAPIBilling(info *relaycommon.RelayInfo, usage any, missing []string) 
 	if !ok {
 		return model.ErrZTAPISettlementInvalid
 	}
-	raw, err := common.Marshal(usage)
+	raw, err := marshalZTAPIBillingUsage(info, usage)
 	if err != nil {
 		return err
 	}

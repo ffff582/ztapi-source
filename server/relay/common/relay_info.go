@@ -197,6 +197,8 @@ type RelayInfo struct {
 	ThinkingContentInfo
 	TokenCountMeta
 	*ClaudeConvertInfo
+	ZTAPIMetering          *ZTAPIMeteringEvidence
+	ZTAPIUsageLastSnapshot map[string]int64
 	*RerankerInfo
 	*ResponsesUsageInfo
 	*ChannelMeta

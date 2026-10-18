@@ -112,6 +112,7 @@ type GeneralOpenAIRequest struct {
 	//xai
 	SearchParameters json.RawMessage `json:"search_parameters,omitempty"`
 	// claude
+	CacheControl     json.RawMessage   `json:"cache_control,omitempty"`
 	WebSearchOptions *WebSearchOptions `json:"web_search_options,omitempty"`
 	// OpenRouter Params
 	Usage     json.RawMessage `json:"usage,omitempty"`
@@ -266,10 +267,11 @@ func (r *GeneralOpenAIRequest) GetSystemRoleName() string {
 const CustomType = "custom"
 
 type ToolCallRequest struct {
-	ID       string          `json:"id,omitempty"`
-	Type     string          `json:"type"`
-	Function FunctionRequest `json:"function,omitempty"`
-	Custom   json.RawMessage `json:"custom,omitempty"`
+	ID           string          `json:"id,omitempty"`
+	Type         string          `json:"type"`
+	Function     FunctionRequest `json:"function,omitempty"`
+	Custom       json.RawMessage `json:"custom,omitempty"`
+	CacheControl json.RawMessage `json:"cache_control,omitempty"`
 }
 
 type FunctionRequest struct {

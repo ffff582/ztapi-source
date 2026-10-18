@@ -231,6 +231,13 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 	if request == nil {
 		return nil, errors.New("request is nil")
 	}
+	// These DTO fields were previously ignored on unmanaged OpenAI ingress.
+	if info.ZTAPIPublicationSnapshot == nil {
+		request.CacheControl = nil
+		for i := range request.Tools {
+			request.Tools[i].CacheControl = nil
+		}
+	}
 	// Pool Claude routes may expose provider-side agent tools unless explicitly
 	// disabled. Never invent tools for a client that did not supply any.
 	if info.ZTAPIPublicationSnapshot != nil && info.RelayMode == relayconstant.RelayModeChatCompletions &&

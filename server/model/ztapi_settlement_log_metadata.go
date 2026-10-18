@@ -5,6 +5,7 @@ import (
 	"regexp"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/shopspring/decimal"
 )
 
@@ -30,6 +31,7 @@ type ztapiSettlementLogMetadata struct {
 	ReasoningTokensReported  *int                          `json:"reasoning_tokens_reported,omitempty"`
 	RequestPath              string                        `json:"request_path,omitempty"`
 	ClientUserAgent          string                        `json:"client_user_agent,omitempty"`
+	MeteringEvidence         *types.ZTAPIMeteringEvidence  `json:"ztapi_metering_evidence,omitempty"`
 }
 
 var ztapiSettlementLogDimensionName = regexp.MustCompile(`^[a-z][a-z0-9_:.-]{0,127}$`)
@@ -80,6 +82,9 @@ func sanitizeZTAPISettlementLogMetadata(log *Log) error {
 		return ErrZTAPISettlementLogInvalid
 	}
 	// Diagnostic fields are optional; a malformed one is dropped, not fatal.
+	if metadata.MeteringEvidence != nil {
+		metadata.MeteringEvidence = metadata.MeteringEvidence.Sanitized()
+	}
 	if !ztapiSettlementLogRequestPath.MatchString(metadata.RequestPath) {
 		metadata.RequestPath = ""
 	}

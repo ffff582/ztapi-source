@@ -51,6 +51,7 @@ func OaiResponsesToChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
 	}
 
+	observed := relaycommon.ObserveZTAPIOpenAIUsage(c, info, body)
 	if err := common.Unmarshal(body, &responsesResp); err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
@@ -65,9 +66,16 @@ func OaiResponsesToChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
 
-	if usage == nil || usage.TotalTokens == 0 {
+	if observed != nil {
+		usage = observed
+	}
+	if observed == nil && (info.ZTAPIPublicationSnapshot != nil || !service.ValidUsage(usage)) {
 		text := service.ExtractOutputTextFromResponses(&responsesResp)
 		usage = service.ResponseText2Usage(c, text, info.UpstreamModelName, info.GetEstimatePromptTokens())
+		chatResp.Usage = *usage
+	} else {
+		normalizeChatUsage(info, usage)
+		relaycommon.CaptureZTAPIUpstreamUsageEvidence(info, body, "nonstream")
 		chatResp.Usage = *usage
 	}
 
@@ -102,13 +110,14 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 	model := info.UpstreamModelName
 
 	var (
-		usage       = &dto.Usage{}
-		outputText  strings.Builder
-		usageText   strings.Builder
-		sentStart   bool
-		sentStop    bool
-		sawToolCall bool
-		streamErr   *types.NewAPIError
+		usage        = &dto.Usage{}
+		outputText   strings.Builder
+		usageText    strings.Builder
+		sentStart    bool
+		sentStop     bool
+		sawToolCall  bool
+		streamErr    *types.NewAPIError
+		managedUsage bool
 	)
 
 	toolCallIndexByID := make(map[string]int)
@@ -301,6 +310,11 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			sr.Stop(streamErr)
 			return
 		}
+		observed := relaycommon.ObserveZTAPIOpenAIUsage(c, info, []byte(data))
+		if observed != nil {
+			usage, managedUsage = observed, true
+			relaycommon.CaptureZTAPIUpstreamUsageEvidence(info, []byte(data), "stream")
+		}
 
 		var streamResp dto.ResponsesStreamResponse
 		if err := common.UnmarshalJsonStr(data, &streamResp); err != nil {
@@ -450,7 +464,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 				if streamResp.Response.CreatedAt != 0 {
 					createAt = int64(streamResp.Response.CreatedAt)
 				}
-				if streamResp.Response.Usage != nil {
+				if info.ZTAPIPublicationSnapshot == nil && streamResp.Response.Usage != nil {
 					if streamResp.Response.Usage.InputTokens != 0 {
 						usage.PromptTokens = streamResp.Response.Usage.InputTokens
 						usage.InputTokens = streamResp.Response.Usage.InputTokens
@@ -471,6 +485,10 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 					}
 					if streamResp.Response.Usage.CompletionTokenDetails.ReasoningTokens != 0 {
 						usage.CompletionTokenDetails.ReasoningTokens = streamResp.Response.Usage.CompletionTokenDetails.ReasoningTokens
+					}
+					if service.ValidUsage(usage) {
+						normalizeChatUsage(info, usage)
+						relaycommon.CaptureZTAPIUpstreamUsageEvidence(info, []byte(data), "stream")
 					}
 				}
 			}
@@ -515,7 +533,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		return nil, streamErr
 	}
 
-	if usage.TotalTokens == 0 {
+	if !managedUsage && !service.ValidUsage(usage) {
 		usage = service.ResponseText2Usage(c, usageText.String(), info.UpstreamModelName, info.GetEstimatePromptTokens())
 	}
 

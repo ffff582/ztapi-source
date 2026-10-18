@@ -182,6 +182,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 
 	relayInfo.SetEstimatePromptTokens(tokens)
+	relaycommon.CaptureZTAPIRequestMetering(c, relayInfo, meta)
 
 	priceData, err := helper.ModelPriceHelper(c, relayInfo, tokens, meta)
 	if err != nil {

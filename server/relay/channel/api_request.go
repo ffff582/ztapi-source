@@ -321,6 +321,11 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 		return nil, fmt.Errorf("new request failed: %w", err)
 	}
 	applyUpstreamContentLength(req, info)
+	bodySize := req.ContentLength
+	if bodySize == 0 && req.Body != nil && req.Body != http.NoBody {
+		bodySize = -1
+	}
+	common.CaptureZTAPIOutboundRequestMetering(info, bodySize)
 	headers := req.Header
 	err = a.SetupRequestHeader(c, &headers, info)
 	if err != nil {

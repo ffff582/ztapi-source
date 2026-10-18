@@ -121,6 +121,7 @@ func OaiChatToResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
 	}
 	var chat dto.OpenAITextResponse
+	observed := relaycommon.ObserveZTAPIOpenAIUsage(c, info, body)
 	if err := common.Unmarshal(body, &chat); err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
@@ -164,7 +165,13 @@ func OaiChatToResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	}
 
 	usage := &chat.Usage
-	if usage.PromptTokens == 0 && usage.CompletionTokens == 0 {
+	if observed != nil || (info.ZTAPIPublicationSnapshot == nil && service.ValidUsage(usage)) {
+		if observed != nil {
+			usage = observed
+		}
+		normalizeChatUsage(info, usage)
+		relaycommon.CaptureZTAPIUpstreamUsageEvidence(info, body, "nonstream")
+	} else {
 		// Flagged as a local count, so managed billing parks it for review
 		// instead of charging an estimate.
 		usage = service.ResponseText2Usage(c, text.String(), info.UpstreamModelName, info.GetEstimatePromptTokens())
@@ -399,6 +406,7 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 	)
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
+		observed := relaycommon.ObserveZTAPIOpenAIUsage(c, info, []byte(data))
 		var chunk struct {
 			dto.ChatCompletionsStreamResponse
 			Error any `json:"error"`
@@ -413,8 +421,14 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			return
 		}
 		stream.start()
-		if chunk.Usage != nil && service.ValidUsage(chunk.Usage) {
-			usage = chunk.Usage
+		if observed != nil || (info.ZTAPIPublicationSnapshot == nil && service.ValidUsage(chunk.Usage)) {
+			selected := chunk.Usage
+			if observed != nil {
+				selected = observed
+			}
+			normalizeChatUsage(info, selected)
+			relaycommon.CaptureZTAPIUpstreamUsageEvidence(info, []byte(data), "stream")
+			usage = selected
 		}
 		for _, choice := range chunk.Choices {
 			if choice.Index != 0 {
