@@ -527,6 +527,9 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		client = &managedClient
 	}
 
+	if err := service.ReserveZTAPIReasoningOutputBudget(info); err != nil {
+		return nil, err
+	}
 	healthAttempt, healthErr := common.BeginZTAPIHealthUpstream(c, c.GetInt("channel_id"), req.URL.Path, ztapiHealthCredentialMaterial(info, req.Header))
 	if healthErr != nil {
 		return nil, healthErr

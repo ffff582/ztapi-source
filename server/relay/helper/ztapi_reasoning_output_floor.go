@@ -10,16 +10,14 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-// ZTAPIReasoningOutputFloor is the smallest output budget a reasoning model is
-// given. Clients often send a few tokens to "test the connection"; a reasoning
-// model spends them all thinking and returns nothing, which the client reports
-// as a broken key. Only actual usage is billed, so raising a tiny cap costs the
-// customer nothing it would not have paid for an answer.
+// ZTAPIReasoningOutputFloor protects tiny caps from being exhausted by hidden
+// reasoning before visible output. A larger budget can increase actual usage;
+// managed Claude chat reservations must cover the effective output budget.
 const ZTAPIReasoningOutputFloor = 1024
 
 // ztapiReasoningFamilyPrefixes covers reasoning models not yet listed in the
-// capability table. Claude is left out: it reasons only when thinking is
-// requested, so a small cap there is a deliberate length limit.
+// capability table. Native Claude requests keep their deliberate limits;
+// managed Claude chat bridges are handled separately below.
 var ztapiReasoningFamilyPrefixes = []string{"gpt-5", "o1", "o3", "o4", "deepseek", "gemini-2.5", "gemini-3", "glm-4.5", "glm-4.6", "glm-4.7", "glm-5", "kimi-k2", "kimi-k3", "qwen3"}
 
 func ztapiModelReasonsByDefault(sourceModel string) bool {
@@ -38,11 +36,23 @@ func ztapiModelReasonsByDefault(sourceModel string) bool {
 	return false
 }
 
+func ztapiClaudeChatReasonsByDefault(sourceModel string) bool {
+	sourceModel = strings.ToLower(strings.TrimSpace(sourceModel))
+	return strings.HasPrefix(sourceModel, "claude-sonnet-") ||
+		strings.HasPrefix(sourceModel, "claude-opus-") ||
+		strings.HasPrefix(sourceModel, "claude-fable-")
+}
+
 // applyZTAPIReasoningOutputFloor raises an explicit output cap below
 // ZTAPIReasoningOutputFloor for a managed reasoning model. A request without a
 // cap is left to the supplier default.
 func applyZTAPIReasoningOutputFloor(info *relaycommon.RelayInfo, body []byte, format types.RelayFormat) []byte {
-	if info == nil || info.ZTAPIPublicationSnapshot == nil || !ztapiModelReasonsByDefault(info.ZTAPIPublicationSnapshot.SourceModel) {
+	if info == nil || info.ZTAPIPublicationSnapshot == nil {
+		return body
+	}
+	sourceModel := info.ZTAPIPublicationSnapshot.SourceModel
+	if !ztapiModelReasonsByDefault(sourceModel) &&
+		!(format == types.RelayFormatOpenAI && ztapiClaudeChatReasonsByDefault(sourceModel)) {
 		return body
 	}
 	var paths []string
@@ -60,11 +70,15 @@ func applyZTAPIReasoningOutputFloor(info *relaycommon.RelayInfo, body []byte, fo
 	}
 	for _, path := range paths {
 		value := gjson.GetBytes(body, path)
-		if !value.Exists() || value.Type != gjson.Number || value.Int() >= ZTAPIReasoningOutputFloor {
+		if !value.Exists() || value.Type != gjson.Number || value.Int() <= 0 ||
+			value.Float() != float64(value.Int()) || value.Int() >= ZTAPIReasoningOutputFloor {
 			continue
 		}
 		if updated, err := sjson.SetBytes(body, path, ZTAPIReasoningOutputFloor); err == nil {
 			body = updated
+			if format == types.RelayFormatOpenAI && ztapiClaudeChatReasonsByDefault(sourceModel) {
+				info.ZTAPIReasoningOutputBudget = ZTAPIReasoningOutputFloor
+			}
 		}
 	}
 	return body

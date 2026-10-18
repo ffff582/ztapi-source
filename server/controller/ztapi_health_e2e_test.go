@@ -48,6 +48,7 @@ type ztapiE2EFixture struct {
 	replies                      []ztapiE2EReply
 	upstreamPaths                []string
 	upstreamBodies               [][]byte
+	upstreamReservations         []int64
 	calls                        atomic.Int64
 	quotaWrites                  atomic.Int64
 }
@@ -122,10 +123,14 @@ func newZTAPIHealthE2EFixtureForModel(t *testing.T, publicName, sourceModel stri
 		if body.Model != f.sourceModel {
 			t.Errorf("publication did not map outbound model: %q", body.Model)
 		}
-		if r.URL.Path != "/v1/chat/completions" && r.URL.Path != "/v1/responses" {
+		if r.URL.Path != "/v1/chat/completions" && r.URL.Path != "/v1/responses" && r.URL.Path != "/v1/messages" {
 			t.Errorf("unexpected upstream path: %s", r.URL.Path)
 		}
-		if r.Header.Get("Authorization") != "Bearer local-e2e-upstream-key" {
+		credentialValid := r.Header.Get("Authorization") == "Bearer local-e2e-upstream-key"
+		if r.URL.Path == "/v1/messages" {
+			credentialValid = r.Header.Get("X-Api-Key") == "local-e2e-upstream-key"
+		}
+		if !credentialValid {
 			t.Error("real channel authentication was not applied")
 		}
 		var reservations int64
@@ -140,6 +145,9 @@ func newZTAPIHealthE2EFixtureForModel(t *testing.T, publicName, sourceModel stri
 		if err := f.db.Order("id DESC").Take(&held).Error; err != nil {
 			t.Errorf("dispatch has no durable settlement: %v", err)
 		} else {
+			f.mu.Lock()
+			f.upstreamReservations = append(f.upstreamReservations, held.ReservedQuota)
+			f.mu.Unlock()
 			assert.Equal(t, model.ZTAPISettlementReserved, held.Status)
 			assert.True(t, held.Dispatched, "dispatch intent must commit before network I/O")
 			var attempts []model.ZTAPIRequestAttempt

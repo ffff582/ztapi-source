@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "7c8b0b98a0bcdf39263e46cc573de434498dcfad",
+  "release_commit": "af0f8a93dfc3eec9909f0603406c962a4ca2da8d",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-7c8b0b98a0bcdf39263e46cc573de434498dcfad",
+  "source_tag": "production-af0f8a93dfc3eec9909f0603406c962a4ca2da8d",
   "files": [
     {
       "path": ".dockerignore",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "71590db4042d6ba0df4e1da9b2fb6e16484ae75ccc01e6a495544d3fc57db9ff",
+      "sha256": "f9db79581ba78876a20e2275bb7c74befc23ac87e008742fa319c289ea9f1c9d",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "074bbab8f71c76d1065693fbd597e5d9091b073479b16eb24b5d9f6f733bb81a",
+      "sha256": "cc8b1334e23af620f6dba69269b5a8ddc2e87ddb16c09e1314146ca51631a138",
       "size": 942
     },
     {
@@ -1151,8 +1151,13 @@
     },
     {
       "path": "server/controller/relay.go",
-      "sha256": "fd08f299b21e50a25268aa0efdf006840b7b7c11922239b5fea2fb04e2228385",
-      "size": 32659
+      "sha256": "07dfba5c8ae606f6f3abe778c6d722257ce8e6e5aa8ae2cabe2c4f42c9cc5e64",
+      "size": 32720
+    },
+    {
+      "path": "server/controller/relay_client_error.go",
+      "sha256": "3f79f34bcd80327ab7d6502ff55af6cbb02c0714023eb1aacb214ae10fc302b1",
+      "size": 1767
     },
     {
       "path": "server/controller/relay_retry_selection_test.go",
@@ -1380,6 +1385,11 @@
       "size": 8701
     },
     {
+      "path": "server/controller/ztapi_claude_budget_fallback_test.go",
+      "sha256": "b47319dd1a47522b97e89d4ae650fb4e999c411ecdb1fc676f72d7c4834ef3dd",
+      "size": 4104
+    },
+    {
       "path": "server/controller/ztapi_email_test.go",
       "sha256": "021614a1af5b3194eb4ee8e898cc177c65b2f5a3d8e0fe094758e7a6ee7c55c6",
       "size": 4421
@@ -1401,8 +1411,8 @@
     },
     {
       "path": "server/controller/ztapi_health_e2e_test.go",
-      "sha256": "fdba8ffbadd4c0bb27c7a4c2d3131dc4474c30ad97c47a34cbf2cb4bcc108a06",
-      "size": 27180
+      "sha256": "be92b469d7cca08531e4677ca6108b4132d0e02fa332dd95d99e57b11f77061e",
+      "size": 27514
     },
     {
       "path": "server/controller/ztapi_health_test_alert_test.go",
@@ -1491,8 +1501,8 @@
     },
     {
       "path": "server/controller/ztapi_responses_via_chat_e2e_test.go",
-      "sha256": "8da2f1705c35b898edfeea0b69bbc12641bad4d9f591f5401a960d0e5da97d4a",
-      "size": 11742
+      "sha256": "26a0de182a74a1ea7a6e4c2160100546453fc0a689f2a0b4157aec23156a0377",
+      "size": 11743
     },
     {
       "path": "server/controller/ztapi_source.go",
@@ -1523,6 +1533,11 @@
       "path": "server/controller/ztapi_supplier_refund_test.go",
       "sha256": "43950c3dc1073d6ab6ea61cb6b4742c6cfa537e909d4b6aa439d35d28d02e7ae",
       "size": 5706
+    },
+    {
+      "path": "server/controller/ztapi_upstream_auth_response_test.go",
+      "sha256": "421d6f4d46acf51464a9d08b8a28fdcbf4b065590d451f4c3bf086f443765fad",
+      "size": 7378
     },
     {
       "path": "server/docker-compose.dev.yml",
@@ -3156,8 +3171,8 @@
     },
     {
       "path": "server/relay/channel/api_request.go",
-      "sha256": "557c0ba56f78ea410a841a5d322f4bbe096fdb3117cd934f3a1c5cf85241b76e",
-      "size": 19295
+      "sha256": "036b9a4c1a4793a7a896d068fdde1332c237ccbc6baf908162573a5a03b92592",
+      "size": 19389
     },
     {
       "path": "server/relay/channel/api_request_test.go",
@@ -4056,13 +4071,13 @@
     },
     {
       "path": "server/relay/common/relay_info.go",
-      "sha256": "d1e3d59534a7b83a4587fed4100d6afe98aa2ab11fc0d838daeec5b67c36d66e",
-      "size": 40651
+      "sha256": "1daca157f45e7dd1a58a30e7d1b08b8540b3a32e4beef30a61893aca7e51507b",
+      "size": 40895
     },
     {
       "path": "server/relay/common/relay_info_test.go",
-      "sha256": "60c6a92b6a5eb3cfbf9d46450038a800edd31a8b3d24318ba1abae1336e2d1e2",
-      "size": 1968
+      "sha256": "5ce5ce4c2059c7f399ff3225ba71773e67bb877403f9dd230c06f703fb701b69",
+      "size": 3336
     },
     {
       "path": "server/relay/common/relay_utils.go",
@@ -4185,6 +4200,16 @@
       "size": 4068
     },
     {
+      "path": "server/relay/common/ztapi_reasoning_output_budget.go",
+      "sha256": "e9a0881a91c4fcb5402d00ed958ac4729ab04c17bf268fc863ae9222cb73c60c",
+      "size": 1983
+    },
+    {
+      "path": "server/relay/common/ztapi_reasoning_output_budget_test.go",
+      "sha256": "3794a3a47ed032f63cf655d75118344d7de8f13bec67e8fa461fbb5d39431018",
+      "size": 3343
+    },
+    {
       "path": "server/relay/common/ztapi_token_tier.go",
       "sha256": "a588449db94e18373297dc41e814b663df94869de00af42997372c8225c4c362",
       "size": 3630
@@ -4276,8 +4301,8 @@
     },
     {
       "path": "server/relay/helper/price.go",
-      "sha256": "c49ec6236789c4ea676d30de3fb4c1da77313f52a60cfe1aac3312664bd14018",
-      "size": 14714
+      "sha256": "476fb7d8e7c886c6ce96e9034d0b673949a4a2d22b38d61fdab93a60398cce9e",
+      "size": 15677
     },
     {
       "path": "server/relay/helper/price_test.go",
@@ -4310,9 +4335,14 @@
       "size": 13365
     },
     {
+      "path": "server/relay/helper/ztapi_claude_chat_budget_test.go",
+      "sha256": "813eeb551aee2d2b135d3b19ddb02dc35c985bcd29e68e32e4b196fb809f17cf",
+      "size": 2327
+    },
+    {
       "path": "server/relay/helper/ztapi_claude_chat_reasoning.go",
-      "sha256": "42fa430798575235f6118ef456f1a958b20e23f6fac2dea618459078d7876666",
-      "size": 1416
+      "sha256": "462172ec09a31651b2ece5073dad581016b72e5dee7376ec3fc34d6eac83394c",
+      "size": 1450
     },
     {
       "path": "server/relay/helper/ztapi_embedding_price_test.go",
@@ -4321,13 +4351,13 @@
     },
     {
       "path": "server/relay/helper/ztapi_reasoning_output_floor.go",
-      "sha256": "7007650f4405d7c929f5f0de1ff145d59ee5c85cbfcc6f4aa09eddad89346d50",
-      "size": 2761
+      "sha256": "0d1e99d23e8efcea1259071c659aa43d329bb979f4417b7513811e9e7f161d5d",
+      "size": 3265
     },
     {
       "path": "server/relay/helper/ztapi_reasoning_output_floor_test.go",
-      "sha256": "6fefde81bd2de7f5192ceac4ad5a116b81ef62952f9c7d22c5beda53bf140a6c",
-      "size": 3704
+      "sha256": "b1c469342cd5dce44d64371f94ee27e40aa3ad9123aff58ce97b3eb89e5de51c",
+      "size": 4684
     },
     {
       "path": "server/relay/helper/ztapi_reasoning_test.go",
@@ -5143,6 +5173,11 @@
       "path": "server/service/ztapi_pboc_fx_refresh_test.go",
       "sha256": "3fffc781288fd9a40b79aafe227c3f3bafeaf40ca4381e10ccaf18d56c3f7aec",
       "size": 3020
+    },
+    {
+      "path": "server/service/ztapi_reasoning_output_reservation.go",
+      "sha256": "5eefde23be7de553aaf8a2604281dffac81d342c7c3565242cacd02a28e537e4",
+      "size": 1836
     },
     {
       "path": "server/service/ztapi_supplier_reconciliation.go",

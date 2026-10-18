@@ -17,8 +17,8 @@ import (
 var ztapiClaudeChatReasoningFields = []string{"reasoning_effort", "thinking", "reasoning", "enable_thinking"}
 
 // stripZTAPIClaudeChatReasoning removes reasoning controls from a managed
-// Claude request bound for Chat Completions. The model still answers; it
-// does not use extended thinking.
+// Claude request bound for Chat Completions. Removing unsupported controls
+// does not guarantee that the supplier disables hidden reasoning.
 func stripZTAPIClaudeChatReasoning(info *relaycommon.RelayInfo, body []byte, format types.RelayFormat) []byte {
 	if format != types.RelayFormatOpenAI || info == nil || info.ZTAPIPublicationSnapshot == nil ||
 		!strings.HasPrefix(strings.ToLower(info.ZTAPIPublicationSnapshot.SourceModel), "claude-") {

@@ -171,6 +171,7 @@ type RelayInfo struct {
 
 	PriceData                   types.PriceData
 	ZTAPIPublicationSnapshot    *ZTAPIPublicationSnapshot
+	ZTAPIReasoningOutputBudget  int
 	ztapiValidatedImageResponse *ZTAPIValidatedImageResponse
 	ztapiMediaUsageEvidence     *ZTAPIMediaUsageEvidence
 	ztapiManagedImageDispatch   *ZTAPIManagedImageDispatch
@@ -424,6 +425,11 @@ func (info *RelayInfo) AbortZTAPIImageResponseAttempt(attemptID uint64) {
 }
 
 func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
+	// Response adaptors may pin the preceding attempt's wire protocol.
+	info.FinalRequestRelayFormat = ""
+	info.RequestConversionChain = nil
+	info.InitRequestConversionChain()
+	info.ZTAPIReasoningOutputBudget = 0
 	channelType := common.GetContextKeyInt(c, constant.ContextKeyChannelType)
 	paramOverride := common.GetContextKeyStringMap(c, constant.ContextKeyChannelParamOverride)
 	headerOverride := common.GetContextKeyStringMap(c, constant.ContextKeyChannelHeaderOverride)

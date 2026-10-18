@@ -140,7 +140,7 @@ func TestZTAPIResponsesForChatOnlyModelStreamsThroughChat(t *testing.T) {
 	w := f.postJSON(t, "/v1/responses", ztapiCodexStyleRequest(f.publicName, true))
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.Contains(t, w.Header().Get("Content-Type"), "text/event-stream")
-	f.assertChatUpstreamRequest(t, true, 256)
+	f.assertChatUpstreamRequest(t, true, 1024)
 
 	events := parseZTAPISSE(t, w.Body.String())
 	require.GreaterOrEqual(t, len(events), 6)

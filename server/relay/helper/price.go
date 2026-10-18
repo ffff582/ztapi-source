@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
@@ -89,6 +90,17 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 	var ztapiOutputPrice float64
 	publicationSnapshot := info.ZTAPIPublicationSnapshot
 	useZTAPIPricing := publicationSnapshot != nil
+	claudeChatBudgetRaised := useZTAPIPricing && meta != nil && meta.MaxTokens > 0 &&
+		meta.MaxTokens < ZTAPIReasoningOutputFloor &&
+		ztapiClaudeChatReasonsByDefault(publicationSnapshot.SourceModel) &&
+		common.GetContextKeyInt(c, constant.ContextKeyChannelType) == constant.ChannelTypeOpenAI
+	if claudeChatBudgetRaised {
+		// Pricing sees the bridge's effective budget without changing the
+		// original request, which a native fallback must still receive intact.
+		copy := *meta
+		copy.MaxTokens = ZTAPIReasoningOutputFloor
+		meta = &copy
+	}
 	if useZTAPIPricing {
 		if publicationSnapshot.PublicName != info.OriginModelName {
 			return types.PriceData{}, fmt.Errorf("ZTAPI pricing snapshot model mismatch: got %s, want %s", publicationSnapshot.PublicName, info.OriginModelName)
@@ -191,6 +203,15 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 		}
 		ratio := modelRatio * groupRatioInfo.GroupRatio
 		preConsumedQuota = int(float64(preConsumedTokens) * ratio)
+		if claudeChatBudgetRaised {
+			// Reserve the raised budget at the frozen output rate, not the
+			// ordinary-input approximation. Final charges still use actual usage.
+			var err error
+			preConsumedQuota, err = relaycommon.ZTAPIReasoningOutputReservationQuota(publicationSnapshot, promptTokens, meta.MaxTokens)
+			if err != nil {
+				return types.PriceData{}, err
+			}
+		}
 	} else {
 		if meta.ImagePriceRatio != 0 {
 			modelPrice = modelPrice * meta.ImagePriceRatio
