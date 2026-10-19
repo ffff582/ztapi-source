@@ -31,6 +31,7 @@ import (
 const (
 	ztapiVerificationRequestTimeout       = 20 * time.Second
 	ztapiVerificationSlowRequestTimeout   = 60 * time.Second
+	ztapiVerificationGPT61SolTimeout      = 120 * time.Second
 	ztapiVerificationVideoTimeout         = 5 * time.Minute
 	ztapiVerificationBodyLimit            = 1 << 20
 	ztapiVerificationFailureMetadataLimit = 2048
@@ -245,6 +246,9 @@ func ztapiVerificationUsesResponses(sourceModel string) bool {
 
 func ztapiVerificationRequestTimeoutForModel(sourceModel string) time.Duration {
 	normalized := strings.ToLower(strings.TrimSpace(sourceModel))
+	if normalized == "gpt-6.1-sol" {
+		return ztapiVerificationGPT61SolTimeout
+	}
 	if model.ZTAPIModelModality(normalized) == model.ZTAPIModalityVideo {
 		return ztapiVerificationVideoTimeout
 	}
