@@ -2956,8 +2956,8 @@
     },
     {
       "path": "server/model/ztapi_supplier_prices_20261019.json",
-      "sha256": "48cc9594d0d127a71af05ebcd999ed433209a95aaa822b745471e37c93c3a619",
-      "size": 10127
+      "sha256": "15f4342fd6793bf1bbd58577496c9141c1981cff7181f3651570df8917a02723",
+      "size": 9754
     },
     {
       "path": "server/model/ztapi_supplier_reconciliation.go",
