@@ -3,9 +3,34 @@ package model
 import (
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
+
+func TestSupplierRetailComparisonUsesFrozenBillingPrecision(t *testing.T) {
+	for _, tc := range []struct{ name, dimension, raw, multiplier, billed string }{
+		{"glm47", "cache_read", "0.0620555914", "0.9", "0.0558500323"},
+		{"glm51", "cache_read", "0.2016806723", "0.9", "0.1815126051"},
+		{"geminiFlash", "output_tokens", "3.1237454751", "0.92", "2.8738458371"},
+		{"geminiPro", "output_tokens", "12.4949819005", "0.92", "11.4953833485"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rules := func(price string) string {
+				raw, err := common.Marshal([]ztapiABFrozenSaleRule{{Conditions: []string{}, Sale: map[string]string{tc.dimension: price}}})
+				require.NoError(t, err)
+				return string(raw)
+			}
+			old := ZTAPIModelPriceSource{SaleMultiplier: tc.multiplier, TokenPriceRulesJSON: rules(tc.raw)}
+			target := ZTAPIModelPriceSource{SaleMultiplier: "1", TokenPriceRulesJSON: rules(tc.billed)}
+			require.NoError(t, ztapiRepriceDoesNotRaise(&old, &target))
+			raised := decimal.RequireFromString(tc.billed).Add(decimal.RequireFromString("0.0000000001"))
+			target.TokenPriceRulesJSON = rules(raised.StringFixed(10))
+			require.ErrorContains(t, ztapiRepriceDoesNotRaise(&old, &target), "would increase")
+		})
+	}
+}
 
 func supplierRepricingFixture20261019(t *testing.T) (*gorm.DB, ZTAPIModelConfig, ZTAPIModelPublicationSnapshot, ZTAPIModelPriceSource) {
 	t.Helper()

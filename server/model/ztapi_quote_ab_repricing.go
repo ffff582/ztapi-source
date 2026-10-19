@@ -104,7 +104,8 @@ func ztapiRepriceDoesNotRaise(oldSource, target *ZTAPIModelPriceSource) error {
 		for dimension, saleRaw := range rule.Sale {
 			sale, saleErr := decimal.NewFromString(saleRaw)
 			old, oldErr := decimal.NewFromString(oldRules[tier].Sale[dimension])
-			if saleErr != nil || oldErr != nil || sale.Mul(newMultiplier).GreaterThan(old.Mul(oldMultiplier)) {
+			// Compare the same precision frozen by ztapiDiscountTokenPriceRules.
+			if saleErr != nil || oldErr != nil || sale.Mul(newMultiplier).Round(10).GreaterThan(old.Mul(oldMultiplier).Round(10)) {
 				return fmt.Errorf("%s tier %d would increase the customer price", dimension, tier)
 			}
 		}
