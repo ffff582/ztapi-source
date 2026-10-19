@@ -305,6 +305,11 @@ func ValidateZTAPIModelPriceSource(source *ZTAPIModelPriceSource) error {
 			return err
 		}
 	}
+	if ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicyQuoteFrozenRetail20261019 {
+		if _, _, err := ztapiSupplierFrozenRules20261019(source); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -326,6 +331,10 @@ func BuildZTAPIModelPricePreview(source *ZTAPIModelPriceSource) (*ZTAPIModelPric
 	values := ztapiPriceSourceValues(source)
 	poolOfficial, _, poolOfficialOK := ztapiPoolOfficialPriceContractFromManifest(ztapiQuotation, source.SourceModel)
 	var firstParty78 map[string]decimal.Decimal
+	var frozenRetail map[string]decimal.Decimal
+	if ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicyQuoteFrozenRetail20261019 {
+		_, frozenRetail, _ = ztapiSupplierFrozenRules20261019(source)
+	}
 	if ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicyPoolOfficial78Sep2026 {
 		firstParty78 = map[string]decimal.Decimal{}
 		price, ok := ztapiOfficialTextPrices20260929[source.SourceModel]
@@ -356,7 +365,9 @@ func BuildZTAPIModelPricePreview(source *ZTAPIModelPriceSource) (*ZTAPIModelPric
 		}
 		preview.CostUSD[dimension] = cost.StringFixed(10)
 		var sale decimal.Decimal
-		if ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicyPoolOfficial78Sep2026 {
+		if ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicyQuoteFrozenRetail20261019 {
+			sale = frozenRetail[dimension]
+		} else if ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicyPoolOfficial78Sep2026 {
 			var ok bool
 			sale, ok = firstParty78[dimension]
 			if !ok {

@@ -10,12 +10,13 @@ import (
 type ZTAPIPricePolicy string
 
 const (
-	ZTAPIPricePolicyEnterprise40Margin    ZTAPIPricePolicy = "enterprise_40_margin"
-	ZTAPIPricePolicyPool60Margin          ZTAPIPricePolicy = "pool_60_margin"
-	ZTAPIPricePolicyEnterprise20Margin    ZTAPIPricePolicy = "enterprise_20_margin"
-	ZTAPIPricePolicyPool30Margin          ZTAPIPricePolicy = "pool_30_margin"
-	ZTAPIPricePolicyPoolOfficial80        ZTAPIPricePolicy = "pool_official_80"
-	ZTAPIPricePolicyPoolOfficial78Sep2026 ZTAPIPricePolicy = "pool_official_78_20260929"
+	ZTAPIPricePolicyEnterprise40Margin        ZTAPIPricePolicy = "enterprise_40_margin"
+	ZTAPIPricePolicyPool60Margin              ZTAPIPricePolicy = "pool_60_margin"
+	ZTAPIPricePolicyEnterprise20Margin        ZTAPIPricePolicy = "enterprise_20_margin"
+	ZTAPIPricePolicyPool30Margin              ZTAPIPricePolicy = "pool_30_margin"
+	ZTAPIPricePolicyPoolOfficial80            ZTAPIPricePolicy = "pool_official_80"
+	ZTAPIPricePolicyPoolOfficial78Sep2026     ZTAPIPricePolicy = "pool_official_78_20260929"
+	ZTAPIPricePolicyQuoteFrozenRetail20261019 ZTAPIPricePolicy = "quote_frozen_retail_20261019"
 )
 
 var (
@@ -62,6 +63,10 @@ func CalculateZTAPIPoolSalePrice(officialPrice decimal.Decimal) (decimal.Decimal
 func ValidateZTAPIPricePolicy(resourceType string, policy ZTAPIPricePolicy) error {
 	resourceType = strings.TrimSpace(resourceType)
 	switch policy {
+	case ZTAPIPricePolicyQuoteFrozenRetail20261019:
+		if resourceType == "pool" || resourceType == "enterprise" {
+			return nil
+		}
 	case ZTAPIPricePolicyEnterprise40Margin:
 		if resourceType == "enterprise" || resourceType == "official" || resourceType == "original_resource" {
 			return nil

@@ -498,7 +498,7 @@ func ztapiPublicationBlockersTx(tx *gorm.DB, config *ZTAPIModelConfig) ([]string
 		return nil, evidence, priceErr
 	} else if mediaEvidenceRequired && !mediaPriceContractValid {
 		blockers = appendZTAPIBlocker(blockers, ZTAPIPublicationBlockerPriceIncomplete)
-	} else if !ztapiPublicationPriceBasisPermitted(&priceSource) {
+	} else if !ztapiPublicationPriceBasisPermittedTx(tx, &priceSource) {
 		blockers = appendZTAPIBlocker(blockers, ZTAPIPublicationBlockerEnterprisePrice)
 	} else if priceSource.SourceModel != config.SourceModel || ValidateZTAPIModelPriceSource(&priceSource) != nil {
 		blockers = appendZTAPIBlocker(blockers, ZTAPIPublicationBlockerPriceIncomplete)
@@ -531,8 +531,15 @@ func ztapiPublicationBlockersTx(tx *gorm.DB, config *ZTAPIModelConfig) ([]string
 }
 
 func ztapiPublicationPriceBasisPermitted(source *ZTAPIModelPriceSource) bool {
+	return ztapiPublicationPriceBasisPermittedTx(DB, source)
+}
+
+func ztapiPublicationPriceBasisPermittedTx(tx *gorm.DB, source *ZTAPIModelPriceSource) bool {
 	if source == nil {
 		return false
+	}
+	if source.SourceDocumentChecksum == ZTAPISupplierWorkbook20261019SHA256 {
+		return ValidateZTAPISupplierPriceSource20261019(tx, source) == nil
 	}
 	if source.SourceDocumentChecksum == ZTAPIQuotation929SHA256 {
 		return validateZTAPI929PriceSource(source) == nil

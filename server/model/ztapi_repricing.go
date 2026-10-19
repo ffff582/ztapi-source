@@ -199,7 +199,8 @@ func ApplyZTAPICommercialPricingV2(operatorID int) (ZTAPICommercialRepricingResu
 			if err := tx.First(&currentSource, publication.PriceSourceID).Error; err != nil {
 				return fmt.Errorf("load bound price source for %s: %w", config.SourceModel, err)
 			}
-			if currentSource.SourceDocumentChecksum == quoteAB.WorkbookSHA256 {
+			if currentSource.SourceDocumentChecksum == quoteAB.WorkbookSHA256 ||
+				currentSource.SourceDocumentChecksum == ZTAPISupplierWorkbook20261019SHA256 {
 				result.Unchanged++
 				continue
 			}

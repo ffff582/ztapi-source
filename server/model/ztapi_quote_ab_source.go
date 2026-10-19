@@ -13,8 +13,9 @@ import (
 )
 
 type ztapiABFrozenSaleRule struct {
-	Conditions []string          `json:"conditions"`
-	Sale       map[string]string `json:"sale"`
+	Conditions    []string          `json:"conditions"`
+	Sale          map[string]string `json:"sale"`
+	RetailBasisID int64             `json:"retail_basis_id,omitempty"`
 }
 
 var ztapiABTokenConditionPattern = regexp.MustCompile(`^(输入长度|输出长度)?=?(≤|≥|>|<)[0-9]+(?:\.[0-9]+)?[KM]$`)

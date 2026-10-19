@@ -468,6 +468,8 @@ func SetApiRouter(router *gin.Engine) {
 			modelsRoute.GET("/ztapi/fx/pricing", middleware.AdminPermissionAuth(common.PermissionModelRead), controller.GetZTAPIFXPricingPreview)
 			modelsRoute.POST("/ztapi/fx/reprice", middleware.AdminPermissionAuth(common.PermissionModelWrite), controller.ApplyZTAPIFXRepricing)
 			modelsRoute.GET("/ztapi/reprice-ab-20260915/preview", middleware.AdminPermissionAuth(common.PermissionModelRead), controller.GetZTAPIABPricingPreview)
+			modelsRoute.GET("/ztapi/reprice-supplier-20261019/preview", middleware.AdminPermissionAuth(common.PermissionModelRead), controller.GetZTAPISupplierPricingPreview20261019)
+			modelsRoute.POST("/ztapi/reprice-supplier-20261019", middleware.AdminPermissionAuth(common.PermissionModelWrite), controller.RepriceZTAPISupplierCatalog20261019)
 			modelsRoute.POST("/ztapi/reprice-ab-20260915", middleware.AdminPermissionAuth(common.PermissionModelWrite), controller.RepriceZTAPIABCatalog)
 			modelsRoute.POST("/ztapi/reprice-ab-pool-78-20260929", middleware.AdminPermissionAuth(common.PermissionModelWrite), controller.RepriceZTAPIABPool78Catalog)
 			modelsRoute.POST("/ztapi/reprice-ab-enterprise-15-20260929", middleware.AdminPermissionAuth(common.PermissionModelWrite), controller.RepriceZTAPIABEnterprise15Catalog)

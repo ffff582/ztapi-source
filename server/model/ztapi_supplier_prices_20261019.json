@@ -1,0 +1,373 @@
+{
+  "workbook_sha256": "16171b71f8da8c8f52744f182278fa6ea02db61660bd54f6c7b61e9da990e9aa",
+  "entries": [
+    {
+      "source_model": "claude-sonnet-5",
+      "model_code": "zq-c-s5\uff08hc\uff09",
+      "grade": "B",
+      "fraction": "0.4",
+      "quotation_cell": "E27",
+      "official_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "currency": "USD",
+      "retail_rule": "official_78",
+      "rules": [
+        {
+          "conditions": [],
+          "official": {
+            "input_tokens": "2",
+            "cache_write_5m": "2.5",
+            "cache_write_1h": "4",
+            "cache_read": "0.2",
+            "output_tokens": "10"
+          }
+        }
+      ]
+    },
+    {
+      "source_model": "claude-sonnet-4-6",
+      "model_code": "zq-c-s46\uff08hc\uff09",
+      "grade": "B",
+      "fraction": "0.4",
+      "quotation_cell": "E29",
+      "official_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "currency": "USD",
+      "retail_rule": "official_78",
+      "rules": [
+        {
+          "conditions": [],
+          "official": {
+            "input_tokens": "3",
+            "cache_write_5m": "3.75",
+            "cache_write_1h": "6",
+            "cache_read": "0.3",
+            "output_tokens": "15"
+          }
+        }
+      ]
+    },
+    {
+      "source_model": "claude-opus-5",
+      "model_code": "zq-c-o5\uff08hc\uff09",
+      "grade": "B",
+      "fraction": "0.4",
+      "quotation_cell": "E31",
+      "official_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "currency": "USD",
+      "retail_rule": "official_78",
+      "rules": [
+        {
+          "conditions": [],
+          "official": {
+            "input_tokens": "5",
+            "cache_write_5m": "6.25",
+            "cache_write_1h": "10",
+            "cache_read": "0.5",
+            "output_tokens": "25"
+          }
+        }
+      ]
+    },
+    {
+      "source_model": "claude-opus-4-8",
+      "model_code": "zq-c-o48\uff08hc\uff09",
+      "grade": "B",
+      "fraction": "0.4",
+      "quotation_cell": "E32",
+      "official_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "currency": "USD",
+      "retail_rule": "official_78",
+      "rules": [
+        {
+          "conditions": [],
+          "official": {
+            "input_tokens": "5",
+            "cache_write_5m": "6.25",
+            "cache_write_1h": "10",
+            "cache_read": "0.5",
+            "output_tokens": "25"
+          }
+        }
+      ]
+    },
+    {
+      "source_model": "claude-opus-4-7",
+      "model_code": "zq-c-o47\uff08hc\uff09",
+      "grade": "B",
+      "fraction": "0.4",
+      "quotation_cell": "E33",
+      "official_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "currency": "USD",
+      "retail_rule": "official_78",
+      "rules": [
+        {
+          "conditions": [],
+          "official": {
+            "input_tokens": "5",
+            "cache_write_5m": "6.25",
+            "cache_write_1h": "10",
+            "cache_read": "0.5",
+            "output_tokens": "25"
+          }
+        }
+      ]
+    },
+    {
+      "source_model": "claude-opus-4-6",
+      "model_code": "zq-c-o46\uff08hc\uff09",
+      "grade": "B",
+      "fraction": "0.4",
+      "quotation_cell": "E34",
+      "official_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "currency": "USD",
+      "retail_rule": "official_78",
+      "rules": [
+        {
+          "conditions": [],
+          "official": {
+            "input_tokens": "5",
+            "cache_write_5m": "6.25",
+            "cache_write_1h": "10",
+            "cache_read": "0.5",
+            "output_tokens": "25"
+          }
+        }
+      ]
+    },
+    {
+      "source_model": "gemini-3-flash-preview",
+      "model_code": "zq-g3-f-p",
+      "grade": "A",
+      "fraction": "0.86",
+      "quotation_cell": "E44",
+      "official_url": "https://ai.google.dev/gemini-api/docs/pricing",
+      "currency": "USD",
+      "retail_rule": "preserve",
+      "rules": [
+        {
+          "conditions": [
+            "\u8f93\u5165\u7c7b\u578b=\u6587\u672c/\u56fe\u50cf/\u89c6\u9891"
+          ],
+          "official": {
+            "input_tokens": "0.5",
+            "cache_read": "0.05",
+            "output_tokens": "3"
+          }
+        },
+        {
+          "conditions": [
+            "\u8f93\u5165\u7c7b\u578b=\u97f3\u9891"
+          ],
+          "official": {
+            "input_tokens": "1",
+            "cache_read": "0.1",
+            "output_tokens": "3"
+          }
+        }
+      ]
+    },
+    {
+      "source_model": "gemini-3.1-pro-preview",
+      "model_code": "zq-g31-p-p",
+      "grade": "A",
+      "fraction": "0.86",
+      "quotation_cell": "E39",
+      "official_url": "https://ai.google.dev/gemini-api/docs/pricing",
+      "currency": "USD",
+      "retail_rule": "preserve",
+      "rules": [
+        {
+          "conditions": [
+            "\u8f93\u5165\u957f\u5ea6\u2264200K"
+          ],
+          "official": {
+            "input_tokens": "2",
+            "cache_read": "0.2",
+            "output_tokens": "12"
+          }
+        },
+        {
+          "conditions": [
+            "\u8f93\u5165\u957f\u5ea6>200K"
+          ],
+          "official": {
+            "input_tokens": "4",
+            "cache_read": "0.4",
+            "output_tokens": "18"
+          }
+        }
+      ]
+    },
+    {
+      "source_model": "glm-5.2",
+      "model_code": "glm-5.2",
+      "grade": "B",
+      "fraction": "0.7",
+      "quotation_cell": "E6",
+      "official_url": "https://docs.bigmodel.cn/cn/guide/start/pricing.md",
+      "currency": "CNY",
+      "retail_rule": "preserve",
+      "rules": [
+        {
+          "conditions": [
+            "\u8f93\u5165\u957f\u5ea6\u22641M"
+          ],
+          "official": {
+            "input_tokens": "8",
+            "output_tokens": "28",
+            "cache_read": "2"
+          }
+        }
+      ]
+    },
+    {
+      "source_model": "glm-5.1",
+      "model_code": "glm-5.1",
+      "grade": "B",
+      "fraction": "0.7",
+      "quotation_cell": "E7",
+      "official_url": "https://docs.bigmodel.cn/cn/guide/start/pricing.md",
+      "currency": "CNY",
+      "retail_rule": "preserve",
+      "rules": [
+        {
+          "conditions": [
+            "\u8f93\u5165\u957f\u5ea6=<32K"
+          ],
+          "official": {
+            "input_tokens": "6",
+            "output_tokens": "24",
+            "cache_read": "1.3"
+          }
+        },
+        {
+          "conditions": [
+            "\u8f93\u5165\u957f\u5ea6=\u226532K"
+          ],
+          "official": {
+            "input_tokens": "8",
+            "output_tokens": "28",
+            "cache_read": "2"
+          }
+        }
+      ]
+    },
+    {
+      "source_model": "glm-5",
+      "model_code": "glm-5",
+      "grade": "B",
+      "fraction": "0.7",
+      "quotation_cell": "E8",
+      "official_url": "https://docs.bigmodel.cn/cn/guide/start/pricing.md",
+      "currency": "CNY",
+      "retail_rule": "preserve",
+      "rules": [
+        {
+          "conditions": [
+            "\u8f93\u5165\u957f\u5ea6=<32K"
+          ],
+          "official": {
+            "input_tokens": "4",
+            "output_tokens": "18",
+            "cache_read": "1"
+          }
+        },
+        {
+          "conditions": [
+            "\u8f93\u5165\u957f\u5ea6=\u226532K"
+          ],
+          "official": {
+            "input_tokens": "6",
+            "output_tokens": "22",
+            "cache_read": "1.5"
+          }
+        }
+      ]
+    },
+    {
+      "source_model": "glm-4.7",
+      "model_code": "glm-4.7",
+      "grade": "B",
+      "fraction": "0.7",
+      "quotation_cell": "E9",
+      "official_url": "https://docs.bigmodel.cn/cn/guide/start/pricing.md",
+      "currency": "CNY",
+      "retail_rule": "preserve",
+      "rules": [
+        {
+          "conditions": [
+            "\u8f93\u5165\u957f\u5ea6=<32K\u4e14\u8f93\u51fa\u957f\u5ea6<0.2K"
+          ],
+          "official": {
+            "input_tokens": "2",
+            "output_tokens": "8",
+            "cache_read": "0.4"
+          }
+        },
+        {
+          "conditions": [
+            "\u8f93\u5165\u957f\u5ea6=<32K\u4e14\u8f93\u51fa\u957f\u5ea6\u22650.2K"
+          ],
+          "official": {
+            "input_tokens": "3",
+            "output_tokens": "14",
+            "cache_read": "0.6"
+          }
+        },
+        {
+          "conditions": [
+            "\u8f93\u5165\u957f\u5ea6=\u226532K\u4e14<200K"
+          ],
+          "official": {
+            "input_tokens": "4",
+            "output_tokens": "16",
+            "cache_read": "0.8"
+          }
+        }
+      ]
+    },
+    {
+      "source_model": "kimi-k2.6",
+      "model_code": "kimi-k2.6",
+      "grade": "B",
+      "fraction": "0.73",
+      "quotation_cell": "E4",
+      "official_url": "https://platform.kimi.com/docs/pricing/chat.md",
+      "currency": "CNY",
+      "retail_rule": "preserve",
+      "rules": [
+        {
+          "conditions": [
+            "\u8f93\u5165\u957f\u5ea6\u2264262K"
+          ],
+          "official": {
+            "cache_read": "1.1",
+            "input_tokens": "6.5",
+            "output_tokens": "27"
+          }
+        }
+      ]
+    },
+    {
+      "source_model": "kimi-k2.7-code",
+      "model_code": "kimi-k2.7-code",
+      "grade": "B",
+      "fraction": "0.73",
+      "quotation_cell": "E3",
+      "official_url": "https://platform.kimi.com/docs/pricing/chat.md",
+      "currency": "CNY",
+      "retail_rule": "preserve",
+      "rules": [
+        {
+          "conditions": [
+            "\u8f93\u5165\u957f\u5ea6\u2264262K"
+          ],
+          "official": {
+            "cache_read": "1.3",
+            "input_tokens": "6.5",
+            "output_tokens": "27"
+          }
+        }
+      ]
+    }
+  ]
+}

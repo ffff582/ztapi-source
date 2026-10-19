@@ -385,6 +385,10 @@ func applyZTAPIABCommercialPricingTxMode(tx *gorm.DB, quote ZTAPIABQuotationMani
 		if err := tx.First(&oldSource, publication.PriceSourceID).Error; err != nil {
 			return err
 		}
+		if oldSource.SourceDocumentChecksum == ZTAPISupplierWorkbook20261019SHA256 {
+			result.Skipped = append(result.Skipped, config.PublicNameValue())
+			continue
+		}
 		effectivePool78 := pool78 || oldSource.PricePolicy == string(ZTAPIPricePolicyPoolOfficial78Sep2026)
 		firstPoolSwitch := effectivePool78 && oldSource.PricePolicy != string(ZTAPIPricePolicyPoolOfficial78Sep2026)
 		// Media quotes keep the legacy USD contract until media FX is supported.
