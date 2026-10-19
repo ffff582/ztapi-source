@@ -24,5 +24,14 @@ func ZTAPIModelModality(sourceModel string) string {
 			return identity.Modality
 		}
 	}
+	// A declared media candidate must enter media admission and metering even
+	// before it is publishable. Inferring this from arbitrary suffixes is unsafe.
+	if candidates, err := loadZTAPISupplierAdmissionModels20261019(); err == nil {
+		for _, candidate := range candidates {
+			if candidate.SourceModel != "" && candidate.SourceModel == sourceModel {
+				return candidate.Modality
+			}
+		}
+	}
 	return ZTAPIModalityText
 }

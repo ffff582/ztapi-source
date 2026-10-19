@@ -2,6 +2,28 @@
   "workbook_sha256": "16171b71f8da8c8f52744f182278fa6ea02db61660bd54f6c7b61e9da990e9aa",
   "entries": [
     {
+      "source_model": "kimi-k3",
+      "model_code": "kimi-k3",
+      "grade": "B",
+      "fraction": "0.73",
+      "quotation_cell": "E2",
+      "official_url": "https://platform.kimi.com/docs/pricing/chat.md",
+      "currency": "CNY",
+      "retail_rule": "preserve_kimi_cache",
+      "rules": [
+        {
+          "conditions": ["输入长度≤1M"],
+          "official": {
+            "input_tokens": "20",
+            "output_tokens": "100",
+            "cache_read": "2",
+            "cache_write_5m": "20",
+            "cache_write_1h": "40"
+          }
+        }
+      ]
+    },
+    {
       "source_model": "claude-sonnet-5",
       "model_code": "zq-c-s5\uff08hc\uff09",
       "grade": "B",

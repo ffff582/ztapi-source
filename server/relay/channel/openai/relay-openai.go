@@ -122,7 +122,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 		rawData := data
-		observed := relaycommon.ObserveZTAPIOpenAIUsage(c, info, []byte(rawData))
+		observed := relaycommon.ObserveZTAPIOpenAIChatUsage(c, info, []byte(rawData), resp.Header)
 		var err error
 		data, err = streamMetadata.normalize(data)
 		if err != nil {
@@ -222,7 +222,7 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 		}
 	}
 
-	observed := relaycommon.ObserveZTAPIOpenAIUsage(c, info, responseBody)
+	observed := relaycommon.ObserveZTAPIOpenAIChatUsage(c, info, responseBody, resp.Header)
 	err = common.Unmarshal(responseBody, &simpleResponse)
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)

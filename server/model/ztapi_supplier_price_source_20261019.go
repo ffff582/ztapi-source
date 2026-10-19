@@ -62,8 +62,11 @@ func ztapiSupplierPriceEntryFor20261019(sourceModel string) (ztapiSupplierPriceE
 	if err != nil || !fraction.IsPositive() || fraction.GreaterThan(decimal.NewFromInt(1)) ||
 		(found.Grade != "A" && found.Grade != "B") || found.ModelCode == "" || found.QuotationCell == "" || found.OfficialURL == "" ||
 		(found.Currency != "USD" && found.Currency != "CNY") ||
-		(found.RetailRule != "preserve" && found.RetailRule != "official_78") || len(found.Rules) == 0 {
+		(found.RetailRule != "preserve" && found.RetailRule != "official_78" && found.RetailRule != "preserve_kimi_cache") || len(found.Rules) == 0 {
 		return ztapiSupplierPriceEntry20261019{}, errors.New("incomplete supplier quotation evidence")
+	}
+	if found.RetailRule == "preserve_kimi_cache" && found.SourceModel != "kimi-k3" {
+		return ztapiSupplierPriceEntry20261019{}, errors.New("Kimi cache retail extension requires its exact K3 identity")
 	}
 	seen := make(map[string]bool, len(found.Rules))
 	for _, rule := range found.Rules {
@@ -271,7 +274,9 @@ func buildZTAPISupplierPriceFromAnchor20261019(anchor *ZTAPIModelPriceSource, op
 	maxCost := map[string]decimal.Decimal{}
 	rules := make([]ztapiABFrozenSaleRule, 0, len(entry.Rules))
 	for tier, quote := range entry.Rules {
-		if !reflect.DeepEqual(oldRules[tier].Conditions, quote.Conditions) || len(oldRules[tier].Sale) != len(quote.Official) {
+		newKimiCacheDimensions := entry.RetailRule == "preserve_kimi_cache" && len(oldRules[tier].Sale) == len(quote.Official)-2 &&
+			oldRules[tier].Sale[ZTAPIBillingDimensionCacheWrite5m] == "" && oldRules[tier].Sale[ZTAPIBillingDimensionCacheWrite1h] == ""
+		if !reflect.DeepEqual(oldRules[tier].Conditions, quote.Conditions) || (len(oldRules[tier].Sale) != len(quote.Official) && !newKimiCacheDimensions) {
 			return ZTAPIModelPriceSource{}, errors.New("supplier quotation conditions or dimensions differ from retail anchor")
 		}
 		rule := ztapiABFrozenSaleRule{Conditions: append([]string{}, quote.Conditions...), Sale: map[string]string{}, RetailBasisID: anchor.ID}
@@ -285,11 +290,21 @@ func buildZTAPISupplierPriceFromAnchor20261019(anchor *ZTAPIModelPriceSource, op
 			if fx.Mode == ZTAPIFXModePlatformV1 {
 				cost = storedCost.Div(fx.PlatformRate).Round(10)
 			}
-			oldSale, err := decimal.NewFromString(oldRules[tier].Sale[dim])
+			retail := oldRules[tier].Sale[dim]
+			cacheWriteFactor := decimal.NewFromInt(1)
+			if newKimiCacheDimensions && (dim == ZTAPIBillingDimensionCacheWrite5m || dim == ZTAPIBillingDimensionCacheWrite1h) {
+				// Keep the existing customer's input rate and its discount: K3
+				// 5m writes cost one input unit; explicitly evidenced 1h writes two.
+				retail = oldRules[tier].Sale[ZTAPIBillingDimensionInputTokens]
+				if dim == ZTAPIBillingDimensionCacheWrite1h {
+					cacheWriteFactor = decimal.NewFromInt(2)
+				}
+			}
+			oldSale, err := decimal.NewFromString(retail)
 			if err != nil || !oldSale.IsPositive() {
 				return ZTAPIModelPriceSource{}, fmt.Errorf("retail anchor is missing positive %s sale", dim)
 			}
-			oldSale = oldSale.Mul(multiplier).Round(10)
+			oldSale = oldSale.Mul(multiplier).Round(10).Mul(cacheWriteFactor).Round(10)
 			sale := oldSale
 			if entry.RetailRule == "official_78" {
 				if entry.Currency == "CNY" {
@@ -342,6 +357,10 @@ func ValidateZTAPISupplierPriceSource20261019(db *gorm.DB, source *ZTAPIModelPri
 	}
 	copy := *source
 	if err := ValidateZTAPIModelPriceSource(&copy); err != nil {
+		return err
+	}
+	if copy.PricePolicy == string(ZTAPIPricePolicySupplierAdmission20261019) {
+		_, _, err := ztapiSupplierAdmissionFrozenRules20261019(&copy)
 		return err
 	}
 	anchor, err := ztapiSupplierRetailAnchor20261019(db, &copy)

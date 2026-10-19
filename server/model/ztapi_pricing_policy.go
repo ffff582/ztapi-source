@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/QuantumNous/new-api/types"
 	"github.com/shopspring/decimal"
 )
 
@@ -17,6 +18,7 @@ const (
 	ZTAPIPricePolicyPoolOfficial80            ZTAPIPricePolicy = "pool_official_80"
 	ZTAPIPricePolicyPoolOfficial78Sep2026     ZTAPIPricePolicy = "pool_official_78_20260929"
 	ZTAPIPricePolicyQuoteFrozenRetail20261019 ZTAPIPricePolicy = "quote_frozen_retail_20261019"
+	ZTAPIPricePolicySupplierAdmission20261019 ZTAPIPricePolicy = types.ZTAPISupplierAdmissionPricePolicy20261019
 )
 
 var (
@@ -63,6 +65,10 @@ func CalculateZTAPIPoolSalePrice(officialPrice decimal.Decimal) (decimal.Decimal
 func ValidateZTAPIPricePolicy(resourceType string, policy ZTAPIPricePolicy) error {
 	resourceType = strings.TrimSpace(resourceType)
 	switch policy {
+	case ZTAPIPricePolicySupplierAdmission20261019:
+		if resourceType == "pool" {
+			return nil
+		}
 	case ZTAPIPricePolicyQuoteFrozenRetail20261019:
 		if resourceType == "pool" || resourceType == "enterprise" {
 			return nil

@@ -55,6 +55,7 @@ func loadZTAPIPublicationSnapshot(publicName, sourceModel, group string) (*relay
 
 func ztapiPublicationSnapshotFromRuntime(publication model.ZTAPIRuntimePublication, group string) *relaycommon.ZTAPIPublicationSnapshot {
 	return (&relaycommon.ZTAPIPublicationSnapshot{
+		PricePolicy:            publication.PricePolicy,
 		PublicationID:          publication.ModelConfigID,
 		Version:                publication.Version,
 		PublicName:             publication.PublicName,

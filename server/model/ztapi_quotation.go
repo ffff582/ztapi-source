@@ -439,6 +439,14 @@ func ZTAPIQuotationEntries() ([]ZTAPIQuotationEntry, error) {
 // naming conventions, upstream discovery, mutable aliases or fuzzy matching.
 func ValidateZTAPIQuotationIdentity(sourceModel, publicName, protocol, providerFamily, checksum string) error {
 	if checksum == ZTAPISupplierWorkbook20261019SHA256 {
+		if name, _, found := ztapiSupplierAdmissionPriceForSource20261019(sourceModel); found {
+			identity, err := FindZTAPISupplierAdmissionModel20261019(name)
+			if err != nil || identity.SourceModel != sourceModel || identity.PublicName != publicName ||
+				identity.ProviderFamily != providerFamily || protocol != ZTAPIProtocolOpenAICompatible {
+				return ErrZTAPIQuotationIdentityMismatch
+			}
+			return nil
+		}
 		if _, err := ztapiSupplierPriceEntryFor20261019(sourceModel); err != nil {
 			return err
 		}

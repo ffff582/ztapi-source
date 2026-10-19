@@ -235,7 +235,7 @@ func TestSupplierPriceCore20261019ManifestHasExactAuditedIdentities(t *testing.T
 		Entries []ztapiSupplierPriceEntry20261019 `json:"entries"`
 	}
 	require.NoError(t, common.Unmarshal(ztapiSupplierPrices20261019JSON, &manifest))
-	require.Len(t, manifest.Entries, 14)
+	require.Len(t, manifest.Entries, 15)
 	for _, entry := range manifest.Entries {
 		t.Run(entry.SourceModel, func(t *testing.T) {
 			identity, exists := bySource[entry.SourceModel]
@@ -287,7 +287,7 @@ func TestSupplierPriceCore20261019CNYProcurementUsesPlatformWithoutBuffer(t *tes
 				}(), source.SourceDocumentChecksum))
 		})
 	}
-	for _, sourceModel := range []string{"kimi-k3", "kimi-k2.5"} {
+	for _, sourceModel := range []string{"kimi-k2.5"} {
 		_, err := ztapiSupplierPriceEntryFor20261019(sourceModel)
 		require.ErrorIs(t, err, ErrZTAPIQuotationModelNotQuoted)
 	}

@@ -29,6 +29,7 @@ const ztapiPublicationSnapshotContextKey = "ztapi_publication_snapshot"
 // ZTAPIPublicationSnapshot is the authorization and billing authority captured
 // once for an alias request. It must not be refreshed during the request.
 type ZTAPIPublicationSnapshot struct {
+	PricePolicy            string
 	PublicationID          int
 	Version                uint64
 	PublicName             string

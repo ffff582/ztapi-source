@@ -121,7 +121,7 @@ func OaiChatToResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
 	}
 	var chat dto.OpenAITextResponse
-	observed := relaycommon.ObserveZTAPIOpenAIUsage(c, info, body)
+	observed := relaycommon.ObserveZTAPIOpenAIChatUsage(c, info, body, resp.Header)
 	if err := common.Unmarshal(body, &chat); err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
@@ -406,7 +406,7 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 	)
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
-		observed := relaycommon.ObserveZTAPIOpenAIUsage(c, info, []byte(data))
+		observed := relaycommon.ObserveZTAPIOpenAIChatUsage(c, info, []byte(data), resp.Header)
 		var chunk struct {
 			dto.ChatCompletionsStreamResponse
 			Error any `json:"error"`

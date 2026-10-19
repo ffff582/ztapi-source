@@ -4,10 +4,16 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"math"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/tidwall/gjson"
 )
+
+type ZTAPIKimiCacheWriteHeaders struct {
+	Tokens5m int64 `json:"tokens_5m"`
+	Tokens1h int64 `json:"tokens_1h"`
+}
 
 // Metering evidence deliberately excludes prompts, output text and credentials.
 type ZTAPIMeteringEvidence struct {
@@ -32,6 +38,7 @@ type ZTAPIMeteringEvidence struct {
 	UsageIntegrityComplete bool                             `json:"usage_integrity_complete,omitempty"`
 	UsageIntegrityReasons  []string                         `json:"usage_integrity_reasons,omitempty"`
 	UnverifiedUsage        *ZTAPIUnverifiedUsageObservation `json:"unverified_usage_observation,omitempty"`
+	KimiCacheWriteHeaders  *ZTAPIKimiCacheWriteHeaders      `json:"kimi_cache_write_headers,omitempty"`
 }
 
 // Only these fixed diagnostics may cross the metering persistence boundary.
@@ -58,6 +65,13 @@ func (e ZTAPIMeteringEvidence) Sanitized() *ZTAPIMeteringEvidence {
 		(e.EntryBodyBytes != nil && *e.EntryBodyBytes < 0) ||
 		(e.OutboundBodyBytes != nil && *e.OutboundBodyBytes < 0) {
 		return nil
+	}
+	if e.KimiCacheWriteHeaders != nil {
+		counts := *e.KimiCacheWriteHeaders
+		if counts.Tokens5m < 0 || counts.Tokens1h < 0 || counts.Tokens5m > math.MaxInt64-counts.Tokens1h {
+			return nil
+		}
+		e.KimiCacheWriteHeaders = &counts
 	}
 	switch e.UsageSource {
 	case "", "upstream_reported", "local_estimate", "missing", "unverified":
@@ -110,7 +124,7 @@ func filterZTAPINumericUsage(raw json.RawMessage, depth int) map[string]json.Raw
 	for name, value := range values {
 		switch name {
 		case "prompt_tokens", "completion_tokens", "total_tokens", "input_tokens", "output_tokens",
-			"cached_tokens", "cached_creation_tokens", "cache_read_input_tokens", "cache_creation_input_tokens",
+			"cached_tokens", "cached_creation_tokens", "cache_write_tokens", "cache_read_input_tokens", "cache_creation_input_tokens",
 			"prompt_cache_hit_tokens", "prompt_cache_miss_tokens", "reasoning_tokens", "text_tokens", "image_tokens", "audio_tokens",
 			"accepted_prediction_tokens", "rejected_prediction_tokens", "claude_cache_creation_5_m_tokens", "claude_cache_creation_1_h_tokens",
 			"ephemeral_5m_input_tokens", "ephemeral_1h_input_tokens":

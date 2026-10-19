@@ -7,13 +7,22 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 )
 
-func ModelMappedHelper(c *gin.Context, info *common.RelayInfo, request dto.Request) error {
+func ModelMappedHelper(c *gin.Context, info *common.RelayInfo, request dto.Request) (err error) {
+	defer func() {
+		if err != nil || info.ZTAPIPublicationSnapshot == nil ||
+			info.ZTAPIPublicationSnapshot.PricePolicy != string(model.ZTAPIPricePolicySupplierAdmission20261019) {
+			return
+		}
+		err = model.ValidateZTAPISupplierAdmissionRoute20261019(info.ZTAPIPublicationSnapshot.SourceModel,
+			info.ChannelId, info.UpstreamModelName)
+	}()
 	if info.ChannelMeta == nil {
 		info.ChannelMeta = &common.ChannelMeta{}
 	}

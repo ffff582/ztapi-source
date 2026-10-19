@@ -115,7 +115,7 @@ func ztapiRouteMatchesEvidence(route ztapiRouteAuthority, config *ZTAPIModelConf
 // name that channel actually sends upstream for sourceModel.  Only channels
 // that declare an explicit, non-empty model_mapping entry are returned; every
 // other channel keeps using the catalog source model verbatim.
-func ztapiMappedUpstreamModelByChannelTx(tx *gorm.DB, sourceModel string) (map[int]string, error) {
+func ztapiMappedUpstreamModelByChannelTx(tx *gorm.DB, sourceModel string, resolveTerminal bool) (map[int]string, error) {
 	sourceModel = strings.TrimSpace(sourceModel)
 	if sourceModel == "" {
 		return map[int]string{}, nil
@@ -138,12 +138,30 @@ func ztapiMappedUpstreamModelByChannelTx(tx *gorm.DB, sourceModel string) (map[i
 			continue
 		}
 		decoded := map[string]string{}
-		if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+		if err := common.Unmarshal([]byte(raw), &decoded); err != nil {
 			// A malformed mapping must never widen the evidence set; fall back
 			// to the catalog name for that channel.
 			continue
 		}
-		target := strings.TrimSpace(decoded[sourceModel])
+		target := decoded[sourceModel]
+		if resolveTerminal {
+			current := sourceModel
+			visited := map[string]bool{current: true}
+			for {
+				next := decoded[current]
+				if next == "" || next == current {
+					target = current
+					break
+				}
+				if visited[next] {
+					target = ""
+					break
+				}
+				visited[next], current = true, next
+			}
+		} else {
+			target = strings.TrimSpace(target)
+		}
 		if target == "" || target == sourceModel {
 			continue
 		}
@@ -234,6 +252,8 @@ func ztapiPublicationBlockersTx(tx *gorm.DB, config *ZTAPIModelConfig) ([]string
 		}
 	}
 
+	var priceSource ZTAPIModelPriceSource
+	priceErr := tx.Where("model_config_id = ?", config.ID).Order("version DESC, id DESC").First(&priceSource).Error
 	cutoff := time.Now().UTC().Add(-ztapiPublicationEvidenceMaxAge).Unix()
 	// A channel may rename the catalog source model on its way upstream through
 	// model_mapping (for example "claude-opus-5" -> "claude-opus-5-hc" once the
@@ -241,7 +261,8 @@ func ztapiPublicationBlockersTx(tx *gorm.DB, config *ZTAPIModelConfig) ([]string
 	// upstream actually advertises, so it has to be matched against the mapped
 	// name for those channels; matching the catalog name alone makes a correctly
 	// mapped channel look undiscovered and silently blocks publication.
-	mappedByChannel, err := ztapiMappedUpstreamModelByChannelTx(tx, config.SourceModel)
+	mappedByChannel, err := ztapiMappedUpstreamModelByChannelTx(tx, config.SourceModel,
+		priceErr == nil && priceSource.PricePolicy == string(ZTAPIPricePolicySupplierAdmission20261019))
 	if err != nil {
 		return nil, evidence, err
 	}
@@ -278,6 +299,19 @@ func ztapiPublicationBlockersTx(tx *gorm.DB, config *ZTAPIModelConfig) ([]string
 		}
 		freshDiscoveryChannels[row.ChannelID] = struct{}{}
 	}
+	if priceErr == nil && priceSource.PricePolicy == string(ZTAPIPricePolicySupplierAdmission20261019) {
+		// A pool quote is not authority to send to another resource, or to a
+		// different physical SKU that happens to be present in the same list.
+		name, _, found := ztapiSupplierAdmissionPriceForSource20261019(config.SourceModel)
+		candidate, candidateErr := FindZTAPISupplierAdmissionModel20261019(name)
+		for channelID := range freshDiscoveryChannels {
+			if !found || candidateErr != nil || candidate.SourceModel != config.SourceModel ||
+				candidate.RequiredChannelID != channelID || candidate.UpstreamModel == "" ||
+				mappedByChannel[channelID] != candidate.UpstreamModel {
+				delete(freshDiscoveryChannels, channelID)
+			}
+		}
+	}
 	if len(freshDiscoveryChannels) == 0 {
 		blockers = appendZTAPIBlocker(blockers, ZTAPIPublicationBlockerDiscoveryStale)
 	}
@@ -300,8 +334,6 @@ func ztapiPublicationBlockersTx(tx *gorm.DB, config *ZTAPIModelConfig) ([]string
 		routeIDs = append(routeIDs, channelID)
 	}
 	sort.Ints(routeIDs)
-	var priceSource ZTAPIModelPriceSource
-	priceErr := tx.Where("model_config_id = ?", config.ID).Order("version DESC, id DESC").First(&priceSource).Error
 	modality := ZTAPIModelModality(config.SourceModel)
 	imageEvidenceRequired := modality == ZTAPIModalityImage
 	videoEvidenceRequired := modality == ZTAPIModalityVideo
@@ -537,6 +569,10 @@ func ztapiPublicationPriceBasisPermitted(source *ZTAPIModelPriceSource) bool {
 func ztapiPublicationPriceBasisPermittedTx(tx *gorm.DB, source *ZTAPIModelPriceSource) bool {
 	if source == nil {
 		return false
+	}
+	if source.PricePolicy == string(ZTAPIPricePolicySupplierAdmission20261019) {
+		_, _, err := ztapiSupplierAdmissionFrozenRules20261019(source)
+		return err == nil
 	}
 	if source.SourceDocumentChecksum == ZTAPISupplierWorkbook20261019SHA256 {
 		return ValidateZTAPISupplierPriceSource20261019(tx, source) == nil

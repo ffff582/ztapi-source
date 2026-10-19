@@ -196,6 +196,25 @@ func ApplyParamOverrideWithRelayInfo(jsonData []byte, info *RelayInfo) ([]byte, 
 	if err != nil {
 		return nil, err
 	}
+	if info != nil && info.ZTAPIPublicationSnapshot != nil &&
+		info.ZTAPIPublicationSnapshot.PricePolicy == types.ZTAPISupplierAdmissionPricePolicy20261019 {
+		if info.ChannelMeta == nil || info.UpstreamModelName == "" {
+			return nil, errors.New("supplier_admission_model_override_forbidden")
+		}
+		modelFields, invalidModel := 0, false
+		gjson.ParseBytes(result).ForEach(func(key, value gjson.Result) bool {
+			if strings.EqualFold(key.String(), "model") {
+				modelFields++
+				if key.String() != "model" || value.Type != gjson.String || value.String() != info.UpstreamModelName {
+					invalidModel = true
+				}
+			}
+			return true
+		})
+		if modelFields != 1 || invalidModel {
+			return nil, errors.New("supplier_admission_model_override_forbidden")
+		}
+	}
 	syncRuntimeHeaderOverrideFromContext(info, overrideCtx)
 	if info != nil {
 		if recorder != nil {

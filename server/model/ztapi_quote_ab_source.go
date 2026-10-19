@@ -452,6 +452,13 @@ func BuildZTAPIQuotedModelPriceSource(modelName string, modelConfigID, operatorI
 	if DB == nil {
 		return ZTAPIModelPriceSource{}, errors.New("ZTAPI database is not initialized")
 	}
+	if _, found := ztapiSupplierAdmissionPrices20261019[modelName]; found {
+		fx, err := currentZTAPIABFXParams(DB)
+		if err != nil {
+			return ZTAPIModelPriceSource{}, err
+		}
+		return BuildZTAPISupplierAdmissionTextPriceSource20261019(modelName, modelConfigID, operatorID, effectiveAt, fx)
+	}
 	if modelName == "Claude Opus 5" {
 		return BuildZTAPI929QuotedModelPriceSource(modelName, modelConfigID, operatorID, effectiveAt)
 	}

@@ -377,6 +377,7 @@ func ztapiDiscountTokenPriceRules(raw string, multiplier decimal.Decimal) (strin
 }
 
 type ZTAPIRuntimePublication struct {
+	PricePolicy            string
 	Modality               string
 	ModelConfigID          int
 	SnapshotID             int64
@@ -693,6 +694,7 @@ func loadZTAPIActivePublications(db *gorm.DB) ([]ZTAPIRuntimePublication, error)
 			continue
 		}
 		result = append(result, ZTAPIRuntimePublication{
+			PricePolicy:   source.PricePolicy,
 			ModelConfigID: configs[i].ID, SnapshotID: snapshot.ID, Version: snapshot.ModelVersion,
 			PriceSourceID: source.ID, PriceSourceVersion: source.Version, SaleMultiplier: sourceMultiplier.StringFixed(10),
 			Modality:    ZTAPIModelModality(snapshot.SourceModel),
@@ -735,6 +737,7 @@ func ListZTAPIPublicCatalog() ([]ZTAPIPublicCatalogItem, error) {
 
 func runtimePublicationFromCache(publication ztapiPublishedModel) ZTAPIRuntimePublication {
 	return ZTAPIRuntimePublication{
+		PricePolicy:   publication.PricePolicy,
 		ModelConfigID: publication.ModelConfigID, SnapshotID: publication.SnapshotID, Version: publication.Version,
 		PriceSourceID: publication.PriceSourceID, PriceSourceVersion: publication.PriceSourceVersion,
 		SaleMultiplier: publication.SaleMultiplier,

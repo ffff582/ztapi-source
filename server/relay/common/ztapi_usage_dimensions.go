@@ -157,7 +157,17 @@ func ValidateZTAPIUsageDimensions(c *gin.Context, info *RelayInfo, usage *dto.Us
 		}
 		cacheRead := int64(mergeAlias("cache_read", details.CachedTokens, usage.PromptCacheHitTokens))
 		write5m, write1h := int64(usage.ClaudeCacheCreation5mTokens), int64(usage.ClaudeCacheCreation1hTokens)
-		cacheWrite := max(int64(details.CachedCreationTokens), write5m+write1h)
+		cacheWrite := int64(details.CachedCreationTokens)
+		if write5m < 0 || write1h < 0 || write5m > math.MaxInt64/8 || write1h > math.MaxInt64/8 {
+			invalid["cache_write"] = true
+			write5m, write1h = 0, 0
+		}
+		if cacheWrite != 0 && cacheWrite < write5m+write1h {
+			invalid["cache_write"] = true
+		}
+		if cacheWrite == 0 {
+			cacheWrite = write5m + write1h
+		}
 		// The generic write count is a total, not another charge on top of TTLs.
 		add("cache_read", "token", cacheRead)
 		add("cache_write", "token", cacheWrite-write5m-write1h)

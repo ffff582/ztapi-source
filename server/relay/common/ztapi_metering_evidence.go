@@ -71,6 +71,7 @@ func CaptureZTAPIOutboundRequestMetering(info *RelayInfo, size int64) {
 	evidence.UpstreamProtocol = string(info.GetFinalRequestRelayFormat())
 	// A retry's missing usage must not inherit a previous attempt's evidence.
 	evidence.RawUsage, evidence.RawUsageSHA256 = nil, ""
+	evidence.KimiCacheWriteHeaders = nil
 	evidence.UsageSource, evidence.UsageLocation = "", ""
 	evidence.UsageObservations = 0
 	evidence.UsageIntegrityComplete = false

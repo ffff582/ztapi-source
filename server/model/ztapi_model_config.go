@@ -771,6 +771,7 @@ func UpdateZTAPIModelConfigAndBilling(next *ZTAPIModelConfig, expectedVersion ui
 }
 
 type ztapiPublishedModel struct {
+	PricePolicy            string
 	ModelConfigID          int
 	SnapshotID             int64
 	PriceSourceID          int64
@@ -870,6 +871,7 @@ func refreshZTAPIAliasCache() error {
 	}
 	for i := range publications {
 		publication := ztapiPublishedModel{
+			PricePolicy:   publications[i].PricePolicy,
 			ModelConfigID: publications[i].ModelConfigID, SnapshotID: publications[i].SnapshotID,
 			PriceSourceID: publications[i].PriceSourceID, PriceSourceVersion: publications[i].PriceSourceVersion,
 			SaleMultiplier: publications[i].SaleMultiplier,

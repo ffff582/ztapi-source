@@ -25,6 +25,52 @@ type ZTAPISupplierPricingPreview20261019 struct {
 	Blocked        []ZTAPIABQuotePricingBlocked       `json:"blocked"`
 }
 
+func ztapiSupplierRepriceDoesNotRaise20261019(tx *gorm.DB, old, target *ZTAPIModelPriceSource) error {
+	if old == nil || target == nil || old.SourceModel != "kimi-k3" || target.SourceModel != "kimi-k3" ||
+		old.ModelConfigID != target.ModelConfigID || old.ResourceType != "pool" ||
+		target.SourceDocumentChecksum != ZTAPISupplierWorkbook20261019SHA256 ||
+		target.PricePolicy != string(ZTAPIPricePolicyQuoteFrozenRetail20261019) {
+		return ztapiRepriceDoesNotRaise(old, target)
+	}
+	if err := ValidateZTAPISupplierPriceSource20261019(tx, target); err != nil {
+		return err
+	}
+	var oldRules, newRules []ztapiABFrozenSaleRule
+	if err := common.Unmarshal([]byte(old.TokenPriceRulesJSON), &oldRules); err != nil {
+		return err
+	}
+	if err := common.Unmarshal([]byte(target.TokenPriceRulesJSON), &newRules); err != nil {
+		return err
+	}
+	if len(oldRules) != len(newRules) || len(oldRules) == 0 {
+		return ztapiRepriceDoesNotRaise(old, target)
+	}
+	for tier, rule := range oldRules {
+		// Only the first migration from K3's complete three-dimension retail
+		// contract may add the two independently rebuilt TTL prices.
+		if len(rule.Sale) != 3 {
+			return ztapiRepriceDoesNotRaise(old, target)
+		}
+		for _, dimension := range []string{ZTAPIBillingDimensionInputTokens, ZTAPIBillingDimensionOutputTokens, ZTAPIBillingDimensionCacheRead} {
+			if _, found := rule.Sale[dimension]; !found {
+				return ztapiRepriceDoesNotRaise(old, target)
+			}
+		}
+		if newRules[tier].RetailBasisID != old.ID {
+			return errors.New("K3 TTL addition requires the current original retail anchor")
+		}
+		delete(newRules[tier].Sale, ZTAPIBillingDimensionCacheWrite5m)
+		delete(newRules[tier].Sale, ZTAPIBillingDimensionCacheWrite1h)
+	}
+	raw, err := common.Marshal(newRules)
+	if err != nil {
+		return err
+	}
+	comparison := *target
+	comparison.TokenPriceRulesJSON = string(raw)
+	return ztapiRepriceDoesNotRaise(old, &comparison)
+}
+
 func supplierPriceCandidate20261019(tx *gorm.DB, config ZTAPIModelConfig, operatorID int, effectiveAt int64,
 	fx ZTAPIABFXParams) (ZTAPIModelPublicationSnapshot, ZTAPIModelPriceSource, ZTAPIModelPriceSource, error) {
 	var previous ZTAPIModelPublicationSnapshot
@@ -78,7 +124,7 @@ func supplierPriceCandidate20261019(tx *gorm.DB, config ZTAPIModelConfig, operat
 		(len(previous.ChannelIDs()) != 1 || previous.ChannelIDs()[0] != 2) {
 		return previous, old, target, errors.New("pool GPT/Claude price requires the already frozen pool-only route")
 	}
-	if err := ztapiRepriceDoesNotRaise(&old, &target); err != nil {
+	if err := ztapiSupplierRepriceDoesNotRaise20261019(tx, &old, &target); err != nil {
 		return previous, old, target, err
 	}
 	preview, err := BuildZTAPIModelPricePreview(&target)
