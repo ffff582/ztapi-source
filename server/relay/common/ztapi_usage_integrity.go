@@ -128,7 +128,8 @@ func observeZTAPIOpenAIUsage(c *gin.Context, info *RelayInfo, raw []byte, chatHe
 			case "prompt_tokens", "completion_tokens", "input_tokens", "output_tokens", "total_tokens",
 				"cached_tokens", "cached_creation_tokens", "cache_write_tokens", "prompt_cache_hit_tokens", "prompt_cache_miss_tokens",
 				"reasoning_tokens", "text_tokens", "image_tokens", "audio_tokens", "accepted_prediction_tokens", "rejected_prediction_tokens",
-				"claude_cache_creation_5_m_tokens", "claude_cache_creation_1_h_tokens", "ephemeral_5m_input_tokens", "ephemeral_1h_input_tokens":
+				"claude_cache_creation_5_m_tokens", "claude_cache_creation_1_h_tokens", "ephemeral_5m_input_tokens", "ephemeral_1h_input_tokens",
+				"cache_write_5m_tokens", "cache_write_1h_tokens":
 				if strings.Contains(name, "cache") || strings.HasPrefix(name, "ephemeral_") {
 					switch path {
 					case "cached_tokens", "cached_creation_tokens", "prompt_cache_hit_tokens", "prompt_cache_miss_tokens",
@@ -136,6 +137,7 @@ func observeZTAPIOpenAIUsage(c *gin.Context, info *RelayInfo, raw []byte, chatHe
 						"prompt_tokens_details.cached_creation_tokens", "input_tokens_details.cached_creation_tokens",
 						"prompt_tokens_details.cache_write_tokens", "input_tokens_details.cache_write_tokens",
 						"claude_cache_creation_5_m_tokens", "claude_cache_creation_1_h_tokens",
+						"cache_write_5m_tokens", "cache_write_1h_tokens",
 						"cache_creation.ephemeral_5m_input_tokens", "cache_creation.ephemeral_1h_input_tokens":
 					default:
 						fail("usage_incomplete")
@@ -199,8 +201,10 @@ func observeZTAPIOpenAIUsage(c *gin.Context, info *RelayInfo, raw []byte, chatHe
 	// bucket; normalize it to the existing generic write counter, not a new fee.
 	cacheWrite, hasWrite := alias("prompt_tokens_details.cached_creation_tokens", "input_tokens_details.cached_creation_tokens",
 		"prompt_tokens_details.cache_write_tokens", "input_tokens_details.cache_write_tokens", "cached_creation_tokens")
-	write5m, has5m := alias("claude_cache_creation_5_m_tokens", "cache_creation.ephemeral_5m_input_tokens")
-	write1h, has1h := alias("claude_cache_creation_1_h_tokens", "cache_creation.ephemeral_1h_input_tokens")
+	write5m, has5m := alias("claude_cache_creation_5_m_tokens", "cache_creation.ephemeral_5m_input_tokens", "cache_write_5m_tokens")
+	write1h, has1h := alias("claude_cache_creation_1_h_tokens", "cache_creation.ephemeral_1h_input_tokens", "cache_write_1h_tokens")
+	_, pool5m := numbers["cache_write_5m_tokens"]
+	_, pool1h := numbers["cache_write_1h_tokens"]
 	strictCachePresence := ztapiIsKimiK3(info)
 	if strictCachePresence {
 		header5m, header1h, present, reason := parseZTAPIKimiCacheWriteHeaders(chatHeader)
@@ -220,6 +224,9 @@ func observeZTAPIOpenAIUsage(c *gin.Context, info *RelayInfo, raw []byte, chatHe
 				has5m, has1h = true, true
 			}
 		}
+	}
+	if (pool5m || pool1h) && has5m != has1h {
+		fail("usage_incomplete")
 	}
 	// Frozen prices do not establish a presence contract for legacy suppliers.
 	// Only the documented K3 version currently requires complete cache counters.

@@ -127,7 +127,7 @@ func filterZTAPINumericUsage(raw json.RawMessage, depth int) map[string]json.Raw
 			"cached_tokens", "cached_creation_tokens", "cache_write_tokens", "cache_read_input_tokens", "cache_creation_input_tokens",
 			"prompt_cache_hit_tokens", "prompt_cache_miss_tokens", "reasoning_tokens", "text_tokens", "image_tokens", "audio_tokens",
 			"accepted_prediction_tokens", "rejected_prediction_tokens", "claude_cache_creation_5_m_tokens", "claude_cache_creation_1_h_tokens",
-			"ephemeral_5m_input_tokens", "ephemeral_1h_input_tokens":
+			"ephemeral_5m_input_tokens", "ephemeral_1h_input_tokens", "cache_write_5m_tokens", "cache_write_1h_tokens":
 			if len(value) <= 64 && gjson.ParseBytes(value).Type == gjson.Number {
 				safe[name] = value
 			}
