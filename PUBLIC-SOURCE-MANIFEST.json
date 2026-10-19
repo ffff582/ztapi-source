@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "c059ab129ed3880f77bfed5605a7df5d17a44052",
+  "release_commit": "5d8f9f3965c745fd782abb5d9df1fb0827ce55f8",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-c059ab129ed3880f77bfed5605a7df5d17a44052",
+  "source_tag": "production-5d8f9f3965c745fd782abb5d9df1fb0827ce55f8",
   "files": [
     {
       "path": ".dockerignore",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "7539014c5b4e68293f633819438c56da8d8e0c734105e55b41e9e22e595f64cf",
+      "sha256": "f9b0fc25834a5077b9037ee01a2905131f239ee384510b9384f3bcb1392e226c",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "6a4e04922ca67225c311ea558bf4512d789e2b061dd37fa0eba90c2793072b3a",
+      "sha256": "a19a3b536b3ef8e49518f7b1b0b4d5c748e1ec4d6bb08a3693d0694d1fe2237d",
       "size": 942
     },
     {
@@ -5190,6 +5190,11 @@
       "size": 17623
     },
     {
+      "path": "server/service/ztapi_gpt61_sol_timeout_test.go",
+      "sha256": "ecd1f78e09252adad8094f73fd2b1f3e123903fb94567c7213e4e533dc61b19b",
+      "size": 4807
+    },
+    {
       "path": "server/service/ztapi_health_model_permission_alert_test.go",
       "sha256": "ff421e4b1c9bf8e845b6ca1375bd99b55bd27d803f385500deb1e489f11e6a7a",
       "size": 3843
@@ -5266,8 +5271,8 @@
     },
     {
       "path": "server/service/ztapi_model_verifier.go",
-      "sha256": "ba42622a92f0c78b4324eb20ad8a149d292209ed8e6a714993ed774532eb1670",
-      "size": 54980
+      "sha256": "bb6ddd85f57fd1eeade48c4af9d78e3bac0bd1a0a62fc456836f661395193783",
+      "size": 55118
     },
     {
       "path": "server/service/ztapi_model_verifier_test.go",
