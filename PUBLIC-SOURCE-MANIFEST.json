@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "5f898fb97fe4068c58895cda47e9773ced6ba6c0",
+  "release_commit": "41aa5515aeeed12fa9ac63354be8e68241b4b33a",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-5f898fb97fe4068c58895cda47e9773ced6ba6c0",
+  "source_tag": "production-41aa5515aeeed12fa9ac63354be8e68241b4b33a",
   "files": [
     {
       "path": ".dockerignore",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "a969ad3f75192311c4f05a7594b830f6f87d7b01611c0e930d1604674edbf3bf",
+      "sha256": "391dc2c53028e7a33081d7b520655bcff7aa10f3ffb6a9bcd418ae528061ab1f",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "ef32d29df103e001448133093025281864678a4f06b22cfc14913df52504e91d",
+      "sha256": "d5d7685553b5737046e7461f845496b88b3edb2a1f26e1dc8a4badf8d12dbbbe",
       "size": 942
     },
     {
@@ -2851,8 +2851,8 @@
     },
     {
       "path": "server/model/ztapi_quote_ab_repricing.go",
-      "sha256": "dea24bde1fcdc6032f492debb443614c437907286b22c8b51d06e5df4a195ee6",
-      "size": 24453
+      "sha256": "697098af44bda722ccbe4994428439245af4b8ff0d24397f0bc33b513bff8087",
+      "size": 24546
     },
     {
       "path": "server/model/ztapi_quote_ab_repricing_test.go",
@@ -2956,8 +2956,8 @@
     },
     {
       "path": "server/model/ztapi_supplier_prices_20261019.json",
-      "sha256": "15f4342fd6793bf1bbd58577496c9141c1981cff7181f3651570df8917a02723",
-      "size": 9754
+      "sha256": "48cc9594d0d127a71af05ebcd999ed433209a95aaa822b745471e37c93c3a619",
+      "size": 10127
     },
     {
       "path": "server/model/ztapi_supplier_reconciliation.go",
@@ -2996,8 +2996,8 @@
     },
     {
       "path": "server/model/ztapi_supplier_repricing_20261019_test.go",
-      "sha256": "82801b60605e0d555554734909d732ed65efd08f79c4e5d2c4205c13ead5b078",
-      "size": 4688
+      "sha256": "23755d9574356bc1097039973b7fcc92b5d2f505044b2c09847e21ccf22b61bc",
+      "size": 5984
     },
     {
       "path": "server/model/ztapi_token_secret.go",
