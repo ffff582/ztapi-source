@@ -1,7 +1,7 @@
 # ZTAPI Modifications
 
 ZTAPI is a modified version of New API. The production release represented by
-this snapshot is `5d8f9f3965c745fd782abb5d9df1fb0827ce55f8` and was prepared on `2026-10-19`.
+this snapshot is `4cd9ebee19cbd0c2036d8b968531029968cb2c58` and was prepared on `2026-10-24`.
 
 Major modifications include:
 
@@ -10,6 +10,7 @@ Major modifications include:
 - quotation allowlisting and governed model publication;
 - dual upstream routing, health monitoring and Telegram alert outbox delivery;
 - USDT TRC-20 order tracking and settlement controls;
-- commercial audit, deployment and runtime acceptance gates.
+- commercial audit, deployment and runtime acceptance gates;
+- Codex incremental and namespaced tool translation, with verified usage settlement on stream failures.
 
 The original project is available at https://github.com/QuantumNous/new-api.

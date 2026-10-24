@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "5d8f9f3965c745fd782abb5d9df1fb0827ce55f8",
+  "release_commit": "4cd9ebee19cbd0c2036d8b968531029968cb2c58",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-5d8f9f3965c745fd782abb5d9df1fb0827ce55f8",
+  "source_tag": "production-4cd9ebee19cbd0c2036d8b968531029968cb2c58",
   "files": [
     {
       "path": ".dockerignore",
@@ -51,8 +51,8 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "f9b0fc25834a5077b9037ee01a2905131f239ee384510b9384f3bcb1392e226c",
-      "size": 695
+      "sha256": "7cbc3df46797ad44acd523ac16fd2843999f107dcaeb4b09e6876b694b095e3e",
+      "size": 799
     },
     {
       "path": "NOTICE",
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "a19a3b536b3ef8e49518f7b1b0b4d5c748e1ec4d6bb08a3693d0694d1fe2237d",
+      "sha256": "07c69019a2726632f800d8949b73001f8b9b60e77700f704301f3b202d5e53ff",
       "size": 942
     },
     {
@@ -1390,6 +1390,11 @@
       "size": 4104
     },
     {
+      "path": "server/controller/ztapi_codex_additional_tools_e2e_test.go",
+      "sha256": "f38bfe991960aff932b16a54f9b26b902c4fccbbadc30e9684a7b1ab6e661f4c",
+      "size": 6087
+    },
+    {
       "path": "server/controller/ztapi_email_test.go",
       "sha256": "021614a1af5b3194eb4ee8e898cc177c65b2f5a3d8e0fe094758e7a6ee7c55c6",
       "size": 4421
@@ -1691,8 +1696,8 @@
     },
     {
       "path": "server/dto/openai_request.go",
-      "sha256": "c754958d747fc04b1f74ba8a98f1e6a6667e9d17b0a4715d1b4aae947971be53",
-      "size": 32752
+      "sha256": "68859719364bb027c0ce75bd04e244dd2c70188a2535735ef7f8af420cedff37",
+      "size": 32982
     },
     {
       "path": "server/dto/openai_request_zero_value_test.go",
@@ -1703,6 +1708,11 @@
       "path": "server/dto/openai_response.go",
       "sha256": "7972c4c2f7db3cbf6234e5a8ce91c318d05700700d59388d91fe184fbc8782c3",
       "size": 14290
+    },
+    {
+      "path": "server/dto/openai_responses_additional_tools_test.go",
+      "sha256": "6cd5ef2d7e5fa3e88887b9c5580b79d5c35b721bc3c623a0362c8cdac561df59",
+      "size": 671
     },
     {
       "path": "server/dto/openai_responses_compaction_request.go",
@@ -3685,9 +3695,14 @@
       "size": 1403
     },
     {
+      "path": "server/relay/channel/openai/responses_stream_integrity_test.go",
+      "sha256": "456f0e88d3a15b51bb3f332d1f7543f9975e94ca00450e38ed31c543638dba2a",
+      "size": 1056
+    },
+    {
       "path": "server/relay/channel/openai/responses_via_chat.go",
-      "sha256": "140beeae13b3e04f37f76f4e98270c0fcd972b566420d9cce8ce4ab005d84978",
-      "size": 17785
+      "sha256": "5808dcd49f83793f0fe15583dd4de4f8a4f579fbff60f194106f3612d3299fdd",
+      "size": 19369
     },
     {
       "path": "server/relay/channel/openai/usage.go",
@@ -4521,13 +4536,13 @@
     },
     {
       "path": "server/relay/responses_handler.go",
-      "sha256": "d8587956af913fc5cedb1b40d156bfcd89866bddd72c3ddd6a4c25c0a3a2508c",
-      "size": 7063
+      "sha256": "f740708690da157385258199b44dd8456ea6cf91d0130fa3397fa8f54b80b10e",
+      "size": 7234
     },
     {
       "path": "server/relay/responses_via_chat_completions.go",
-      "sha256": "e19241c7efa6fa27cfaa640369bb18d7a0405b935779075486b7e79abfd33bd4",
-      "size": 4410
+      "sha256": "2c0a7786017b260f1e8228f176b4ad6a0f59cbe30ce59608fd4b1d3c28c95206",
+      "size": 4456
     },
     {
       "path": "server/relay/websocket.go",
@@ -4880,14 +4895,19 @@
       "size": 656
     },
     {
+      "path": "server/service/openaicompat/responses_namespace_test.go",
+      "sha256": "37ea528c9f8c9b3071460eb8b3fc1ebd178912fb7ac9c83041f55921d99544b9",
+      "size": 3825
+    },
+    {
       "path": "server/service/openaicompat/responses_to_chat.go",
       "sha256": "ccfccc308bfec8221c7332a89a3d4576a392a4ddde5b9da14b76c41da936edb2",
       "size": 3096
     },
     {
       "path": "server/service/openaicompat/responses_to_chat_request.go",
-      "sha256": "af23756166184446e74abc6755acbbdbc6c0e7ebc6320defb0b70b92f3ce67c8",
-      "size": 15432
+      "sha256": "a8316da68214807e0f0052d7f727ed92c14f71e44f5d38e98efe14f505c8b31f",
+      "size": 19162
     },
     {
       "path": "server/service/openaicompat/responses_to_chat_request_test.go",
