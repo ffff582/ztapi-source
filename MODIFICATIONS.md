@@ -1,7 +1,7 @@
 # ZTAPI Modifications
 
 ZTAPI is a modified version of New API. The production release represented by
-this snapshot is `f9eb5615ffda43630652a94fed7314a6a95acca1` and was prepared on `2026-10-24`.
+this snapshot is `923fe4ce10c7a68eb095c44a9adac0f52421f363` and was prepared on `2026-10-24`.
 
 Major modifications include:
 
@@ -14,3 +14,5 @@ Major modifications include:
 - Codex incremental and namespaced tool translation, with verified usage settlement on stream failures.
 
 The original project is available at https://github.com/QuantumNous/new-api.
+
+- Claude Opus 5.5 and Sonnet 5.5 standard Codex effort validation, preserving upstream Chat parameter filtering.

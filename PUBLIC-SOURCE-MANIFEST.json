@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "f9eb5615ffda43630652a94fed7314a6a95acca1",
+  "release_commit": "923fe4ce10c7a68eb095c44a9adac0f52421f363",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-f9eb5615ffda43630652a94fed7314a6a95acca1",
+  "source_tag": "production-923fe4ce10c7a68eb095c44a9adac0f52421f363",
   "files": [
     {
       "path": ".dockerignore",
@@ -51,8 +51,8 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "addd4f779eae775c8011d120851dca759e8ee3d1ebe2726c18e2bbb4f0c4fbe8",
-      "size": 799
+      "sha256": "5a698ee1d317b1fac6ae5853005621bbe6aa83331f561702620071e20e568a0c",
+      "size": 913
     },
     {
       "path": "NOTICE",
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "79f7c81360c76b059e24de361466f7cc5a0897fefb004b9b6128a965d5b6a248",
+      "sha256": "1d26de6e72de18cfdcbe462e935e03a859c2adb1b88924eae9c924aae57786f7",
       "size": 942
     },
     {
@@ -2891,13 +2891,13 @@
     },
     {
       "path": "server/model/ztapi_reasoning_capability.go",
-      "sha256": "ea6a84e2916722b0b17494b97762524ee38454ebd8462c283804c312264d75a7",
-      "size": 7013
+      "sha256": "92a3d780bf11cb067c233686a1bea9cba7d166c48cb869d5dd8ccb8e1a511f85",
+      "size": 7190
     },
     {
       "path": "server/model/ztapi_reasoning_capability_test.go",
-      "sha256": "fa46bb1fee32d723f17962aba756841d65ac4d794a101f554de906cc7551d548",
-      "size": 2334
+      "sha256": "089479914b5f9943bb0bd32499ecec747252ea9dae61330fa96c9fefc21f8f2c",
+      "size": 3434
     },
     {
       "path": "server/model/ztapi_repricing.go",
@@ -4458,6 +4458,11 @@
       "path": "server/relay/helper/valid_request.go",
       "sha256": "b2897c15a6e108a46881d7ca9d5547a687bc776dd852cded66288b0b8bf739d5",
       "size": 13365
+    },
+    {
+      "path": "server/relay/helper/ztapi_claude55_reasoning_test.go",
+      "sha256": "32235367a5078ff7405b79f1aa7b044345e91f79d7475ea76abeac7e96d20a45",
+      "size": 1447
     },
     {
       "path": "server/relay/helper/ztapi_claude_chat_budget_test.go",
