@@ -1,7 +1,7 @@
 # ZTAPI Modifications
 
 ZTAPI is a modified version of New API. The production release represented by
-this snapshot is `173834158f7bc15a01a2b437fc5b532d05cf6d69` and was prepared on `2026-10-24`.
+this snapshot is `0f280aab68a7da134de4fe39cdab61818a518d73` and was prepared on `2026-10-24`.
 
 Major modifications include:
 
@@ -18,3 +18,5 @@ The original project is available at https://github.com/QuantumNous/new-api.
 - Claude Opus 5.5 and Sonnet 5.5 standard Codex effort validation, preserving upstream Chat parameter filtering.
 
 - Owner-approved new-request Fable cache-write retail 18.86582633 U per million; immutable publication/audit, public frozen prices, inclusive usage normalization and no TTL duplication. Preserve supplier quotes, routes, historical snapshots and balances.
+
+- Fable receipt evidence proves TTL counters nested inside prompt token details; normalize explicit nested counts without inferring TTL and preserve numeric evidence. Keep owner-approved uniform retail, publication version, historical settlements and routes unchanged.

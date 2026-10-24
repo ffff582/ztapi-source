@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "173834158f7bc15a01a2b437fc5b532d05cf6d69",
+  "release_commit": "0f280aab68a7da134de4fe39cdab61818a518d73",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-173834158f7bc15a01a2b437fc5b532d05cf6d69",
+  "source_tag": "production-0f280aab68a7da134de4fe39cdab61818a518d73",
   "files": [
     {
       "path": ".dockerignore",
@@ -51,8 +51,8 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "211954dcb4b44e7e278e3d412863c8a84c62c19021ed07e7cfa6f8f9d6c9cc44",
-      "size": 1169
+      "sha256": "429649eda622199adcb733b789c2e32caa23cbcb93e8efb387b4008f7e9ad66e",
+      "size": 1439
     },
     {
       "path": "NOTICE",
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "df0b50e72959d6dfae312b0eed6365525bfe8cca2ba514a25d925c4a628fcf00",
+      "sha256": "77122fafbbf3a7e71fdc13fe304f2a0280144ddc619bd588679568254dda4f97",
       "size": 942
     },
     {
@@ -4366,8 +4366,8 @@
     },
     {
       "path": "server/relay/common/ztapi_uniform_cache_write_test.go",
-      "sha256": "a89d48805af9482ce3c6ff6fc9d822cc402a3ddec4a62895c3177e8ed54a1e37",
-      "size": 4481
+      "sha256": "37f1b9c076790d59c8525be1eeeed7b7feb1e41dce061310a0b1f9c3ce34b8a3",
+      "size": 6053
     },
     {
       "path": "server/relay/common/ztapi_usage_alias_integrity_test.go",
@@ -4386,8 +4386,8 @@
     },
     {
       "path": "server/relay/common/ztapi_usage_integrity.go",
-      "sha256": "1cb6778c5cd00c6b7db0a33c6cd0806c0bdd6aec8063a3f7fcff0630238d944a",
-      "size": 11709
+      "sha256": "2b2344d91974579af5e510a1df6d7915e03922b5aedd9188fab371b1ce510a7e",
+      "size": 12406
     },
     {
       "path": "server/relay/common/ztapi_usage_source_regression_test.go",
@@ -5706,13 +5706,18 @@
     },
     {
       "path": "server/types/ztapi_metering_evidence.go",
-      "sha256": "dddcae913a5d681a4309fc181b22d9f8138d3ddf4b249cfd4651c9f4e3e6759a",
-      "size": 6276
+      "sha256": "20442f5c8cd33b0a110cea1163ade8cb83392bd59c5098084c58128e1d12b15b",
+      "size": 6321
     },
     {
       "path": "server/types/ztapi_metering_evidence_test.go",
       "sha256": "256adc734b2d326526cd4950dafa1ec70a0b163a139975a08fa7a37fafaa03a0",
       "size": 2656
+    },
+    {
+      "path": "server/types/ztapi_nested_cache_evidence_test.go",
+      "sha256": "3e67fe80b5398efd1a319fe83e4410150d00e3db804df96f5df2367438eaab1c",
+      "size": 757
     },
     {
       "path": "server/types/ztapi_pool_ttl_audit_test.go",
