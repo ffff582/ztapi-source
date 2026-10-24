@@ -232,6 +232,9 @@ func mergeResponsesTools(current, updates []responsesTool) []responsesTool {
 				continue
 			}
 			if update.Type == "namespace" {
+				if update.Description == "" {
+					update.Description = current[i].Description
+				}
 				update.Tools = mergeResponsesTools(current[i].Tools, update.Tools)
 			}
 			current[i] = update
@@ -286,6 +289,7 @@ func convertResponsesTools(raw json.RawMessage, customTools map[string]bool, too
 		}
 		switch tool.Type {
 		case "function":
+			customTools[name] = false
 			var parameters any
 			if rawJSONPresent(tool.Parameters) {
 				if err := common.Unmarshal(tool.Parameters, &parameters); err != nil {
@@ -455,7 +459,9 @@ func convertResponsesInput(raw json.RawMessage, customTools map[string]bool) ([]
 			}
 		case "custom_tool_call":
 			name := ResponsesChatToolName(item.Namespace, item.Name)
-			customTools[name] = true
+			if _, declared := customTools[name]; !declared {
+				customTools[name] = true
+			}
 			input, _ := rawJSONString(item.Input)
 			arguments, err := common.Marshal(map[string]string{CustomToolInputArgument: input})
 			if err != nil {

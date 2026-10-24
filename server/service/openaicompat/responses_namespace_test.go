@@ -55,3 +55,19 @@ func TestResponsesNamespaceKeepsSharedInstructions(t *testing.T) {
 	require.Contains(t, conversion.Request.Tools[0].Function.Description, "Only access /workspace/safe.")
 	require.Contains(t, conversion.Request.Tools[0].Function.Description, "Read one file.")
 }
+
+func TestResponsesAdditionalToolsTypeOverridesHistoricalCustomCall(t *testing.T) {
+	conversion, err := convertResponsesForTest(t, `{"model":"claude-opus-5","tools":[{"type":"namespace","name":"files","tools":[{"type":"custom","name":"edit"}]}],"input":[{"type":"custom_tool_call","namespace":"files","name":"edit","call_id":"old","input":"old edit"},{"type":"custom_tool_call_output","call_id":"old","output":"done"},{"type":"additional_tools","tools":[{"type":"namespace","name":"files","tools":[{"type":"function","name":"edit","parameters":{"type":"object"}}]}]},{"role":"user","content":"edit again"}]}`)
+	require.NoError(t, err)
+	require.Len(t, conversion.Request.Tools, 1)
+	require.False(t, conversion.CustomTools[conversion.Request.Tools[0].Function.Name])
+}
+
+func TestResponsesNamespaceUpdateRetainsSharedInstructions(t *testing.T) {
+	conversion, err := convertResponsesForTest(t, `{"model":"claude-opus-5","tools":[{"type":"namespace","name":"files","description":"Only access /workspace/safe.","tools":[{"type":"function","name":"read","parameters":{"type":"object"}}]}],"input":[{"type":"additional_tools","tools":[{"type":"namespace","name":"files","tools":[{"type":"function","name":"write","parameters":{"type":"object"}}]}]},{"role":"user","content":"edit"}]}`)
+	require.NoError(t, err)
+	require.Len(t, conversion.Request.Tools, 2)
+	for _, tool := range conversion.Request.Tools {
+		require.Contains(t, tool.Function.Description, "Only access /workspace/safe.")
+	}
+}
