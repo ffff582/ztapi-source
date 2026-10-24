@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "4cd9ebee19cbd0c2036d8b968531029968cb2c58",
+  "release_commit": "f9eb5615ffda43630652a94fed7314a6a95acca1",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-4cd9ebee19cbd0c2036d8b968531029968cb2c58",
+  "source_tag": "production-f9eb5615ffda43630652a94fed7314a6a95acca1",
   "files": [
     {
       "path": ".dockerignore",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "7cbc3df46797ad44acd523ac16fd2843999f107dcaeb4b09e6876b694b095e3e",
+      "sha256": "addd4f779eae775c8011d120851dca759e8ee3d1ebe2726c18e2bbb4f0c4fbe8",
       "size": 799
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "07c69019a2726632f800d8949b73001f8b9b60e77700f704301f3b202d5e53ff",
+      "sha256": "79f7c81360c76b059e24de361466f7cc5a0897fefb004b9b6128a965d5b6a248",
       "size": 942
     },
     {
@@ -4896,8 +4896,8 @@
     },
     {
       "path": "server/service/openaicompat/responses_namespace_test.go",
-      "sha256": "37ea528c9f8c9b3071460eb8b3fc1ebd178912fb7ac9c83041f55921d99544b9",
-      "size": 3825
+      "sha256": "8476c442d3ef869dff0233da6f9072a5f542ea7a74d9d026c0f5bc351cd6f642",
+      "size": 5308
     },
     {
       "path": "server/service/openaicompat/responses_to_chat.go",
@@ -4906,8 +4906,8 @@
     },
     {
       "path": "server/service/openaicompat/responses_to_chat_request.go",
-      "sha256": "a8316da68214807e0f0052d7f727ed92c14f71e44f5d38e98efe14f505c8b31f",
-      "size": 19162
+      "sha256": "90b19f4d12508fbb95486724ae39826d4f788b39b9c82fb50018fea2bde6b331",
+      "size": 19338
     },
     {
       "path": "server/service/openaicompat/responses_to_chat_request_test.go",
