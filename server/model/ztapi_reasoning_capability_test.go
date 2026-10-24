@@ -59,3 +59,25 @@ func TestZTAPISolReasoningCapabilityUsesApprovedContractAndRequiresLiveValidatio
 	require.Equal(t, "Owner-approved contract: none, low, medium, high, xhigh, and max; ultra is a local alias that maps to max.", capability.EvidenceQuote)
 	require.True(t, capability.LiveValidationRequired)
 }
+
+func TestZTAPIPublishedClaudeModelsAcceptStandardCodexEffort(t *testing.T) {
+	for _, source := range []string{"claude-fable-5", "claude-haiku-4-5-20251001", "claude-opus-4-6", "claude-opus-4-7", "claude-opus-4-8", "claude-opus-5", "claude-opus-5-5", "claude-sonnet-4-6", "claude-sonnet-5", "claude-sonnet-5-5"} {
+		t.Run(source, func(t *testing.T) {
+			for _, effort := range []string{"none", "minimal", "low", "medium", "high", "xhigh", "max"} {
+				got, err := NormalizeZTAPIReasoningEffort(source, effort)
+				require.NoError(t, err)
+				require.Equal(t, effort, got)
+			}
+			capability, found := ZTAPIReasoningCapabilityFor(source)
+			require.True(t, found)
+			require.Empty(t, capability.ReasoningEfforts)
+			require.True(t, capability.LiveValidationRequired)
+			for _, effort := range []string{"ultra", "turbo"} {
+				_, err := NormalizeZTAPIReasoningEffort(source, effort)
+				require.ErrorIs(t, err, ErrZTAPIReasoningEffortUnsupported)
+			}
+		})
+	}
+	_, err := NormalizeZTAPIReasoningEffort("claude-unknown-future-model", "low")
+	require.ErrorIs(t, err, ErrZTAPIReasoningEffortUnsupported)
+}

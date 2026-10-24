@@ -34,7 +34,7 @@ func nonReasoningCapability(sourceModel, modality string) ZTAPIReasoningCapabili
 	}
 }
 
-// Keys are exact source_model values from ztapi_quotation_v1.json. Empty
+// Keys are exact source_model values from the quotation-backed catalog. Empty
 // effort lists mean the provider contract still needs live validation. Standard
 // wire values pass through for compatibility, while local aliases remain closed.
 var ztapiReasoningCapabilities = map[string]ZTAPIReasoningCapability{
@@ -44,8 +44,10 @@ var ztapiReasoningCapabilities = map[string]ZTAPIReasoningCapability{
 	"claude-opus-4-7":               pendingTextReasoningCapability("claude-opus-4-7"),
 	"claude-opus-4-8":               pendingTextReasoningCapability("claude-opus-4-8"),
 	"claude-opus-5":                 pendingTextReasoningCapability("claude-opus-5"),
+	"claude-opus-5-5":               pendingTextReasoningCapability("claude-opus-5-5"),
 	"claude-sonnet-4-6":             pendingTextReasoningCapability("claude-sonnet-4-6"),
 	"claude-sonnet-5":               pendingTextReasoningCapability("claude-sonnet-5"),
+	"claude-sonnet-5-5":             pendingTextReasoningCapability("claude-sonnet-5-5"),
 	"deepseek-v4-flash":             pendingTextReasoningCapability("deepseek-v4-flash"),
 	"deepseek-v4-pro":               pendingTextReasoningCapability("deepseek-v4-pro"),
 	"gemini-3-flash-preview":        pendingTextReasoningCapability("gemini-3-flash-preview"),
