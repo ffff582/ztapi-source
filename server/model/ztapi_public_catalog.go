@@ -576,7 +576,7 @@ func copyZTAPIStringMap(values map[string]string) map[string]string {
 }
 
 func validZTAPISnapshotPricing(snapshot *ZTAPIModelPublicationSnapshot) bool {
-	if snapshot == nil {
+	if snapshot == nil || validateZTAPICacheWritePricingMode(snapshot) != nil {
 		return false
 	}
 	modality := ZTAPIModelModality(snapshot.SourceModel)
@@ -693,7 +693,7 @@ func loadZTAPIActivePublications(db *gorm.DB) ([]ZTAPIRuntimePublication, error)
 		if ZTAPIModelModality(snapshot.SourceModel) == ZTAPIModalityVideo && videoProtocol == nil {
 			continue
 		}
-		result = append(result, ZTAPIRuntimePublication{
+		publication := ZTAPIRuntimePublication{
 			PricePolicy:   source.PricePolicy,
 			ModelConfigID: configs[i].ID, SnapshotID: snapshot.ID, Version: snapshot.ModelVersion,
 			PriceSourceID: source.ID, PriceSourceVersion: source.Version, SaleMultiplier: sourceMultiplier.StringFixed(10),
@@ -716,7 +716,11 @@ func loadZTAPIActivePublications(db *gorm.DB) ([]ZTAPIRuntimePublication, error)
 			InputPriceDisplay:      preview.InputSaleUSDPerMillion, OutputPriceDisplay: preview.OutputSaleUSDPerMillion,
 			ImageProtocolContract: imageProtocol,
 			VideoProtocolContract: videoProtocol,
-		})
+		}
+		if err := applyZTAPICacheWritePricingMode(&publication, snapshot.CacheWritePricingMode); err != nil {
+			continue
+		}
+		result = append(result, publication)
 	}
 	sort.Slice(result, func(i, j int) bool {
 		if result[i].ProviderFamily == result[j].ProviderFamily {

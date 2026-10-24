@@ -126,7 +126,7 @@ func observeZTAPIOpenAIUsage(c *gin.Context, info *RelayInfo, raw []byte, chatHe
 				}
 				readNumbers(nested, path+".")
 			case "prompt_tokens", "completion_tokens", "input_tokens", "output_tokens", "total_tokens",
-				"cached_tokens", "cached_creation_tokens", "cache_write_tokens", "prompt_cache_hit_tokens", "prompt_cache_miss_tokens",
+				"cached_tokens", "cached_creation_tokens", "cache_write_tokens", "cache_creation_input_tokens", "prompt_cache_hit_tokens", "prompt_cache_miss_tokens",
 				"reasoning_tokens", "text_tokens", "image_tokens", "audio_tokens", "accepted_prediction_tokens", "rejected_prediction_tokens",
 				"claude_cache_creation_5_m_tokens", "claude_cache_creation_1_h_tokens", "ephemeral_5m_input_tokens", "ephemeral_1h_input_tokens",
 				"cache_write_5m_tokens", "cache_write_1h_tokens":
@@ -135,12 +135,17 @@ func observeZTAPIOpenAIUsage(c *gin.Context, info *RelayInfo, raw []byte, chatHe
 					case "cached_tokens", "cached_creation_tokens", "prompt_cache_hit_tokens", "prompt_cache_miss_tokens",
 						"prompt_tokens_details.cached_tokens", "input_tokens_details.cached_tokens",
 						"prompt_tokens_details.cached_creation_tokens", "input_tokens_details.cached_creation_tokens",
+						"prompt_tokens_details.cache_creation_input_tokens", "input_tokens_details.cache_creation_input_tokens",
 						"prompt_tokens_details.cache_write_tokens", "input_tokens_details.cache_write_tokens",
 						"claude_cache_creation_5_m_tokens", "claude_cache_creation_1_h_tokens",
 						"cache_write_5m_tokens", "cache_write_1h_tokens",
 						"cache_creation.ephemeral_5m_input_tokens", "cache_creation.ephemeral_1h_input_tokens":
 					default:
-						fail("usage_incomplete")
+						if path == "cache_creation_input_tokens" {
+							fail("usage_semantic_conflict")
+						} else {
+							fail("usage_incomplete")
+						}
 					}
 				}
 				number, err := strconv.ParseInt(strings.TrimSpace(string(value)), 10, 64)
@@ -157,7 +162,7 @@ func observeZTAPIOpenAIUsage(c *gin.Context, info *RelayInfo, raw []byte, chatHe
 					continue
 				}
 				numbers[path] = number
-			case "cache_read_input_tokens", "cache_creation_input_tokens":
+			case "cache_read_input_tokens":
 				// Native Messages counts exclude caches from input_tokens. They
 				// cannot establish inclusive Chat/Responses accounting.
 				fail("usage_semantic_conflict")
@@ -200,6 +205,7 @@ func observeZTAPIOpenAIUsage(c *gin.Context, info *RelayInfo, raw []byte, chatHe
 	// Kimi Chat/Responses documents cache_write_tokens as an inclusive input
 	// bucket; normalize it to the existing generic write counter, not a new fee.
 	cacheWrite, hasWrite := alias("prompt_tokens_details.cached_creation_tokens", "input_tokens_details.cached_creation_tokens",
+		"prompt_tokens_details.cache_creation_input_tokens", "input_tokens_details.cache_creation_input_tokens",
 		"prompt_tokens_details.cache_write_tokens", "input_tokens_details.cache_write_tokens", "cached_creation_tokens")
 	write5m, has5m := alias("claude_cache_creation_5_m_tokens", "cache_creation.ephemeral_5m_input_tokens", "cache_write_5m_tokens")
 	write1h, has1h := alias("claude_cache_creation_1_h_tokens", "cache_creation.ephemeral_1h_input_tokens", "cache_write_1h_tokens")

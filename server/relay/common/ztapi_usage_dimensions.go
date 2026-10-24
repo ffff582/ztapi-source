@@ -170,9 +170,18 @@ func ValidateZTAPIUsageDimensions(c *gin.Context, info *RelayInfo, usage *dto.Us
 		}
 		// The generic write count is a total, not another charge on top of TTLs.
 		add("cache_read", "token", cacheRead)
-		add("cache_write", "token", cacheWrite-write5m-write1h)
-		add("cache_write_5m", "token", write5m)
-		add("cache_write_1h", "token", write1h)
+		genericWrite, tieredWrite := false, false
+		for _, dimension := range info.ZTAPIPublicationSnapshot.BillingDimensions {
+			genericWrite = genericWrite || dimension == "cache_write"
+			tieredWrite = tieredWrite || dimension == "cache_write_5m" || dimension == "cache_write_1h"
+		}
+		if genericWrite && !tieredWrite {
+			add("cache_write", "token", cacheWrite)
+		} else {
+			add("cache_write", "token", cacheWrite-write5m-write1h)
+			add("cache_write_5m", "token", write5m)
+			add("cache_write_1h", "token", write1h)
+		}
 		if semantic != "anthropic" {
 			input -= cacheRead + cacheWrite
 		}

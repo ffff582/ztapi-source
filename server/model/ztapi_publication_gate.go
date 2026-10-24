@@ -60,6 +60,7 @@ type ztapiPublicationEvidence struct {
 	IdentityUpdatedAt         int64
 	ImageProtocolContractJSON string
 	VideoProtocolContractJSON string
+	CacheWritePricingMode     string
 }
 
 type ZTAPIPublicationBlockedError struct {
@@ -645,6 +646,17 @@ func createZTAPIModelPublicationSnapshotTx(
 	nextVersion uint64,
 	evidence ztapiPublicationEvidence,
 ) (*ZTAPIModelPublicationSnapshot, error) {
+	if evidence.CacheWritePricingMode == "" {
+		var previous ZTAPIModelPublicationSnapshot
+		// Ordinary PUTs omit the pointer, and unpublishing clears it. Recover
+		// the approved policy from immutable history for this exact identity.
+		if err := tx.Where("model_config_id = ? AND source_model = ? AND public_name = ? AND protocol = ? AND provider_family = ? AND cache_write_pricing_mode <> ?",
+			config.ID, config.SourceModel, config.PublicNameValue(), config.Protocol, config.ProviderFamily, "").
+			Order("model_version DESC, id DESC").Limit(1).Find(&previous).Error; err != nil {
+			return nil, err
+		}
+		evidence.CacheWritePricingMode = previous.CacheWritePricingMode
+	}
 	channels, _ := json.Marshal(evidence.AllowedChannelIDs)
 	verifications, _ := json.Marshal(evidence.VerificationIDs)
 	snapshot := &ZTAPIModelPublicationSnapshot{
@@ -653,6 +665,7 @@ func createZTAPIModelPublicationSnapshotTx(
 		Protocol: config.Protocol, ProviderFamily: config.ProviderFamily,
 		EnabledGroups: config.EnabledGroups, AllowedChannelIDs: string(channels),
 		PriceSourceID: evidence.PriceSourceID, VerificationIDs: string(verifications),
+		CacheWritePricingMode:     evidence.CacheWritePricingMode,
 		ImageProtocolContractJSON: evidence.ImageProtocolContractJSON,
 		VideoProtocolContractJSON: evidence.VideoProtocolContractJSON,
 		InputPricePerMillion:      config.InputPricePerMillion, OutputPricePerMillion: config.OutputPricePerMillion,
