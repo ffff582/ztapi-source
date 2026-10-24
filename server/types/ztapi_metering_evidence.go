@@ -132,7 +132,7 @@ func filterZTAPINumericUsage(raw json.RawMessage, depth int) map[string]json.Raw
 				safe[name] = value
 			}
 		case "prompt_tokens_details", "completion_tokens_details", "input_tokens_details", "output_tokens_details", "cache_creation":
-			if depth != 0 {
+			if depth != 0 && !(name == "cache_creation" && depth == 1) {
 				continue
 			}
 			if nested := filterZTAPINumericUsage(value, depth+1); len(nested) > 0 {

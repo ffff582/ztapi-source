@@ -80,3 +80,23 @@ func TestZTAPIUniformCacheWriteUsesFinalCumulativeReceiptOnly(t *testing.T) {
 	require.Equal(t, int64(50), usageDimension(t, result, "cache_write").Quantity)
 	require.Equal(t, int64(30), usageDimension(t, result, "input_tokens").Quantity)
 }
+
+func TestZTAPIUniformCacheWriteNestedTTLReceipt(t *testing.T) {
+	info := uniformCacheWriteInfo()
+	usage := ObserveZTAPIOpenAIUsage(nil, info, []byte(`{"usage":{"completion_tokens":4,"completion_tokens_details":{"reasoning_tokens":3},"prompt_tokens":15609,"prompt_tokens_details":{"cache_creation":{"ephemeral_1h_input_tokens":15607,"ephemeral_5m_input_tokens":0},"cache_creation_input_tokens":15607,"cached_tokens":0},"total_tokens":15613}}`))
+	require.NotNil(t, usage)
+	require.Equal(t, 15607, usage.ClaudeCacheCreation1hTokens)
+	result := ValidateZTAPIUsageDimensions(nil, info, usage)
+	require.False(t, result.Pending)
+	require.Equal(t, int64(15607), usageDimension(t, result, "cache_write").Quantity)
+	require.Equal(t, int64(2), usageDimension(t, result, "input_tokens").Quantity)
+	require.Len(t, result.Dimensions, 3)
+	for _, raw := range []string{
+		`{"usage":{"prompt_tokens":20,"completion_tokens":1,"prompt_tokens_details":{"cache_creation_input_tokens":10,"cache_creation":{"ephemeral_1h_input_tokens":11}}}}`,
+		`{"usage":{"prompt_tokens":20,"completion_tokens":1,"prompt_tokens_details":{"cache_creation":{"ephemeral_2h_input_tokens":0}}}}`,
+		`{"usage":{"prompt_tokens":20,"completion_tokens":1,"cache_creation":{"ephemeral_1h_input_tokens":0},"prompt_tokens_details":{"cache_creation":{"ephemeral_1h_input_tokens":10}}}}`,
+		`{"usage":{"prompt_tokens":20,"completion_tokens":1,"prompt_tokens_details":{"cache_creation":{"ephemeral_1h_input_tokens":-1}}}}`,
+	} {
+		require.Nil(t, ObserveZTAPIOpenAIUsage(nil, uniformCacheWriteInfo(), []byte(raw)), raw)
+	}
+}

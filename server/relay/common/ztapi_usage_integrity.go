@@ -109,7 +109,7 @@ func observeZTAPIOpenAIUsage(c *gin.Context, info *RelayInfo, raw []byte, chatHe
 			path := prefix + name
 			switch name {
 			case "prompt_tokens_details", "input_tokens_details", "completion_tokens_details", "output_tokens_details", "cache_creation":
-				if prefix != "" {
+				if prefix != "" && !(name == "cache_creation" && (prefix == "prompt_tokens_details." || prefix == "input_tokens_details.")) {
 					fail("usage_incomplete")
 					continue
 				}
@@ -139,7 +139,9 @@ func observeZTAPIOpenAIUsage(c *gin.Context, info *RelayInfo, raw []byte, chatHe
 						"prompt_tokens_details.cache_write_tokens", "input_tokens_details.cache_write_tokens",
 						"claude_cache_creation_5_m_tokens", "claude_cache_creation_1_h_tokens",
 						"cache_write_5m_tokens", "cache_write_1h_tokens",
-						"cache_creation.ephemeral_5m_input_tokens", "cache_creation.ephemeral_1h_input_tokens":
+						"cache_creation.ephemeral_5m_input_tokens", "cache_creation.ephemeral_1h_input_tokens",
+						"prompt_tokens_details.cache_creation.ephemeral_5m_input_tokens", "prompt_tokens_details.cache_creation.ephemeral_1h_input_tokens",
+						"input_tokens_details.cache_creation.ephemeral_5m_input_tokens", "input_tokens_details.cache_creation.ephemeral_1h_input_tokens":
 					default:
 						if path == "cache_creation_input_tokens" {
 							fail("usage_semantic_conflict")
@@ -167,7 +169,7 @@ func observeZTAPIOpenAIUsage(c *gin.Context, info *RelayInfo, raw []byte, chatHe
 				// cannot establish inclusive Chat/Responses accounting.
 				fail("usage_semantic_conflict")
 			default:
-				if strings.Contains(name, "cache") || prefix == "cache_creation." {
+				if strings.Contains(name, "cache") || prefix == "cache_creation." || strings.HasSuffix(prefix, ".cache_creation.") {
 					fail("usage_incomplete")
 				}
 			}
@@ -207,8 +209,10 @@ func observeZTAPIOpenAIUsage(c *gin.Context, info *RelayInfo, raw []byte, chatHe
 	cacheWrite, hasWrite := alias("prompt_tokens_details.cached_creation_tokens", "input_tokens_details.cached_creation_tokens",
 		"prompt_tokens_details.cache_creation_input_tokens", "input_tokens_details.cache_creation_input_tokens",
 		"prompt_tokens_details.cache_write_tokens", "input_tokens_details.cache_write_tokens", "cached_creation_tokens")
-	write5m, has5m := alias("claude_cache_creation_5_m_tokens", "cache_creation.ephemeral_5m_input_tokens", "cache_write_5m_tokens")
-	write1h, has1h := alias("claude_cache_creation_1_h_tokens", "cache_creation.ephemeral_1h_input_tokens", "cache_write_1h_tokens")
+	write5m, has5m := alias("claude_cache_creation_5_m_tokens", "cache_creation.ephemeral_5m_input_tokens", "cache_write_5m_tokens",
+		"prompt_tokens_details.cache_creation.ephemeral_5m_input_tokens", "input_tokens_details.cache_creation.ephemeral_5m_input_tokens")
+	write1h, has1h := alias("claude_cache_creation_1_h_tokens", "cache_creation.ephemeral_1h_input_tokens", "cache_write_1h_tokens",
+		"prompt_tokens_details.cache_creation.ephemeral_1h_input_tokens", "input_tokens_details.cache_creation.ephemeral_1h_input_tokens")
 	_, pool5m := numbers["cache_write_5m_tokens"]
 	_, pool1h := numbers["cache_write_1h_tokens"]
 	strictCachePresence := ztapiIsKimiK3(info)
