@@ -96,6 +96,8 @@ func TestZTAPIUniformCacheWriteNestedTTLReceipt(t *testing.T) {
 		`{"usage":{"prompt_tokens":20,"completion_tokens":1,"prompt_tokens_details":{"cache_creation":{"ephemeral_2h_input_tokens":0}}}}`,
 		`{"usage":{"prompt_tokens":20,"completion_tokens":1,"cache_creation":{"ephemeral_1h_input_tokens":0},"prompt_tokens_details":{"cache_creation":{"ephemeral_1h_input_tokens":10}}}}`,
 		`{"usage":{"prompt_tokens":20,"completion_tokens":1,"prompt_tokens_details":{"cache_creation":{"ephemeral_1h_input_tokens":-1}}}}`,
+		`{"usage":{"prompt_tokens":20,"completion_tokens":1,"prompt_tokens_details":{"cache_creation":{"ephemeral_1h_input_tokens":10,"input_tokens":999}}}}`,
+		`{"usage":{"prompt_tokens":20,"completion_tokens":1,"input_tokens_details":{"cache_creation":{"ephemeral_1h_input_tokens":10,"input_tokens":999}}}}`,
 	} {
 		require.Nil(t, ObserveZTAPIOpenAIUsage(nil, uniformCacheWriteInfo(), []byte(raw)), raw)
 	}

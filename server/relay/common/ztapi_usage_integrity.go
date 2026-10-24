@@ -107,6 +107,11 @@ func observeZTAPIOpenAIUsage(c *gin.Context, info *RelayInfo, raw []byte, chatHe
 	readNumbers = func(fields map[string]json.RawMessage, prefix string) {
 		for name, value := range fields {
 			path := prefix + name
+			if (prefix == "cache_creation." || strings.HasSuffix(prefix, ".cache_creation.")) &&
+				name != "ephemeral_5m_input_tokens" && name != "ephemeral_1h_input_tokens" {
+				fail("usage_incomplete")
+				continue
+			}
 			switch name {
 			case "prompt_tokens_details", "input_tokens_details", "completion_tokens_details", "output_tokens_details", "cache_creation":
 				if prefix != "" && !(name == "cache_creation" && (prefix == "prompt_tokens_details." || prefix == "input_tokens_details.")) {
