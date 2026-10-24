@@ -998,6 +998,7 @@ type Input struct {
 	Type    string          `json:"type,omitempty"`
 	Role    string          `json:"role,omitempty"`
 	Content json.RawMessage `json:"content,omitempty"`
+	Tools   json.RawMessage `json:"tools,omitempty"`
 }
 
 type MediaInput struct {
@@ -1037,6 +1038,10 @@ func (r *OpenAIResponsesRequest) ParseInput() []MediaInput {
 		var inputs []Input
 		_ = common.Unmarshal(r.Input, &inputs)
 		for _, input := range inputs {
+			if input.Type == "additional_tools" && len(input.Tools) > 0 {
+				mediaInputs = append(mediaInputs, MediaInput{Type: "input_text", Text: string(input.Tools)})
+				continue
+			}
 			if common.GetJsonType(input.Content) == "string" {
 				var str string
 				_ = common.Unmarshal(input.Content, &str)

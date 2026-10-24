@@ -77,10 +77,14 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 	if info.ZTAPIPublicationSnapshot != nil && info.RelayMode == relayconstant.RelayModeResponses &&
 		info.ApiType == appconstant.APITypeOpenAI && openaicompat.ShouldResponsesUseChatCompletions(info.UpstreamModelName) {
 		usage, apiErr := responsesViaChatCompletions(c, info, adaptor, request)
+		if usage != nil {
+			// A failed client stream can still have a confirmed supplier usage
+			// receipt. Settle it once rather than leaving the reservation pending.
+			service.PostTextConsumeQuota(c, info, usage, nil)
+		}
 		if apiErr != nil {
 			return apiErr
 		}
-		service.PostTextConsumeQuota(c, info, usage, nil)
 		return nil
 	}
 	var requestBody io.Reader

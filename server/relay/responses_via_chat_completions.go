@@ -96,13 +96,13 @@ func responsesViaChatCompletions(c *gin.Context, info *relaycommon.RelayInfo, ad
 	var usage *dto.Usage
 	var newAPIError *types.NewAPIError
 	if info.IsStream {
-		usage, newAPIError = openaichannel.OaiChatToResponsesStreamHandler(c, info, httpResp, conversion.CustomTools)
+		usage, newAPIError = openaichannel.OaiChatToResponsesStreamHandler(c, info, httpResp, conversion.CustomTools, conversion.ToolNames)
 	} else {
-		usage, newAPIError = openaichannel.OaiChatToResponsesHandler(c, info, httpResp, conversion.CustomTools)
+		usage, newAPIError = openaichannel.OaiChatToResponsesHandler(c, info, httpResp, conversion.CustomTools, conversion.ToolNames)
 	}
 	if newAPIError != nil {
 		service.ResetStatusCode(newAPIError, statusCodeMappingStr)
-		return nil, newAPIError
+		return usage, newAPIError
 	}
 	return usage, nil
 }
