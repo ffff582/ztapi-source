@@ -72,6 +72,38 @@ func TestGiftedFundingRecognizesCashNotQuota(t *testing.T) {
 	require.Equal(t, "100.000000", r.Receipts[0].AmountUSDT)
 	require.Equal(t, int64(10500000), r.ChargedQuota)
 }
+
+func TestBasisConservesCashAndClearsMissingEvidenceOnlyOnDepletion(t *testing.T) {
+	p := basis{quota: decimal.NewFromInt(1000000), cash: decimal.NewFromInt(100), unverified: true}
+	cash := decimal.Zero
+	for i := 0; i < 1000; i++ {
+		b := p.take(decimal.NewFromInt(1))
+		cash = cash.Add(b.cash)
+		require.True(t, b.unverified)
+	}
+	last := p.take(p.quota)
+	cash = cash.Add(last.cash)
+	require.True(t, last.unverified)
+	require.True(t, cash.Equal(decimal.NewFromInt(100)))
+	require.True(t, p.cash.IsZero())
+	require.False(t, p.unverified)
+	p.add(basis{quota: decimal.NewFromInt(50), cash: decimal.NewFromInt(25)})
+	fresh := p.take(decimal.NewFromInt(50))
+	require.False(t, fresh.unverified)
+	require.Equal(t, "25.000000", fixed(fresh.cash))
+}
+
+func TestPartialAndExcessDebtRepaymentCannotFundTheSameCashTwice(t *testing.T) {
+	p := basis{quota: decimal.NewFromInt(-100), unverified: true}
+	p.add(basis{quota: decimal.NewFromInt(50), cash: decimal.NewFromInt(50)})
+	require.True(t, p.cash.IsZero())
+	require.Equal(t, int64(-50), p.quota.IntPart())
+	p.add(basis{quota: decimal.NewFromInt(75), cash: decimal.NewFromInt(75)})
+	require.Equal(t, int64(25), p.quota.IntPart())
+	b := p.take(decimal.NewFromInt(25))
+	require.Equal(t, "25.000000", fixed(b.cash))
+	require.True(t, b.unverified)
+}
 func TestPartialSettlementReturnsOriginalBasis(t *testing.T) {
 	s := fixture()
 	s.Ledgers = append(s.Ledgers, ledger(3, 5250000, 42000000, "usage_settlement", "r1", "ztapi:op1:settle"))
