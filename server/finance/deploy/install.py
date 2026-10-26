@@ -144,6 +144,7 @@ def main():
     os.chown(data, 10001, 10001)
     os.chmod(data, 0o700)
     os.chmod(binary, 0o555)
+    (release / '.dockerignore').write_text('*\n!Dockerfile\n!ztapi-finance\n')
     (release / 'Dockerfile').write_text('FROM scratch\nCOPY ztapi-finance /ztapi-finance\nUSER 10001:10001\nLABEL org.opencontainers.image.revision="' + commit + '" org.opencontainers.image.source="https://github.com/ffff582/ztapi-source" org.opencontainers.image.licenses="AGPL-3.0-or-later"\nENTRYPOINT ["/ztapi-finance"]\n')
     image = 'ztapi-finance:' + commit[:12]
     run(['docker', 'build', '--network=none', '-t', image, str(release)])

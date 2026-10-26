@@ -1,6 +1,7 @@
 package finance
 
 import (
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 	"testing"
 	"time"
@@ -12,6 +13,23 @@ func moment(s string) time.Time {
 		panic(err)
 	}
 	return t
+}
+
+func TestRepeatedAllocationsKeepBoundedFinancialPrecision(t *testing.T) {
+	p := basis{quota: decimal.NewFromInt(1000000000), cash: decimal.NewFromInt(1000)}
+	for i := 0; i < 100; i++ {
+		p.take(decimal.NewFromInt(1))
+	}
+	require.GreaterOrEqual(t, p.cash.Exponent(), int32(-24), "allocation must not grow arbitrary-precision integers per request")
+}
+
+func TestMissingEvidenceCannotDisappearThroughPrecisionRounding(t *testing.T) {
+	p := basis{quota: decimal.NewFromInt(1000000000), cash: decimal.NewFromInt(1000), unverified: true}
+	for i := 0; i < 3000; i++ {
+		b := p.take(decimal.NewFromInt(1))
+		require.True(t, b.unverified)
+		require.GreaterOrEqual(t, p.cash.Exponent(), int32(-24))
+	}
 }
 func ledger(id int, delta, before int64, source, req, key string) Ledger {
 	return Ledger{ID: id, UserID: 1, Delta: delta, BalanceBefore: before, BalanceAfter: before + delta, SourceType: source, RequestID: req, IdempotencyKey: key, CreatedAt: moment("2026-09-16T01:00:00Z").Add(time.Duration(id) * time.Second)}
@@ -32,6 +50,19 @@ func calculate(t *testing.T, s Snapshot, f []Fact) Report {
 	require.NoError(t, e)
 	return r
 }
+func TestRepayingUntracedOpeningDebtCannotConfirmProfit(t *testing.T) {
+	s := fixture()
+	s.Ledgers = s.Ledgers[:1]
+	s.Ledgers[0].BalanceBefore = -52500000
+	s.Ledgers[0].BalanceAfter = 0
+	s.Settlements = nil
+	s.Attempts = nil
+	f := append(facts(), Fact{ID: 3, Kind: "funding", Ref: "opening:1", Payload: Funding{Kind: "correction", Amount: "0", Evidence: "legacy negative opening balance"}})
+	r := calculate(t, s, f)
+	require.False(t, r.Confirmed)
+	require.Nil(t, r.Revenue)
+}
+
 func TestGiftedFundingRecognizesCashNotQuota(t *testing.T) {
 	r := calculate(t, fixture(), facts())
 	require.True(t, r.Confirmed, "%+v", r.Issues)

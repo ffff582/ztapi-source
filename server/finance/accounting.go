@@ -48,29 +48,42 @@ func money(amount, currency, rate string) (decimal.Decimal, error) {
 func fixed(v decimal.Decimal) string { return v.StringFixed(6) }
 func stringPtr(s string) *string     { return &s }
 
-type basis struct{ quota, cash, unknown decimal.Decimal }
+type basis struct {
+	quota, cash decimal.Decimal
+	unverified  bool
+}
 
 func (p *basis) add(b basis) {
+	if p.quota.IsNegative() && b.quota.IsPositive() {
+		remaining := decimal.Max(zero, b.quota.Add(p.quota))
+		b.cash = b.cash.Mul(remaining.DivRound(b.quota, 24)).Round(24)
+	}
 	p.quota = p.quota.Add(b.quota)
-	p.cash = p.cash.Add(b.cash)
-	p.unknown = p.unknown.Add(b.unknown)
+	p.cash = p.cash.Add(b.cash).Round(24)
+	p.unverified = p.unverified || b.unverified
+	if !p.quota.IsPositive() {
+		p.cash = zero
+		p.unverified = p.quota.IsNegative()
+	}
 }
 func (p *basis) take(q decimal.Decimal) basis {
 	if !q.IsPositive() {
 		return basis{}
 	}
 	if !p.quota.IsPositive() {
-		return basis{quota: q, unknown: q}
+		return basis{quota: q, unverified: true}
 	}
 	available := decimal.Min(q, p.quota)
 	ratio := available.DivRound(p.quota, 24)
-	b := basis{quota: q, cash: p.cash.Mul(ratio), unknown: p.unknown.Mul(ratio).Add(q.Sub(available))}
+	// Bound scale after every allocation. Multiplying 24-place ratios without
+	// rounding grows integer coefficients on every request. Missing evidence is
+	// a persistent flag, never a tiny fraction that could round away.
+	b := basis{quota: q, cash: p.cash.Mul(ratio).Round(24), unverified: p.unverified || q.GreaterThan(available)}
 	p.quota = p.quota.Sub(available)
-	p.cash = p.cash.Sub(b.cash)
-	p.unknown = p.unknown.Sub(b.unknown.Sub(q.Sub(available)))
+	p.cash = p.cash.Sub(b.cash).Round(24)
 	if p.quota.IsZero() {
 		p.cash = zero
-		p.unknown = zero
+		p.unverified = false
 	}
 	return b
 }
@@ -85,6 +98,7 @@ type replay struct {
 	consumed         map[string]*basis
 	consumedCharges  map[uint]*basis
 	charges          []Charge
+	primaryCharges   map[string][]Charge
 	refunds          map[int]Refund
 	finalized        map[string]bool
 	settlements      map[string]Settlement
@@ -121,7 +135,7 @@ func (r *replay) recognize(s Settlement, b basis, t time.Time, refund bool, chan
 	}
 	r.known = r.known.Add(b.cash.Mul(decimal.NewFromInt(sign)))
 	r.report.ChargedQuota += sign * b.quota.IntPart()
-	if b.unknown.IsPositive() {
+	if b.unverified {
 		r.unknownRevenue = true
 		r.issue("unknown_revenue_basis", s.RequestID, s.UserID)
 	}
@@ -138,15 +152,13 @@ func (r *replay) finalize(req string) {
 	if !h.quota.Equal(decimal.NewFromInt(s.ChargedQuota)) {
 		r.issue("settlement_basis_mismatch", req, s.UserID)
 		r.unknownRevenue = true
-		h = &basis{quota: decimal.NewFromInt(s.ChargedQuota), unknown: decimal.NewFromInt(s.ChargedQuota)}
+		h = &basis{quota: decimal.NewFromInt(s.ChargedQuota), unverified: true}
 	}
 	b := *h
 	r.consumed[req] = &b
-	for _, c := range r.charges {
-		if c.RequestID == req && c.BillingProofID == 0 {
-			r.consumedCharges[c.ID] = &b
-			r.chargeChannels[c.ID] = r.channelFor(s)
-		}
+	for _, c := range r.primaryCharges[req] {
+		r.consumedCharges[c.ID] = &b
+		r.chargeChannels[c.ID] = r.channelFor(s)
 	}
 	r.holds[req] = &basis{}
 	r.finalized[req] = true
@@ -182,7 +194,7 @@ func (r *replay) classification(ref string, user int, q int64, at time.Time, sou
 			}
 		}
 	}
-	b.unknown = decimal.NewFromInt(q)
+	b.unverified = true
 	r.report.ManualFunding = append(r.report.ManualFunding, row)
 	r.issue("unclassified_funding", ref, user)
 	return b, nil
@@ -220,6 +232,12 @@ func Calculate(s Snapshot, facts []Fact, month string, now time.Time) (Report, e
 		r.attemptChannels[a.SettlementID][a.Attempt] = a.ChannelID
 	}
 	r.charges = s.Charges
+	r.primaryCharges = map[string][]Charge{}
+	for _, c := range s.Charges {
+		if c.BillingProofID == 0 {
+			r.primaryCharges[c.RequestID] = append(r.primaryCharges[c.RequestID], c)
+		}
+	}
 	r.refunds = map[int]Refund{}
 	for _, f := range s.Refunds {
 		r.refunds[f.LedgerID] = f
@@ -290,6 +308,10 @@ func Calculate(s Snapshot, facts []Fact, month string, now time.Time) (Report, e
 		if pool == nil {
 			pool = &basis{}
 			r.pools[l.UserID] = pool
+			if l.BalanceBefore < 0 {
+				r.issue("unknown_revenue_basis", fmt.Sprintf("opening:%d", l.UserID), l.UserID)
+				r.unknownRevenue = true
+			}
 			if l.BalanceBefore != 0 {
 				opening, _ := r.classification(fmt.Sprintf("opening:%d", l.UserID), l.UserID, l.BalanceBefore, l.CreatedAt, "opening")
 				pool.add(opening)
@@ -299,7 +321,7 @@ func Calculate(s Snapshot, facts []Fact, month string, now time.Time) (Report, e
 			r.issue("ledger_gap", fmt.Sprintf("ledger:%d", l.ID), l.UserID)
 			pool.quota = decimal.NewFromInt(l.BalanceBefore)
 			pool.cash = zero
-			pool.unknown = decimal.Max(zero, pool.quota)
+			pool.unverified = !pool.quota.IsZero()
 			r.unknownRevenue = true
 		}
 		h := r.holds[l.RequestID]
@@ -312,7 +334,7 @@ func Calculate(s Snapshot, facts []Fact, month string, now time.Time) (Report, e
 		case "usdt_topup_settlement":
 			p, ok := payments[l.RequestID]
 			if !ok || p.UserID != l.UserID || p.CreditUnits*s.QuotaPerUnit != l.Delta {
-				pool.add(basis{quota: q, unknown: q})
+				pool.add(basis{quota: q, unverified: true})
 				r.issue("payment_lineage_missing", fmt.Sprintf("ledger:%d", l.ID), l.UserID)
 				break
 			}
@@ -321,7 +343,7 @@ func Calculate(s Snapshot, facts []Fact, month string, now time.Time) (Report, e
 		case "usdt_topup_bonus":
 			p, ok := payments[l.RequestID]
 			if !ok || p.UserID != l.UserID || l.Delta <= 0 {
-				pool.add(basis{quota: q, unknown: q})
+				pool.add(basis{quota: q, unverified: true})
 				r.issue("bonus_lineage_missing", fmt.Sprintf("ledger:%d", l.ID), l.UserID)
 			} else {
 				pool.add(basis{quota: q})
@@ -362,7 +384,7 @@ func Calculate(s Snapshot, facts []Fact, month string, now time.Time) (Report, e
 				r.issue("settlement_lineage_missing", l.RequestID, l.UserID)
 				r.unknownRevenue = true
 				if l.Delta > 0 {
-					pool.add(basis{quota: q, unknown: q})
+					pool.add(basis{quota: q, unverified: true})
 				} else {
 					pool.take(q.Neg())
 				}
@@ -377,7 +399,7 @@ func Calculate(s Snapshot, facts []Fact, month string, now time.Time) (Report, e
 		case "billing_refund":
 			if l.Delta <= 0 || q.GreaterThan(h.quota) {
 				r.issue("release_lineage_missing", l.RequestID, l.UserID)
-				pool.add(basis{quota: q, unknown: q})
+				pool.add(basis{quota: q, unverified: true})
 				r.unknownRevenue = true
 			} else {
 				pool.add(h.take(q))
@@ -398,7 +420,7 @@ func Calculate(s Snapshot, facts []Fact, month string, now time.Time) (Report, e
 			}
 			if b == nil || l.UserID != s.UserID || l.Delta <= 0 || q.GreaterThan(b.quota) {
 				r.issue("refund_lineage_missing", l.RequestID, l.UserID)
-				pool.add(basis{quota: q, unknown: q})
+				pool.add(basis{quota: q, unverified: true})
 				r.unknownRevenue = true
 			} else {
 				restored := b.take(q)
