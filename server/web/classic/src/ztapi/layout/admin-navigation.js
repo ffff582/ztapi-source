@@ -52,6 +52,12 @@ export const adminNavigation = [
   {
     label: '财务管理',
     icon: BadgeDollarSign,
+    route: '/finance/overview',
+    permission: AdminPermission.financeRead,
+  },
+  {
+    label: '充值记录',
+    icon: Coins,
     route: '/finance/orders',
     permission: AdminPermission.financeRead,
   },

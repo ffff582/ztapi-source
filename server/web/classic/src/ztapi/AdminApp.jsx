@@ -42,6 +42,7 @@ import AdminUsersPage from './features/users/AdminUsersPage.jsx';
 import { QuotaPerUnitProvider } from './quota.jsx';
 import StaffRolesPage from './features/users/StaffRolesPage.jsx';
 import OrdersPage from './features/finance/OrdersPage.jsx';
+import FinanceOverviewPage from './features/finance/OverviewPage.jsx';
 import LedgerPage from './features/finance/LedgerPage.jsx';
 import ReconciliationPage from './features/finance/ReconciliationPage.jsx';
 import WatchedAddressesPage from './features/finance/WatchedAddressesPage.jsx';
@@ -226,6 +227,14 @@ function AdminRoutes() {
                 AdminPermission.logRead,
               )}
             />
+          </ProtectedPage>
+        }
+      />
+      <Route
+        path='/finance/overview'
+        element={
+          <ProtectedPage permission={AdminPermission.financeRead} title='财务总览'>
+            <FinanceOverviewPage canWrite={financeCanWrite} />
           </ProtectedPage>
         }
       />
