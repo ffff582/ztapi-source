@@ -66,27 +66,10 @@ def fetch(path, key, user=1, host='admin.ztapi.vip'):
     return run(['curl', '--silent', '--show-error', '--noproxy', '*', '--max-time', '15', '--resolve', host + ':443:127.0.0.1', '-H', 'Authorization: Bearer ' + auth, '-H', 'New-Api-User: ' + str(user), '-w', '\n%{http_code}', 'https://' + host + path]).stdout.decode().rsplit('\n', 1)
 
 
-def main():
-    os.umask(0o077)
-    commit, expected_hash = sys.argv[1:3]
-    if not re.fullmatch('[a-f0-9]{40}', commit) or not re.fullmatch('[a-f0-9]{64}', expected_hash):
-        raise RuntimeError('Invalid release identity')
-    release = Path(__file__).resolve().parent
-    binary = release / 'ztapi-finance'
-    if hashlib.sha256(binary.read_bytes()).hexdigest() != expected_hash:
-        raise RuntimeError('Finance binary checksum mismatch')
-    before = inspect('ztapi-server-1')
-    if before['Id'] != EXPECTED_MAIN or before['Image'] != EXPECTED_IMAGE:
-        raise RuntimeError('Main API baseline changed; refusing deployment')
-    if run(['docker', 'ps', '-a', '--filter', 'name=^/ztapi-finance$', '--format', '{{.ID}}']).stdout.strip():
-        raise RuntimeError('Finance container already exists; explicit upgrade needed')
-    settings = environment(before)
-    mysql = environment(inspect('ztapi-mysql-1'))
-    database = mysql['MYSQL_DATABASE']
+def prepare_environment(root, settings, database, commit, resume):
     if not re.fullmatch('[A-Za-z0-9_-]+', database):
         raise RuntimeError('Unsupported source database identifier')
     reader = 'ztapi_finance_ro_20261026'
-    password = secrets.token_hex(24)
     grants = {
         'users': 'id,username,role,status,deleted_at',
         'balance_ledgers': 'id,user_id,delta,balance_before,balance_after,source_type,request_id,idempotency_key,created_at',
@@ -99,20 +82,31 @@ def main():
         'ztapi_supplier_refund_charges': 'id,request_id,user_id,original_ledger_id,charged_quota,billing_proof_id,channel_id,billing_operation_id,created_at',
         'ztapi_supplier_refunds': 'ledger_id,charge_id,refunded_quota,status',
     }
-    create = "CREATE USER '" + reader + "'@'%' IDENTIFIED BY '" + password + "';\n"
-    create += ''.join('GRANT SELECT (' + fields + ') ON `' + database + '`.`' + table + "` TO '" + reader + "'@'%';\n" for table, fields in grants.items())
-    sql(create)
+    env_file = root / 'finance.env'
+    if env_file.exists():
+        if not resume:
+            raise RuntimeError('Prepared finance stage exists; explicit resume required')
+        if os.name == 'posix' and (env_file.stat().st_uid != 0 or env_file.stat().st_mode & 0o077):
+            raise RuntimeError('Prepared finance environment permissions are unsafe')
+        previous = dict(line.split('=', 1) for line in env_file.read_text().splitlines())
+        dsn = previous.get('FINANCE_READ_DSN', '')
+        if previous.get('FINANCE_READ_DRIVER') != 'mysql' or previous.get('FINANCE_ADMIN_ORIGIN') != ORIGIN or previous.get('ZTAPI_SESSION_SIGNING_KEY') != settings['ZTAPI_SESSION_SIGNING_KEY'] or not re.fullmatch('[a-f0-9]{40}', previous.get('FINANCE_SOURCE_COMMIT', '')) or not re.fullmatch(reader + r':[a-f0-9]{48}@tcp\(mysql:3306\)/' + re.escape(database) + r'\?.+', dsn):
+            raise RuntimeError('Prepared finance stage identity does not match')
+    else:
+        if resume:
+            raise RuntimeError('No owned stage available to resume')
+        password = secrets.token_hex(24)
+        create = "CREATE USER '" + reader + "'@'%' IDENTIFIED BY '" + password + "';\n"
+        create += ''.join('GRANT SELECT (' + fields + ') ON `' + database + '`.`' + table + "` TO '" + reader + "'@'%';\n" for table, fields in grants.items())
+        sql(create)
+        dsn = reader + ':' + password + '@tcp(mysql:3306)/' + database + '?charset=utf8mb4&parseTime=true&loc=UTC&timeout=5s&readTimeout=5s&writeTimeout=5s'
     saved_grants = sql("SHOW GRANTS FOR '" + reader + "'@'%';")
     if re.search(r'\b(INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|ALL PRIVILEGES)\b', saved_grants, re.I):
         raise RuntimeError('Unexpected finance reader privilege')
-    (release / 'reader-grants.txt').write_text(saved_grants)
-    data = ROOT / 'data'
-    data.mkdir(parents=True, exist_ok=True)
-    os.chown(data, 10001, 10001)
-    os.chmod(data, 0o700)
+    (root / 'reader-grants.txt').write_text(saved_grants)
     env = {
         'FINANCE_READ_DRIVER': 'mysql',
-        'FINANCE_READ_DSN': reader + ':' + password + '@tcp(mysql:3306)/' + database + '?charset=utf8mb4&parseTime=true&loc=UTC&timeout=5s&readTimeout=5s&writeTimeout=5s',
+        'FINANCE_READ_DSN': dsn,
         'FINANCE_STORE': '/data/finance.db',
         'FINANCE_ADMIN_ORIGIN': ORIGIN,
         'FINANCE_LISTEN': ':3011',
@@ -123,9 +117,34 @@ def main():
     }
     if any('\n' in value or '\r' in value for value in env.values()):
         raise RuntimeError('Unsupported environment value')
-    (ROOT / 'finance.env').write_text(''.join(key + '=' + value + '\n' for key, value in env.items()))
-    os.chmod(ROOT / 'finance.env', 0o600)
-    (release / 'Dockerfile').write_text('FROM scratch\nCOPY --chmod=0555 ztapi-finance /ztapi-finance\nUSER 10001:10001\nLABEL org.opencontainers.image.revision="' + commit + '" org.opencontainers.image.source="https://github.com/ffff582/ztapi-source" org.opencontainers.image.licenses="AGPL-3.0-or-later"\nENTRYPOINT ["/ztapi-finance"]\n')
+    env_file.write_text(''.join(key + '=' + value + '\n' for key, value in env.items()))
+    os.chmod(env_file, 0o600)
+    return env
+
+
+def main():
+    os.umask(0o077)
+    commit, expected_hash = sys.argv[1:3]
+    if not re.fullmatch('[a-f0-9]{40}', commit) or not re.fullmatch('[a-f0-9]{64}', expected_hash) or len(sys.argv) > 4 or len(sys.argv) == 4 and sys.argv[3] != '--resume-prepared':
+        raise RuntimeError('Invalid release identity')
+    release = Path(__file__).resolve().parent
+    binary = release / 'ztapi-finance'
+    if hashlib.sha256(binary.read_bytes()).hexdigest() != expected_hash:
+        raise RuntimeError('Finance binary checksum mismatch')
+    before = inspect('ztapi-server-1')
+    if before['Id'] != EXPECTED_MAIN or before['Image'] != EXPECTED_IMAGE:
+        raise RuntimeError('Main API baseline changed; refusing deployment')
+    if run(['docker', 'ps', '-a', '--filter', 'name=^/ztapi-finance$', '--format', '{{.ID}}']).stdout.strip():
+        raise RuntimeError('Finance container already exists; explicit upgrade needed')
+    settings = environment(before)
+    database = environment(inspect('ztapi-mysql-1'))['MYSQL_DATABASE']
+    prepare_environment(ROOT, settings, database, commit, len(sys.argv) == 4)
+    data = ROOT / 'data'
+    data.mkdir(parents=True, exist_ok=True)
+    os.chown(data, 10001, 10001)
+    os.chmod(data, 0o700)
+    os.chmod(binary, 0o555)
+    (release / 'Dockerfile').write_text('FROM scratch\nCOPY ztapi-finance /ztapi-finance\nUSER 10001:10001\nLABEL org.opencontainers.image.revision="' + commit + '" org.opencontainers.image.source="https://github.com/ffff582/ztapi-source" org.opencontainers.image.licenses="AGPL-3.0-or-later"\nENTRYPOINT ["/ztapi-finance"]\n')
     image = 'ztapi-finance:' + commit[:12]
     run(['docker', 'build', '--network=none', '-t', image, str(release)])
     run(['docker', 'create', '--name', 'ztapi-finance', '--network', 'ztapi_app', '--restart', 'unless-stopped', '--read-only', '--cap-drop=ALL', '--security-opt', 'no-new-privileges', '--memory', '256m', '--cpus', '0.5', '--pids-limit', '64', '--tmpfs', '/tmp:rw,noexec,nosuid,size=16m', '--env-file', str(ROOT / 'finance.env'), '--mount', 'type=bind,src=' + str(data) + ',dst=/data', image])

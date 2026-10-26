@@ -15,6 +15,19 @@ spec.loader.exec_module(install)
 
 
 class InstallTests(unittest.TestCase):
+    def test_resuming_prepared_stage_never_recreates_or_rotates_reader(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            saved={'FINANCE_READ_DRIVER':'mysql','FINANCE_ADMIN_ORIGIN':install.ORIGIN,'FINANCE_READ_DSN':'ztapi_finance_ro_20261026:'+('ab'*24)+'@tcp(mysql:3306)/ztapi?charset=utf8mb4','ZTAPI_SESSION_SIGNING_KEY':'x'*64,'FINANCE_SOURCE_COMMIT':'a'*40}
+            (root/'finance.env').write_text(''.join(k+'='+v+'\n' for k,v in saved.items()))
+            (root/'finance.env').chmod(0o600)
+            calls=[]
+            with patch.object(install,'sql',lambda value:(calls.append(value) or 'GRANT SELECT ON ztapi.*')):
+                env=install.prepare_environment(root,{'ZTAPI_SESSION_SIGNING_KEY':'x'*64},'ztapi','b'*40,True)
+            self.assertEqual(env['FINANCE_READ_DSN'],saved['FINANCE_READ_DSN'])
+            self.assertEqual(env['FINANCE_SOURCE_COMMIT'],'b'*40)
+            self.assertTrue(all('CREATE USER' not in call and 'IDENTIFIED BY' not in call for call in calls))
+
     def test_first_nginx_copy_failure_restores_original_configuration(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
