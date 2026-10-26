@@ -44,7 +44,22 @@ def main(root=None):
     with archive.open('rb') as source:
         checksum = digest(source)
     archive.with_suffix('.gz.sha256').write_text(checksum + '  ' + archive.name + '\n')
+    for artifact in (archive, archive.with_suffix('.gz.sha256')):
+        with artifact.open('r+b') as stream:
+            os.fsync(stream.fileno())
+    if os.name == 'posix':
+        directory = os.open(backups, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
     snapshot.unlink()
+    if os.name == 'posix':
+        directory = os.open(backups, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
     print(json.dumps({'backup': str(archive), 'sha256': checksum, 'verified': True}))
 
 

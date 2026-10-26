@@ -15,6 +15,7 @@ import time
 import urllib.request
 
 ROOT = Path('/opt/ztapi-finance')
+HOST_NGINX_CONFIG = Path('/opt/ztapi/deploy/nginx/ztapi.conf')
 EXPECTED_MAIN = '4cf62d8290444ea140284ca5d81619a05e1a54b5e5cd5ccfa6ce42227a0d865d'
 EXPECTED_IMAGE = 'sha256:d0c124fd99cbb2af804c1bd3e65cfba0fb2fce7ae51ba63361961d6304d258ee'
 ORIGIN = 'https://admin.ztapi.vip'
@@ -146,7 +147,7 @@ def main():
     old.mkdir(parents=True, exist_ok=False)
     runtime_config = run(['docker', 'exec', 'ztapi-nginx-1', 'cat', '/etc/nginx/conf.d/default.conf']).stdout.decode()
     (old / 'default.conf').write_text(runtime_config)
-    host_config = Path('/opt/ztapi/deploy/nginx/ztapi.conf')
+    host_config = HOST_NGINX_CONFIG
     shutil.copy2(host_config, old / 'host-ztapi.conf')
     run(['docker', 'cp', 'ztapi-nginx-1:/usr/share/nginx/admin/index.html', str(old / 'index.html')])
     (old / 'baseline.json').write_text(json.dumps({'api_id': before['Id'], 'api_started_at': before['State']['StartedAt'], 'api_image': before['Image'], 'finance_source': commit}))
@@ -159,8 +160,8 @@ def main():
 
     candidate = old / 'default.next.conf'
     candidate.write_text(add_proxy(runtime_config))
-    run(['docker', 'cp', str(candidate), 'ztapi-nginx-1:/etc/nginx/conf.d/default.conf'])
     try:
+        run(['docker', 'cp', str(candidate), 'ztapi-nginx-1:/etc/nginx/conf.d/default.conf'])
         run(['docker', 'exec', 'ztapi-nginx-1', 'nginx', '-t'])
         host_config.write_text(add_proxy(host_config.read_text()))
         run(['docker', 'exec', 'ztapi-nginx-1', 'nginx', '-s', 'reload'])
