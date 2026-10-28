@@ -553,7 +553,7 @@ export default function OverviewPage({ canWrite = false }) {
                 <div>
                   <h2>Xcloud 渠道报价估算</h2>
                   <p className='finance-muted'>
-                    只按已结算请求的独立 token 维度重算，公开报价不是上游实际扣费。
+                    按已结算请求的独立 token 维度重算，使用 Xcloud 公开报价 × 约定 4 折；公开报价不是上游实际扣费。
                   </p>
                 </div>
                 <span className={report.estimate_complete ? 'is-ok' : 'is-pending'}>

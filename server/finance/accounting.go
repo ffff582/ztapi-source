@@ -264,6 +264,7 @@ func (r *replay) buildXcloudEstimates(s Snapshot, names, baseURLs map[int]string
 			continue
 		}
 		row.SourceURL = estimate.SourceURL
+		row.QuoteDiscount = estimate.DiscountFactor
 		row.IsEstimate = estimate.IsEstimate
 		value, _ := decimal.NewFromString(estimate.CostUSDT)
 		costs[key] = costs[key].Add(value)

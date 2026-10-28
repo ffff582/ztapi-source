@@ -11,6 +11,7 @@ import (
 )
 
 const XcloudPricingURL = "https://www.xcloudtoken.com/pricing"
+const XcloudSupplierDiscountFactor = "0.4"
 
 var ErrXcloudQuoteMissing = errors.New("xcloud public quote is missing")
 
@@ -32,13 +33,15 @@ type XcloudPublicQuote struct {
 	CacheWrite1hPerMillion decimal.Decimal
 	SourceURL              string
 	RetrievedAt            time.Time
+	DiscountFactor         decimal.Decimal
 }
 
 type XcloudUsageEstimate struct {
-	SourceModel string `json:"source_model"`
-	CostUSDT    string `json:"cost_usdt"`
-	SourceURL   string `json:"source_url"`
-	IsEstimate  bool   `json:"is_estimate"`
+	SourceModel    string `json:"source_model"`
+	CostUSDT       string `json:"cost_usdt"`
+	SourceURL      string `json:"source_url"`
+	IsEstimate     bool   `json:"is_estimate"`
+	DiscountFactor string `json:"discount_factor"`
 }
 
 func decimalValue(value string) decimal.Decimal {
@@ -46,23 +49,27 @@ func decimalValue(value string) decimal.Decimal {
 }
 
 func xcloudQuote(sourceModel, input, output, cacheRead string) XcloudPublicQuote {
-	inputPrice := decimalValue(input)
+	discount := decimalValue(XcloudSupplierDiscountFactor)
+	inputPrice := decimalValue(input).Mul(discount)
 	return XcloudPublicQuote{
 		SourceModel:            sourceModel,
 		InputPerMillion:        inputPrice,
-		OutputPerMillion:       decimalValue(output),
-		CacheReadPerMillion:    decimalValue(cacheRead),
+		OutputPerMillion:       decimalValue(output).Mul(discount),
+		CacheReadPerMillion:    decimalValue(cacheRead).Mul(discount),
 		CacheWritePerMillion:   inputPrice.Mul(decimalValue("1.25")),
 		CacheWrite5mPerMillion: inputPrice.Mul(decimalValue("1.25")),
 		CacheWrite1hPerMillion: inputPrice.Mul(decimalValue("2")),
 		SourceURL:              XcloudPricingURL,
 		RetrievedAt:            time.Date(2026, 10, 28, 0, 0, 0, 0, shanghai),
+		DiscountFactor:         discount,
 	}
 }
 
 // XcloudPublicQuotes is the public-price evidence for the Claude source
 // models currently declared by the stored Xcloud channel. The public page
 // does not list claude-opus-5, so that source model intentionally has no row.
+// The stored quote applies the agreed supplier discount and remains an
+// estimate until an Xcloud bill is recorded.
 func XcloudPublicQuotes() []XcloudPublicQuote {
 	return []XcloudPublicQuote{
 		xcloudQuote("claude-haiku-4-5-20251001", "1", "5", "0.1"),
@@ -122,5 +129,6 @@ func EstimateXcloudUsage(sourceModel string, dimensions []UsageDimension) (Xclou
 	zero.CostUSDT = cost.StringFixed(6)
 	zero.SourceURL = quote.SourceURL
 	zero.IsEstimate = true
+	zero.DiscountFactor = quote.DiscountFactor.String()
 	return zero, nil
 }

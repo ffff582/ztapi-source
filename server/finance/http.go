@@ -246,9 +246,9 @@ func exportReport(w http.ResponseWriter, r Report) {
 		row(strconv.Itoa(c.ChannelID), c.Supplier, c.Gross, c.Refund, c.Currency, c.Rate, c.NetUSDT, strconv.FormatBool(c.Complete), c.Evidence)
 	}
 	row()
-	row("xcloud_estimate_model", "channel_id", "requests", "revenue_USDT", "estimated_cost_USDT", "estimated_gross_profit_USDT", "complete", "source_url")
+	row("xcloud_estimate_model", "channel_id", "requests", "revenue_USDT", "estimated_cost_USDT", "estimated_gross_profit_USDT", "quote_discount", "complete", "source_url")
 	for _, e := range r.Estimates {
-		row(e.SourceModel, strconv.Itoa(e.ChannelID), strconv.Itoa(e.Requests), e.RevenueUSDT, e.CostUSDT, e.GrossProfitUSDT, strconv.FormatBool(e.Complete), e.SourceURL)
+		row(e.SourceModel, strconv.Itoa(e.ChannelID), strconv.Itoa(e.Requests), e.RevenueUSDT, e.CostUSDT, e.GrossProfitUSDT, e.QuoteDiscount, strconv.FormatBool(e.Complete), e.SourceURL)
 	}
 	row()
 	row("issue", "reference", "user_id")

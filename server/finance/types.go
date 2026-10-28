@@ -142,6 +142,7 @@ type SupplierEstimateRow struct {
 	CostUSDT        string           `json:"cost_usdt"`
 	GrossProfitUSDT string           `json:"gross_profit_usdt"`
 	SourceURL       string           `json:"source_url"`
+	QuoteDiscount   string           `json:"quote_discount"`
 	IsEstimate      bool             `json:"is_estimate"`
 	Complete        bool             `json:"complete"`
 }

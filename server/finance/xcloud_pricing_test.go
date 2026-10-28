@@ -17,7 +17,7 @@ func TestEstimateXcloudUsagePricesExclusiveCacheDimensions(t *testing.T) {
 		{Dimension: "cache_write_1h", Quantity: 1_000_000},
 	})
 	require.NoError(t, err)
-	require.Equal(t, "53.000000", estimate.CostUSDT)
+	require.Equal(t, "21.200000", estimate.CostUSDT)
 	require.Equal(t, "https://www.xcloudtoken.com/pricing", estimate.SourceURL)
 	require.True(t, estimate.IsEstimate)
 }
