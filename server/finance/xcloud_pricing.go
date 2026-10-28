@@ -11,7 +11,7 @@ import (
 )
 
 const XcloudPricingURL = "https://www.xcloudtoken.com/pricing"
-const XcloudSupplierDiscountFactor = "0.4"
+const XcloudSupplierDiscountFactor = "0.5"
 
 var ErrXcloudQuoteMissing = errors.New("xcloud public quote is missing")
 
@@ -48,36 +48,52 @@ func decimalValue(value string) decimal.Decimal {
 	return decimal.RequireFromString(value)
 }
 
-func xcloudQuote(sourceModel, input, output, cacheRead string) XcloudPublicQuote {
+func xcloudQuote(sourceModel, input, output, cacheRead, cacheWrite, cacheWrite5m, cacheWrite1h string) XcloudPublicQuote {
 	discount := decimalValue(XcloudSupplierDiscountFactor)
-	inputPrice := decimalValue(input).Mul(discount)
 	return XcloudPublicQuote{
 		SourceModel:            sourceModel,
-		InputPerMillion:        inputPrice,
+		InputPerMillion:        decimalValue(input).Mul(discount),
 		OutputPerMillion:       decimalValue(output).Mul(discount),
 		CacheReadPerMillion:    decimalValue(cacheRead).Mul(discount),
-		CacheWritePerMillion:   inputPrice.Mul(decimalValue("1.25")),
-		CacheWrite5mPerMillion: inputPrice.Mul(decimalValue("1.25")),
-		CacheWrite1hPerMillion: inputPrice.Mul(decimalValue("2")),
+		CacheWritePerMillion:   decimalValue(cacheWrite).Mul(discount),
+		CacheWrite5mPerMillion: decimalValue(cacheWrite5m).Mul(discount),
+		CacheWrite1hPerMillion: decimalValue(cacheWrite1h).Mul(discount),
 		SourceURL:              XcloudPricingURL,
-		RetrievedAt:            time.Date(2026, 10, 28, 0, 0, 0, 0, shanghai),
+		RetrievedAt:            time.Date(2026, 10, 29, 0, 0, 0, 0, shanghai),
 		DiscountFactor:         discount,
 	}
 }
 
-// XcloudPublicQuotes is the public-price evidence for the Claude source
-// models currently declared by the stored Xcloud channel. The public page
-// does not list claude-opus-5, so that source model intentionally has no row.
-// The stored quote applies the agreed supplier discount and remains an
-// estimate until an Xcloud bill is recorded.
+// XcloudPublicQuotes is the public-price evidence captured from the live
+// Xcloud pricing page on 2026-10-29. Prices are official-page prices reduced
+// by the agreed 50% supplier factor and remain estimates until an Xcloud bill
+// is recorded. A zero cache price means that dimension is not quoted by the
+// public page and must not be fabricated or double-counted.
 func XcloudPublicQuotes() []XcloudPublicQuote {
 	return []XcloudPublicQuote{
-		xcloudQuote("claude-haiku-4-5-20251001", "1", "5", "0.1"),
-		xcloudQuote("claude-opus-4-6", "5", "25", "0.5"),
-		xcloudQuote("claude-opus-4-7", "5", "25", "0.5"),
-		xcloudQuote("claude-opus-4-8", "5", "25", "0.5"),
-		xcloudQuote("claude-sonnet-4-6", "3", "15", "0.3"),
-		xcloudQuote("claude-sonnet-5", "1.5", "10.5", "0.15"),
+		xcloudQuote("claude-fable-5", "10.05", "50.25", "0.5", "8.3", "8.3", "13.5"),
+		xcloudQuote("claude-fable-5-1", "10.5", "52.5", "0.5", "6.25", "6.25", "10"),
+		xcloudQuote("claude-haiku-4-5-20251001", "1", "5", "0.1", "1.25", "1.25", "2"),
+		xcloudQuote("claude-opus-4-6", "5", "25", "0.5", "6.25", "6.25", "10"),
+		xcloudQuote("claude-opus-4-7", "5", "25", "0.5", "6.25", "6.25", "10"),
+		xcloudQuote("claude-opus-4-8", "5", "25", "0.5", "6.25", "6.25", "10"),
+		xcloudQuote("claude-opus-5-5", "7.6", "38", "0.2", "5", "5", "8"),
+		xcloudQuote("claude-sonnet-4-6", "3", "15", "0.2", "2.25", "2.25", "6.7"),
+		xcloudQuote("claude-sonnet-5", "1.5", "10.5", "0.15", "1.9", "1.9", "2.7"),
+		xcloudQuote("claude-sonnet-5-5", "3.8", "3.8", "0.1", "2.5", "2.5", "4"),
+		xcloudQuote("deepseek-v4.1-flash", "0.084", "0.3", "0.003", "0", "0", "0"),
+		xcloudQuote("glm-5.2", "4.8", "16.8", "2", "0", "0", "2"),
+		xcloudQuote("glm-5.3", "4.8", "16.8", "1.2", "0", "0", "0"),
+		xcloudQuote("glm-5.3-flash", "0.48", "1.68", "0.138", "0", "0", "0"),
+		xcloudQuote("gpt-5.5", "5", "30", "1", "12.5", "12.5", "0"),
+		xcloudQuote("gpt-5.6-sol", "5", "30", "0", "0", "0", "0"),
+		xcloudQuote("gpt-5.6-terra", "2.5", "15", "0", "0", "0", "0"),
+		xcloudQuote("gpt-6-astra", "19", "95", "1", "12.5", "12.5", "0"),
+		xcloudQuote("gpt-6-luna", "0.19", "0.95", "0.01", "0.125", "0.125", "0"),
+		xcloudQuote("gpt-6-sol", "3.8", "19", "0.2", "2.5", "2.5", "0"),
+		xcloudQuote("kimi-k3", "8.04", "30", "1", "0", "0", "1.5"),
+		xcloudQuote("qwen3.8-flash", "0.09", "0.3", "0.2", "0.1", "0.1", "0.1"),
+		xcloudQuote("qwen3.8-max", "1.02", "3.06", "0.22", "1.8", "1.8", "2.2"),
 	}
 }
 

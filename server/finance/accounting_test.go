@@ -239,8 +239,8 @@ func TestXcloudEstimateUsesSettledDimensionsAndSeparatesActualCost(t *testing.T)
 	s.Settlements[0].MissingDimensionsJSON = `[]`
 	r := calculate(t, s, facts()[:1])
 	require.True(t, r.EstimateComplete, "%+v", r.EstimateIssues)
-	require.Equal(t, "12.000000", *r.EstimatedCost)
-	require.Equal(t, "8.000000", *r.EstimatedGrossProfit)
+	require.Equal(t, "15.000000", *r.EstimatedCost)
+	require.Equal(t, "5.000000", *r.EstimatedGrossProfit)
 	require.Nil(t, r.ActualCost, "public quote must not become confirmed supplier cost")
 	require.Len(t, r.Estimates, 1)
 }
