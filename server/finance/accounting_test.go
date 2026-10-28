@@ -229,6 +229,22 @@ func TestCrossMonthSettlementStillRequiresChannelCostEvidence(t *testing.T) {
 	require.Nil(t, r.ActualCost)
 	require.False(t, r.Confirmed)
 }
+
+func TestXcloudEstimateUsesSettledDimensionsAndSeparatesActualCost(t *testing.T) {
+	s := fixture()
+	s.Channels = []Channel{{ID: 4, Name: "Xcloud", BaseURL: "https://www.xcloudtoken.com"}}
+	s.Attempts[0].ChannelID = 4
+	s.Settlements[0].PriceSnapshotJSON = `{"source_model":"claude-opus-4-8"}`
+	s.Settlements[0].ChargeDimensionsJSON = `[{"dimension":"input_tokens","quantity":1000000},{"dimension":"output_tokens","quantity":1000000}]`
+	s.Settlements[0].MissingDimensionsJSON = `[]`
+	r := calculate(t, s, facts()[:1])
+	require.True(t, r.EstimateComplete, "%+v", r.EstimateIssues)
+	require.Equal(t, "30.000000", *r.EstimatedCost)
+	require.Equal(t, "-10.000000", *r.EstimatedGrossProfit)
+	require.Nil(t, r.ActualCost, "public quote must not become confirmed supplier cost")
+	require.Len(t, r.Estimates, 1)
+}
+
 func TestOrphanReservationIsVisibleAndBlocksProfit(t *testing.T) {
 	s := fixture()
 	s.Settlements = nil

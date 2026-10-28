@@ -2,6 +2,7 @@
 package finance
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/shopspring/decimal"
@@ -89,26 +90,27 @@ func (p *basis) take(q decimal.Decimal) basis {
 }
 
 type replay struct {
-	report           *Report
-	start, end       time.Time
-	known            decimal.Decimal
-	unknownRevenue   bool
-	pools            map[int]*basis
-	holds            map[string]*basis
-	consumed         map[string]*basis
-	consumedCharges  map[uint]*basis
-	charges          []Charge
-	primaryCharges   map[string][]Charge
-	refunds          map[int]Refund
-	finalized        map[string]bool
-	settlements      map[string]Settlement
-	funding          map[string]Fact
-	usernames        map[int]string
-	attemptChannels  map[uint]map[int]int
-	requiredChannels map[int]bool
-	holdOwners       map[string]int
-	chargeChannels   map[uint]int
-	costUnknown      bool
+	report                *Report
+	start, end            time.Time
+	known                 decimal.Decimal
+	unknownRevenue        bool
+	pools                 map[int]*basis
+	holds                 map[string]*basis
+	consumed              map[string]*basis
+	consumedCharges       map[uint]*basis
+	charges               []Charge
+	primaryCharges        map[string][]Charge
+	refunds               map[int]Refund
+	finalized             map[string]bool
+	settlements           map[string]Settlement
+	funding               map[string]Fact
+	usernames             map[int]string
+	attemptChannels       map[uint]map[int]int
+	requiredChannels      map[int]bool
+	holdOwners            map[string]int
+	chargeChannels        map[uint]int
+	revenueByChannelModel map[int]map[string]decimal.Decimal
+	costUnknown           bool
 }
 
 func (r *replay) inMonth(t time.Time) bool { return !t.Before(r.start) && t.Before(r.end) }
@@ -135,11 +137,176 @@ func (r *replay) recognize(s Settlement, b basis, t time.Time, refund bool, chan
 	}
 	r.known = r.known.Add(b.cash.Mul(decimal.NewFromInt(sign)))
 	r.report.ChargedQuota += sign * b.quota.IntPart()
+	if channel > 0 && b.cash.IsPositive() {
+		modelName := settlementSourceModel(s)
+		if modelName == "" {
+			modelName = s.PublicModel
+		}
+		if r.revenueByChannelModel[channel] == nil {
+			r.revenueByChannelModel[channel] = map[string]decimal.Decimal{}
+		}
+		r.revenueByChannelModel[channel][modelName] = r.revenueByChannelModel[channel][modelName].Add(b.cash.Mul(decimal.NewFromInt(sign)))
+	}
 	if b.unverified {
 		r.unknownRevenue = true
 		r.issue("unknown_revenue_basis", s.RequestID, s.UserID)
 	}
 }
+
+func settlementSourceModel(s Settlement) string {
+	var snapshot struct {
+		SourceModel string `json:"source_model"`
+	}
+	if strings.TrimSpace(s.PriceSnapshotJSON) != "" {
+		if err := json.Unmarshal([]byte(s.PriceSnapshotJSON), &snapshot); err == nil && strings.TrimSpace(snapshot.SourceModel) != "" {
+			return strings.TrimSpace(snapshot.SourceModel)
+		}
+	}
+	public := strings.TrimPrefix(strings.TrimSpace(s.PublicModel), "zt-")
+	known := map[string]string{
+		"claude-haiku-4.5":  "claude-haiku-4-5-20251001",
+		"claude-opus-4.6":   "claude-opus-4-6",
+		"claude-opus-4.7":   "claude-opus-4-7",
+		"claude-opus-4.8":   "claude-opus-4-8",
+		"claude-sonnet-4.6": "claude-sonnet-4-6",
+		"claude-sonnet-5":   "claude-sonnet-5",
+	}
+	if source, ok := known[public]; ok {
+		return source
+	}
+	return public
+}
+
+func isXcloudChannel(channel Channel) bool {
+	return strings.Contains(strings.ToLower(channel.Name), "xcloud") ||
+		strings.Contains(strings.ToLower(channel.BaseURL), "xcloudtoken.com")
+}
+
+func parseSettlementUsageDimensions(raw string) ([]UsageDimension, error) {
+	if strings.TrimSpace(raw) == "" || strings.TrimSpace(raw) == "[]" {
+		return nil, errors.New("settlement charge dimensions are missing")
+	}
+	var values []struct {
+		Dimension string `json:"dimension"`
+		Quantity  int64  `json:"quantity"`
+	}
+	if err := json.Unmarshal([]byte(raw), &values); err != nil || len(values) == 0 {
+		return nil, errors.New("settlement charge dimensions are invalid")
+	}
+	dimensions := make([]UsageDimension, 0, len(values))
+	for _, value := range values {
+		dimensions = append(dimensions, UsageDimension{Dimension: value.Dimension, Quantity: value.Quantity})
+	}
+	return dimensions, nil
+}
+
+func (r *replay) estimateIssue(code, ref string, userID int) {
+	if len(r.report.EstimateIssues) < 500 {
+		r.report.EstimateIssues = append(r.report.EstimateIssues, Issue{Code: code, Ref: ref, UserID: userID})
+	}
+}
+
+func (r *replay) buildXcloudEstimates(s Snapshot, names, baseURLs map[int]string, cutoff time.Time) {
+	xcloudChannels := map[int]string{}
+	for _, channel := range s.Channels {
+		if isXcloudChannel(channel) {
+			xcloudChannels[channel.ID] = channel.Name
+		}
+	}
+	if len(xcloudChannels) == 0 {
+		return
+	}
+	type estimateKey struct {
+		channel int
+		model   string
+	}
+	rows := map[estimateKey]*SupplierEstimateRow{}
+	costs := map[estimateKey]decimal.Decimal{}
+	complete := true
+	for _, settlement := range r.settlements {
+		if settlement.Status != "settled" || settlement.CompletedAt <= 0 || !r.inMonth(time.Unix(settlement.CompletedAt, 0)) || time.Unix(settlement.CompletedAt, 0).After(cutoff) {
+			continue
+		}
+		channelID := r.channelFor(settlement)
+		supplier, ok := xcloudChannels[channelID]
+		if !ok {
+			continue
+		}
+		sourceModel := settlementSourceModel(settlement)
+		key := estimateKey{channel: channelID, model: sourceModel}
+		row := rows[key]
+		if row == nil {
+			row = &SupplierEstimateRow{ChannelID: channelID, Supplier: supplier, SourceModel: sourceModel, Dimensions: map[string]int64{}, Complete: true}
+			rows[key] = row
+		}
+		row.Requests++
+		if settlement.MissingDimensionsJSON != "" && settlement.MissingDimensionsJSON != "[]" {
+			row.Complete = false
+			complete = false
+			r.estimateIssue("xcloud_usage_incomplete", settlement.RequestID, settlement.UserID)
+			continue
+		}
+		dimensions, err := parseSettlementUsageDimensions(settlement.ChargeDimensionsJSON)
+		if err != nil {
+			row.Complete = false
+			complete = false
+			r.estimateIssue("xcloud_usage_missing", settlement.RequestID, settlement.UserID)
+			continue
+		}
+		for _, dimension := range dimensions {
+			row.Dimensions[dimension.Dimension] += dimension.Quantity
+		}
+		estimate, err := EstimateXcloudUsage(sourceModel, dimensions)
+		if err != nil {
+			row.Complete = false
+			complete = false
+			r.estimateIssue("xcloud_quote_missing", settlement.RequestID, settlement.UserID)
+			continue
+		}
+		row.SourceURL = estimate.SourceURL
+		row.IsEstimate = estimate.IsEstimate
+		value, _ := decimal.NewFromString(estimate.CostUSDT)
+		costs[key] = costs[key].Add(value)
+	}
+	if len(rows) == 0 {
+		return
+	}
+	totalCost, totalRevenue := zero, zero
+	for key, row := range rows {
+		rowCost := costs[key]
+		row.CostUSDT = fixed(rowCost)
+		revenue := r.revenueByChannelModel[key.channel][key.model]
+		row.RevenueUSDT = fixed(revenue)
+		if row.Complete && !r.unknownRevenue {
+			row.GrossProfitUSDT = fixed(revenue.Sub(rowCost))
+			totalCost = totalCost.Add(rowCost)
+			totalRevenue = totalRevenue.Add(revenue)
+		} else {
+			complete = false
+		}
+		if row.Supplier == "" {
+			row.Supplier = names[key.channel]
+			if row.Supplier == "" {
+				row.Supplier = baseURLs[key.channel]
+			}
+		}
+	}
+	for _, row := range rows {
+		r.report.Estimates = append(r.report.Estimates, *row)
+	}
+	sort.Slice(r.report.Estimates, func(i, j int) bool {
+		if r.report.Estimates[i].ChannelID != r.report.Estimates[j].ChannelID {
+			return r.report.Estimates[i].ChannelID < r.report.Estimates[j].ChannelID
+		}
+		return r.report.Estimates[i].SourceModel < r.report.Estimates[j].SourceModel
+	})
+	r.report.EstimateComplete = complete
+	if complete {
+		r.report.EstimatedCost = stringPtr(fixed(totalCost))
+		r.report.EstimatedGrossProfit = stringPtr(fixed(totalRevenue.Sub(totalCost)))
+	}
+}
+
 func (r *replay) finalize(req string) {
 	s, ok := r.settlements[req]
 	if !ok || r.finalized[req] || s.Status != "settled" || s.CompletedAt <= 0 {
@@ -219,7 +386,7 @@ func Calculate(s Snapshot, facts []Fact, month string, now time.Time) (Report, e
 	}
 	out := Report{Month: month, Timezone: "Asia/Shanghai", Currency: "USDT", AsOf: now.UTC(), PeriodClosed: !now.Before(end), QuotaPerUnit: s.QuotaPerUnit, Receipts: []Receipt{}, ManualFunding: []FundingRow{}, Channels: []ChannelUsage{}, Costs: []CostRow{}, Issues: []Issue{}}
 	out.SourceCommit = s.SourceCommit
-	r := &replay{report: &out, start: start, end: cutoff, pools: map[int]*basis{}, holds: map[string]*basis{}, consumed: map[string]*basis{}, finalized: map[string]bool{}, settlements: map[string]Settlement{}, funding: map[string]Fact{}, usernames: map[int]string{}}
+	r := &replay{report: &out, start: start, end: cutoff, pools: map[int]*basis{}, holds: map[string]*basis{}, consumed: map[string]*basis{}, finalized: map[string]bool{}, settlements: map[string]Settlement{}, funding: map[string]Fact{}, usernames: map[int]string{}, revenueByChannelModel: map[int]map[string]decimal.Decimal{}}
 	r.consumedCharges = map[uint]*basis{}
 	r.attemptChannels = map[uint]map[int]int{}
 	r.requiredChannels = map[int]bool{}
@@ -462,8 +629,10 @@ func Calculate(s Snapshot, facts []Fact, month string, now time.Time) (Report, e
 		out.Revenue = stringPtr(out.KnownRevenue)
 	}
 	names := map[int]string{}
+	baseURLs := map[int]string{}
 	for _, c := range s.Channels {
 		names[c.ID] = c.Name
+		baseURLs[c.ID] = c.BaseURL
 	}
 	used := map[int]int{}
 	for _, a := range s.Attempts {
@@ -480,6 +649,7 @@ func Calculate(s Snapshot, facts []Fact, month string, now time.Time) (Report, e
 		out.Channels = append(out.Channels, ChannelUsage{id, names[id], n})
 	}
 	sort.Slice(out.Channels, func(i, j int) bool { return out.Channels[i].ChannelID < out.Channels[j].ChannelID })
+	r.buildXcloudEstimates(s, names, baseURLs, cutoff)
 	totalCost := zero
 	covered := map[int]bool{}
 	for _, f := range latest {

@@ -547,6 +547,65 @@ export default function OverviewPage({ canWrite = false }) {
               <dd>{report.issue_count} 项</dd>
             </div>
           </dl>
+          {Array.isArray(report.estimates) && report.estimates.length > 0 && (
+            <section className='finance-estimate' aria-label='Xcloud报价估算'>
+              <header>
+                <div>
+                  <h2>Xcloud 渠道报价估算</h2>
+                  <p className='finance-muted'>
+                    只按已结算请求的独立 token 维度重算，公开报价不是上游实际扣费。
+                  </p>
+                </div>
+                <span className={report.estimate_complete ? 'is-ok' : 'is-pending'}>
+                  {report.estimate_complete ? '估算完整' : '估算待核对'}
+                </span>
+              </header>
+              <dl className='finance-estimate-metrics'>
+                <div>
+                  <dt>估算上游消耗</dt>
+                  <dd>{report.estimated_cost ?? '—'}</dd>
+                  <small>USDT · 非实扣</small>
+                </div>
+                <div>
+                  <dt>估算毛利</dt>
+                  <dd>{report.estimated_gross_profit ?? '—'}</dd>
+                  <small>USDT · 非确认毛利</small>
+                </div>
+              </dl>
+              <div className='finance-table-wrap'>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>模型</th>
+                      <th>请求数</th>
+                      <th>用户收入</th>
+                      <th>Xcloud 报价成本</th>
+                      <th>估算毛利</th>
+                      <th>状态</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {report.estimates.map((row) => (
+                      <tr key={`${row.channel_id}-${row.source_model}`}>
+                        <td>
+                          {row.source_model}
+                          <small>{row.supplier || `渠道 #${row.channel_id}`}</small>
+                        </td>
+                        <td>{row.requests}</td>
+                        <td>{row.revenue_usdt} USDT</td>
+                        <td>{row.complete ? `${row.cost_usdt} USDT` : '待补齐'}</td>
+                        <td>{row.complete ? `${row.gross_profit_usdt} USDT` : '—'}</td>
+                        <td>{row.complete ? '公开报价可计算' : '用量或报价缺失'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className='finance-footnote'>
+                真实上游成本仍需录入 Xcloud 账单凭证；录入后才会进入“上游实际消耗”和“已确认毛利”。
+              </p>
+            </section>
+          )}
           <nav className='finance-tabs' role='tablist' aria-label='财务明细'>
             {[
               ['cost', '上游成本'],

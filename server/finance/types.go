@@ -17,11 +17,13 @@ type Ledger struct {
 	CreatedAt                             time.Time
 }
 type Settlement struct {
-	ID                                       uint
-	UserID, FinalAttempt                     int
-	RequestID, OperationID, Status           string
-	ReservedQuota, ChargedQuota, CompletedAt int64
-	CreatedAt                                time.Time
+	ID                                          uint
+	UserID, FinalAttempt                        int
+	RequestID, OperationID, Status              string
+	PublicModel, PriceSnapshotJSON              string
+	ChargeDimensionsJSON, MissingDimensionsJSON string
+	ReservedQuota, ChargedQuota, CompletedAt    int64
+	CreatedAt                                   time.Time
 }
 type Attempt struct {
 	SettlementID       uint
@@ -48,8 +50,9 @@ type Payment struct {
 	CreditUnits, PayAmountMicros, CompleteTime int64
 }
 type Channel struct {
-	ID   int
-	Name string
+	ID      int
+	Name    string
+	BaseURL string
 }
 type Snapshot struct {
 	SourceCommit string
@@ -129,29 +132,47 @@ type CostRow struct {
 	FactID  uint   `json:"fact_id"`
 	NetUSDT string `json:"net_usdt"`
 }
+type SupplierEstimateRow struct {
+	ChannelID       int              `json:"channel_id"`
+	Supplier        string           `json:"supplier"`
+	SourceModel     string           `json:"source_model"`
+	Requests        int              `json:"requests"`
+	Dimensions      map[string]int64 `json:"dimensions"`
+	RevenueUSDT     string           `json:"revenue_usdt"`
+	CostUSDT        string           `json:"cost_usdt"`
+	GrossProfitUSDT string           `json:"gross_profit_usdt"`
+	SourceURL       string           `json:"source_url"`
+	IsEstimate      bool             `json:"is_estimate"`
+	Complete        bool             `json:"complete"`
+}
 type Report struct {
-	SourceCommit    string         `json:"source_commit,omitempty"`
-	Month           string         `json:"month"`
-	Timezone        string         `json:"timezone"`
-	Currency        string         `json:"currency"`
-	AsOf            time.Time      `json:"as_of"`
-	PeriodClosed    bool           `json:"period_closed"`
-	Confirmed       bool           `json:"confirmed"`
-	Revenue         *string        `json:"revenue"`
-	KnownRevenue    string         `json:"known_revenue"`
-	ActualCost      *string        `json:"actual_cost"`
-	RecordedCost    string         `json:"recorded_cost"`
-	GrossProfit     *string        `json:"gross_profit"`
-	Margin          *string        `json:"margin"`
-	ReceiptsTotal   string         `json:"receipts_total"`
-	ChargedQuota    int64          `json:"charged_quota"`
-	PendingRequests int            `json:"pending_requests"`
-	PendingQuota    int64          `json:"pending_quota"`
-	QuotaPerUnit    int64          `json:"quota_per_unit"`
-	Receipts        []Receipt      `json:"receipts"`
-	ManualFunding   []FundingRow   `json:"manual_funding"`
-	Channels        []ChannelUsage `json:"channels"`
-	Costs           []CostRow      `json:"costs"`
-	Issues          []Issue        `json:"issues"`
-	IssueCount      int            `json:"issue_count"`
+	SourceCommit         string                `json:"source_commit,omitempty"`
+	Month                string                `json:"month"`
+	Timezone             string                `json:"timezone"`
+	Currency             string                `json:"currency"`
+	AsOf                 time.Time             `json:"as_of"`
+	PeriodClosed         bool                  `json:"period_closed"`
+	Confirmed            bool                  `json:"confirmed"`
+	Revenue              *string               `json:"revenue"`
+	KnownRevenue         string                `json:"known_revenue"`
+	ActualCost           *string               `json:"actual_cost"`
+	RecordedCost         string                `json:"recorded_cost"`
+	GrossProfit          *string               `json:"gross_profit"`
+	Margin               *string               `json:"margin"`
+	EstimatedCost        *string               `json:"estimated_cost"`
+	EstimatedGrossProfit *string               `json:"estimated_gross_profit"`
+	EstimateComplete     bool                  `json:"estimate_complete"`
+	ReceiptsTotal        string                `json:"receipts_total"`
+	ChargedQuota         int64                 `json:"charged_quota"`
+	PendingRequests      int                   `json:"pending_requests"`
+	PendingQuota         int64                 `json:"pending_quota"`
+	QuotaPerUnit         int64                 `json:"quota_per_unit"`
+	Receipts             []Receipt             `json:"receipts"`
+	ManualFunding        []FundingRow          `json:"manual_funding"`
+	Channels             []ChannelUsage        `json:"channels"`
+	Costs                []CostRow             `json:"costs"`
+	Estimates            []SupplierEstimateRow `json:"estimates"`
+	EstimateIssues       []Issue               `json:"estimate_issues"`
+	Issues               []Issue               `json:"issues"`
+	IssueCount           int                   `json:"issue_count"`
 }

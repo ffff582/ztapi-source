@@ -59,7 +59,7 @@ func (r *Reader) Load(ctx context.Context, before time.Time) (Snapshot, error) {
 		if e := bounded(tx, "balance_ledgers", "id,user_id,delta,balance_before,balance_after,source_type,request_id,idempotency_key,created_at", &s.Ledgers, "created_at < ?", before); e != nil {
 			return e
 		}
-		if e := bounded(tx, "ztapi_request_settlements s LEFT JOIN ztapi_settlement_log_outboxes o ON o.operation_id = s.operation_id", "s.id,s.user_id,s.request_id,s.operation_id,s.status,s.reserved_quota,s.charged_quota,s.final_attempt,s.created_at,COALESCE(o.created_at,0) AS completed_at", &s.Settlements, "s.created_at < ?", before); e != nil {
+		if e := bounded(tx, "ztapi_request_settlements s LEFT JOIN ztapi_settlement_log_outboxes o ON o.operation_id = s.operation_id", "s.id,s.user_id,s.request_id,s.operation_id,s.status,s.public_model,s.price_snapshot_json,s.charge_dimensions_json,s.missing_dimensions_json,s.reserved_quota,s.charged_quota,s.final_attempt,s.created_at,COALESCE(o.created_at,0) AS completed_at", &s.Settlements, "s.created_at < ?", before); e != nil {
 			return e
 		}
 		if e := bounded(tx, "ztapi_request_attempts", "settlement_id,attempt,channel_id,created_at", &s.Attempts, "created_at < ?", before); e != nil {
@@ -68,7 +68,7 @@ func (r *Reader) Load(ctx context.Context, before time.Time) (Snapshot, error) {
 		if e := bounded(tx, "top_ups t JOIN usdt_top_up_orders u ON u.top_up_id = t.id", "t.id,t.user_id,t.trade_no,t.status,u.credit_units,u.pay_amount_micros,t.complete_time", &s.Payments, "t.status = ? AND u.status = ? AND t.complete_time < ?", "success", "settled", before.Unix()); e != nil {
 			return e
 		}
-		if e := bounded(tx, "channels", "id,name", &s.Channels, ""); e != nil {
+		if e := bounded(tx, "channels", "id,name,base_url", &s.Channels, ""); e != nil {
 			return e
 		}
 		if e := bounded(tx, "ztapi_supplier_refund_charges c LEFT JOIN ztapi_settlement_log_outboxes o ON o.operation_id=c.billing_operation_id", "c.id,c.request_id,c.user_id,c.original_ledger_id,c.charged_quota,c.billing_proof_id,c.channel_id,COALESCE(o.created_at,0) AS posted_at", &s.Charges, "c.created_at < ?", before); e != nil {
