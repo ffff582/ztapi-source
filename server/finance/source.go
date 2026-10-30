@@ -71,6 +71,9 @@ func (r *Reader) Load(ctx context.Context, before time.Time) (Snapshot, error) {
 		if e := bounded(tx, "channels", "id,name,base_url", &s.Channels, ""); e != nil {
 			return e
 		}
+		if e := bounded(tx, "ztapi_model_verifications", "id,channel_id,model_config_id,verified_at", &s.Verifications, "verified_at < ?", before.Unix()); e != nil {
+			return e
+		}
 		if e := bounded(tx, "ztapi_supplier_refund_charges c LEFT JOIN ztapi_settlement_log_outboxes o ON o.operation_id=c.billing_operation_id", "c.id,c.request_id,c.user_id,c.original_ledger_id,c.charged_quota,c.billing_proof_id,c.channel_id,COALESCE(o.created_at,0) AS posted_at", &s.Charges, "c.created_at < ?", before); e != nil {
 			return e
 		}

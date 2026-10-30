@@ -39,6 +39,26 @@ import (
 	"gorm.io/gorm"
 )
 
+func TestGLM53FrozenPricingChargesCacheOnce(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	ctx.Set("group", "default")
+	snapshot := &relaycommon.ZTAPIPublicationSnapshot{
+		PublicationID: 1, Version: 1, PublicName: "zt-glm-5.3", SourceModel: "glm-5.3",
+		AllowedGroups: []string{"default"}, AuthorizedGroup: "default", InputPricePerMillion: 3.15,
+		OutputPricePerMillion: 11.025, CacheReadRatio: .25, CacheCreationRatio: 1,
+		CacheCreation5mRatio: 1, CacheCreation1hRatio: 1, ImageRatio: 1, AudioRatio: 1, AudioCompletionRatio: 1,
+	}
+	info := &relaycommon.RelayInfo{OriginModelName: snapshot.PublicName, UserGroup: "default", UsingGroup: "default", ZTAPIPublicationSnapshot: snapshot, ChannelMeta: &relaycommon.ChannelMeta{}}
+	_, err := relayhelper.ModelPriceHelper(ctx, info, 1000000, &types.TokenCountMeta{})
+	require.NoError(t, err)
+	usage := &dto.Usage{PromptTokens: 1000000, CompletionTokens: 100000, PromptTokensDetails: dto.InputTokenDetails{CachedTokens: 800000}}
+	summary := calculateTextQuotaSummary(ctx, info, usage)
+	// 0.2M * 3.15 + 0.8M * 0.7875 + 0.1M * 11.025 = 2.3625 U.
+	require.Equal(t, 1181250, summary.Quota)
+}
+
 func TestZTAPIAudioAndRealtimeQuotaUsesFrozenFourPriceSnapshot(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()

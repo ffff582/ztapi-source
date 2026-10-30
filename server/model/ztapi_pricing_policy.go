@@ -19,6 +19,9 @@ const (
 	ZTAPIPricePolicyPoolOfficial78Sep2026     ZTAPIPricePolicy = "pool_official_78_20260929"
 	ZTAPIPricePolicyQuoteFrozenRetail20261019 ZTAPIPricePolicy = "quote_frozen_retail_20261019"
 	ZTAPIPricePolicySupplierAdmission20261019 ZTAPIPricePolicy = types.ZTAPISupplierAdmissionPricePolicy20261019
+	ZTAPIPricePolicyXcloudGLM53               ZTAPIPricePolicy = "xcloud_glm53_20261030"
+	ZTAPIPricePolicyCashEnterprise20261030    ZTAPIPricePolicy = "cash_enterprise_20_20261030"
+	ZTAPIPricePolicyCashPool20261030          ZTAPIPricePolicy = "cash_pool_30_20261030"
 )
 
 var (
@@ -41,13 +44,22 @@ func ztapiNormalizedSaleMultiplier(raw string) (decimal.Decimal, error) {
 }
 
 func CalculateZTAPISalePriceForPolicy(cost decimal.Decimal, policy ZTAPIPricePolicy) (decimal.Decimal, error) {
+	if isZTAPICashMarginPolicy20261030(string(policy)) && cost.IsNegative() {
+		return decimal.Zero, errors.New("cash margin cost cannot be negative")
+	}
 	switch policy {
+	case ZTAPIPricePolicyCashEnterprise20261030:
+		return decimal.RequireFromString(ztapiCashSale20261030(cost, decimal.NewFromInt(1), "0.20", 10)), nil
+	case ZTAPIPricePolicyCashPool20261030:
+		return decimal.RequireFromString(ztapiCashSale20261030(cost, decimal.NewFromInt(1), "0.30", 10)), nil
 	case ZTAPIPricePolicyEnterprise40Margin:
 		return cost.Div(ztapiEnterpriseSaleCostShare).Round(10), nil
 	case ZTAPIPricePolicyPool60Margin:
 		return cost.Div(ztapiPoolSaleCostShare).Round(10), nil
 	case ZTAPIPricePolicyEnterprise20Margin:
 		return cost.Div(ztapiEnterprise20CostShare).Round(10), nil
+	case ZTAPIPricePolicyXcloudGLM53:
+		return cost.Mul(decimal.RequireFromString("1.05")).Div(ztapiEnterprise20CostShare).Round(10), nil
 	case ZTAPIPricePolicyPool30Margin:
 		return cost.Div(ztapiPool30CostShare).Round(10), nil
 	default:
@@ -65,6 +77,18 @@ func CalculateZTAPIPoolSalePrice(officialPrice decimal.Decimal) (decimal.Decimal
 func ValidateZTAPIPricePolicy(resourceType string, policy ZTAPIPricePolicy) error {
 	resourceType = strings.TrimSpace(resourceType)
 	switch policy {
+	case ZTAPIPricePolicyCashEnterprise20261030:
+		if resourceType == "enterprise" {
+			return nil
+		}
+	case ZTAPIPricePolicyCashPool20261030:
+		if resourceType == "enterprise" || resourceType == "pool" {
+			return nil
+		}
+	case ZTAPIPricePolicyXcloudGLM53:
+		if resourceType == "pool" {
+			return nil
+		}
 	case ZTAPIPricePolicySupplierAdmission20261019:
 		if resourceType == "pool" {
 			return nil

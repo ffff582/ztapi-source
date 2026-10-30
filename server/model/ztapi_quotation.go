@@ -438,6 +438,12 @@ func ZTAPIQuotationEntries() ([]ZTAPIQuotationEntry, error) {
 // ValidateZTAPIQuotationIdentity uses exact audited identities, not provider
 // naming conventions, upstream discovery, mutable aliases or fuzzy matching.
 func ValidateZTAPIQuotationIdentity(sourceModel, publicName, protocol, providerFamily, checksum string) error {
+	if checksum == ZTAPIXcloudGLM53EvidenceSHA256 {
+		if sourceModel != "glm-5.3" || publicName != "zt-glm-5.3" || protocol != ZTAPIProtocolOpenAICompatible || providerFamily != ZTAPIProviderGLM {
+			return ErrZTAPIQuotationIdentityMismatch
+		}
+		return nil
+	}
 	if checksum == ZTAPISupplierWorkbook20261019SHA256 {
 		if name, _, found := ztapiSupplierAdmissionPriceForSource20261019(sourceModel); found {
 			identity, err := FindZTAPISupplierAdmissionModel20261019(name)
@@ -576,7 +582,11 @@ func ztapiQuotationChecksumsAllowingStaleABPrice(db *gorm.DB, ids []int64, allow
 	for _, row := range evidence {
 		preview, err := BuildZTAPIModelPricePreview(&row.ZTAPIModelPriceSource)
 		basisPermitted := ztapiEnterprisePriceBasis(row.SourceModel, row.ResourceType)
-		if row.SourceDocumentChecksum == ZTAPISupplierWorkbook20261019SHA256 {
+		if isZTAPICashMarginPolicy20261030(row.PricePolicy) {
+			basisPermitted = ValidateZTAPICashMarginSource20261030(db, &row.ZTAPIModelPriceSource) == nil
+		} else if row.PricePolicy == string(ZTAPIPricePolicyXcloudGLM53) {
+			basisPermitted = validateZTAPIXcloudGLM53Price(&row.ZTAPIModelPriceSource) == nil
+		} else if row.SourceDocumentChecksum == ZTAPISupplierWorkbook20261019SHA256 {
 			basisPermitted = ValidateZTAPISupplierPriceSource20261019(db, &row.ZTAPIModelPriceSource) == nil
 		} else if row.SourceDocumentChecksum == ZTAPIQuotation929SHA256 {
 			basisPermitted = validateZTAPI929PriceSource(&row.ZTAPIModelPriceSource) == nil

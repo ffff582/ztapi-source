@@ -36,6 +36,10 @@ func validateZTAPIMediaPriceContractPolicy(source *ZTAPIModelPriceSource) error 
 		return nil
 	}
 	policy := ZTAPIPricePolicy(source.PricePolicy)
+	if policy == ZTAPIPricePolicyCashEnterprise20261030 && source.SourceModel == "gpt-image-2" {
+		_, err := validateZTAPICashImageShape20261030(source)
+		return err
+	}
 	if policy == ZTAPIPricePolicyPoolOfficial80 {
 		quoted, ok := ztapiMediaPriceRowFromManifest(ztapiQuotation, source.SourceModel)
 		if !ok || quoted.PricePolicy != source.PricePolicy {

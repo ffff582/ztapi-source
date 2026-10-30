@@ -22,10 +22,13 @@ const (
 	ztapiMediaDimensionOutputTokens          = "output_tokens"
 )
 
+var ztapiCashMediaSaleCostShare = decimal.RequireFromString("0.80").Div(decimal.RequireFromString("1.05"))
+
 var ztapiSupportedMediaSaleCostShares = []decimal.Decimal{
 	decimal.RequireFromString("0.60"),
 	decimal.RequireFromString("0.80"),
 	decimal.RequireFromString("0.4125"), // 33% pool cost sold at 80% of official price.
+	ztapiCashMediaSaleCostShare,
 }
 
 type ZTAPIMediaPriceContract struct {
@@ -614,7 +617,11 @@ func validateZTAPIMediaPriceMaps(rule ZTAPIMediaPriceRule, expectedShare *decima
 		var matched *decimal.Decimal
 		for i := range ztapiSupportedMediaSaleCostShares {
 			share := ztapiSupportedMediaSaleCostShares[i]
-			if sale.Equal(cost.Div(share).Round(10)) {
+			expected := cost.Div(share).Round(10)
+			if share.Equal(ztapiCashMediaSaleCostShare) {
+				expected = cost.Mul(decimal.RequireFromString("1.3125")).RoundCeil(8)
+			}
+			if sale.Equal(expected) {
 				matched = &share
 				break
 			}

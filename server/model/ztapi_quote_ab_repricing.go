@@ -386,6 +386,12 @@ func applyZTAPIABCommercialPricingTxMode(tx *gorm.DB, quote ZTAPIABQuotationMani
 		if err := tx.First(&oldSource, publication.PriceSourceID).Error; err != nil {
 			return err
 		}
+		if preserve, err := ztapiLegacyRepricingPreservesSource(tx, &oldSource); err != nil {
+			return err
+		} else if preserve {
+			result.Skipped = append(result.Skipped, config.PublicNameValue())
+			continue
+		}
 		if oldSource.SourceDocumentChecksum == ZTAPISupplierWorkbook20261019SHA256 {
 			result.Skipped = append(result.Skipped, config.PublicNameValue())
 			continue

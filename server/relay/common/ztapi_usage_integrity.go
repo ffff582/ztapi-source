@@ -40,6 +40,269 @@ func ObserveZTAPIOpenAIUsage(c *gin.Context, info *RelayInfo, raw []byte) *dto.U
 	return observeZTAPIOpenAIUsage(c, info, raw, nil)
 }
 
+// normalizeZTAPIEmbeddedClaudeBillingUsage validates all Xcloud receipt
+// evidence before converting native exclusive input to inclusive input.
+func normalizeZTAPIEmbeddedClaudeBillingUsage(info *RelayInfo, usageRaw json.RawMessage) (json.RawMessage, bool, string) {
+	if info == nil || info.ChannelMeta == nil {
+		return usageRaw, false, ""
+	}
+	channel := info.ChannelMeta
+	if (channel.ChannelId != 4 && channel.ChannelId != 5 && channel.ChannelId != 6) ||
+		strings.TrimRight(channel.ChannelBaseUrl, "/") != "https://www.xcloudtoken.com" ||
+		!strings.HasPrefix(channel.UpstreamModelName, "claude-") {
+		return usageRaw, false, ""
+	}
+	var values map[string]json.RawMessage
+	if basecommon.Unmarshal(usageRaw, &values) != nil {
+		return usageRaw, false, ""
+	}
+	if _, exists := values["billing_usage"]; !exists {
+		return usageRaw, false, ""
+	}
+	var billing map[string]json.RawMessage
+	if basecommon.Unmarshal(values["billing_usage"], &billing) != nil || billing == nil {
+		return usageRaw, true, "usage_invalid_type"
+	}
+	for name := range billing {
+		if name != "source" && name != "semantic" && name != "claude_usage" {
+			return usageRaw, true, "usage_incomplete"
+		}
+	}
+	var semantic string
+	if basecommon.Unmarshal(billing["semantic"], &semantic) != nil || semantic != "anthropic" {
+		return usageRaw, true, "usage_semantic_conflict"
+	}
+	var source string
+	if basecommon.Unmarshal(billing["source"], &source) != nil || source != "claude_messages" {
+		return usageRaw, true, "usage_semantic_conflict"
+	}
+	var claude map[string]json.RawMessage
+	if basecommon.Unmarshal(billing["claude_usage"], &claude) != nil {
+		return usageRaw, true, "usage_invalid_type"
+	}
+	for name := range claude {
+		switch name {
+		case "input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "cache_creation", "claude_cache_creation_5_m_tokens", "claude_cache_creation_1_h_tokens":
+		default:
+			return usageRaw, true, "usage_incomplete"
+		}
+	}
+	readInt := func(fields map[string]json.RawMessage, name string) (int64, bool) {
+		var value int64
+		if len(fields[name]) == 0 || bytes.Equal(bytes.TrimSpace(fields[name]), []byte("null")) {
+			return 0, false
+		}
+		if basecommon.Unmarshal(fields[name], &value) != nil || value < 0 || value > math.MaxInt64/8 || value > int64(math.MaxInt) {
+			return 0, false
+		}
+		return value, len(fields[name]) > 0
+	}
+	input, inputOK := readInt(claude, "input_tokens")
+	output, outputOK := readInt(claude, "output_tokens")
+	cacheRead, cacheReadOK := readInt(claude, "cache_read_input_tokens")
+	cacheWrite, cacheWriteOK := readInt(claude, "cache_creation_input_tokens")
+	if !inputOK || !outputOK || !cacheReadOK || !cacheWriteOK {
+		return usageRaw, true, "usage_incomplete"
+	}
+	cacheCreation := map[string]int64{}
+	if raw, ok := claude["cache_creation"]; ok {
+		var split map[string]json.RawMessage
+		if basecommon.Unmarshal(raw, &split) != nil || split == nil {
+			return usageRaw, true, "usage_invalid_type"
+		}
+		for name := range split {
+			if name != "ephemeral_5m_input_tokens" && name != "ephemeral_1h_input_tokens" {
+				return usageRaw, true, "usage_incomplete"
+			}
+			value, valid := readInt(split, name)
+			if !valid {
+				return usageRaw, true, "usage_invalid_quantity"
+			}
+			cacheCreation[name] = value
+		}
+	}
+	for alias, dimension := range map[string]string{
+		"claude_cache_creation_5_m_tokens": "ephemeral_5m_input_tokens",
+		"claude_cache_creation_1_h_tokens": "ephemeral_1h_input_tokens",
+	} {
+		if _, exists := claude[alias]; !exists {
+			continue
+		}
+		value, valid := readInt(claude, alias)
+		if !valid {
+			return usageRaw, true, "usage_invalid_quantity"
+		}
+		if existing, exists := cacheCreation[dimension]; exists && existing != value {
+			return usageRaw, true, "usage_alias_conflict"
+		}
+		cacheCreation[dimension] = value
+	}
+	if input > math.MaxInt64/8-cacheRead-cacheWrite || input+cacheRead+cacheWrite > int64(math.MaxInt)-output {
+		return usageRaw, true, "usage_invalid_quantity"
+	}
+	totalInput := input + cacheRead + cacheWrite
+	var topInput int64
+	hasTopInput := false
+	zeroOutputAlias := false
+	verifiedZeroAlias := channel.ChannelId == 4 && map[string]bool{
+		"claude-fable-5": true, "claude-haiku-4-5-20251001": true,
+		"claude-opus-4-6": true, "claude-opus-4-7": true, "claude-opus-4-8": true,
+		"claude-sonnet-4-6": true, "claude-sonnet-5": true,
+	}[channel.UpstreamModelName]
+	checkTier := func(name string, value int64) bool {
+		if old, exists := cacheCreation[name]; exists && old != value {
+			return false
+		}
+		cacheCreation[name] = value
+		return true
+	}
+	var checkFields func(map[string]json.RawMessage, string) string
+	checkFields = func(fields map[string]json.RawMessage, prefix string) string {
+		for name, raw := range fields {
+			path := prefix + name
+			switch path {
+			case "billing_usage":
+				continue
+			case "usage_semantic":
+				var value string
+				if basecommon.Unmarshal(raw, &value) != nil || value != "openai" {
+					return "usage_semantic_conflict"
+				}
+				continue
+			case "usage_source":
+				var value string
+				if basecommon.Unmarshal(raw, &value) != nil || len(value) > 64 {
+					return "usage_invalid_type"
+				}
+				continue
+			case "prompt_tokens_details", "input_tokens_details", "completion_tokens_details", "output_tokens_details", "cache_creation", "prompt_tokens_details.cache_creation", "input_tokens_details.cache_creation":
+				if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) && strings.HasSuffix(path, "_tokens_details") {
+					continue
+				}
+				var nested map[string]json.RawMessage
+				if basecommon.Unmarshal(raw, &nested) != nil || nested == nil {
+					return "usage_invalid_type"
+				}
+				if reason := checkFields(nested, path+"."); reason != "" {
+					return reason
+				}
+				continue
+			}
+			var expected int64
+			switch path {
+			case "input_tokens", "prompt_tokens":
+				value, valid := readInt(fields, name)
+				if !valid {
+					return "usage_invalid_quantity"
+				}
+				if (value != input && value != totalInput) || (hasTopInput && topInput != value) {
+					return "usage_alias_conflict"
+				}
+				topInput, hasTopInput = value, true
+				continue
+			case "output_tokens":
+				value, valid := readInt(fields, name)
+				if !valid {
+					return "usage_invalid_quantity"
+				}
+				if value == 0 && output > 0 {
+					if !verifiedZeroAlias {
+						return "usage_alias_conflict"
+					}
+					completion, complete := readInt(values, "completion_tokens")
+					if !complete || completion != output {
+						return "usage_alias_conflict"
+					}
+					zeroOutputAlias = true
+					continue
+				}
+				expected = output
+			case "completion_tokens":
+				expected = output
+			case "total_tokens":
+				// Check after all input aliases, regardless of map iteration order.
+				continue
+			case "cached_tokens", "prompt_cache_hit_tokens", "prompt_tokens_details.cached_tokens", "input_tokens_details.cached_tokens":
+				expected = cacheRead
+			case "cached_creation_tokens", "prompt_tokens_details.cached_creation_tokens", "input_tokens_details.cached_creation_tokens", "prompt_tokens_details.cache_write_tokens", "input_tokens_details.cache_write_tokens", "prompt_tokens_details.cache_creation_input_tokens", "input_tokens_details.cache_creation_input_tokens":
+				expected = cacheWrite
+			case "prompt_tokens_details.text_tokens", "prompt_tokens_details.audio_tokens", "prompt_tokens_details.image_tokens", "input_tokens_details.text_tokens", "input_tokens_details.audio_tokens", "input_tokens_details.image_tokens", "completion_tokens_details.text_tokens", "completion_tokens_details.audio_tokens", "completion_tokens_details.image_tokens", "completion_tokens_details.reasoning_tokens", "output_tokens_details.text_tokens", "output_tokens_details.audio_tokens", "output_tokens_details.image_tokens", "output_tokens_details.reasoning_tokens":
+				expected = 0
+			case "claude_cache_creation_5_m_tokens", "cache_write_5m_tokens", "cache_creation.ephemeral_5m_input_tokens", "prompt_tokens_details.cache_creation.ephemeral_5m_input_tokens", "input_tokens_details.cache_creation.ephemeral_5m_input_tokens":
+				value, valid := readInt(fields, name)
+				if !valid {
+					return "usage_invalid_quantity"
+				}
+				if !checkTier("ephemeral_5m_input_tokens", value) {
+					return "usage_alias_conflict"
+				}
+				continue
+			case "claude_cache_creation_1_h_tokens", "cache_write_1h_tokens", "cache_creation.ephemeral_1h_input_tokens", "prompt_tokens_details.cache_creation.ephemeral_1h_input_tokens", "input_tokens_details.cache_creation.ephemeral_1h_input_tokens":
+				value, valid := readInt(fields, name)
+				if !valid {
+					return "usage_invalid_quantity"
+				}
+				if !checkTier("ephemeral_1h_input_tokens", value) {
+					return "usage_alias_conflict"
+				}
+				continue
+			default:
+				return "usage_incomplete"
+			}
+			value, valid := readInt(fields, name)
+			if !valid {
+				return "usage_invalid_quantity"
+			}
+			if value != expected {
+				return "usage_alias_conflict"
+			}
+		}
+		return ""
+	}
+	if reason := checkFields(values, ""); reason != "" {
+		return usageRaw, true, reason
+	}
+	if zeroOutputAlias && (!hasTopInput || len(values["total_tokens"]) == 0) {
+		return usageRaw, true, "usage_incomplete"
+	}
+	if _, exists := values["total_tokens"]; exists {
+		total, valid := readInt(values, "total_tokens")
+		if !valid {
+			return usageRaw, true, "usage_invalid_quantity"
+		}
+		if (hasTopInput && total != topInput+output) || (!hasTopInput && total != input+output && total != totalInput+output) {
+			return usageRaw, true, "usage_total_mismatch"
+		}
+	}
+	if cacheCreation["ephemeral_5m_input_tokens"]+cacheCreation["ephemeral_1h_input_tokens"] > cacheWrite {
+		return usageRaw, true, "usage_alias_conflict"
+	}
+	canonical := map[string]any{
+		"input_tokens":  totalInput,
+		"output_tokens": output,
+		"total_tokens":  totalInput + output,
+	}
+	if (cacheReadOK && cacheRead > 0) || (cacheWriteOK && cacheWrite > 0) {
+		promptDetails := map[string]int64{}
+		if cacheReadOK && cacheRead > 0 {
+			promptDetails["cached_tokens"] = cacheRead
+		}
+		if cacheWriteOK && cacheWrite > 0 {
+			promptDetails["cache_write_tokens"] = cacheWrite
+		}
+		canonical["prompt_tokens_details"] = promptDetails
+		canonical["input_tokens_details"] = promptDetails
+	}
+	if len(cacheCreation) > 0 && (cacheCreation["ephemeral_5m_input_tokens"] > 0 || cacheCreation["ephemeral_1h_input_tokens"] > 0) {
+		canonical["cache_creation"] = cacheCreation
+	}
+	encoded, err := basecommon.Marshal(canonical)
+	if err != nil {
+		return usageRaw, true, "usage_invalid_json"
+	}
+	return encoded, true, ""
+}
+
 func observeZTAPIOpenAIUsage(c *gin.Context, info *RelayInfo, raw []byte, chatHeader http.Header) *dto.Usage {
 	if ensureZTAPIMetering(info) == nil {
 		return nil
@@ -101,6 +364,18 @@ func observeZTAPIOpenAIUsage(c *gin.Context, info *RelayInfo, raw []byte, chatHe
 	observation = (&types.ZTAPIUnverifiedUsageObservation{Location: location, RawUsage: usageRaw}).Sanitized()
 	if observation != nil && info.ZTAPIMetering.UnverifiedUsage == nil {
 		info.ZTAPIMetering.UnverifiedUsage = observation
+	}
+	if normalized, recognized, reason := normalizeZTAPIEmbeddedClaudeBillingUsage(info, usageRaw); recognized {
+		if reason != "" {
+			fail(reason)
+			return nil
+		}
+		usageRaw = normalized
+		values = nil
+		if basecommon.Unmarshal(usageRaw, &values) != nil {
+			fail("usage_invalid_type")
+			return nil
+		}
 	}
 	numbers := make(map[string]int64)
 	var readNumbers func(map[string]json.RawMessage, string)

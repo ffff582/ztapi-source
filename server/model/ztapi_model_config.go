@@ -33,6 +33,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/types"
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
 
@@ -1133,6 +1134,18 @@ func projectZTAPIPublicPricing(publications []ZTAPIRuntimePublication) []Pricing
 		}
 		cacheReadRatio := publication.CacheReadRatio
 		cacheCreationRatio := publication.CacheCreationRatio
+		if input, err := decimal.NewFromString(publication.SaleUSD[ZTAPIBillingDimensionInputTokens]); err == nil && input.IsPositive() {
+			if cached, err := decimal.NewFromString(publication.SaleUSD[ZTAPIBillingDimensionCacheRead]); err == nil && cached.IsPositive() {
+				cacheReadRatio = cached.Div(input).Round(8).InexactFloat64()
+			}
+			write := publication.SaleUSD[ZTAPIBillingDimensionCacheWrite]
+			if write == "" {
+				write = publication.SaleUSD[ZTAPIBillingDimensionCacheWrite5m]
+			}
+			if cached, err := decimal.NewFromString(write); err == nil && cached.IsPositive() {
+				cacheCreationRatio = cached.Div(input).Round(8).InexactFloat64()
+			}
+		}
 		imageRatio := publication.ImageRatio
 		audioRatio := publication.AudioRatio
 		audioCompletionRatio := publication.AudioCompletionRatio

@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { adminRequest, adminDownload } from '../../auth/admin-session.js';
 import './overview.css';
+import DirectCostDialog from './DirectCostDialog.jsx';
 
 const API = '/api/admin/finance-reporting/';
 const monthNow = () =>
@@ -50,7 +51,339 @@ const reasons = {
   retry_posting_missing: '重试补扣缺少出账凭证',
   cost_lineage_missing: '实际出站渠道待核对',
   invalid_cost: '成本币种或金额待核对',
+  test_cost_coverage_missing: '测试费用与整月账单覆盖关系待核对',
+  test_cost_coverage_conflict: '已包含测试费用超过渠道账单金额',
+  test_cost_exchange_missing: 'Xcloud 额度的现金折算方式未确认',
+  test_cost_unconfirmed: '额外测试费用尚未确认',
+  test_cost_invalid: '测试费用凭证或金额待核对',
+  test_cost_lineage_missing: '测试请求尝试来源待核对',
+  direct_cost_invalid: '直接验收费用凭证待核对',
+  direct_cost_exchange_missing: '直接验收费用折算待核对',
+  direct_cost_coverage_missing: '直接验收费用账单覆盖待核对',
+  direct_cost_lineage_missing: '直接验收来源待核对',
 };
+const coverageLabels = {
+  included: '账单内',
+  extra: '账单外额外费用',
+  unknown: '覆盖未知',
+};
+function TestCostDialog({ row, onClose, onSaved }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [currency, setCurrency] = useState(row?.currency || 'USDT');
+  const [coverage, setCoverage] = useState(row?.coverage || 'unknown');
+  const [status, setStatus] = useState(row?.status || 'estimate');
+  const key = useRef(crypto.randomUUID());
+  const lock = useRef(false);
+  const dialog = useRef(null);
+  useEffect(() => {
+    const previous = document.activeElement;
+    dialog.current?.focus();
+    return () => previous?.focus?.();
+  }, []);
+  function onKey(e) {
+    if (e.key === 'Escape' && !busy) onClose();
+    if (e.key !== 'Tab') return;
+    const controls = dialog.current?.querySelectorAll(
+      'button:not(:disabled),input:not(:disabled),select:not(:disabled)',
+    );
+    if (!controls?.length) return;
+    const first = controls[0],
+      last = controls[controls.length - 1];
+    if (
+      e.shiftKey &&
+      (document.activeElement === first ||
+        document.activeElement === dialog.current)
+    ) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
+  async function submit(e) {
+    e.preventDefault();
+    if (lock.current) return;
+    const f = new FormData(e.currentTarget);
+    const requestId = String(f.get('request_id')).trim();
+    const attempt = Number(f.get('attempt'));
+    const channel = Number(f.get('channel_id'));
+    const value = {
+      request_id: requestId,
+      attempt,
+      channel_id: channel,
+      input_tokens: f.get('input_tokens') === '' ? null : Number(f.get('input_tokens')),
+      output_tokens: f.get('output_tokens') === '' ? null : Number(f.get('output_tokens')),
+      status,
+      evidence_type: String(f.get('evidence_type')),
+      coverage,
+      amount: String(f.get('amount')),
+      refund: String(f.get('refund') || '0'),
+      refund_evidence: String(f.get('refund_evidence') || '').trim(),
+      currency,
+      rate: String(f.get('rate') || ''),
+      rate_evidence: String(f.get('rate_evidence') || '').trim(),
+      evidence: String(f.get('evidence')).trim(),
+      coverage_evidence: String(f.get('coverage_evidence') || '').trim(),
+      supplier_bill_id: String(f.get('supplier_bill_id') || '').trim(),
+    };
+    lock.current = true;
+    setBusy(true);
+    try {
+      await adminRequest({
+        url: API + 'facts',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kind: 'test_cost',
+          ref: `test:${requestId}:${attempt}:${channel}`,
+          test_cost: value,
+          previous_id: row?.fact_id || 0,
+          idempotency_key: key.current,
+        }),
+      });
+      onSaved();
+    } catch (err) {
+      setError(
+        err?.status === 409
+          ? '记录已变更，请刷新后重新核对。'
+          : '保存失败，请核对请求、尝试、金额及凭证。',
+      );
+      lock.current = false;
+      setBusy(false);
+    }
+  }
+  return (
+    <div className='finance-overlay'>
+      <div
+        className='finance-dialog'
+        ref={dialog}
+        tabIndex={-1}
+        onKeyDown={onKey}
+        role='dialog'
+        aria-modal='true'
+        aria-label='测试费用凭证'
+      >
+        <header>
+          <h2>测试费用凭证</h2>
+          <button
+            title='关闭'
+            aria-label='关闭测试费用凭证'
+            disabled={busy}
+            onClick={onClose}
+          >
+            <X size={18} />
+          </button>
+        </header>
+        <form onSubmit={submit}>
+          <fieldset disabled={busy}>
+            <div className='finance-form-grid'>
+              <label className='finance-wide'>
+                请求 ID
+                <input
+                  name='request_id'
+                  required
+                  maxLength={128}
+                  readOnly={!!row}
+                  defaultValue={row?.request_id || ''}
+                />
+              </label>
+              <label>
+                尝试序号
+                <input
+                  name='attempt'
+                  type='number'
+                  min='1'
+                  step='1'
+                  required
+                  readOnly={!!row}
+                  defaultValue={row?.attempt || ''}
+                />
+              </label>
+              <label>
+                渠道 ID
+                <input
+                  name='channel_id'
+                  type='number'
+                  min='1'
+                  step='1'
+                  required
+                  readOnly={!!row}
+                  defaultValue={row?.channel_id || ''}
+                />
+              </label>
+              <label>
+                上游输入 Token
+                <input name='input_tokens' type='number' min='0' step='1' defaultValue={row?.input_tokens ?? ''} />
+              </label>
+              <label>
+                上游输出 Token
+                <input name='output_tokens' type='number' min='0' step='1' defaultValue={row?.output_tokens ?? ''} />
+              </label>
+              <label className='finance-wide'>
+                供应商账单 ID（可选）
+                <input name='supplier_bill_id' maxLength={128} defaultValue={row?.supplier_bill_id || ''} />
+              </label>
+              <label>
+                金额状态
+                <select
+                  name='status'
+                  value={status}
+                  disabled={currency === 'XCLOUD_CREDIT'}
+                  onChange={(e) => setStatus(e.target.value)}
+                >
+                  <option value='estimate'>估算</option>
+                  <option value='confirmed'>已确认</option>
+                </select>
+              </label>
+              <label>
+                证据类别
+                <select
+                  name='evidence_type'
+                  key={status}
+                  required
+                  defaultValue={
+                    row?.status === status ? row?.evidence_type || '' : ''
+                  }
+                >
+                  <option value=''>请选择</option>
+                  {status === 'confirmed' ? (
+                    <option value='supplier_statement'>上游实际扣费凭证</option>
+                  ) : (
+                    <>
+                      <option value='quote'>报价</option>
+                      <option value='other'>其他估算依据</option>
+                    </>
+                  )}
+                </select>
+              </label>
+              <label>
+                覆盖关系
+                <select
+                  name='coverage'
+                  value={coverage}
+                  onChange={(e) => setCoverage(e.target.value)}
+                >
+                  <option value='unknown'>未知</option>
+                  <option value='included'>已包含在渠道月账单</option>
+                  <option value='extra'>账单外额外费用</option>
+                </select>
+              </label>
+              <label>
+                原币费用
+                <input
+                  name='amount'
+                  type='number'
+                  min='0'
+                  step='0.00000001'
+                  required
+                  defaultValue={row?.amount || ''}
+                />
+              </label>
+              <label>
+                上游已确认返还
+                <input
+                  name='refund'
+                  type='number'
+                  min='0'
+                  step='0.00000001'
+                  required
+                  defaultValue={row?.refund || '0'}
+                />
+              </label>
+              <label>
+                原币币种
+                <select
+                  name='currency'
+                  value={currency}
+                  onChange={(e) => {
+                    setCurrency(e.target.value);
+                    if (e.target.value === 'XCLOUD_CREDIT') {
+                      setStatus('confirmed');
+                      setCoverage('unknown');
+                    }
+                  }}
+                >
+                  <option>USDT</option>
+                  <option>CNY</option>
+                  <option>USD</option>
+                  <option value='XCLOUD_CREDIT'>Xcloud 额度</option>
+                </select>
+              </label>
+              <label>
+                每单位原币折合 USDT
+                <input
+                  key={currency}
+                  name='rate'
+                  type='number'
+                  min='0.000000000001'
+                  step='any'
+                  required={currency !== 'XCLOUD_CREDIT'}
+                  readOnly={currency === 'USDT'}
+                  defaultValue={currency === 'USDT' ? '1' : row?.rate || ''}
+                />
+              </label>
+              <label className='finance-wide'>
+                测试费用折算依据
+                <input name='rate_evidence' maxLength={500} defaultValue={row?.rate_evidence || ''} />
+              </label>
+              <label className='finance-wide'>
+                费用凭证或报价依据
+                <input
+                  name='evidence'
+                  minLength={3}
+                  maxLength={500}
+                  required
+                  defaultValue={row?.evidence || ''}
+                />
+              </label>
+              <label className='finance-wide'>
+                覆盖关系凭证
+                <input
+                  name='coverage_evidence'
+                  maxLength={500}
+                  minLength={coverage === 'unknown' ? undefined : 3}
+                  required={coverage !== 'unknown'}
+                  defaultValue={row?.coverage_evidence || ''}
+                />
+                <small>
+                  {coverage === 'included'
+                    ? '填写对应渠道月账单的凭证编号'
+                    : coverage === 'extra'
+                      ? '填写费用在月账单之外的证明，不能使用月账单编号'
+                      : '覆盖关系未知时毛利待核对'}
+                </small>
+              </label>
+              <label className='finance-wide'>
+                返还凭证
+                <input
+                  name='refund_evidence'
+                  maxLength={500}
+                  defaultValue={row?.refund_evidence || ''}
+                />
+              </label>
+            </div>
+          </fieldset>
+          {error && (
+            <p role='alert' className='finance-error'>
+              {error}
+            </p>
+          )}
+          <footer>
+            <button type='button' disabled={busy} onClick={onClose}>
+              取消
+            </button>
+            <button className='finance-primary' type='submit' disabled={busy}>
+              <Check size={16} />
+              {busy ? '保存中' : '保存凭证'}
+            </button>
+          </footer>
+        </form>
+      </div>
+    </div>
+  );
+}
 function Pager({ page, total, onPage }) {
   return (
     <div className='finance-pager'>
@@ -141,6 +474,7 @@ function EvidenceDialog({ target, month, closed, onClose, onSaved }) {
           rate,
           complete: f.get('complete') === 'on',
           evidence,
+          excluded_direct_bill_refs: String(f.get('excluded_direct_bill_refs') || '').split(/\s+/).filter(Boolean),
         },
         previous_id: target.row.fact_id || 0,
       };
@@ -350,6 +684,12 @@ function EvidenceDialog({ target, month, closed, onClose, onSaved }) {
                 </label>
               )}
               {isCost && (
+                <label className='finance-wide'>
+                  月账排除的直接费用身份
+                  <input name='excluded_direct_bill_refs' defaultValue={(old?.excluded_direct_bill_refs || []).join(' ')} />
+                </label>
+              )}
+              {isCost && (
                 <label className='finance-wide finance-check'>
                   <input
                     type='checkbox'
@@ -527,6 +867,102 @@ export default function OverviewPage({ canWrite = false }) {
               </div>
             ))}
           </dl>
+          <section aria-label='测试费用'>
+            <header className='finance-toolbar'>
+              <div>
+                <h2>测试费用</h2>
+                <span className='finance-muted'>
+                  已确认 {report.test_confirmed_total || '待核对'} USDT · 估算{' '}
+                  {report.test_estimate_total || '待核对'} USDT
+                  {' · '}Xcloud 额度 {report.test_xcloud_credit_total || '待核对'}
+                </span>
+              </div>
+              {canWrite && (
+                <button
+                  onClick={() => setTarget({ kind: 'test_cost', row: null })}
+                >
+                  录入测试费用
+                </button>
+              )}
+            </header>
+            <div className='finance-table-wrap'>
+              <table>
+                <thead>
+                  <tr>
+                    <th>请求 ID</th>
+                    <th>供应商账单 ID</th>
+                    <th>模型</th>
+                    <th>尝试 / 渠道</th>
+                    <th>上游输入 / 输出 Token</th>
+                    <th>时间</th>
+                    <th>状态</th>
+                    <th>覆盖关系</th>
+                    <th>净费用</th>
+                    {canWrite && <th>凭证</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(report.test_costs || []).map((row) => (
+                    <tr key={row.fact_id}>
+                      <td>{row.request_id}</td>
+                      <td>{row.supplier_bill_id || '待核对'}</td>
+                      <td>{row.model || '—'}</td>
+                      <td>
+                        {row.attempt} / #{row.channel_id}
+                      </td>
+                      <td>{row.input_tokens ?? '—'} / {row.output_tokens ?? '—'}</td>
+                      <td>{timeLabel(row.attempt_at)}</td>
+                      <td>{row.status === 'confirmed' ? '已确认' : '估算'}</td>
+                      <td>{coverageLabels[row.coverage] || '覆盖未知'}</td>
+                      <td>
+                        {row.currency === 'XCLOUD_CREDIT' ? (
+                          <>
+                            <span>{row.net_credit ? `${row.net_credit} Xcloud 额度` : '原币待核对'}</span>
+                            <small>{row.net_usdt ? `${row.net_usdt} USDT` : '折合待核对'}</small>
+                          </>
+                        ) : (
+                          <>
+                            <span>{row.net_usdt ? `${row.net_usdt} USDT` : '折合待核对'}</span>
+                            {row.currency && row.currency !== 'USDT' && row.amount !== undefined && row.amount !== '' && <small>{row.amount} {row.currency}</small>}
+                          </>
+                        )}
+                      </td>
+                      {canWrite && (
+                        <td>
+                          <button
+                            title='修订测试费用凭证'
+                            aria-label={`修订${row.request_id}测试费用`}
+                            onClick={() =>
+                              setTarget({ kind: 'test_cost', row })
+                            }
+                          >
+                            <Pencil size={15} />
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                  {!report.test_costs?.length && (
+                    <tr>
+                      <td colSpan={canWrite ? 10 : 9}>本月暂无测试费用记录。</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <p className='finance-footnote'>
+              账单内费用仅拆分展示；报价为估算，平台扣费不代表上游实际成本。
+            </p>
+          </section>
+          <section aria-label='直接上游验收费用'>
+            <header className='finance-toolbar'><div><h2>直接上游验收费用</h2><span className='finance-muted'>已折算 {report.direct_confirmed_total || '待核对'} USDT · Xcloud 额度 {report.direct_xcloud_credit_total || '待核对'}</span></div>
+              {canWrite && <button onClick={() => setTarget({kind:'direct_cost', row:null})}>录入直接上游验收费用</button>}
+            </header>
+            <div className='finance-table-wrap'><table><thead><tr><th>账单 ID</th><th>供应商 / 账户</th><th>验收 / 渠道</th><th>模型</th><th>输入 / 输出 token</th><th>输入口径</th><th>缓存读取 / 写入 5m / 1h</th><th>发生时间</th><th>原币</th><th>折合</th><th>覆盖</th><th>身份</th>{canWrite && <th>凭证</th>}</tr></thead><tbody>
+              {(report.direct_costs || []).map(row => <tr key={row.fact_id}><td>{row.bill_id}</td><td>{row.supplier} / {row.account}</td><td>{row.verification_id} / #{row.channel_id}</td><td>{row.model || '待核对'}</td><td>{row.input_tokens ?? '待核对'} / {row.output_tokens ?? '待核对'}</td><td>{row.input_token_scope || 'unknown'}</td><td>{row.cache_read ?? '待核对'} / {row.cache_write_5m ?? '待核对'} / {row.cache_write_1h ?? '待核对'}</td><td>{timeLabel(row.occurred_at)}</td><td>{row.amount} {row.currency}</td><td>{row.net_usdt ? `${row.net_usdt} USDT` : '待核对'}</td><td>{coverageLabels[row.coverage] || '覆盖未知'}</td><td>{row.ref}</td>{canWrite && <td><button title='修订直接费用' aria-label={`修订${row.bill_id}直接费用`} onClick={() => setTarget({kind:'direct_cost', row})}><Pencil size={15}/></button></td>}</tr>)}
+              {!report.direct_costs?.length && <tr><td colSpan={canWrite ? 13 : 12}>本月暂无直接上游验收费用。</td></tr>}
+            </tbody></table></div>
+          </section>
           <dl className='finance-secondary'>
             <div>
               <dt>本月充值实收</dt>
@@ -553,10 +989,13 @@ export default function OverviewPage({ canWrite = false }) {
                 <div>
                   <h2>Xcloud 渠道报价估算</h2>
                   <p className='finance-muted'>
-                    按已结算请求的独立 token 维度重算，使用 Xcloud 公开报价 × 约定 5 折；公开报价不是上游实际扣费。
+                    按已结算请求的独立 token 维度重算，使用 Xcloud 公开报价 ×
+                    约定 5 折；公开报价不是上游实际扣费。
                   </p>
                 </div>
-                <span className={report.estimate_complete ? 'is-ok' : 'is-pending'}>
+                <span
+                  className={report.estimate_complete ? 'is-ok' : 'is-pending'}
+                >
                   {report.estimate_complete ? '估算完整' : '估算待核对'}
                 </span>
               </header>
@@ -589,20 +1028,29 @@ export default function OverviewPage({ canWrite = false }) {
                       <tr key={`${row.channel_id}-${row.source_model}`}>
                         <td>
                           {row.source_model}
-                          <small>{row.supplier || `渠道 #${row.channel_id}`}</small>
+                          <small>
+                            {row.supplier || `渠道 #${row.channel_id}`}
+                          </small>
                         </td>
                         <td>{row.requests}</td>
                         <td>{row.revenue_usdt} USDT</td>
-                        <td>{row.complete ? `${row.cost_usdt} USDT` : '待补齐'}</td>
-                        <td>{row.complete ? `${row.gross_profit_usdt} USDT` : '—'}</td>
-                        <td>{row.complete ? '公开报价可计算' : '用量或报价缺失'}</td>
+                        <td>
+                          {row.complete ? `${row.cost_usdt} USDT` : '待补齐'}
+                        </td>
+                        <td>
+                          {row.complete ? `${row.gross_profit_usdt} USDT` : '—'}
+                        </td>
+                        <td>
+                          {row.complete ? '公开报价可计算' : '用量或报价缺失'}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
               <p className='finance-footnote'>
-                真实上游成本仍需录入 Xcloud 账单凭证；录入后才会进入“上游实际消耗”和“已确认毛利”。
+                真实上游成本仍需录入 Xcloud
+                账单凭证；录入后才会进入“上游实际消耗”和“已确认毛利”。
               </p>
             </section>
           )}
@@ -673,6 +1121,7 @@ export default function OverviewPage({ canWrite = false }) {
                                 : c.fact_id
                                   ? '部分账单'
                                   : '未录入'}
+                              {c.fact_id && <small>凭证版本 #{c.fact_id}</small>}
                             </td>
                             {canWrite && (
                               <td>
@@ -872,7 +1321,18 @@ export default function OverviewPage({ canWrite = false }) {
           </p>
         </>
       )}
-      {target && canWrite && (
+      {target?.kind === 'test_cost' && canWrite && (
+        <TestCostDialog
+          row={target.row}
+          onClose={() => setTarget(null)}
+          onSaved={() => {
+            setTarget(null);
+            refresh();
+          }}
+        />
+      )}
+      {target?.kind === 'direct_cost' && canWrite && <DirectCostDialog row={target.row} onClose={() => setTarget(null)} onSaved={() => { setTarget(null); refresh(); }} />}
+      {target && target.kind !== 'test_cost' && target.kind !== 'direct_cost' && canWrite && (
         <EvidenceDialog
           key={`${target.kind}-${target.row.ref || target.row.channel_id}`}
           target={target}

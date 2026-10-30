@@ -32,6 +32,21 @@ func ValidateZTAPISupplierAdmissionRoute20261019(sourceModel string, channelID i
 	return nil
 }
 
+// The Xcloud groups use different physical model IDs from the Yunxin catalog.
+// Restrict this exception to the verified channel and model pairs; publication
+// and billing eligibility still require their independent checks.
+func ValidateZTAPISupplierAdmissionRouteWithXcloud20261029(sourceModel string, channelID int, baseURL, upstreamModel string) error {
+	xcloudGroups := map[int]map[string]bool{
+		6: {"claude-opus-5-5": true, "claude-sonnet-5-5": true, "gpt-6-astra": true, "gpt-6-luna": true, "gpt-6-sol": true},
+		7: {"gpt-5.5": true, "gpt-5.6-sol": true, "gpt-5.6-terra": true},
+	}
+	if strings.TrimRight(baseURL, "/") == "https://www.xcloudtoken.com" &&
+		xcloudGroups[channelID][sourceModel] && upstreamModel == sourceModel {
+		return nil
+	}
+	return ValidateZTAPISupplierAdmissionRoute20261019(sourceModel, channelID, upstreamModel)
+}
+
 // Standard first-party rates frozen on 2026-10-19, not Batch/Flex/Fast rates.
 // https://developers.openai.com/api/docs/pricing
 // https://platform.claude.com/docs/en/about-claude/pricing

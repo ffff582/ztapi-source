@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/QuantumNous/new-api/common"
 	"github.com/shopspring/decimal"
+	"math"
 	"regexp"
 	"sort"
 	"strings"
@@ -15,6 +17,7 @@ import (
 var shanghai = time.FixedZone("Asia/Shanghai", 8*3600)
 var zero = decimal.Zero
 var amountPattern = regexp.MustCompile(`^(0|[1-9][0-9]{0,11})(\.[0-9]{1,12})?$`)
+var settlementUsageUnitsPattern = regexp.MustCompile(`^[0-9]{1,19}$`)
 
 func MonthBounds(month string) (time.Time, time.Time, error) {
 	start, e := time.ParseInLocation("2006-01", month, shanghai)
@@ -111,6 +114,7 @@ type replay struct {
 	chargeChannels        map[uint]int
 	revenueByChannelModel map[int]map[string]decimal.Decimal
 	costUnknown           bool
+	testRequests          map[string]bool
 }
 
 func (r *replay) inMonth(t time.Time) bool { return !t.Before(r.start) && t.Before(r.end) }
@@ -135,8 +139,11 @@ func (r *replay) recognize(s Settlement, b basis, t time.Time, refund bool, chan
 	if refund {
 		sign = -1
 	}
-	r.known = r.known.Add(b.cash.Mul(decimal.NewFromInt(sign)))
 	r.report.ChargedQuota += sign * b.quota.IntPart()
+	if r.testRequests[s.RequestID] {
+		return
+	}
+	r.known = r.known.Add(b.cash.Mul(decimal.NewFromInt(sign)))
 	if channel > 0 && b.cash.IsPositive() {
 		modelName := settlementSourceModel(s)
 		if modelName == "" {
@@ -151,6 +158,58 @@ func (r *replay) recognize(s Settlement, b basis, t time.Time, refund bool, chan
 		r.unknownRevenue = true
 		r.issue("unknown_revenue_basis", s.RequestID, s.UserID)
 	}
+}
+
+func validReportTestCost(f Fact, now time.Time) (TestCost, bool) {
+	c, ok := f.Payload.(TestCost)
+	if !ok {
+		return TestCost{}, false
+	}
+	// Facts retain payloads, not submission keys. Reuse the existing payload
+	// contract without introducing a new schema or writing a submission.
+	err := validateSubmission(Submission{Kind: f.Kind, Ref: f.Ref, TestCost: &c, IdempotencyKey: "report-test-cost-validation"}, now)
+	return c, err == nil
+}
+
+func testRequestsForReport(s Snapshot, latest map[string]Fact, cutoff, now time.Time) map[string]bool {
+	requests := map[string]Settlement{}
+	requestCounts := map[string]int{}
+	settlementCounts := map[uint]int{}
+	for _, settlement := range s.Settlements {
+		requests[settlement.RequestID] = settlement
+		requestCounts[settlement.RequestID]++
+		settlementCounts[settlement.ID]++
+	}
+	type attemptKey struct {
+		settlement uint
+		attempt    int
+	}
+	attempts := map[attemptKey][]Attempt{}
+	for _, attempt := range s.Attempts {
+		key := attemptKey{attempt.SettlementID, attempt.Attempt}
+		attempts[key] = append(attempts[key], attempt)
+	}
+	result := map[string]bool{}
+	for _, f := range latest {
+		if f.Kind != "test_cost" {
+			continue
+		}
+		c, valid := validReportTestCost(f, now)
+		if !valid {
+			continue
+		}
+		settlement, exists := requests[c.RequestID]
+		if !exists || settlement.ID == 0 || settlement.UserID <= 0 || requestCounts[c.RequestID] != 1 || settlementCounts[settlement.ID] != 1 ||
+			(!settlement.CreatedAt.IsZero() && !settlement.CreatedAt.Before(cutoff)) {
+			continue
+		}
+		matches := attempts[attemptKey{settlement.ID, c.Attempt}]
+		if len(matches) != 1 || matches[0].ChannelID != c.ChannelID || matches[0].CreatedAt.IsZero() || !matches[0].CreatedAt.Before(cutoff) {
+			continue
+		}
+		result[c.RequestID] = true
+	}
+	return result
 }
 
 func settlementSourceModel(s Settlement) string {
@@ -186,16 +245,56 @@ func parseSettlementUsageDimensions(raw string) ([]UsageDimension, error) {
 	if strings.TrimSpace(raw) == "" || strings.TrimSpace(raw) == "[]" {
 		return nil, errors.New("settlement charge dimensions are missing")
 	}
-	var values []struct {
-		Dimension string `json:"dimension"`
-		Quantity  int64  `json:"quantity"`
+	if err := common.RejectDuplicateJsonObjectMembers(strings.NewReader(raw)); err != nil {
+		return nil, fmt.Errorf("settlement charge dimensions are invalid: %w", err)
 	}
-	if err := json.Unmarshal([]byte(raw), &values); err != nil || len(values) == 0 {
+	var values []map[string]json.RawMessage
+	if err := common.UnmarshalJsonStr(raw, &values); err != nil || len(values) == 0 {
 		return nil, errors.New("settlement charge dimensions are invalid")
 	}
 	dimensions := make([]UsageDimension, 0, len(values))
+	seen := make(map[string]bool, len(values))
 	for _, value := range values {
-		dimensions = append(dimensions, UsageDimension{Dimension: value.Dimension, Quantity: value.Quantity})
+		for name := range value {
+			canonical := strings.ToLower(name)
+			if (canonical == "dimension" || canonical == "units" || canonical == "quantity") && canonical != name {
+				return nil, fmt.Errorf("noncanonical settlement usage field %q", name)
+			}
+		}
+		var dimension string
+		if err := common.Unmarshal(value["dimension"], &dimension); err != nil || dimension == "" || dimension != strings.TrimSpace(dimension) || seen[dimension] {
+			return nil, errors.New("settlement usage dimension is missing, invalid or duplicated")
+		}
+		quantityRaw, hasQuantity := value["quantity"]
+		unitsRaw, hasUnits := value["units"]
+		if !hasQuantity && !hasUnits {
+			return nil, errors.New("settlement usage quantity is missing")
+		}
+		var quantity int64
+		if hasQuantity {
+			if common.GetJsonType(quantityRaw) != "number" || common.Unmarshal(quantityRaw, &quantity) != nil || quantity < 0 {
+				return nil, errors.New("settlement usage quantity must be a nonnegative int64")
+			}
+		}
+		if hasUnits {
+			var rawUnits string
+			if err := common.Unmarshal(unitsRaw, &rawUnits); err != nil || !settlementUsageUnitsPattern.MatchString(rawUnits) {
+				return nil, errors.New("settlement usage units must be a nonnegative integer string")
+			}
+			units, err := decimal.NewFromString(rawUnits)
+			if err != nil || units.IsNegative() || !units.IsInteger() || units.GreaterThan(decimal.NewFromInt(math.MaxInt64)) {
+				return nil, errors.New("settlement usage units exceed nonnegative int64 range")
+			}
+			if hasQuantity && units.IntPart() != quantity {
+				return nil, errors.New("settlement usage units conflict with quantity")
+			}
+			quantity = units.IntPart()
+		}
+		seen[dimension] = true
+		dimensions = append(dimensions, UsageDimension{Dimension: dimension, Quantity: quantity})
+	}
+	if seen["cache_write"] && (seen["cache_write_5m"] || seen["cache_write_1h"]) {
+		return nil, errors.New("overlapping settlement cache write dimensions")
 	}
 	return dimensions, nil
 }
@@ -385,7 +484,7 @@ func Calculate(s Snapshot, facts []Fact, month string, now time.Time) (Report, e
 	if cutoff.Before(start) {
 		return Report{}, errors.New("future month")
 	}
-	out := Report{Month: month, Timezone: "Asia/Shanghai", Currency: "USDT", AsOf: now.UTC(), PeriodClosed: !now.Before(end), QuotaPerUnit: s.QuotaPerUnit, Receipts: []Receipt{}, ManualFunding: []FundingRow{}, Channels: []ChannelUsage{}, Costs: []CostRow{}, Issues: []Issue{}}
+	out := Report{Month: month, Timezone: "Asia/Shanghai", Currency: "USDT", AsOf: now.UTC(), PeriodClosed: !now.Before(end), QuotaPerUnit: s.QuotaPerUnit, Receipts: []Receipt{}, ManualFunding: []FundingRow{}, Channels: []ChannelUsage{}, Costs: []CostRow{}, TestCosts: []TestCostRow{}, Issues: []Issue{}}
 	out.SourceCommit = s.SourceCommit
 	r := &replay{report: &out, start: start, end: cutoff, pools: map[int]*basis{}, holds: map[string]*basis{}, consumed: map[string]*basis{}, finalized: map[string]bool{}, settlements: map[string]Settlement{}, funding: map[string]Fact{}, usernames: map[int]string{}, revenueByChannelModel: map[int]map[string]decimal.Decimal{}}
 	r.consumedCharges = map[uint]*basis{}
@@ -412,11 +511,15 @@ func Calculate(s Snapshot, facts []Fact, month string, now time.Time) (Report, e
 	}
 	latest := map[string]Fact{}
 	for _, f := range facts {
+		if (f.Kind == "direct_cost" || f.Kind == "test_cost") && f.CreatedAt.After(now) {
+			continue
+		}
 		key := f.Kind + ":" + f.Ref
 		if f.ID > latest[key].ID {
 			latest[key] = f
 		}
 	}
+	r.testRequests = testRequestsForReport(s, latest, cutoff, now)
 	for _, f := range latest {
 		if f.Kind == "funding" {
 			r.funding[f.Ref] = f
@@ -670,6 +773,10 @@ func Calculate(s Snapshot, facts []Fact, month string, now time.Time) (Report, e
 		covered[c.ChannelID] = c.Complete
 	}
 	complete := out.PeriodClosed && !r.costUnknown
+	if len(out.Costs) == 0 {
+		complete = false
+		r.issue("supplier_cost_missing", "month:"+month, 0)
+	}
 	for id := range used {
 		if id <= 0 || !covered[id] {
 			complete = false
@@ -682,6 +789,221 @@ func Calculate(s Snapshot, facts []Fact, month string, now time.Time) (Report, e
 			r.issue("supplier_cost_partial", fmt.Sprintf("channel:%d", c.ChannelID), 0)
 		}
 	}
+	confirmedTests, estimatedTests, xcloudCredits := zero, zero, zero
+	directCredits, directConfirmed := zero, zero
+	includedTestsByChannel := map[int]decimal.Decimal{}
+	requestBySettlement := map[uint]string{}
+	modelByRequest := map[string]string{}
+	for _, settlement := range s.Settlements {
+		requestBySettlement[settlement.ID] = settlement.RequestID
+		modelByRequest[settlement.RequestID] = settlement.PublicModel
+	}
+	attemptTimes := map[string]time.Time{}
+	attemptCounts := map[string]int{}
+	for _, attempt := range s.Attempts {
+		request := requestBySettlement[attempt.SettlementID]
+		if request == "" {
+			continue
+		}
+		key := fmt.Sprintf("test:%s:%d:%d", request, attempt.Attempt, attempt.ChannelID)
+		attemptCounts[key]++
+		attemptTimes[key] = attempt.CreatedAt
+	}
+	for _, f := range latest {
+		if f.Kind != "test_cost" {
+			continue
+		}
+		c, ok := validReportTestCost(f, now)
+		if !ok {
+			complete = false
+			r.issue("test_cost_invalid", f.Ref, 0)
+			continue
+		}
+		key := fmt.Sprintf("test:%s:%d:%d", c.RequestID, c.Attempt, c.ChannelID)
+		at := attemptTimes[key]
+		if at.IsZero() || attemptCounts[key] != 1 || key != f.Ref {
+			complete = false
+			r.issue("test_cost_lineage_missing", f.Ref, 0)
+			continue
+		}
+		if !r.inMonth(at) {
+			continue
+		}
+		netCredit := ""
+		if c.Currency == "XCLOUD_CREDIT" {
+			amount, amountErr := money(c.Amount, "USDT", "1")
+			refund, refundErr := money(c.Refund, "USDT", "1")
+			if amountErr != nil || refundErr != nil || refund.GreaterThan(amount) || c.Status != "confirmed" || c.EvidenceType != "supplier_statement" || len(strings.TrimSpace(c.Evidence)) < 3 || (refund.IsPositive() && len(strings.TrimSpace(c.RefundEvidence)) < 3) || (c.Rate != "" && (len(strings.TrimSpace(c.RateEvidence)) < 3 || len(c.RateEvidence) > 500)) || (c.Rate == "" && c.Coverage != "unknown") {
+				complete = false
+				r.issue("test_cost_invalid", f.Ref, 0)
+				continue
+			}
+			xcloudCredits = xcloudCredits.Add(amount.Sub(refund))
+			netCredit = amount.Sub(refund).StringFixed(8)
+			if c.Rate == "" {
+				out.TestCosts = append(out.TestCosts, TestCostRow{TestCost: c, FactID: f.ID, AttemptAt: at, Model: modelByRequest[c.RequestID], NetCredit: netCredit})
+				complete = false
+				r.issue("test_cost_exchange_missing", f.Ref, 0)
+				continue
+			}
+		}
+		currency := c.Currency
+		if currency == "XCLOUD_CREDIT" {
+			currency = "USD"
+		}
+		amount, ae := money(c.Amount, currency, c.Rate)
+		refund, re := money(c.Refund, currency, c.Rate)
+		if ae != nil || re != nil || refund.GreaterThan(amount) || (refund.IsPositive() && (c.Status != "confirmed" || len(strings.TrimSpace(c.RefundEvidence)) < 3)) || len(strings.TrimSpace(c.Evidence)) < 3 || (c.Status != "confirmed" && c.Status != "estimate") || (c.Status == "confirmed" && c.EvidenceType != "supplier_statement") || (c.Status == "estimate" && c.EvidenceType != "quote" && c.EvidenceType != "other") {
+			complete = false
+			r.issue("test_cost_invalid", f.Ref, 0)
+			continue
+		}
+		net := amount.Sub(refund)
+		out.TestCosts = append(out.TestCosts, TestCostRow{TestCost: c, FactID: f.ID, AttemptAt: at, Model: modelByRequest[c.RequestID], NetUSDT: fixed(net), NetCredit: netCredit})
+		if c.Status == "confirmed" {
+			confirmedTests = confirmedTests.Add(net)
+		} else {
+			estimatedTests = estimatedTests.Add(net)
+		}
+		switch c.Coverage {
+		case "included":
+			matched := false
+			for _, bill := range out.Costs {
+				if bill.ChannelID == c.ChannelID && bill.Complete && bill.Evidence == c.CoverageEvidence {
+					matched = true
+				}
+			}
+			if !matched {
+				complete = false
+				r.issue("test_cost_coverage_missing", f.Ref, 0)
+			} else if c.Status == "confirmed" {
+				includedTestsByChannel[c.ChannelID] = includedTestsByChannel[c.ChannelID].Add(net)
+			}
+		case "extra":
+			conflicts := false
+			for _, bill := range out.Costs {
+				if bill.ChannelID == c.ChannelID && bill.Evidence == c.CoverageEvidence {
+					conflicts = true
+				}
+			}
+			if c.Status != "confirmed" || len(strings.TrimSpace(c.CoverageEvidence)) < 3 || conflicts {
+				complete = false
+				r.issue("test_cost_unconfirmed", f.Ref, 0)
+			} else {
+				totalCost = totalCost.Add(net)
+			}
+		default:
+			complete = false
+			r.issue("test_cost_coverage_missing", f.Ref, 0)
+		}
+	}
+	for _, f := range latest {
+		if f.Kind != "direct_cost" {
+			continue
+		}
+		c, ok := f.Payload.(DirectCost)
+		if ok {
+			normalizeDirectCost(&c)
+		}
+		if !ok || validateDirectCost(&c, now) != nil || directCostRef(&c) != f.Ref {
+			complete = false
+			r.issue("direct_cost_invalid", f.Ref, 0)
+			continue
+		}
+		if !r.inMonth(c.OccurredAt) {
+			continue
+		}
+		amount, _ := money(c.Amount, "USDT", "1")
+		if c.Currency == "XCLOUD_CREDIT" {
+			directCredits = directCredits.Add(amount)
+		}
+		row := DirectCostRow{DirectCost: c, FactID: f.ID, Ref: f.Ref}
+		overlap := false
+		for _, test := range out.TestCosts {
+			// Missing legacy identities cannot prove these are distinct bills.
+			if test.SupplierBillID == "" || strings.EqualFold(test.SupplierBillID, c.BillID) {
+				overlap = true
+			}
+		}
+		if !directVerificationMatches(s, &c) {
+			overlap = true
+			complete = false
+			r.issue("direct_cost_lineage_missing", f.Ref, 0)
+		}
+		if c.Rate == "" {
+			complete = false
+			r.issue("direct_cost_exchange_missing", f.Ref, 0)
+		} else {
+			currency := c.Currency
+			if currency == "XCLOUD_CREDIT" {
+				currency = "USD"
+			}
+			net, _ := money(c.Amount, currency, c.Rate)
+			row.NetUSDT = fixed(net)
+			if directVerificationMatches(s, &c) {
+				directConfirmed = directConfirmed.Add(net)
+			}
+			matched := false
+			allExcluded := true
+			otherExcluded := true
+			for _, bill := range out.Costs {
+				if !strings.EqualFold(bill.Supplier, c.Supplier) {
+					continue
+				}
+				excluded := false
+				for _, ref := range bill.ExcludedDirectBillRefs {
+					if ref == f.Ref {
+						excluded = true
+					}
+				}
+				if !bill.Complete || !excluded {
+					allExcluded = false
+					if bill.FactID != c.MonthCostFactID {
+						otherExcluded = false
+					}
+				}
+			}
+			for _, bill := range out.Costs {
+				if bill.FactID == c.MonthCostFactID && bill.ChannelID == c.ChannelID && strings.EqualFold(bill.Supplier, c.Supplier) && bill.Complete {
+					excluded := false
+					for _, ref := range bill.ExcludedDirectBillRefs {
+						if ref == f.Ref {
+							excluded = true
+						}
+					}
+					if c.Coverage == "included" && !excluded && otherExcluded && c.CoverageEvidence == bill.Evidence && !overlap {
+						matched = true
+						includedTestsByChannel[c.ChannelID] = includedTestsByChannel[c.ChannelID].Add(net)
+					}
+					if c.Coverage == "extra" && excluded && allExcluded && c.CoverageEvidence != bill.Evidence && !overlap {
+						matched = true
+						totalCost = totalCost.Add(net)
+					}
+				}
+			}
+			if !matched {
+				complete = false
+				r.issue("direct_cost_coverage_missing", f.Ref, 0)
+			}
+		}
+		out.DirectCosts = append(out.DirectCosts, row)
+	}
+	for _, bill := range out.Costs {
+		included := includedTestsByChannel[bill.ChannelID]
+		gross, grossErr := money(bill.Gross, bill.Currency, bill.Rate)
+		refund, refundErr := money(bill.Refund, bill.Currency, bill.Rate)
+		if included.IsPositive() && (grossErr != nil || refundErr != nil || included.GreaterThan(gross.Sub(refund))) {
+			complete = false
+			r.issue("test_cost_coverage_conflict", fmt.Sprintf("channel:%d", bill.ChannelID), 0)
+		}
+	}
+	out.TestConfirmedTotal = fixed(confirmedTests)
+	out.TestEstimateTotal = fixed(estimatedTests)
+	out.TestXcloudCreditTotal = xcloudCredits.StringFixed(8)
+	out.DirectXcloudCreditTotal = directCredits.StringFixed(8)
+	out.DirectConfirmedTotal = fixed(directConfirmed)
+	sort.Slice(out.DirectCosts, func(i, j int) bool { return out.DirectCosts[i].FactID < out.DirectCosts[j].FactID })
+	sort.Slice(out.TestCosts, func(i, j int) bool { return out.TestCosts[i].FactID < out.TestCosts[j].FactID })
 	out.RecordedCost = fixed(totalCost)
 	if complete {
 		out.ActualCost = stringPtr(out.RecordedCost)

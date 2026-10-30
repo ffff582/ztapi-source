@@ -18,11 +18,13 @@ func TestReaderUsesPostingTimeAndOnlySelectsFinancialColumns(t *testing.T) {
 		"CREATE TABLE top_ups(id INTEGER,user_id INTEGER,trade_no TEXT,status TEXT,complete_time BIGINT)",
 		"CREATE TABLE usdt_top_up_orders(top_up_id INTEGER,status TEXT,credit_units BIGINT,pay_amount_micros BIGINT)",
 		"CREATE TABLE channels(id INTEGER,name TEXT,base_url TEXT)",
+		"CREATE TABLE ztapi_model_verifications(id INTEGER,channel_id INTEGER,model_config_id INTEGER,verified_at BIGINT)",
 		"CREATE TABLE ztapi_supplier_refund_charges(id INTEGER,request_id TEXT,user_id INTEGER,original_ledger_id INTEGER,charged_quota BIGINT,billing_proof_id INTEGER,channel_id INTEGER,billing_operation_id TEXT,created_at DATETIME)",
 		"CREATE TABLE ztapi_supplier_refunds(ledger_id INTEGER,charge_id INTEGER,refunded_quota BIGINT,status TEXT)",
 		"INSERT INTO users VALUES(1,'customer',100,1,NULL)",
 		"INSERT INTO ztapi_request_settlements VALUES(1,1,'r1','op1','settled','zt-test','{}','[]','[]',10,10,1,'2026-09-16 00:00:00')",
 		"INSERT INTO ztapi_settlement_log_outboxes VALUES('op1',1789516800)",
+		"INSERT INTO ztapi_model_verifications VALUES(656,2,7,1789516800)",
 	} {
 		require.NoError(t, db.Exec(sql).Error)
 	}
@@ -31,6 +33,9 @@ func TestReaderUsesPostingTimeAndOnlySelectsFinancialColumns(t *testing.T) {
 	require.NoError(t, e)
 	require.Len(t, s.Settlements, 1)
 	require.Equal(t, int64(1789516800), s.Settlements[0].CompletedAt)
+	require.Len(t, s.Verifications, 1)
+	require.Equal(t, int64(656), s.Verifications[0].ID)
+	require.Equal(t, 2, s.Verifications[0].ChannelID)
 	u, e := reader.Identity(context.Background(), 1)
 	require.NoError(t, e)
 	require.Equal(t, 100, u.Role)

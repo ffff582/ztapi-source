@@ -17,6 +17,7 @@ func TestUsageRegressionManagedEstimatesCannotSettle(t *testing.T) {
 		localFlag    bool
 	}{
 		{"source_only", "local_estimate", false},
+		{"incomplete_source_only", "upstream_incomplete", false},
 		{"context_only", "", true},
 		{"source_cannot_override_context", "upstream_reported", true},
 	} {
@@ -36,4 +37,6 @@ func TestUsageRegressionManagedEstimatesCannotSettle(t *testing.T) {
 	}
 	result := ValidateZTAPIUsageDimensions(nil, quotedUsageInfo(), &dto.Usage{PromptTokens: 100, CompletionTokens: 2, UsageSource: "local_estimate"})
 	require.True(t, result.Pending, "source guard must also work without a gin context")
+	result = ValidateZTAPIUsageDimensions(nil, quotedUsageInfo(), &dto.Usage{PromptTokens: 125, CompletionTokens: 24, UsageSource: "upstream_incomplete"})
+	require.True(t, result.Pending, "partial upstream counters must never be sufficient for settlement")
 }

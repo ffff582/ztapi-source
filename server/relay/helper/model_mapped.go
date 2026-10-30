@@ -16,12 +16,17 @@ import (
 
 func ModelMappedHelper(c *gin.Context, info *common.RelayInfo, request dto.Request) (err error) {
 	defer func() {
-		if err != nil || info.ZTAPIPublicationSnapshot == nil ||
-			info.ZTAPIPublicationSnapshot.PricePolicy != string(model.ZTAPIPricePolicySupplierAdmission20261019) {
+		if err != nil || info.ZTAPIPublicationSnapshot == nil {
 			return
 		}
-		err = model.ValidateZTAPISupplierAdmissionRoute20261019(info.ZTAPIPublicationSnapshot.SourceModel,
-			info.ChannelId, info.UpstreamModelName)
+		switch info.ZTAPIPublicationSnapshot.PricePolicy {
+		case string(model.ZTAPIPricePolicySupplierAdmission20261019):
+			err = model.ValidateZTAPISupplierAdmissionRouteWithXcloud20261029(info.ZTAPIPublicationSnapshot.SourceModel,
+				info.ChannelId, info.ChannelBaseUrl, info.UpstreamModelName)
+		case string(model.ZTAPIPricePolicyXcloudGLM53):
+			err = model.ValidateZTAPIXcloudGLM53Route(info.ZTAPIPublicationSnapshot.SourceModel,
+				info.ChannelId, info.ChannelBaseUrl, info.UpstreamModelName)
+		}
 	}()
 	if info.ChannelMeta == nil {
 		info.ChannelMeta = &common.ChannelMeta{}

@@ -25,6 +25,8 @@ type UsageDimension struct {
 
 type XcloudPublicQuote struct {
 	SourceModel            string
+	Group                  string
+	Tier                   string
 	InputPerMillion        decimal.Decimal
 	OutputPerMillion       decimal.Decimal
 	CacheReadPerMillion    decimal.Decimal
@@ -48,10 +50,12 @@ func decimalValue(value string) decimal.Decimal {
 	return decimal.RequireFromString(value)
 }
 
-func xcloudQuote(sourceModel, input, output, cacheRead, cacheWrite, cacheWrite5m, cacheWrite1h string) XcloudPublicQuote {
+func xcloudQuote(sourceModel, group, tier, input, output, cacheRead, cacheWrite, cacheWrite5m, cacheWrite1h string) XcloudPublicQuote {
 	discount := decimalValue(XcloudSupplierDiscountFactor)
 	return XcloudPublicQuote{
 		SourceModel:            sourceModel,
+		Group:                  group,
+		Tier:                   tier,
 		InputPerMillion:        decimalValue(input).Mul(discount),
 		OutputPerMillion:       decimalValue(output).Mul(discount),
 		CacheReadPerMillion:    decimalValue(cacheRead).Mul(discount),
@@ -59,41 +63,36 @@ func xcloudQuote(sourceModel, input, output, cacheRead, cacheWrite, cacheWrite5m
 		CacheWrite5mPerMillion: decimalValue(cacheWrite5m).Mul(discount),
 		CacheWrite1hPerMillion: decimalValue(cacheWrite1h).Mul(discount),
 		SourceURL:              XcloudPricingURL,
-		RetrievedAt:            time.Date(2026, 10, 29, 0, 0, 0, 0, shanghai),
+		RetrievedAt:            time.Date(2026, 10, 30, 0, 0, 0, 0, shanghai),
 		DiscountFactor:         discount,
 	}
 }
 
-// XcloudPublicQuotes is the public-price evidence captured from the live
-// Xcloud pricing page on 2026-10-29. Prices are official-page prices reduced
-// by the agreed 50% supplier factor and remain estimates until an Xcloud bill
-// is recorded. A zero cache price means that dimension is not quoted by the
-// public page and must not be fabricated or double-counted.
+// Prices are the group-adjusted credit prices observed on 2026-10-30, converted
+// once to cash at the owner's stated 100-for-200 recharge rate. They are not
+// supplier bills and must not be applied to an unproven historical group/tier.
 func XcloudPublicQuotes() []XcloudPublicQuote {
 	return []XcloudPublicQuote{
-		xcloudQuote("claude-fable-5", "10.05", "50.25", "0.5", "8.3", "8.3", "13.5"),
-		xcloudQuote("claude-fable-5-1", "10.5", "52.5", "0.5", "6.25", "6.25", "10"),
-		xcloudQuote("claude-haiku-4-5-20251001", "1", "5", "0.1", "1.25", "1.25", "2"),
-		xcloudQuote("claude-opus-4-6", "5", "25", "0.5", "6.25", "6.25", "10"),
-		xcloudQuote("claude-opus-4-7", "5", "25", "0.5", "6.25", "6.25", "10"),
-		xcloudQuote("claude-opus-4-8", "5", "25", "0.5", "6.25", "6.25", "10"),
-		xcloudQuote("claude-opus-5-5", "7.6", "38", "0.2", "5", "5", "8"),
-		xcloudQuote("claude-sonnet-4-6", "3", "15", "0.2", "2.25", "2.25", "6.7"),
-		xcloudQuote("claude-sonnet-5", "1.5", "10.5", "0.15", "1.9", "1.9", "2.7"),
-		xcloudQuote("claude-sonnet-5-5", "3.8", "3.8", "0.1", "2.5", "2.5", "4"),
-		xcloudQuote("deepseek-v4.1-flash", "0.084", "0.3", "0.003", "0", "0", "0"),
-		xcloudQuote("glm-5.2", "4.8", "16.8", "2", "0", "0", "2"),
-		xcloudQuote("glm-5.3", "4.8", "16.8", "1.2", "0", "0", "0"),
-		xcloudQuote("glm-5.3-flash", "0.48", "1.68", "0.138", "0", "0", "0"),
-		xcloudQuote("gpt-5.5", "5", "30", "1", "12.5", "12.5", "0"),
-		xcloudQuote("gpt-5.6-sol", "5", "30", "0", "0", "0", "0"),
-		xcloudQuote("gpt-5.6-terra", "2.5", "15", "0", "0", "0", "0"),
-		xcloudQuote("gpt-6-astra", "19", "95", "1", "12.5", "12.5", "0"),
-		xcloudQuote("gpt-6-luna", "0.19", "0.95", "0.01", "0.125", "0.125", "0"),
-		xcloudQuote("gpt-6-sol", "3.8", "19", "0.2", "2.5", "2.5", "0"),
-		xcloudQuote("kimi-k3", "8.04", "30", "1", "0", "0", "1.5"),
-		xcloudQuote("qwen3.8-flash", "0.09", "0.3", "0.2", "0.1", "0.1", "0.1"),
-		xcloudQuote("qwen3.8-max", "1.02", "3.06", "0.22", "1.8", "1.8", "2.2"),
+		xcloudQuote("claude-fable-5", "claude-max", "base", "10.05", "50.25", "0.75", "0", "12.45", "20.25"),
+		xcloudQuote("claude-fable-5-1", "claude-max", "base", "10.5", "52.5", "0.75", "0", "9.375", "15"),
+		xcloudQuote("claude-haiku-4-5-20251001", "claude-max", "固定", "1.5", "7.5", "0.15", "1.875", "0", "0"),
+		xcloudQuote("claude-opus-4-6", "claude-max", "固定", "7.5", "37.5", "0.75", "9.375", "0", "0"),
+		xcloudQuote("claude-opus-4-7", "claude-max", "固定", "7.5", "37.5", "0.75", "9.375", "0", "0"),
+		xcloudQuote("claude-opus-4-8", "claude-max", "固定", "7.5", "37.5", "0.75", "9.375", "0", "0"),
+		xcloudQuote("claude-opus-5-5", "new-vip", "base", "7.6", "38", "0.38", "0", "9.5", "15.2"),
+		xcloudQuote("claude-sonnet-4-6", "claude-max", "base", "3", "15", "0.3", "0", "3.375", "10.05"),
+		xcloudQuote("claude-sonnet-5", "claude-max", "base", "1.5", "10.5", "0.225", "0", "2.85", "4.05"),
+		xcloudQuote("claude-sonnet-5-5", "new-vip", "long_context", "3.8", "3.8", "0.19", "0", "4.75", "7.6"),
+		xcloudQuote("deepseek-v4.1-flash", "国产分组", "base", "0.084", "0.3", "0.0018", "0", "0", "0"),
+		xcloudQuote("glm-5.3", "国产分组", "固定", "4.8", "16.8", "1.2", "0", "0", "0"),
+		xcloudQuote("gpt-5.5", "gpt-plus", "固定", "5", "30", "0", "0", "0", "0"),
+		xcloudQuote("gpt-5.6-sol", "gpt-plus", "固定", "5", "30", "0", "6.25", "0", "0"),
+		xcloudQuote("gpt-5.6-terra", "gpt-plus", "固定", "2.5", "15", "0", "3.125", "0", "0"),
+		xcloudQuote("gpt-6-astra", "new-vip", "standard", "19", "95", "1.9", "23.75", "0", "0"),
+		xcloudQuote("gpt-6-astra", "new-vip", "long_context", "38", "142.5", "3.8", "47.5", "0", "0"),
+		xcloudQuote("gpt-6-luna", "new-vip", "base", "0.19", "0.95", "0.019", "0.2375", "0", "0"),
+		xcloudQuote("gpt-6-sol", "new-vip", "base", "3.8", "19", "0.38", "4.75", "0", "0"),
+		xcloudQuote("kimi-k3", "国产分组", "base", "8.04", "30", "0.6", "0", "0", "0.9"),
 	}
 }
 
@@ -120,8 +119,22 @@ func xcloudDimensionPrice(quote XcloudPublicQuote, dimension string) (decimal.De
 }
 
 func EstimateXcloudUsage(sourceModel string, dimensions []UsageDimension) (XcloudUsageEstimate, error) {
+	return XcloudUsageEstimate{SourceModel: sourceModel, CostUSDT: "0"}, fmt.Errorf("%w: historical group and tier unavailable", ErrXcloudQuoteMissing)
+}
+
+func EstimateXcloudUsageForGroup(sourceModel, group, tier string, dimensions []UsageDimension) (XcloudUsageEstimate, error) {
 	zero := XcloudUsageEstimate{SourceModel: sourceModel, CostUSDT: "0"}
-	quote, ok := xcloudQuoteByModel(sourceModel)
+	if len(dimensions) == 0 {
+		return zero, errors.New("Xcloud usage dimensions are missing")
+	}
+	var quote XcloudPublicQuote
+	ok := false
+	for _, candidate := range XcloudPublicQuotes() {
+		if candidate.SourceModel == strings.TrimSpace(sourceModel) && candidate.Group == group && candidate.Tier == tier {
+			quote, ok = candidate, true
+			break
+		}
+	}
 	if !ok {
 		return zero, fmt.Errorf("%w: %s", ErrXcloudQuoteMissing, strings.TrimSpace(sourceModel))
 	}
@@ -136,13 +149,21 @@ func EstimateXcloudUsage(sourceModel string, dimensions []UsageDimension) (Xclou
 			return zero, fmt.Errorf("duplicate Xcloud usage dimension %q", name)
 		}
 		seen[name] = struct{}{}
+		if _, generic := seen["cache_write"]; generic {
+			if _, split5m := seen["cache_write_5m"]; split5m {
+				return zero, errors.New("overlapping cache write dimensions")
+			}
+			if _, split1h := seen["cache_write_1h"]; split1h {
+				return zero, errors.New("overlapping cache write dimensions")
+			}
+		}
 		price, supported := xcloudDimensionPrice(quote, name)
 		if !supported {
 			return zero, fmt.Errorf("%w: %s/%s", ErrXcloudQuoteMissing, sourceModel, name)
 		}
 		cost = cost.Add(decimal.NewFromInt(dimension.Quantity).Div(decimal.NewFromInt(1_000_000)).Mul(price))
 	}
-	zero.CostUSDT = cost.StringFixed(6)
+	zero.CostUSDT = cost.String()
 	zero.SourceURL = quote.SourceURL
 	zero.IsEstimate = true
 	zero.DiscountFactor = quote.DiscountFactor.String()

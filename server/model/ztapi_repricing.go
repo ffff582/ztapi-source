@@ -20,6 +20,24 @@ type ZTAPICommercialRepricingResult struct {
 	Skipped     []string `json:"skipped,omitempty"`
 }
 
+// Dedicated contracts are owned by their controlled publisher, not the legacy
+// quotation or FX writers. Validate the bound source before granting the skip.
+func ztapiLegacyRepricingPreservesSource(tx *gorm.DB, source *ZTAPIModelPriceSource) (bool, error) {
+	var err error
+	switch {
+	case source.PricePolicy == string(ZTAPIPricePolicyXcloudGLM53):
+		err = validateZTAPIXcloudGLM53Price(source)
+	case isZTAPICashMarginPolicy20261030(source.PricePolicy):
+		err = ValidateZTAPICashMarginSource20261030(tx, source)
+	default:
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("invalid dedicated price contract for %s: %w", source.SourceModel, err)
+	}
+	return true, nil
+}
+
 func clearZTAPIPriceSourceCosts(source *ZTAPIModelPriceSource) {
 	source.InputPerMillion = "0"
 	source.OutputPerMillion = "0"
@@ -198,6 +216,12 @@ func ApplyZTAPICommercialPricingV2(operatorID int) (ZTAPICommercialRepricingResu
 			var currentSource ZTAPIModelPriceSource
 			if err := tx.First(&currentSource, publication.PriceSourceID).Error; err != nil {
 				return fmt.Errorf("load bound price source for %s: %w", config.SourceModel, err)
+			}
+			if preserve, err := ztapiLegacyRepricingPreservesSource(tx, &currentSource); err != nil {
+				return err
+			} else if preserve {
+				result.Skipped = append(result.Skipped, config.PublicNameValue())
+				continue
 			}
 			if currentSource.SourceDocumentChecksum == quoteAB.WorkbookSHA256 ||
 				currentSource.SourceDocumentChecksum == ZTAPISupplierWorkbook20261019SHA256 {

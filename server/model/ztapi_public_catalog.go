@@ -637,6 +637,13 @@ func loadZTAPIActivePublications(db *gorm.DB) ([]ZTAPIRuntimePublication, error)
 		if source.ModelConfigID != snapshot.ModelConfigID || source.SourceModel != snapshot.SourceModel {
 			continue
 		}
+		if validateZTAPICashSnapshotMode20261030(&source, &snapshot) != nil {
+			continue
+		}
+		if isZTAPICashMarginPolicy20261030(source.PricePolicy) &&
+			(ValidateZTAPICashMarginSource20261030(db, &source) != nil || validateZTAPICashMarginRoute20261030(&source, snapshot.PublicName, channels) != nil) {
+			continue
+		}
 		sourceMultiplier, multiplierErr := ztapiNormalizedSaleMultiplier(source.SaleMultiplier)
 		snapshotMultiplier, snapshotMultiplierErr := ztapiNormalizedSaleMultiplier(snapshot.SaleMultiplier)
 		if multiplierErr != nil || snapshotMultiplierErr != nil || !sourceMultiplier.Equal(snapshotMultiplier) {

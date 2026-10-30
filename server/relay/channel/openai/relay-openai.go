@@ -3,7 +3,9 @@ package openai
 import (
 	"fmt"
 	"io"
+	"math"
 	"net/http"
+	"reflect"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -18,6 +20,55 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+// Preserve Xcloud's reported Kimi token totals for display when only cache
+// evidence is incomplete. These numbers must not be used for settlement.
+func incompleteXcloudKimiTokenCounts(info *relaycommon.RelayInfo) *dto.Usage {
+	if info == nil || info.ChannelMeta == nil || info.ZTAPIPublicationSnapshot == nil ||
+		info.ChannelId != 8 || strings.TrimRight(info.ChannelBaseUrl, "/") != "https://www.xcloudtoken.com" ||
+		info.UpstreamModelName != "kimi-k3" || info.ZTAPIMetering == nil {
+		return nil
+	}
+	evidence := info.ZTAPIMetering
+	if len(evidence.UsageIntegrityReasons) != 1 || evidence.UsageIntegrityReasons[0] != "usage_incomplete" ||
+		evidence.UnverifiedUsage == nil || evidence.UnverifiedUsage.Reason != "usage_incomplete" {
+		return nil
+	}
+	var counts struct {
+		Prompt     *int `json:"prompt_tokens"`
+		Completion *int `json:"completion_tokens"`
+		Total      *int `json:"total_tokens"`
+	}
+	if common.Unmarshal(evidence.UnverifiedUsage.RawUsage, &counts) != nil || counts.Prompt == nil ||
+		counts.Completion == nil || counts.Total == nil || *counts.Prompt < 0 || *counts.Completion < 0 ||
+		*counts.Prompt > math.MaxInt/8 || *counts.Completion > math.MaxInt/8 ||
+		*counts.Total != *counts.Prompt+*counts.Completion {
+		return nil
+	}
+	return &dto.Usage{PromptTokens: *counts.Prompt, CompletionTokens: *counts.Completion, TotalTokens: *counts.Total, UsageSource: "upstream_incomplete"}
+}
+
+func incompleteXcloudKimiFrameCounts(info *relaycommon.RelayInfo, raw []byte, header http.Header) (*dto.Usage, *types.ZTAPIUnverifiedUsageObservation) {
+	if info == nil || info.ChannelMeta == nil || info.ChannelId != 8 || info.UpstreamModelName != "kimi-k3" {
+		return nil, nil
+	}
+	// The scanner updates counters on info concurrently; only copy immutable
+	// request metadata needed to validate this usage frame.
+	current := &relaycommon.RelayInfo{
+		ChannelMeta:              info.ChannelMeta,
+		ZTAPIPublicationSnapshot: info.ZTAPIPublicationSnapshot,
+		IsStream:                 info.IsStream,
+		RelayFormat:              info.RelayFormat,
+	}
+	if relaycommon.ObserveZTAPIOpenAIChatUsage(nil, current, raw, header) != nil {
+		return nil, nil
+	}
+	partial := incompleteXcloudKimiTokenCounts(current)
+	if partial == nil {
+		return nil, nil
+	}
+	return partial, current.ZTAPIMetering.UnverifiedUsage.Sanitized()
+}
 
 func sendStreamData(c *gin.Context, info *relaycommon.RelayInfo, data string, forceFormat bool, thinkToContent bool) error {
 	if data == "" {
@@ -138,11 +189,21 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 				if observed != nil {
 					selected = observed
 				}
-				if normalizeChatUsage(info, frame.Usage) || !service.ValidUsage(selected) {
+				normalized := normalizeChatUsage(info, frame.Usage)
+				if observed != nil && !reflect.DeepEqual(frame.Usage, observed) {
+					normalized = true
+				}
+				if normalized || !service.ValidUsage(selected) {
 					data, err = replaceChatUsage(data, selected)
 				}
 				// Upstream snapshots are cumulative, not additive deltas.
 				usage, containStreamUsage, lastUsageData = selected, true, rawData
+			} else if partial, evidence := incompleteXcloudKimiFrameCounts(info, []byte(rawData), resp.Header); frame.Usage != nil && (!containStreamUsage || usage.UsageSource == "upstream_incomplete") && partial != nil {
+				usage = partial
+				info.ZTAPIMetering.UnverifiedUsage = evidence
+				common.SetContextKey(c, constant.ContextKeyLocalCountTokens, true)
+				data, err = replaceChatUsage(data, usage)
+				containStreamUsage, lastUsageData = true, rawData
 			} else if frame.Usage != nil && containStreamUsage && info.ZTAPIPublicationSnapshot != nil {
 				// Empty stop-frame usage must not replace the client's valid snapshot.
 				data, err = replaceChatUsage(data, nil)
@@ -186,7 +247,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	}
 
 	usageData := lastStreamData
-	if containStreamUsage {
+	if containStreamUsage && usage.UsageSource != "upstream_incomplete" {
 		usageData = lastUsageData
 		relaycommon.CaptureZTAPIUpstreamUsageEvidence(info, []byte(lastUsageData), "stream")
 	}
@@ -249,26 +310,33 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 	if observed != nil || (!managed && service.ValidUsage(&simpleResponse.Usage) && simpleResponse.Usage.PromptTokens != 0) {
 		usageModified = normalizeChatUsage(info, &simpleResponse.Usage)
 		if observed != nil {
+			usageModified = usageModified || !reflect.DeepEqual(&simpleResponse.Usage, observed)
 			simpleResponse.Usage = *observed
 			usageModified = usageModified || !service.ValidUsage(observed)
 		}
 		relaycommon.CaptureZTAPIUpstreamUsageEvidence(info, responseBody, "nonstream")
 	} else if managed || simpleResponse.Usage.PromptTokens == 0 {
-		completionTokens := simpleResponse.Usage.CompletionTokens
-		if completionTokens == 0 {
-			for _, choice := range simpleResponse.Choices {
-				ctkm := service.CountTextToken(choice.Message.StringContent()+choice.Message.GetReasoningContent(), info.UpstreamModelName)
-				completionTokens += ctkm
+		if partial := incompleteXcloudKimiTokenCounts(info); partial != nil {
+			simpleResponse.Usage = *partial
+			common.SetContextKey(c, constant.ContextKeyLocalCountTokens, true)
+			usageModified = true
+		} else {
+			completionTokens := simpleResponse.Usage.CompletionTokens
+			if completionTokens == 0 {
+				for _, choice := range simpleResponse.Choices {
+					ctkm := service.CountTextToken(choice.Message.StringContent()+choice.Message.GetReasoningContent(), info.UpstreamModelName)
+					completionTokens += ctkm
+				}
 			}
+			simpleResponse.Usage = dto.Usage{
+				PromptTokens:     info.GetEstimatePromptTokens(),
+				CompletionTokens: completionTokens,
+				TotalTokens:      info.GetEstimatePromptTokens() + completionTokens,
+				UsageSource:      "local_estimate",
+			}
+			common.SetContextKey(c, constant.ContextKeyLocalCountTokens, true)
+			usageModified = true
 		}
-		simpleResponse.Usage = dto.Usage{
-			PromptTokens:     info.GetEstimatePromptTokens(),
-			CompletionTokens: completionTokens,
-			TotalTokens:      info.GetEstimatePromptTokens() + completionTokens,
-			UsageSource:      "local_estimate",
-		}
-		common.SetContextKey(c, constant.ContextKeyLocalCountTokens, true)
-		usageModified = true
 	}
 
 	applyUsagePostProcessing(info, &simpleResponse.Usage, responseBody)

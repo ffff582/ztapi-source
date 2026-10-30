@@ -73,12 +73,13 @@ def prepare_environment(root, settings, database, commit, resume):
     grants = {
         'users': 'id,username,role,status,deleted_at',
         'balance_ledgers': 'id,user_id,delta,balance_before,balance_after,source_type,request_id,idempotency_key,created_at',
-        'ztapi_request_settlements': 'id,user_id,request_id,operation_id,status,reserved_quota,charged_quota,final_attempt,created_at',
+        'ztapi_request_settlements': 'id,user_id,request_id,operation_id,status,public_model,price_snapshot_json,charge_dimensions_json,missing_dimensions_json,reserved_quota,charged_quota,final_attempt,created_at',
         'ztapi_settlement_log_outboxes': 'operation_id,created_at',
         'ztapi_request_attempts': 'settlement_id,attempt,channel_id,created_at',
+        'ztapi_model_verifications': 'id,channel_id,model_config_id,verified_at',
         'top_ups': 'id,user_id,trade_no,status,complete_time',
         'usdt_top_up_orders': 'top_up_id,status,credit_units,pay_amount_micros',
-        'channels': 'id,name',
+        'channels': 'id,name,base_url',
         'ztapi_supplier_refund_charges': 'id,request_id,user_id,original_ledger_id,charged_quota,billing_proof_id,channel_id,billing_operation_id,created_at',
         'ztapi_supplier_refunds': 'ledger_id,charge_id,refunded_quota,status',
     }

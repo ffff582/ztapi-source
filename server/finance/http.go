@@ -141,7 +141,14 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var in Submission
-		if common.RejectDuplicateJsonObjectMembers(strings.NewReader(string(raw))) != nil || common.DecodeJsonStrict(strings.NewReader(string(raw)), &in) != nil || validateSubmission(in, h.now()) != nil {
+		if common.RejectDuplicateJsonObjectMembers(strings.NewReader(string(raw))) != nil || common.DecodeJsonStrict(strings.NewReader(string(raw)), &in) != nil {
+			failure(w, 400, "invalid_financial_record")
+			return
+		}
+		if in.Kind == "direct_cost" && in.DirectCost != nil {
+			in.Ref = directCostRef(in.DirectCost)
+		}
+		if validateSubmission(in, h.now()) != nil {
 			failure(w, 400, "invalid_financial_record")
 			return
 		}
@@ -170,6 +177,23 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 func validSourceReference(s Snapshot, in Submission) bool {
+	if in.Kind == "direct_cost" {
+		return directVerificationMatches(s, in.DirectCost)
+	}
+	if in.Kind == "test_cost" {
+		matches := 0
+		for _, settlement := range s.Settlements {
+			if settlement.RequestID != in.TestCost.RequestID {
+				continue
+			}
+			for _, attempt := range s.Attempts {
+				if attempt.SettlementID == settlement.ID && attempt.Attempt == in.TestCost.Attempt && attempt.ChannelID == in.TestCost.ChannelID && !attempt.CreatedAt.IsZero() {
+					matches++
+				}
+			}
+		}
+		return matches == 1
+	}
 	if in.Kind == "cost" {
 		for _, c := range s.Channels {
 			if c.ID == in.Cost.ChannelID {
@@ -241,9 +265,43 @@ func exportReport(w http.ResponseWriter, r Report) {
 		row(p.Ref, strconv.Itoa(p.UserID), p.Username, p.Amount, p.Currency, p.Rate, p.AmountUSDT, time.Unix(p.ReceivedAt, 0).In(shanghai).Format(time.RFC3339), p.Evidence)
 	}
 	row()
-	row("channel_id", "supplier", "gross_consumption", "supplier_refund", "currency", "USDT_per_currency", "net_USDT", "complete_month", "evidence")
+	row("channel_id", "supplier", "gross_consumption", "supplier_refund", "currency", "USDT_per_currency", "net_USDT", "complete_month", "evidence", "excluded_direct_bill_refs", "fact_id")
 	for _, c := range r.Costs {
-		row(strconv.Itoa(c.ChannelID), c.Supplier, c.Gross, c.Refund, c.Currency, c.Rate, c.NetUSDT, strconv.FormatBool(c.Complete), c.Evidence)
+		row(strconv.Itoa(c.ChannelID), c.Supplier, c.Gross, c.Refund, c.Currency, c.Rate, c.NetUSDT, strconv.FormatBool(c.Complete), c.Evidence, strings.Join(c.ExcludedDirectBillRefs, " "), strconv.FormatUint(uint64(c.FactID), 10))
+	}
+	row()
+	row("test_request_id", "attempt", "channel_id", "model", "input_tokens", "output_tokens", "attempt_at", "status", "coverage", "amount", "refund", "currency", "rate", "net_USDT", "net_xcloud_credit", "evidence_type", "evidence", "coverage_evidence", "refund_evidence", "fact_id", "rate_evidence", "supplier_bill_id")
+	for _, c := range r.TestCosts {
+		input, output := "", ""
+		if c.InputTokens != nil {
+			input = strconv.FormatInt(*c.InputTokens, 10)
+		}
+		if c.OutputTokens != nil {
+			output = strconv.FormatInt(*c.OutputTokens, 10)
+		}
+		row(c.RequestID, strconv.Itoa(c.Attempt), strconv.Itoa(c.ChannelID), c.Model, input, output, c.AttemptAt.In(shanghai).Format(time.RFC3339), c.Status, c.Coverage, c.Amount, c.Refund, c.Currency, c.Rate, c.NetUSDT, c.NetCredit, c.EvidenceType, c.Evidence, c.CoverageEvidence, c.RefundEvidence, strconv.FormatUint(uint64(c.FactID), 10), c.RateEvidence, c.SupplierBillID)
+	}
+	row()
+	row("direct_supplier", "direct_account", "direct_bill_id", "verification_id", "channel_id", "model", "input_tokens", "output_tokens", "input_token_scope", "cache_read", "cache_write_5m", "cache_write_1h", "occurred_at", "amount", "currency", "rate", "rate_evidence", "net_USDT", "evidence", "link_evidence", "coverage", "coverage_evidence", "month_cost_fact_id", "identity", "fact_id")
+	for _, c := range r.DirectCosts {
+		input, output := "", ""
+		if c.InputTokens != nil {
+			input = strconv.FormatInt(*c.InputTokens, 10)
+		}
+		if c.OutputTokens != nil {
+			output = strconv.FormatInt(*c.OutputTokens, 10)
+		}
+		count := func(p *int64) string {
+			if p == nil {
+				return ""
+			}
+			return strconv.FormatInt(*p, 10)
+		}
+		scope := c.InputTokenScope
+		if scope == "" {
+			scope = "unknown"
+		}
+		row(c.Supplier, c.Account, c.BillID, strconv.FormatInt(c.VerificationID, 10), strconv.Itoa(c.ChannelID), c.Model, input, output, scope, count(c.CacheRead), count(c.CacheWrite5m), count(c.CacheWrite1h), c.OccurredAt.In(shanghai).Format(time.RFC3339), c.Amount, c.Currency, c.Rate, c.RateEvidence, c.NetUSDT, c.Evidence, c.LinkEvidence, c.Coverage, c.CoverageEvidence, strconv.FormatUint(uint64(c.MonthCostFactID), 10), c.Ref, strconv.FormatUint(uint64(c.FactID), 10))
 	}
 	row()
 	row("xcloud_estimate_model", "channel_id", "requests", "revenue_USDT", "estimated_cost_USDT", "estimated_gross_profit_USDT", "quote_discount", "complete", "source_url")

@@ -435,6 +435,80 @@ func TestFetchZTAPIUpstreamModelsDoesNotPersistFailedDiscovery(t *testing.T) {
 	require.Zero(t, count)
 }
 
+func TestGLM53DiscoveryEvidenceDoesNotRewriteChannel(t *testing.T) {
+	db := setupFetchZTAPIUpstreamModelsTestDB(t)
+	alias := "zt-glm-5.3"
+	require.NoError(t, db.Create(&model.ZTAPIModelConfig{SourceModel: "glm-5.3", PublicName: &alias, Version: 1}).Error)
+	url := "https://www.xcloudtoken.com"
+	channel := model.Channel{Id: 8, Name: "xcloud", Type: constant.ChannelTypeOpenAI,
+		Status: common.ChannelStatusEnabled, Group: "default", ZTAPIManaged: true,
+		Key: "synthetic-key", BaseURL: &url, Models: "glm-5.3,another-model"}
+	require.NoError(t, db.Create(&channel).Error)
+	previous := fetchZTAPIChannelUpstreamModelIDs
+	fetchZTAPIChannelUpstreamModelIDs = func(*model.Channel) ([]string, error) { return []string{"glm-5.3", "unconfigured-model"}, nil }
+	t.Cleanup(func() { fetchZTAPIChannelUpstreamModelIDs = previous })
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/ztapi/fetch_models/8?evidence_only=glm-5.3", nil)
+	ctx.Params = gin.Params{{Key: "id", Value: "8"}}
+	ctx.Set("id", 1)
+	FetchZTAPIUpstreamModels(ctx)
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	var got model.Channel
+	require.NoError(t, db.First(&got, 8).Error)
+	require.Equal(t, "glm-5.3,another-model", got.Models)
+	var discovered []model.ZTAPIDiscoveredModel
+	require.NoError(t, db.Find(&discovered).Error)
+	require.Len(t, discovered, 1)
+	require.Equal(t, "glm-5.3", discovered[0].SourceModel)
+	var abilities int64
+	require.NoError(t, db.Model(&model.Ability{}).Count(&abilities).Error)
+	require.Zero(t, abilities)
+}
+
+func TestGLM53DiscoveryEvidenceRejectsMissingUpstreamModel(t *testing.T) {
+	db := setupFetchZTAPIUpstreamModelsTestDB(t)
+	url := "https://www.xcloudtoken.com"
+	channel := model.Channel{Id: 8, Name: "xcloud", Type: constant.ChannelTypeOpenAI,
+		Status: common.ChannelStatusEnabled, Group: "default", ZTAPIManaged: true,
+		Key: "synthetic-key", BaseURL: &url, Models: "glm-5.3"}
+	require.NoError(t, db.Create(&channel).Error)
+	previous := fetchZTAPIChannelUpstreamModelIDs
+	fetchZTAPIChannelUpstreamModelIDs = func(*model.Channel) ([]string, error) { return []string{"other"}, nil }
+	t.Cleanup(func() { fetchZTAPIChannelUpstreamModelIDs = previous })
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/ztapi/fetch_models/8?evidence_only=glm-5.3", nil)
+	ctx.Params = gin.Params{{Key: "id", Value: "8"}}
+	ctx.Set("id", 1)
+	FetchZTAPIUpstreamModels(ctx)
+	require.Equal(t, http.StatusConflict, recorder.Code)
+	var count int64
+	require.NoError(t, db.Model(&model.ZTAPIDiscoverySnapshot{}).Count(&count).Error)
+	require.Zero(t, count)
+}
+
+func TestGLM53DiscoveryEvidenceRejectsGet(t *testing.T) {
+	db := setupFetchZTAPIUpstreamModelsTestDB(t)
+	url := "https://www.xcloudtoken.com"
+	channel := model.Channel{Id: 8, Name: "xcloud", Type: constant.ChannelTypeOpenAI,
+		Status: common.ChannelStatusEnabled, Group: "default", ZTAPIManaged: true,
+		Key: "synthetic-key", BaseURL: &url, Models: "glm-5.3"}
+	require.NoError(t, db.Create(&channel).Error)
+	previous := fetchZTAPIChannelUpstreamModelIDs
+	fetchZTAPIChannelUpstreamModelIDs = func(*model.Channel) ([]string, error) { return []string{"glm-5.3"}, nil }
+	t.Cleanup(func() { fetchZTAPIChannelUpstreamModelIDs = previous })
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/channel/ztapi/fetch_models/8?evidence_only=glm-5.3", nil)
+	ctx.Params = gin.Params{{Key: "id", Value: "8"}}
+	FetchZTAPIUpstreamModels(ctx)
+	require.Equal(t, http.StatusBadRequest, recorder.Code)
+	var count int64
+	require.NoError(t, db.Model(&model.ZTAPIDiscoverySnapshot{}).Count(&count).Error)
+	require.Zero(t, count)
+}
+
 func TestZTAPIQuotedPoolDiscoveryKeepsOnlyConfiguredQuotedSourceIDs(t *testing.T) {
 	mapping := `{"gpt-5.6-sol":"gpt-5.6-sol-hc","claude-sonnet-5":"claude-sonnet-5-hc"}`
 	channel := &model.Channel{Id: 2, ZTAPIManaged: true, Models: "gpt-5.6-sol,claude-sonnet-5", ModelMapping: &mapping}

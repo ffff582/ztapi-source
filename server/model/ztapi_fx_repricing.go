@@ -184,6 +184,11 @@ func applyZTAPILegacyCNYFXRepricingTx(tx *gorm.DB, operatorID int, fxParams ZTAP
 		if err := tx.First(&oldSource, publication.PriceSourceID).Error; err != nil {
 			return err
 		}
+		if preserve, err := ztapiLegacyRepricingPreservesSource(tx, &oldSource); err != nil {
+			return err
+		} else if preserve {
+			continue
+		}
 		if oldSource.SourceDocumentChecksum == ZTAPISupplierWorkbook20261019SHA256 {
 			continue
 		}
@@ -379,6 +384,14 @@ func PreviewZTAPIFXRepricing() (ZTAPIFXPricingPreview, error) {
 		}
 		row.CurrentInputSale, row.CurrentOutputSale = ztapiFirstTierSale(&oldSource)
 		row.CurrentFXMode = oldSource.FXMode
+		if preserve, err := ztapiLegacyRepricingPreservesSource(DB, &oldSource); err != nil {
+			return preview, err
+		} else if preserve {
+			row.Kind, row.Status = "dedicated_policy", "skipped"
+			row.Reason = oldSource.PricePolicy + " requires its controlled publisher; legacy FX repricing is skipped"
+			preview.Rows = append(preview.Rows, row)
+			continue
+		}
 		if oldSource.SourceDocumentChecksum == ZTAPISupplierWorkbook20261019SHA256 {
 			row.Kind, row.Status = "supplier_quote_20261019", "skipped"
 			row.Reason = "2026-10-19 supplier quotation requires its own anchored repricing; legacy FX repricing is skipped"

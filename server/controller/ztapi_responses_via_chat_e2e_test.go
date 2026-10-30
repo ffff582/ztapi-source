@@ -4,18 +4,20 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // ztapiCodexStyleRequest mirrors what Codex CLI sends: instructions, a
 // developer turn, a prior shell call with its output, opaque reasoning, a
-// freeform apply_patch tool and a hosted tool the supplier cannot run.
+// freeform apply_patch tool. Unsupported hosted tools are tested separately.
 func ztapiCodexStyleRequest(modelName string, stream bool) map[string]any {
 	text := func(kind, value string) []any { return []any{map[string]any{"type": kind, "text": value}} }
 	return map[string]any{
@@ -27,7 +29,6 @@ func ztapiCodexStyleRequest(modelName string, stream bool) map[string]any {
 				"parameters": map[string]any{"type": "object", "properties": map[string]any{"command": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}}, "required": []string{"command"}}},
 			map[string]any{"type": "custom", "name": "apply_patch", "description": "Edit files",
 				"format": map[string]any{"type": "grammar", "syntax": "lark", "definition": "start: begin_patch"}},
-			map[string]any{"type": "web_search"},
 		},
 		"input": []any{
 			map[string]any{"type": "message", "role": "developer", "content": text("input_text", "Sandbox: workspace-write.")},
@@ -112,7 +113,10 @@ func (f *ztapiE2EFixture) assertChatUpstreamRequest(t *testing.T, stream bool, m
 	require.Equal(t, map[string]any{"role": "tool", "tool_call_id": "call_ls", "content": "main.go"}, messages[4])
 
 	tools := sent["tools"].([]any)
-	require.Len(t, tools, 2, "the hosted web_search tool has no chat equivalent")
+	require.Len(t, tools, 2, "supported function and custom tools must both reach the supplier")
+	shell := tools[0].(map[string]any)["function"].(map[string]any)
+	require.Contains(t, shell, "strict")
+	require.Equal(t, false, shell["strict"], "explicit false must survive the entire relay")
 	patch := tools[1].(map[string]any)["function"].(map[string]any)
 	require.Equal(t, "apply_patch", patch["name"])
 	require.Contains(t, patch["description"], "start: begin_patch", "a freeform tool keeps its grammar")
@@ -232,4 +236,51 @@ func TestZTAPIResponsesForChatOnlyModelRejectsServerSideStateBeforeDispatch(t *t
 	after := f.balances(t)
 	require.Equal(t, before.UserQuota, after.UserQuota, "the reservation must be returned")
 	require.Equal(t, before.TokenRemain, after.TokenRemain)
+}
+
+func TestZTAPIResponsesForChatOnlyModelRejectsUnsupportedToolsBeforeDispatch(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		for _, scenario := range []string{"hosted", "additional hosted", "unknown choice", "namespace hosted", "unknown custom format"} {
+			t.Run(scenario+" stream="+strconv.FormatBool(stream), func(t *testing.T) {
+				f := newZTAPIHealthE2EFixtureForModel(t, "zt-claude-sonnet-5", "claude-sonnet-5")
+				before := f.balances(t)
+				body := ztapiCodexStyleRequest(f.publicName, stream)
+				wantField := "tools:"
+				switch scenario {
+				case "hosted":
+					body["tools"] = append(body["tools"].([]any), map[string]any{"type": "web_search"})
+				case "additional hosted":
+					body["input"] = append(body["input"].([]any), map[string]any{"type": "additional_tools", "tools": []any{map[string]any{"type": "file_search"}}})
+				case "unknown choice":
+					body["tool_choice"] = map[string]any{"type": "allowed_tools", "mode": "required", "tools": []any{map[string]any{"type": "function", "name": "shell"}}}
+					wantField = "tool_choice:"
+				case "namespace hosted":
+					body["tools"] = append(body["tools"].([]any), map[string]any{"type": "namespace", "name": "hosted", "tools": []any{map[string]any{"type": "web_search"}}})
+				case "unknown custom format":
+					body["tools"] = append(body["tools"].([]any), map[string]any{"type": "custom", "name": "unsafe", "format": map[string]any{"type": "unknown_constraint", "definition": "SAFE_ONLY"}})
+					wantField = "format:"
+				}
+				// A buggy converter can dispatch and settle this real synthetic usage;
+				// do not let a missing fixture reply masquerade as a safe rejection.
+				f.queue(ztapiE2EReply{status: http.StatusOK, body: `{"id":"chatcmpl-unsupported","object":"chat.completion","created":1,"model":"claude-sonnet-5","choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":"degraded"}}],"usage":{"prompt_tokens":30,"completion_tokens":9,"total_tokens":39}}`})
+				w := f.postJSON(t, "/v1/responses", body)
+				assert.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
+				assert.Contains(t, w.Body.String(), wantField)
+				assert.Zero(t, f.calls.Load(), "unsupported semantics must fail before upstream dispatch")
+				after := f.balances(t)
+				assert.Equal(t, before.UserQuota, after.UserQuota, "wallet reservation must be returned")
+				assert.Equal(t, before.TokenRemain, after.TokenRemain, "finite token reservation must be returned")
+				assert.Equal(t, before.TokenUsed, after.TokenUsed)
+				assert.Equal(t, before.Logs, after.Logs, "rejection must not generate a consume log")
+				var settlements []model.ZTAPIRequestSettlement
+				require.NoError(t, f.db.Find(&settlements).Error)
+				for _, settlement := range settlements {
+					assert.Equal(t, model.ZTAPISettlementReleased, settlement.Status)
+					assert.False(t, settlement.Dispatched)
+					assert.Zero(t, settlement.ChargedQuota)
+					assert.Zero(t, settlement.TokenChargedQuota)
+				}
+			})
+		}
+	}
 }

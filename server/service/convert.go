@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"net/http"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -12,8 +13,21 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/openrouter"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/reasonmap"
+	"github.com/QuantumNous/new-api/service/openaicompat"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/samber/lo"
 )
+
+func conversionInvalidRequest(message string) error {
+	return types.NewErrorWithStatusCode(fmt.Errorf("%s", message), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+}
+
+func validateConvertedToolMessageSequence(messages []dto.Message) error {
+	if err := openaicompat.ValidateChatToolHistory(messages); err != nil {
+		return conversionInvalidRequest(err.Error())
+	}
+	return nil
+}
 
 func ClaudeToOpenAIRequest(claudeRequest dto.ClaudeRequest, info *relaycommon.RelayInfo) (*dto.GeneralOpenAIRequest, error) {
 	openAIRequest := dto.GeneralOpenAIRequest{
@@ -100,6 +114,58 @@ func ClaudeToOpenAIRequest(claudeRequest dto.ClaudeRequest, info *relaycommon.Re
 		openAITools = append(openAITools, openAITool)
 	}
 	openAIRequest.Tools = openAITools
+	if claudeRequest.ToolChoice != nil {
+		// Decode locally with a pointer: the shared ClaudeToolChoice omits explicit false.
+		var choice struct {
+			Type                   string `json:"type"`
+			Name                   string `json:"name"`
+			DisableParallelToolUse *bool  `json:"disable_parallel_tool_use"`
+		}
+		choiceJSON, err := common.Marshal(claudeRequest.ToolChoice)
+		if err != nil {
+			return nil, conversionInvalidRequest("tool_choice: invalid object")
+		}
+		if err := common.Unmarshal(choiceJSON, &choice); err != nil {
+			return nil, conversionInvalidRequest("tool_choice: invalid object")
+		}
+		// Typed callers cannot express absence with this DTO's bool, so retain its value.
+		switch typed := claudeRequest.ToolChoice.(type) {
+		case dto.ClaudeToolChoice:
+			choice.DisableParallelToolUse = lo.ToPtr(typed.DisableParallelToolUse)
+		case *dto.ClaudeToolChoice:
+			if typed != nil {
+				choice.DisableParallelToolUse = lo.ToPtr(typed.DisableParallelToolUse)
+			}
+		}
+		switch choice.Type {
+		case "auto", "none":
+			openAIRequest.ToolChoice = choice.Type
+		case "any":
+			if len(openAITools) == 0 {
+				return nil, conversionInvalidRequest("tool_choice: required tool is not declared")
+			}
+			openAIRequest.ToolChoice = "required"
+		case "tool":
+			declared := false
+			for _, tool := range openAITools {
+				if choice.Name != "" && tool.Function.Name == choice.Name {
+					declared = true
+					break
+				}
+			}
+			if !declared {
+				return nil, conversionInvalidRequest("tool_choice: forced tool is not declared")
+			}
+			openAIRequest.ToolChoice = map[string]any{
+				"type": "function", "function": map[string]string{"name": choice.Name},
+			}
+		default:
+			return nil, conversionInvalidRequest("tool_choice: unsupported type")
+		}
+		if choice.DisableParallelToolUse != nil {
+			openAIRequest.ParallelTooCalls = lo.ToPtr(!*choice.DisableParallelToolUse)
+		}
+	}
 
 	// Convert messages
 	openAIMessages := make([]dto.Message, 0)
@@ -151,6 +217,8 @@ func ClaudeToOpenAIRequest(claudeRequest dto.ClaudeRequest, info *relaycommon.Re
 			}
 		}
 	}
+	seenToolIDs := make(map[string]bool)
+	pendingTools := make(map[string]string)
 	for _, claudeMessage := range claudeRequest.Messages {
 		openAIMessage := dto.Message{
 			Role: claudeMessage.Role,
@@ -167,6 +235,20 @@ func ClaudeToOpenAIRequest(claudeRequest dto.ClaudeRequest, info *relaycommon.Re
 			contents := content
 			var toolCalls []dto.ToolCallRequest
 			mediaMessages := make([]dto.MediaContent, 0, len(contents))
+			flushContent := func() {
+				if len(toolCalls) > 0 {
+					openAIMessage.SetToolCalls(toolCalls)
+				}
+				if len(mediaMessages) > 0 {
+					openAIMessage.SetMediaContent(mediaMessages)
+				}
+				if len(toolCalls) > 0 || len(mediaMessages) > 0 {
+					openAIMessages = append(openAIMessages, openAIMessage)
+				}
+				openAIMessage = dto.Message{Role: claudeMessage.Role}
+				toolCalls = nil
+				mediaMessages = nil
+			}
 
 			for _, mediaMsg := range contents {
 				switch mediaMsg.Type {
@@ -187,6 +269,14 @@ func ClaudeToOpenAIRequest(claudeRequest dto.ClaudeRequest, info *relaycommon.Re
 					}
 					mediaMessages = append(mediaMessages, mediaMessage)
 				case "tool_use":
+					if mediaMsg.Id == "" || mediaMsg.Name == "" {
+						return nil, conversionInvalidRequest("tool_use: missing id or name")
+					}
+					if seenToolIDs[mediaMsg.Id] {
+						return nil, conversionInvalidRequest("tool_use: duplicate id")
+					}
+					seenToolIDs[mediaMsg.Id] = true
+					pendingTools[mediaMsg.Id] = mediaMsg.Name
 					toolCall := dto.ToolCallRequest{
 						ID:   mediaMsg.Id,
 						Type: "function",
@@ -197,11 +287,15 @@ func ClaudeToOpenAIRequest(claudeRequest dto.ClaudeRequest, info *relaycommon.Re
 					}
 					toolCalls = append(toolCalls, toolCall)
 				case "tool_result":
-					// Add tool result as a separate message
-					toolName := mediaMsg.Name
-					if toolName == "" {
-						toolName = claudeRequest.SearchToolNameByToolCallId(mediaMsg.ToolUseId)
+					toolName, pending := pendingTools[mediaMsg.ToolUseId]
+					if !pending {
+						return nil, conversionInvalidRequest("tool_result: orphan or duplicate id")
 					}
+					if mediaMsg.Name != "" && mediaMsg.Name != toolName {
+						return nil, conversionInvalidRequest("tool_result: name does not match tool_use")
+					}
+					delete(pendingTools, mediaMsg.ToolUseId)
+					flushContent()
 					oaiToolMessage := dto.Message{
 						Role:       "tool",
 						Name:       &toolName,
@@ -223,7 +317,7 @@ func ClaudeToOpenAIRequest(claudeRequest dto.ClaudeRequest, info *relaycommon.Re
 				openAIMessage.SetToolCalls(toolCalls)
 			}
 
-			if len(mediaMessages) > 0 && len(toolCalls) == 0 {
+			if len(mediaMessages) > 0 {
 				openAIMessage.SetMediaContent(mediaMessages)
 			}
 		}
@@ -233,6 +327,9 @@ func ClaudeToOpenAIRequest(claudeRequest dto.ClaudeRequest, info *relaycommon.Re
 	}
 
 	openAIRequest.Messages = openAIMessages
+	if err := validateConvertedToolMessageSequence(openAIRequest.Messages); err != nil {
+		return nil, err
+	}
 
 	return &openAIRequest, nil
 }
@@ -684,7 +781,7 @@ func stopReasonOpenAI2Claude(reason string) string {
 }
 
 func toJSONString(v interface{}) string {
-	b, err := json.Marshal(v)
+	b, err := common.Marshal(v)
 	if err != nil {
 		return "{}"
 	}
@@ -702,6 +799,9 @@ func GeminiToOpenAIRequest(geminiRequest *dto.GeminiChatRequest, info *relaycomm
 
 	// 转换 messages
 	var messages []dto.Message
+	// Call IDs are request-wide. Without call IDs in the DTO, only unique pending names are safe.
+	pendingTools := make(map[string]string)
+	nextToolID := 0
 	for _, content := range geminiRequest.Contents {
 		message := dto.Message{
 			Role: convertGeminiRoleToOpenAI(content.Role),
@@ -710,7 +810,30 @@ func GeminiToOpenAIRequest(geminiRequest *dto.GeminiChatRequest, info *relaycomm
 		// 处理 parts
 		var mediaContents []dto.MediaContent
 		var toolCalls []dto.ToolCallRequest
+		flushContent := func() {
+			if len(toolCalls) > 0 {
+				message.SetToolCalls(toolCalls)
+			}
+			if len(mediaContents) == 1 && mediaContents[0].Type == "text" {
+				message.SetStringContent(mediaContents[0].Text)
+			} else if len(mediaContents) > 0 {
+				message.SetMediaContent(mediaContents)
+			}
+			if len(toolCalls) > 0 || len(mediaContents) > 0 {
+				messages = append(messages, message)
+			}
+			message = dto.Message{Role: convertGeminiRoleToOpenAI(content.Role)}
+			toolCalls = nil
+			mediaContents = nil
+		}
 		for _, part := range content.Parts {
+			if part.FunctionCall != nil || part.FunctionResponse != nil {
+				if part.Text != "" || part.InlineData != nil || part.FileData != nil ||
+					part.ExecutableCode != nil || part.CodeExecutionResult != nil ||
+					(part.FunctionCall != nil && part.FunctionResponse != nil) {
+					return nil, conversionInvalidRequest("parts: conflicting function and content payloads")
+				}
+			}
 			if part.Text != "" {
 				mediaContent := dto.MediaContent{
 					Type: "text",
@@ -738,9 +861,18 @@ func GeminiToOpenAIRequest(geminiRequest *dto.GeminiChatRequest, info *relaycomm
 				}
 				mediaContents = append(mediaContents, mediaContent)
 			} else if part.FunctionCall != nil {
-				// 处理 Gemini 的工具调用
+				name := part.FunctionCall.FunctionName
+				if name == "" {
+					return nil, conversionInvalidRequest("functionCall: missing name")
+				}
+				if _, pending := pendingTools[name]; pending {
+					return nil, conversionInvalidRequest("functionCall: ambiguous repeated pending name")
+				}
+				nextToolID++
+				callID := fmt.Sprintf("call_%d", nextToolID)
+				pendingTools[name] = callID
 				toolCall := dto.ToolCallRequest{
-					ID:   fmt.Sprintf("call_%d", len(toolCalls)+1), // 生成唯一ID
+					ID:   callID,
 					Type: "function",
 					Function: dto.FunctionRequest{
 						Name:      part.FunctionCall.FunctionName,
@@ -749,32 +881,30 @@ func GeminiToOpenAIRequest(geminiRequest *dto.GeminiChatRequest, info *relaycomm
 				}
 				toolCalls = append(toolCalls, toolCall)
 			} else if part.FunctionResponse != nil {
-				// 处理 Gemini 的工具响应，创建单独的 tool 消息
+				response := part.FunctionResponse
+				if len(response.ID) > 0 {
+					return nil, conversionInvalidRequest("functionResponse: id cannot be matched by the current functionCall DTO")
+				}
+				callID, pending := pendingTools[response.Name]
+				if !pending {
+					return nil, conversionInvalidRequest("functionResponse: orphan or duplicate result")
+				}
+				delete(pendingTools, response.Name)
+				flushContent()
 				toolMessage := dto.Message{
 					Role:       "tool",
-					ToolCallId: fmt.Sprintf("call_%d", len(toolCalls)), // 使用对应的调用ID
+					Name:       lo.ToPtr(response.Name),
+					ToolCallId: callID,
 				}
 				toolMessage.SetStringContent(toJSONString(part.FunctionResponse.Response))
 				messages = append(messages, toolMessage)
 			}
 		}
 
-		// 设置消息内容
-		if len(toolCalls) > 0 {
-			// 如果有工具调用，设置工具调用
-			message.SetToolCalls(toolCalls)
-		} else if len(mediaContents) == 1 && mediaContents[0].Type == "text" {
-			// 如果只有一个文本内容，直接设置字符串
-			message.Content = mediaContents[0].Text
-		} else if len(mediaContents) > 0 {
-			// 如果有多个内容或包含媒体，设置为数组
-			message.SetMediaContent(mediaContents)
-		}
-
-		// 只有当消息有内容或工具调用时才添加
-		if len(message.ParseContent()) > 0 || len(message.ToolCalls) > 0 {
-			messages = append(messages, message)
-		}
+		flushContent()
+	}
+	if len(pendingTools) > 0 {
+		return nil, conversionInvalidRequest("functionCall: missing functionResponse")
 	}
 
 	openaiRequest.Messages = messages
@@ -782,20 +912,22 @@ func GeminiToOpenAIRequest(geminiRequest *dto.GeminiChatRequest, info *relaycomm
 	if geminiRequest.GenerationConfig.Temperature != nil {
 		openaiRequest.Temperature = geminiRequest.GenerationConfig.Temperature
 	}
-	if geminiRequest.GenerationConfig.TopP != nil && *geminiRequest.GenerationConfig.TopP > 0 {
+	if geminiRequest.GenerationConfig.TopP != nil {
 		openaiRequest.TopP = lo.ToPtr(*geminiRequest.GenerationConfig.TopP)
 	}
-	if geminiRequest.GenerationConfig.TopK != nil && *geminiRequest.GenerationConfig.TopK > 0 {
+	if geminiRequest.GenerationConfig.TopK != nil {
 		openaiRequest.TopK = lo.ToPtr(int(*geminiRequest.GenerationConfig.TopK))
 	}
-	if geminiRequest.GenerationConfig.MaxOutputTokens != nil && *geminiRequest.GenerationConfig.MaxOutputTokens > 0 {
+	if geminiRequest.GenerationConfig.MaxOutputTokens != nil {
 		openaiRequest.MaxTokens = lo.ToPtr(*geminiRequest.GenerationConfig.MaxOutputTokens)
 	}
-	// gemini stop sequences 最多 5 个，openai stop 最多 4 个
-	if len(geminiRequest.GenerationConfig.StopSequences) > 0 {
-		openaiRequest.Stop = geminiRequest.GenerationConfig.StopSequences[:4]
+	if len(geminiRequest.GenerationConfig.StopSequences) > 4 {
+		return nil, conversionInvalidRequest("stopSequences: at most 4 entries are supported")
 	}
-	if geminiRequest.GenerationConfig.CandidateCount != nil && *geminiRequest.GenerationConfig.CandidateCount > 0 {
+	if len(geminiRequest.GenerationConfig.StopSequences) > 0 {
+		openaiRequest.Stop = geminiRequest.GenerationConfig.StopSequences
+	}
+	if geminiRequest.GenerationConfig.CandidateCount != nil {
 		openaiRequest.N = lo.ToPtr(*geminiRequest.GenerationConfig.CandidateCount)
 	}
 
@@ -837,6 +969,9 @@ func GeminiToOpenAIRequest(geminiRequest *dto.GeminiChatRequest, info *relaycomm
 		openaiRequest.Messages = append([]dto.Message{systemMessage}, openaiRequest.Messages...)
 	}
 
+	if err := validateConvertedToolMessageSequence(openaiRequest.Messages); err != nil {
+		return nil, err
+	}
 	return openaiRequest, nil
 }
 

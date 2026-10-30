@@ -526,6 +526,11 @@ func ZTAPIHealthStoreProbeCheck(store *model.ZTAPIHealthStore, inspect model.ZTA
 // StartProductionZTAPIHealthWorker never provisions identity/quota, transfers
 // allocation, publishes a model or recovers a circuit. Migrate before calling.
 func StartProductionZTAPIHealthWorker(ctx context.Context) (*ZTAPIHealthWorker, error) {
+	if !common.IsMasterNode {
+		done := make(chan struct{})
+		close(done)
+		return &ZTAPIHealthWorker{done: done, disabled: true}, nil
+	}
 	config, err := ZTAPIHealthWorkerConfigFromEnv()
 	if err != nil {
 		return nil, err
@@ -1239,10 +1244,11 @@ func productionZTAPIProbeSamples(ctx context.Context, db, logs *gorm.DB, target 
 }
 
 type ZTAPIHealthWorker struct {
-	backend ZTAPIHealthWorkerBackend
-	config  ZTAPIHealthWorkerConfig
-	running atomic.Bool
-	done    chan struct{}
+	backend  ZTAPIHealthWorkerBackend
+	config   ZTAPIHealthWorkerConfig
+	running  atomic.Bool
+	done     chan struct{}
+	disabled bool
 }
 
 func NewZTAPIHealthWorker(backend ZTAPIHealthWorkerBackend, config ZTAPIHealthWorkerConfig) (*ZTAPIHealthWorker, error) {
@@ -1295,6 +1301,9 @@ func (w *ZTAPIHealthWorker) status(ctx context.Context, code, id string) {
 }
 
 func (w *ZTAPIHealthWorker) RunOnce(ctx context.Context) (resultErr error) {
+	if w.disabled {
+		return nil
+	}
 	if !w.running.CompareAndSwap(false, true) {
 		return ErrZTAPIHealthWorkerBusy
 	}

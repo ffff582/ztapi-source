@@ -48,7 +48,7 @@ func ValidateZTAPIUsageDimensions(c *gin.Context, info *RelayInfo, usage *dto.Us
 	if info == nil || info.ZTAPIPublicationSnapshot == nil {
 		return ZTAPIUsageDimensionResult{}
 	}
-	localEstimate := (usage != nil && usage.UsageSource == "local_estimate") ||
+	localEstimate := (usage != nil && (usage.UsageSource == "local_estimate" || usage.UsageSource == "upstream_incomplete")) ||
 		(c != nil && basecommon.GetContextKeyBool(c, constant.ContextKeyLocalCountTokens))
 	result := ZTAPIUsageDimensionResult{Managed: true, UsageMissing: usage == nil || localEstimate}
 	invalid := make(map[string]bool)

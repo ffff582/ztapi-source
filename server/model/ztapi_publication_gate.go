@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -263,7 +264,7 @@ func ztapiPublicationBlockersTx(tx *gorm.DB, config *ZTAPIModelConfig) ([]string
 	// name for those channels; matching the catalog name alone makes a correctly
 	// mapped channel look undiscovered and silently blocks publication.
 	mappedByChannel, err := ztapiMappedUpstreamModelByChannelTx(tx, config.SourceModel,
-		priceErr == nil && priceSource.PricePolicy == string(ZTAPIPricePolicySupplierAdmission20261019))
+		priceErr == nil && (priceSource.PricePolicy == string(ZTAPIPricePolicySupplierAdmission20261019) || priceSource.PricePolicy == string(ZTAPIPricePolicyXcloudGLM53)))
 	if err != nil {
 		return nil, evidence, err
 	}
@@ -313,8 +314,43 @@ func ztapiPublicationBlockersTx(tx *gorm.DB, config *ZTAPIModelConfig) ([]string
 			}
 		}
 	}
+	if priceErr == nil && priceSource.PricePolicy == string(ZTAPIPricePolicyXcloudGLM53) {
+		var channel struct {
+			ID      int
+			BaseURL string
+		}
+		channelErr := tx.Table("channels").Select("id, base_url").Where("id = ? AND status = ?", 8, common.ChannelStatusEnabled).Take(&channel).Error
+		physical := config.SourceModel
+		if mapped, ok := mappedByChannel[8]; ok {
+			physical = mapped
+		}
+		for id := range freshDiscoveryChannels {
+			if channelErr != nil || ValidateZTAPIXcloudGLM53Route(config.SourceModel, id, channel.BaseURL, physical) != nil {
+				delete(freshDiscoveryChannels, id)
+			}
+		}
+	}
 	if len(freshDiscoveryChannels) == 0 {
 		blockers = appendZTAPIBlocker(blockers, ZTAPIPublicationBlockerDiscoveryStale)
+	}
+	if priceErr == nil && isZTAPICashMarginPolicy20261030(priceSource.PricePolicy) {
+		contract, contractErr := ztapiCashContractFor20261030(config.SourceModel)
+		for id := range freshDiscoveryChannels {
+			allowed := slices.Contains(contract.channelIDs(), id)
+			if config.SourceModel == "gemini-3.1-pro-preview" {
+				allowed = id == 1
+			}
+			if contractErr != nil || !allowed {
+				delete(freshDiscoveryChannels, id)
+			}
+		}
+	}
+	if priceErr == nil && ztapiQuotationRouteRestrictionApplies20261030(&priceSource) {
+		for id := range freshDiscoveryChannels {
+			if !ztapiQuotationSourceChannelPermitted20261030(&priceSource, id) {
+				delete(freshDiscoveryChannels, id)
+			}
+		}
 	}
 
 	routesByGroup, err := ztapiPublicationRouteIDsByGroupTx(tx, config, freshDiscoveryChannels)
@@ -570,6 +606,12 @@ func ztapiPublicationPriceBasisPermitted(source *ZTAPIModelPriceSource) bool {
 func ztapiPublicationPriceBasisPermittedTx(tx *gorm.DB, source *ZTAPIModelPriceSource) bool {
 	if source == nil {
 		return false
+	}
+	if isZTAPICashMarginPolicy20261030(source.PricePolicy) {
+		return ValidateZTAPICashMarginSource20261030(tx, source) == nil
+	}
+	if source.PricePolicy == string(ZTAPIPricePolicyXcloudGLM53) {
+		return validateZTAPIXcloudGLM53Price(source) == nil
 	}
 	if source.PricePolicy == string(ZTAPIPricePolicySupplierAdmission20261019) {
 		_, _, err := ztapiSupplierAdmissionFrozenRules20261019(source)

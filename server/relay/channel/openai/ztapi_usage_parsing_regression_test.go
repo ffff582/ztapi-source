@@ -125,6 +125,107 @@ func TestUsageRegressionMissingStreamUsageStaysPending(t *testing.T) {
 	}
 }
 
+func TestKimiIncompleteCacheRetainsProviderTokenCounts(t *testing.T) {
+	c, recorder, info := usageRegressionContext(types.RelayFormatOpenAI, true)
+	info.IsStream = false
+	info.ChannelMeta = &relaycommon.ChannelMeta{ChannelId: 8, ChannelBaseUrl: "https://www.xcloudtoken.com", UpstreamModelName: "kimi-k3"}
+	info.ZTAPIPublicationSnapshot.SourceModel = "kimi-k3"
+	info.ZTAPIPublicationSnapshot.BillingDimensions = []string{"input_tokens", "output_tokens", "cache_read", "cache_write_5m", "cache_write_1h"}
+	info.SetEstimatePromptTokens(14)
+	body := `{"choices":[{"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":125,"completion_tokens":24,"total_tokens":149}}`
+	usage, apiErr := OpenaiHandler(c, info, &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body))})
+	require.Nil(t, apiErr)
+	require.Equal(t, 125, usage.PromptTokens)
+	require.Equal(t, 24, usage.CompletionTokens)
+	require.Equal(t, "upstream_incomplete", usage.UsageSource)
+	require.True(t, relaycommon.ValidateZTAPIUsageDimensions(c, info, usage).Pending)
+	require.Contains(t, recorder.Body.String(), `"prompt_tokens":125`)
+	require.Contains(t, recorder.Body.String(), `"usage_source":"upstream_incomplete"`)
+	require.NotNil(t, info.ZTAPIMetering.UnverifiedUsage)
+	require.Contains(t, string(info.ZTAPIMetering.UnverifiedUsage.RawUsage), `"prompt_tokens":125`)
+}
+
+func TestXcloudClaudeNormalizedUsageReachesClientNonStream(t *testing.T) {
+	c, recorder, info := usageRegressionContext(types.RelayFormatOpenAI, true)
+	info.IsStream = false
+	info.ChannelMeta = &relaycommon.ChannelMeta{ChannelId: 4, ChannelBaseUrl: "https://www.xcloudtoken.com", UpstreamModelName: "claude-opus-4-8"}
+	body := `{"choices":[{"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}],"usage":{"billing_usage":{"source":"claude_messages","semantic":"anthropic","claude_usage":{"input_tokens":50,"cache_read_input_tokens":20,"cache_creation_input_tokens":30,"output_tokens":2}},"prompt_tokens":50,"completion_tokens":2,"total_tokens":52}}`
+	usage, apiErr := OpenaiHandler(c, info, &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body))})
+	require.Nil(t, apiErr)
+	require.Equal(t, 100, usage.PromptTokens)
+	require.Contains(t, recorder.Body.String(), `"prompt_tokens":100`)
+}
+
+func TestXcloudClaudeNormalizedUsageReachesClientStream(t *testing.T) {
+	c, recorder, info := usageRegressionContext(types.RelayFormatOpenAI, true)
+	info.ChannelMeta = &relaycommon.ChannelMeta{ChannelId: 4, ChannelBaseUrl: "https://www.xcloudtoken.com", UpstreamModelName: "claude-opus-4-8"}
+	body := "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"OK\"}}]}\n\n" +
+		"data: {\"choices\":[],\"usage\":{\"billing_usage\":{\"source\":\"claude_messages\",\"semantic\":\"anthropic\",\"claude_usage\":{\"input_tokens\":50,\"cache_read_input_tokens\":20,\"cache_creation_input_tokens\":30,\"output_tokens\":2}},\"prompt_tokens\":50,\"completion_tokens\":2,\"total_tokens\":52}}\n\ndata: [DONE]\n\n"
+	usage, apiErr := OaiStreamHandler(c, info, &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body))})
+	require.Nil(t, apiErr)
+	require.Equal(t, 100, usage.PromptTokens)
+	assertUsageRegressionOutput(t, types.RelayFormatOpenAI, recorder.Body.String(), 100, 2)
+}
+
+func TestXcloudClaudeVerifiedZeroAliasStreamReachesClient(t *testing.T) {
+	c, recorder, info := usageRegressionContext(types.RelayFormatOpenAI, true)
+	info.ChannelMeta = &relaycommon.ChannelMeta{ChannelId: 4, ChannelBaseUrl: "https://www.xcloudtoken.com", UpstreamModelName: "claude-sonnet-5"}
+	body := "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"OK\"}}]}\n\n" +
+		"data: {\"choices\":[],\"usage\":{\"billing_usage\":{\"source\":\"claude_messages\",\"semantic\":\"anthropic\",\"claude_usage\":{\"input_tokens\":16,\"cache_read_input_tokens\":0,\"cache_creation_input_tokens\":0,\"output_tokens\":4}},\"input_tokens\":16,\"prompt_tokens\":16,\"output_tokens\":0,\"completion_tokens\":4,\"total_tokens\":20}}\n\ndata: [DONE]\n\n"
+	usage, apiErr := OaiStreamHandler(c, info, &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body))})
+	require.Nil(t, apiErr)
+	require.Equal(t, 16, usage.PromptTokens)
+	require.Equal(t, 4, usage.CompletionTokens)
+	require.False(t, relaycommon.ValidateZTAPIUsageDimensions(c, info, usage).Pending)
+	assertUsageRegressionOutput(t, types.RelayFormatOpenAI, recorder.Body.String(), 16, 4)
+}
+
+func TestKimiIncompleteStreamRetainsProviderTokenCounts(t *testing.T) {
+	c, recorder, info := usageRegressionContext(types.RelayFormatOpenAI, true)
+	info.ChannelMeta = &relaycommon.ChannelMeta{ChannelId: 8, ChannelBaseUrl: "https://www.xcloudtoken.com", UpstreamModelName: "kimi-k3"}
+	info.ZTAPIPublicationSnapshot.SourceModel = "kimi-k3"
+	info.ZTAPIPublicationSnapshot.BillingDimensions = []string{"input_tokens", "output_tokens", "cache_read", "cache_write_5m", "cache_write_1h"}
+	info.SetEstimatePromptTokens(14)
+	body := "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"OK\"}}]}\n\n" +
+		"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":90,\"completion_tokens\":1,\"total_tokens\":91}}\n\n" +
+		"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":125,\"completion_tokens\":24,\"total_tokens\":149}}\n\n" +
+		"data: [DONE]\n\n"
+	usage, apiErr := OaiStreamHandler(c, info, &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body))})
+	require.Nil(t, apiErr)
+	require.Equal(t, 125, usage.PromptTokens)
+	require.Equal(t, 24, usage.CompletionTokens)
+	require.Equal(t, "upstream_incomplete", usage.UsageSource)
+	require.True(t, relaycommon.ValidateZTAPIUsageDimensions(c, info, usage).Pending)
+	require.Contains(t, recorder.Body.String(), `"prompt_tokens":125`)
+	require.Contains(t, recorder.Body.String(), `"usage_source":"upstream_incomplete"`)
+	require.NotNil(t, info.ZTAPIMetering.UnverifiedUsage)
+	require.Contains(t, string(info.ZTAPIMetering.UnverifiedUsage.RawUsage), `"prompt_tokens":125`)
+}
+
+func TestKimiIncompleteCountsRejectUnsafeEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		channel int
+		base    string
+		raw     string
+		reasons []string
+	}{
+		{"wrong_channel", 2, "https://www.xcloudtoken.com", `{"prompt_tokens":125,"completion_tokens":24,"total_tokens":149}`, []string{"usage_incomplete"}},
+		{"wrong_host", 8, "https://other.example", `{"prompt_tokens":125,"completion_tokens":24,"total_tokens":149}`, []string{"usage_incomplete"}},
+		{"contradictory", 8, "https://www.xcloudtoken.com", `{"prompt_tokens":125,"completion_tokens":24,"total_tokens":149}`, []string{"usage_incomplete", "usage_alias_conflict"}},
+		{"invalid_total", 8, "https://www.xcloudtoken.com", `{"prompt_tokens":125,"completion_tokens":24,"total_tokens":150}`, []string{"usage_incomplete"}},
+		{"negative", 8, "https://www.xcloudtoken.com", `{"prompt_tokens":-1,"completion_tokens":24,"total_tokens":23}`, []string{"usage_incomplete"}},
+		{"missing", 8, "https://www.xcloudtoken.com", `{"prompt_tokens":125,"completion_tokens":24}`, []string{"usage_incomplete"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, info := usageRegressionContext(types.RelayFormatOpenAI, true)
+			info.ChannelMeta = &relaycommon.ChannelMeta{ChannelId: tc.channel, ChannelBaseUrl: tc.base, UpstreamModelName: "kimi-k3"}
+			info.ZTAPIMetering = &types.ZTAPIMeteringEvidence{UsageIntegrityReasons: tc.reasons, UnverifiedUsage: &types.ZTAPIUnverifiedUsageObservation{Reason: "usage_incomplete", RawUsage: []byte(tc.raw)}}
+			require.Nil(t, incompleteXcloudKimiTokenCounts(info))
+		})
+	}
+}
+
 func TestUsageRegressionNonStreamAliasesAndProvenance(t *testing.T) {
 	for _, format := range []types.RelayFormat{types.RelayFormatOpenAI, types.RelayFormatClaude} {
 		for _, reported := range []bool{false, true} {

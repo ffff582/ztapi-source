@@ -23,6 +23,13 @@ func TestRepeatedAllocationsKeepBoundedFinancialPrecision(t *testing.T) {
 	require.GreaterOrEqual(t, p.cash.Exponent(), int32(-24), "allocation must not grow arbitrary-precision integers per request")
 }
 
+func TestEmptySnapshotCannotConfirmProfit(t *testing.T) {
+	r := calculate(t, Snapshot{QuotaPerUnit: 500000}, nil)
+	require.False(t, r.Confirmed)
+	require.Nil(t, r.ActualCost)
+	require.Nil(t, r.GrossProfit)
+}
+
 func TestMissingEvidenceCannotDisappearThroughPrecisionRounding(t *testing.T) {
 	p := basis{quota: decimal.NewFromInt(1000000000), cash: decimal.NewFromInt(1000), unverified: true}
 	for i := 0; i < 3000; i++ {
@@ -238,9 +245,9 @@ func TestXcloudEstimateUsesSettledDimensionsAndSeparatesActualCost(t *testing.T)
 	s.Settlements[0].ChargeDimensionsJSON = `[{"dimension":"input_tokens","quantity":1000000},{"dimension":"output_tokens","quantity":1000000}]`
 	s.Settlements[0].MissingDimensionsJSON = `[]`
 	r := calculate(t, s, facts()[:1])
-	require.True(t, r.EstimateComplete, "%+v", r.EstimateIssues)
-	require.Equal(t, "15.000000", *r.EstimatedCost)
-	require.Equal(t, "5.000000", *r.EstimatedGrossProfit)
+	require.False(t, r.EstimateComplete, "historical supplier group and tier are not captured")
+	require.Nil(t, r.EstimatedCost)
+	require.Nil(t, r.EstimatedGrossProfit)
 	require.Nil(t, r.ActualCost, "public quote must not become confirmed supplier cost")
 	require.Len(t, r.Estimates, 1)
 }
