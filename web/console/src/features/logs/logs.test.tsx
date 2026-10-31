@@ -4,12 +4,14 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
 } from '@testing-library/react';
-import { RouterProvider } from 'react-router-dom';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { clearAuthSession } from '../../api/client';
+import { MemoryRouter, RouterProvider } from 'react-router-dom';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { clearAuthSession, setAuthSession } from '../../api/client';
 import { AppProviders } from '../../app/providers';
 import { createZTAPIRouter } from '../../app/router';
+import { LogsPage } from './LogsPage';
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -171,5 +173,126 @@ describe('ZTAPI user log pagination', () => {
     fireEvent.click(screen.getByRole('button', { name: '清除筛选' }));
     await act(async () => undefined);
     expect(requestedUrls.at(-1)).not.toMatch(/model_name|request_id|type=5/);
+  });
+});
+
+const diagnosticLog = { timestamp: 1900000100, request_id: 'req-public-1', model: 'zt-public-model', status: 'error',
+  latency: 2, prompt_tokens: 12, completion_tokens: 3, total_tokens: 15, billed_amount: 0, error_code: 'model_unavailable' };
+
+function diagnosticPage(items: unknown[], page = 1, total = 51) {
+  return jsonResponse({ success: true, data: { page, page_size: 50, total, items } });
+}
+
+function renderLogs() {
+  return render(<MemoryRouter><LogsPage /></MemoryRouter>);
+}
+
+function readBlob(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = reject;
+    reader.readAsText(blob);
+  });
+}
+
+describe('safe current-page diagnostic downloads', () => {
+  beforeEach(() => {
+    setAuthSession({ access_token: 'synthetic-session-never-export', expires_in: 900,
+      user: { id: 7, username: 'private-account-never-export', role: 1, group: 'default' } });
+  });
+
+  it('downloads only public fields on the visible page, with no session, filters, or other pages', async () => {
+    const blobs: Blob[] = [];
+    const revoke = vi.fn();
+    vi.stubGlobal('URL', class extends URL {
+      static createObjectURL(blob: Blob) { blobs.push(blob); return 'blob:synthetic-diagnostic'; }
+      static revokeObjectURL = revoke;
+    });
+    const clicks: Array<{ filename: string; href: string }> = [];
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      clicks.push({ filename: this.download, href: this.href });
+    });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const page = Number(new URL(String(input), 'http://ztapi.test').searchParams.get('p'));
+      return diagnosticPage([{ ...diagnosticLog, request_id: `req-public-${page}` }], page);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderLogs();
+    expect(await screen.findByText('req-public-1')).toBeVisible();
+    fireEvent.change(screen.getByLabelText('请求 ID 筛选'), { target: { value: 'unsent-private-draft-never-export' } });
+    fireEvent.click(screen.getByRole('button', { name: '导出本页诊断' }));
+    expect(clicks).toEqual([{ filename: 'ztapi-diagnostics-page-1.json', href: 'blob:synthetic-diagnostic' }]);
+    expect(blobs[0].type).toBe('application/json');
+    const exported = await readBlob(blobs[0]);
+    expect(JSON.parse(exported)).toEqual([diagnosticLog]);
+    expect(exported).not.toMatch(/synthetic-session|private-account|unsent-private|authorization|cookie|prompt"|upstream/i);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(revoke).toHaveBeenCalledWith('blob:synthetic-diagnostic'));
+
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }));
+    expect(await screen.findByText('req-public-2')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '导出本页诊断' }));
+    expect(clicks[1].filename).toBe('ztapi-diagnostics-page-2.json');
+    expect(JSON.parse(await readBlob(blobs[1]))).toEqual([{ ...diagnosticLog, request_id: 'req-public-2' }]);
+    await waitFor(() => expect(revoke).toHaveBeenCalledTimes(2));
+  });
+
+  it('disables export while loading and for an empty page', async () => {
+    let release!: (value: Response) => void;
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((resolve) => { release = resolve; })));
+    renderLogs();
+    expect(screen.getByRole('button', { name: '导出本页诊断' })).toBeDisabled();
+    await act(async () => { release(diagnosticPage([], 1, 0)); });
+    expect(await screen.findByText('当前账户还没有请求日志。')).toBeVisible();
+    expect(screen.getByRole('button', { name: '导出本页诊断' })).toBeDisabled();
+  });
+
+  it.each([
+    ['credentials', { authorization: 'Bearer synthetic-secret-never-export' }],
+    ['customer input', { prompt: 'private-customer-input-never-export' }],
+    ['raw upstream details', { upstream_response: { headers: { token: 'private-upstream-never-export' } } }],
+  ])('refuses responses containing %s and offers no export', async (_name, extra) => {
+    vi.stubGlobal('fetch', vi.fn(async () => diagnosticPage([{ ...diagnosticLog, ...extra }])));
+    renderLogs();
+    expect(await screen.findByRole('alert')).toHaveTextContent('使用日志加载失败');
+    expect(screen.getByRole('button', { name: '导出本页诊断' })).toBeDisabled();
+    expect(screen.queryByText('req-public-1')).not.toBeInTheDocument();
+  });
+
+  it('removes the prior account page and disables export immediately on account change', async () => {
+    let release!: (value: Response) => void;
+    const fetchMock = vi.fn().mockResolvedValueOnce(diagnosticPage([diagnosticLog]))
+      .mockImplementation(() => new Promise<Response>((resolve) => { release = resolve; }));
+    vi.stubGlobal('fetch', fetchMock);
+    renderLogs();
+    expect(await screen.findByText('req-public-1')).toBeVisible();
+    await act(async () => {
+      setAuthSession({ access_token: 'synthetic-b', expires_in: 900,
+        user: { id: 8, username: 'b', role: 1, group: 'default' } });
+    });
+    expect(screen.queryByText('req-public-1')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '导出本页诊断' })).toBeDisabled();
+    await act(async () => { release(diagnosticPage([{ ...diagnosticLog, request_id: 'req-account-b' }])); });
+    expect(await screen.findByText('req-account-b')).toBeVisible();
+    expect(screen.getByRole('button', { name: '导出本页诊断' })).toBeEnabled();
+  });
+
+  it('does not describe an error record as proof of zero settled charge', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => diagnosticPage([diagnosticLog])));
+    renderLogs();
+    expect(await screen.findByText('req-public-1')).toBeVisible();
+    expect(screen.getByRole('columnheader', { name: '已结算费用' })).toBeVisible();
+    expect(screen.getByText('未记录结算费用')).toBeVisible();
+    expect(screen.queryByText('本次实际扣费')).not.toBeInTheDocument();
+    expect(screen.queryByText('0.000000 U')).not.toBeInTheDocument();
+  });
+
+  it('labels consumption records as settled rather than promising successful model delivery', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => diagnosticPage([{ ...diagnosticLog, status: 'success', billed_amount: 0.01 }])));
+    renderLogs();
+    expect(await screen.findByText('req-public-1')).toBeVisible();
+    expect(screen.getByText('已结算')).toBeVisible();
+    expect(screen.getByRole('option', { name: '仅已结算' })).toBeVisible();
   });
 });

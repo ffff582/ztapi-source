@@ -1,7 +1,7 @@
-import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { type FormEvent, useEffect, useState } from 'react';
+import { ChevronLeft, ChevronRight, Download } from 'lucide-react';
+import { type FormEvent, useEffect, useState, useSyncExternalStore } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { apiClient, getAuthSession } from '../../api/client';
+import { apiClient, getAuthSession, subscribeAuthSession } from '../../api/client';
 import {
   parseUserLogPage,
   type PageEnvelope,
@@ -9,6 +9,7 @@ import {
 } from '../../api/contracts';
 import { localeTag, useLocale } from '../../i18n/locale';
 import { markLogsVisited } from '../onboarding/onboarding';
+import { downloadDiagnosticLogs } from '../../api/usage-statistics-diagnostics';
 
 function formatTimestamp(timestamp: number, locale: 'zh-CN' | 'en') {
   return new Intl.DateTimeFormat(localeTag(locale), {
@@ -22,9 +23,9 @@ function formatTimestamp(timestamp: number, locale: 'zh-CN' | 'en') {
   }).format(new Date(timestamp * 1000));
 }
 
-function publicStatus(status: UserLogItem['status'], t: (key: string) => string) {
+function publicStatus(status: UserLogItem['status'], t: (key: string) => string, locale: 'zh-CN' | 'en') {
   if (status === 'success') {
-    return t('成功');
+    return locale === 'en' ? 'Settled' : '已结算';
   }
   if (status === 'error') {
     return t('失败');
@@ -65,40 +66,56 @@ export function LogsPage() {
   const [pageNumber, setPageNumber] = useState(1);
   const [draftFilters, setDraftFilters] = useState<LogFilters>({ model: '', result: 'all', requestID: initialRequestID });
   const [filters, setFilters] = useState<LogFilters>({ model: '', result: 'all', requestID: initialRequestID });
-  const [page, setPage] = useState<PageEnvelope<UserLogItem> | null>(null);
+  const [loadedPage, setPage] = useState<PageEnvelope<UserLogItem> | null>(null);
+  const [pageOwner, setPageOwner] = useState<number>();
+  const [exportError, setExportError] = useState(false);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const userID = useSyncExternalStore(subscribeAuthSession, getAuthSession, getAuthSession)?.user.id;
+  const page = pageOwner === userID ? loadedPage : null;
 
   useEffect(() => {
-    const userID = getAuthSession()?.user.id;
     if (userID !== undefined) markLogsVisited(userID);
-  }, []);
+  }, [userID]);
 
   useEffect(() => {
-    let active = true;
+    const controller = new AbortController();
     setStatus('loading');
+    setPage(null);
+    setExportError(false);
     const query = new URLSearchParams({ p: String(pageNumber), page_size: '50' });
     if (filters.model.trim() !== '') query.set('model_name', filters.model.trim());
     if (filters.requestID.trim() !== '') query.set('request_id', filters.requestID.trim());
     if (filters.result === 'success') query.set('type', '2');
     if (filters.result === 'error') query.set('type', '5');
     void apiClient
-      .get<unknown>(`/log/self?${query.toString()}`)
+      .get<unknown>(`/log/self?${query.toString()}`, { signal: controller.signal })
       .then(parseUserLogPage)
       .then((value) => {
-        if (active) {
+        if (!controller.signal.aborted && getAuthSession()?.user.id === userID) {
           setPage(value);
+          setPageOwner(userID);
           setStatus('ready');
         }
       })
       .catch(() => {
-        if (active) {
+        if (!controller.signal.aborted) {
           setStatus('error');
         }
       });
     return () => {
-      active = false;
+      controller.abort();
     };
-  }, [filters, pageNumber]);
+  }, [filters, pageNumber, userID]);
+
+  function exportPage() {
+    if (status !== 'ready' || page === null || page.items.length === 0 || getAuthSession()?.user.id !== pageOwner) return;
+    setExportError(false);
+    try {
+      downloadDiagnosticLogs(page.items, page.page);
+    } catch {
+      setExportError(true);
+    }
+  }
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -144,7 +161,7 @@ export function LogsPage() {
             onChange={(event) => setDraftFilters((current) => ({ ...current, result: event.target.value as ResultFilter }))}
           >
             <option value="all">{t('全部结果')}</option>
-            <option value="success">{t('仅成功')}</option>
+            <option value="success">{locale === 'en' ? 'Settled only' : '仅已结算'}</option>
             <option value="error">{t('仅失败')}</option>
           </select>
         </div>
@@ -160,8 +177,18 @@ export function LogsPage() {
         <div className="log-filters__actions">
           <button className="console-button console-button--primary" type="submit">{t('筛选')}</button>
           <button className="console-button console-button--secondary" type="button" onClick={clearFilters}>{t('清除筛选')}</button>
+          <button className="console-icon-action" type="button" onClick={exportPage}
+            disabled={status !== 'ready' || page === null || page.items.length === 0}
+            aria-label={locale === 'en' ? 'Export this page diagnostics' : '导出本页诊断'}
+            title={locale === 'en' ? 'Export this page diagnostics' : '导出本页诊断'}>
+            <Download aria-hidden="true" size={18} />
+          </button>
         </div>
       </form>
+
+      {exportError && <div className="console-state console-state--error" role="alert">
+        {locale === 'en' ? 'Diagnostic export failed. Please try again.' : '诊断导出失败，请重试。'}
+      </div>}
 
       {status === 'loading' && (
         <div className="console-state" aria-live="polite" aria-busy="true">
@@ -190,7 +217,7 @@ export function LogsPage() {
               <thead>
                 <tr>
                   <th scope="col">{t('模型')}</th>
-                  <th scope="col">{t('实际费用')}</th>
+                  <th scope="col">{locale === 'en' ? 'Settled charge' : '已结算费用'}</th>
                   <th scope="col">{t('Token 用量')}</th>
                   <th scope="col">{t('状态与耗时')}</th>
                   <th scope="col">{t('调用时间')}</th>
@@ -205,9 +232,9 @@ export function LogsPage() {
                       <strong>{log.model || '—'}</strong>
                     </td>
                     <td className="usage-log-charge-cell">
-                      <span aria-hidden="true" className="usage-log-cell-label">{t('实际费用')}</span>
-                      <strong>{log.billed_amount.toFixed(6)} U</strong>
-                      <small>{t('本次实际扣费')}</small>
+                      <span aria-hidden="true" className="usage-log-cell-label">{locale === 'en' ? 'Settled charge' : '已结算费用'}</span>
+                      <strong>{log.status === 'success' ? `${log.billed_amount.toFixed(6)} U` : '—'}</strong>
+                      <small>{log.status === 'success' ? t('本次实际扣费') : locale === 'en' ? 'No settlement recorded' : '未记录结算费用'}</small>
                     </td>
                     <td>
                       <span aria-hidden="true" className="usage-log-cell-label">{t('Token 用量')}</span>
@@ -223,7 +250,7 @@ export function LogsPage() {
                         <span
                           className={`console-status console-status--${log.status}`}
                         >
-                          {publicStatus(log.status, t)}
+                          {publicStatus(log.status, t, locale)}
                         </span>
                         <span>{t('{{count}} 秒', { count: log.latency })}</span>
                       </div>

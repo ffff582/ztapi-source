@@ -1,4 +1,4 @@
-import { getAuthSession, refreshSession } from './client';
+import { getAuthSession, getAuthSessionLifecycle, refreshSession } from './client';
 
 export type PlaygroundErrorKind =
   | 'unauthorized'
@@ -18,9 +18,15 @@ export class PlaygroundClientError extends Error {
   }
 }
 
+export interface PlaygroundChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 export interface PlaygroundChatInput {
   model: string;
   prompt: string;
+  history?: readonly PlaygroundChatMessage[];
 }
 
 export interface PlaygroundUsage {
@@ -241,14 +247,37 @@ function parseVideoTask(body: unknown, requestID: string): PlaygroundVideoTask {
   };
 }
 
+type PlaygroundSession = NonNullable<ReturnType<typeof getAuthSession>>;
+
+async function refreshRequestSession(original: PlaygroundSession, lifecycle: number): Promise<PlaygroundSession> {
+  const current = getAuthSession();
+  if (current === null || getAuthSessionLifecycle() !== lifecycle || current.user.id !== original.user.id) {
+    throw new PlaygroundClientError('unauthorized');
+  }
+  if (current === original) {
+    try {
+      await refreshSession();
+    } catch {
+      throw new PlaygroundClientError('unauthorized');
+    }
+  }
+  const refreshed = getAuthSession();
+  if (refreshed === null || getAuthSessionLifecycle() !== lifecycle || refreshed.user.id !== original.user.id) {
+    throw new PlaygroundClientError('unauthorized');
+  }
+  return refreshed;
+}
+
 async function mediaJSONRequest<T>(
   path: string,
   init: RequestInit,
   parse: (body: unknown, requestID: string) => T,
   retryUnauthorized: boolean,
+  expectedSession = getAuthSession(),
+  lifecycle = getAuthSessionLifecycle(),
 ): Promise<T> {
   const session = getAuthSession();
-  if (session === null) {
+  if (session === null || session !== expectedSession || getAuthSessionLifecycle() !== lifecycle) {
     throw new PlaygroundClientError('unauthorized');
   }
 
@@ -265,12 +294,8 @@ async function mediaJSONRequest<T>(
   }
 
   if (response.status === 401 && retryUnauthorized) {
-    try {
-      await refreshSession();
-    } catch {
-      throw new PlaygroundClientError('unauthorized');
-    }
-    return mediaJSONRequest(path, init, parse, false);
+    const refreshed = await refreshRequestSession(session, lifecycle);
+    return mediaJSONRequest(path, init, parse, false, refreshed, lifecycle);
   }
 
   let body: unknown;
@@ -289,9 +314,11 @@ async function mediaJSONRequest<T>(
 async function chatRequest(
   input: PlaygroundChatInput,
   retryUnauthorized: boolean,
+  expectedSession = getAuthSession(),
+  lifecycle = getAuthSessionLifecycle(),
 ): Promise<PlaygroundChatResult> {
   const session = getAuthSession();
-  if (session === null) {
+  if (session === null || session !== expectedSession || getAuthSessionLifecycle() !== lifecycle) {
     throw new PlaygroundClientError('unauthorized');
   }
 
@@ -310,6 +337,7 @@ async function chatRequest(
         model: input.model,
         messages: [
           { role: 'system', content: '你是一个简洁、可靠的助手。' },
+          ...(input.history ?? []),
           { role: 'user', content: input.prompt },
         ],
         stream: false,
@@ -321,12 +349,8 @@ async function chatRequest(
   }
 
   if (response.status === 401 && retryUnauthorized) {
-    try {
-      await refreshSession();
-    } catch {
-      throw new PlaygroundClientError('unauthorized');
-    }
-    return chatRequest(input, false);
+    const refreshed = await refreshRequestSession(session, lifecycle);
+    return chatRequest(input, false, refreshed, lifecycle);
   }
 
   let body: unknown;
