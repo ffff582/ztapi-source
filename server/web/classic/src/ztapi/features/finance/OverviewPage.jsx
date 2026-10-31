@@ -67,6 +67,119 @@ const coverageLabels = {
   extra: '账单外额外费用',
   unknown: '覆盖未知',
 };
+const toolAmount = (value, currency) =>
+  value === null || value === undefined || value === ''
+    ? '待核对'
+    : `${value} ${currency}`;
+const toolCount = (value) =>
+  Number.isSafeInteger(value) && value >= 0 ? value : '待核对';
+
+function HostedToolCosts({ rows }) {
+  const tools = Array.isArray(rows) ? rows : [];
+  const labels = { search: 'Search 搜索', fetch: 'Fetch 抓取' };
+  return (
+    <section aria-label='托管工具费用'>
+      <header className='finance-toolbar'>
+        <div>
+          <h2>托管工具费用</h2>
+          <span className='finance-muted'>
+            成功调用按次计量 · 测试为调用及费用的子集
+          </span>
+        </div>
+      </header>
+      <div className='finance-table-wrap'>
+        <table aria-label='托管工具费用明细'>
+          <thead>
+            <tr>
+              <th scope='col'>工具</th>
+              <th scope='col'>渠道</th>
+              <th scope='col'>成功（次）</th>
+              <th scope='col'>对客零扣费（次）</th>
+              <th scope='col'>未知（次）</th>
+              <th scope='col'>其中测试：成功 / 未知（次）</th>
+              <th scope='col'>对客实收</th>
+              <th scope='col'>工具报价估算</th>
+              <th scope='col'>其中测试报价估算</th>
+              <th scope='col'>测试已确认成本</th>
+              <th scope='col'>测试成本估算</th>
+              <th scope='col'>估算状态</th>
+            </tr>
+          </thead>
+          <tbody>
+            {tools.map((row) => {
+              const revenueMissing =
+                row.customer_revenue_usdt === null ||
+                row.customer_revenue_usdt === undefined ||
+                row.customer_revenue_usdt === '';
+              return (
+                <tr key={`${row.public_model}:${row.channel_id}`}>
+                  <td>
+                    {labels[row.tool] || row.tool || '工具待核对'}
+                    <small>{row.public_model || '模型待核对'}</small>
+                    <small>
+                      {row.unit === 'call' ? '按次（call）' : '计量待核对'}
+                    </small>
+                  </td>
+                  <td>{row.channel_id > 0 ? `#${row.channel_id}` : '待核对'}</td>
+                  <td>{toolCount(row.successful_calls)}</td>
+                  <td>{toolCount(row.zero_charge_calls)}</td>
+                  <td>{toolCount(row.unknown_calls)}</td>
+                  <td>
+                    {toolCount(row.test_successful_calls)} /{' '}
+                    {toolCount(row.test_unknown_calls)}
+                  </td>
+                  <td>
+                    <span>{toolAmount(row.customer_revenue_usdt, 'USDT')}</span>
+                    {revenueMissing &&
+                      row.customer_known_revenue_usdt !== null &&
+                      row.customer_known_revenue_usdt !== undefined &&
+                      row.customer_known_revenue_usdt !== '' && (
+                        <small>
+                          已知部分{' '}
+                          {toolAmount(row.customer_known_revenue_usdt, 'USDT')}
+                        </small>
+                      )}
+                    <small>
+                      收费报价 {toolAmount(row.customer_quoted_sale_cny, 'CNY')}
+                    </small>
+                  </td>
+                  <td>
+                    <span>{toolAmount(row.quoted_cost_cny, 'CNY')}</span>
+                    <small>{toolAmount(row.quoted_cost_usdt, 'USDT')}</small>
+                  </td>
+                  <td>
+                    <span>{toolAmount(row.test_quoted_cost_cny, 'CNY')}</span>
+                    <small>{toolAmount(row.test_quoted_cost_usdt, 'USDT')}</small>
+                  </td>
+                  <td>{toolAmount(row.test_confirmed_cost_usdt, 'USDT')}</td>
+                  <td>{toolAmount(row.test_estimate_cost_usdt, 'USDT')}</td>
+                  <td>
+                    {row.quote_estimate_complete === true
+                      ? '估算完整'
+                      : '估算待核对'}
+                  </td>
+                </tr>
+              );
+            })}
+            {!tools.length && (
+              <tr>
+                <td colSpan={12}>
+                  {Array.isArray(rows)
+                    ? '本月暂无托管工具记录。'
+                    : '旧版报表未提供工具明细。'}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <p className='finance-footnote'>
+        报价仅为估算，不代表供应商实扣；对客零扣费不代表供应商零成本。毛利使用后端核算结果；已确认测试成本按月账覆盖关系计入一次，账单内仅拆分展示，不重复扣除。
+      </p>
+    </section>
+  );
+}
+
 function TestCostDialog({ row, onClose, onSaved }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -867,6 +980,7 @@ export default function OverviewPage({ canWrite = false }) {
               </div>
             ))}
           </dl>
+          <HostedToolCosts rows={report.hosted_tools} />
           <section aria-label='测试费用'>
             <header className='finance-toolbar'>
               <div>

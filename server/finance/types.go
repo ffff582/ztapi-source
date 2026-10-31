@@ -248,6 +248,7 @@ type Report struct {
 	TestEstimateTotal       string                `json:"test_estimate_total"`
 	TestXcloudCreditTotal   string                `json:"test_xcloud_credit_total"`
 	Estimates               []SupplierEstimateRow `json:"estimates"`
+	HostedTools             []HostedToolRow       `json:"hosted_tools,omitempty"`
 	EstimateIssues          []Issue               `json:"estimate_issues"`
 	Issues                  []Issue               `json:"issues"`
 	IssueCount              int                   `json:"issue_count"`

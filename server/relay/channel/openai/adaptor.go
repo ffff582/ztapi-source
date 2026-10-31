@@ -28,6 +28,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/common_handler"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/service/openaicompat"
 	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/reasoning"
 	"github.com/QuantumNous/new-api/types"
@@ -230,6 +231,19 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, header *http.Header, info *
 func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.GeneralOpenAIRequest) (any, error) {
 	if request == nil {
 		return nil, errors.New("request is nil")
+	}
+	// Only normalize managed public Claude Responses-to-Chat history. Native
+	// Chat/Claude requests and other upstream protocols retain their own shape.
+	if info.ZTAPIPublicationSnapshot != nil && info.ChannelType == constant.ChannelTypeOpenAI &&
+		info.RelayMode == relayconstant.RelayModeChatCompletions && info.RelayFormat == types.RelayFormatOpenAIResponses &&
+		info.ZTAPIPublicationSnapshot.PublicName == info.OriginModelName && strings.HasPrefix(info.OriginModelName, "zt-claude-") {
+		messages, err := openaicompat.SerializeCompleteParallelToolTurns(request.Messages)
+		if err != nil {
+			return nil, err
+		}
+		upstreamRequest := *request
+		upstreamRequest.Messages = messages
+		request = &upstreamRequest
 	}
 	// These DTO fields were previously ignored on unmanaged OpenAI ingress.
 	if info.ZTAPIPublicationSnapshot == nil {

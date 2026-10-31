@@ -314,3 +314,265 @@ it('shows missing test cost cash as pending and preserves an explicit zero', asy
   expect(within(screen.getByRole('region', { name: '测试费用' })).getByText(/已确认 待核对/)).toBeVisible();
   expect(within(screen.getByRole('region', { name: '直接上游验收费用' })).getByText(/已折算 待核对/)).toBeVisible();
 });
+
+const hostedTool = {
+  tool: 'search',
+  public_model: 'ztapi-tool-search',
+  channel_id: 11,
+  unit: 'call',
+  successful_calls: 7,
+  zero_charge_calls: 3,
+  unknown_calls: 2,
+  test_successful_calls: 2,
+  test_unknown_calls: 1,
+  customer_revenue_usdt: '0.004321',
+  customer_known_revenue_usdt: '0.004321',
+  customer_quoted_sale_cny: '0.050000',
+  quoted_cost_cny: '0.035000',
+  quoted_cost_usdt: '0.007000',
+  test_quoted_cost_cny: '0.010000',
+  test_quoted_cost_usdt: '0.002000',
+  test_confirmed_cost_usdt: '0.002500',
+  test_estimate_cost_usdt: '0.000500',
+  quoted_cost_is_estimate: true,
+  quote_estimate_complete: false,
+};
+
+it('shows hosted tool calls, cash revenue, quotes and confirmed test costs separately', async () => {
+  adminRequest.mockResolvedValue({
+    ...report,
+    hosted_tools: [hostedTool, {
+      ...hostedTool,
+      tool: 'fetch',
+      public_model: 'ztapi-tool-fetch',
+      successful_calls: 0,
+      zero_charge_calls: 1,
+      unknown_calls: 0,
+      test_successful_calls: 0,
+      test_unknown_calls: 0,
+      customer_revenue_usdt: '0.000000',
+      customer_quoted_sale_cny: '0.000000',
+      quoted_cost_cny: '0.000000',
+      quoted_cost_usdt: '0.000000',
+      test_quoted_cost_cny: '0.000000',
+      test_quoted_cost_usdt: '0.000000',
+      test_confirmed_cost_usdt: '0.000000',
+      test_estimate_cost_usdt: '0.000000',
+      quote_estimate_complete: true,
+    }],
+  });
+  render(<OverviewPage canWrite={false} />);
+  const region = await screen.findByRole('region', { name: '托管工具费用' });
+  const table = within(region).getByRole('table', { name: '托管工具费用明细' });
+  expect(table.parentElement).toHaveClass('finance-table-wrap');
+  expect(within(table).getByRole('columnheader', { name: '成功（次）' })).toBeVisible();
+  expect(within(table).getByRole('columnheader', { name: '对客零扣费（次）' })).toBeVisible();
+  expect(within(table).getByRole('columnheader', { name: '未知（次）' })).toBeVisible();
+  expect(within(table).getByRole('columnheader', { name: '其中测试：成功 / 未知（次）' })).toBeVisible();
+  expect(within(table).getByRole('columnheader', { name: '工具报价估算' })).toBeVisible();
+  expect(within(table).getByRole('columnheader', { name: '测试已确认成本' })).toBeVisible();
+  expect(within(table).getByRole('columnheader', { name: '测试成本估算' })).toBeVisible();
+  const search = within(table).getByRole('row', { name: /ztapi-tool-search/ });
+  const counts = within(search).getAllByRole('cell');
+  expect(counts[2]).toHaveTextContent(/^7$/);
+  expect(counts[3]).toHaveTextContent(/^3$/);
+  expect(counts[4]).toHaveTextContent(/^2$/);
+  expect(counts[5]).toHaveTextContent(/^2 \/ 1$/);
+  expect(within(search).getByText('按次（call）')).toBeVisible();
+  for (const value of ['0.004321 USDT', '收费报价 0.050000 CNY', '0.035000 CNY', '0.007000 USDT', '0.010000 CNY', '0.002000 USDT', '0.002500 USDT', '0.000500 USDT']) {
+    expect(within(search).getByText(value)).toBeVisible();
+  }
+  expect(within(search).getByText('估算待核对')).toBeVisible();
+  const fetch = within(table).getByRole('row', { name: /ztapi-tool-fetch/ });
+  expect(within(fetch).getAllByRole('cell')[2]).toHaveTextContent(/^0$/);
+  expect(within(fetch).getByText('估算完整')).toBeVisible();
+  expect(within(region).getByText(/报价仅为估算，不代表供应商实扣/)).toBeVisible();
+  expect(within(region).getByText(/对客零扣费不代表供应商零成本/)).toBeVisible();
+  expect(within(region).getByText(/账单内仅拆分展示，不重复扣除/)).toBeVisible();
+  expect(within(region).queryByText(/token/i)).toBeNull();
+  expect(within(region).queryByRole('button')).toBeNull();
+});
+
+it.each([undefined, null, []])('supports legacy hosted tool data %s without implying missing data is zero', async (tools) => {
+  adminRequest.mockResolvedValue({ ...report, hosted_tools: tools });
+  render(<OverviewPage canWrite={false} />);
+  const region = await screen.findByRole('region', { name: '托管工具费用' });
+  expect(within(region).getByText(Array.isArray(tools)
+    ? '本月暂无托管工具记录。'
+    : '旧版报表未提供工具明细。')).toBeVisible();
+  expect(screen.getByText('毛利待核对')).toBeVisible();
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(adminRequest).toHaveBeenCalledTimes(1);
+});
+
+it.each(['5.000000', '0.000000', null])('keeps backend gross profit %s with hosted tool costs already covered', async (grossProfit) => {
+  const data = {
+    ...report,
+    confirmed: grossProfit !== null,
+    actual_cost: '15.000000',
+    gross_profit: grossProfit,
+    hosted_tools: [hostedTool],
+    test_confirmed_total: '2.000000',
+    test_estimate_total: '1.000000',
+    test_costs: [{ fact_id: 1, request_id: 'tool-test', status: 'confirmed', coverage: 'included', net_usdt: '2.000000' }],
+  };
+  const before = JSON.stringify(data);
+  adminRequest.mockResolvedValue(data);
+  render(<OverviewPage />);
+  await screen.findByRole('region', { name: '托管工具费用' });
+  const metric = screen.getByText('毛利', { selector: 'dt' }).parentElement;
+  expect(within(metric).getByRole('definition')).toHaveTextContent(grossProfit ?? '—');
+  const actual = screen.getByText('上游实际消耗', { selector: 'dt' }).parentElement;
+  expect(within(actual).getByRole('definition')).toHaveTextContent('15.000000');
+  expect(within(screen.getByRole('region', { name: '测试费用' })).getByText('账单内')).toBeVisible();
+  expect(JSON.stringify(data)).toBe(before);
+  expect(adminRequest.mock.calls.every(([call]) => !call.method || call.method === 'GET')).toBe(true);
+});
+
+it('keeps unknown hosted tool money pending while preserving confirmed zero amounts', async () => {
+  adminRequest.mockResolvedValue({ ...report, hosted_tools: [{
+    ...hostedTool,
+    unknown_calls: undefined,
+    customer_revenue_usdt: null,
+    customer_known_revenue_usdt: '0.004321',
+    quoted_cost_cny: '',
+    quoted_cost_usdt: null,
+    test_confirmed_cost_usdt: '0.000000',
+    test_estimate_cost_usdt: undefined,
+  }] });
+  render(<OverviewPage />);
+  const region = await screen.findByRole('region', { name: '托管工具费用' });
+  const row = within(region).getByRole('row', { name: /ztapi-tool-search/ });
+  const cells = within(row).getAllByRole('cell');
+  expect(cells[4]).toHaveTextContent(/^待核对$/);
+  expect(cells[6]).toHaveTextContent('待核对');
+  expect(within(cells[6]).getByText('已知部分 0.004321 USDT')).toBeVisible();
+  expect(cells[7]).not.toHaveTextContent('0.000000');
+  expect(within(row).getByText('0.000000 USDT')).toBeVisible();
+  expect(cells[10]).toHaveTextContent(/^待核对$/);
+  expect(region).not.toHaveTextContent(/undefined|null|NaN/);
+});
+
+it('removes stale hosted tool rows when another monthly report fails to load', async () => {
+  adminRequest.mockResolvedValue({ ...report, hosted_tools: [hostedTool] });
+  render(<OverviewPage />);
+  expect(await screen.findByText('ztapi-tool-search')).toBeVisible();
+  adminRequest.mockRejectedValueOnce(new Error('offline'));
+  fireEvent.click(screen.getByRole('button', { name: '刷新财务数据' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('财务数据加载失败');
+  expect(screen.queryByRole('region', { name: '托管工具费用' })).toBeNull();
+  expect(screen.queryByText('ztapi-tool-search')).toBeNull();
+});
+
+it('preserves numeric zero in known hosted tool cash without confirming unknown total revenue', async () => {
+  adminRequest.mockResolvedValue({ ...report, hosted_tools: [{
+    ...hostedTool,
+    customer_revenue_usdt: null,
+    customer_known_revenue_usdt: 0,
+    quoted_cost_cny: 0,
+    quoted_cost_usdt: 0,
+  }] });
+  render(<OverviewPage />);
+  const region = await screen.findByRole('region', { name: '托管工具费用' });
+  const row = within(region).getByRole('row', { name: /ztapi-tool-search/ });
+  const cells = within(row).getAllByRole('cell');
+  expect(within(cells[6]).getByText('已知部分 0 USDT')).toBeVisible();
+  expect(within(cells[6]).getByText('待核对')).toBeVisible();
+  expect(within(cells[7]).getByText('0 CNY')).toBeVisible();
+  expect(within(cells[7]).getByText('0 USDT')).toBeVisible();
+});
+
+it.each([undefined, null, '', -1, 1.5, '0', Number.NaN])(
+  'does not turn invalid hosted call counts %s into confirmed zeroes',
+  async (count) => {
+    adminRequest.mockResolvedValue({
+      ...report,
+      hosted_tools: [{
+        ...hostedTool,
+        successful_calls: count,
+        zero_charge_calls: count,
+        unknown_calls: count,
+        test_successful_calls: count,
+        test_unknown_calls: count,
+        quote_estimate_complete: undefined,
+      }],
+    });
+    render(<OverviewPage />);
+    const region = await screen.findByRole('region', { name: '托管工具费用' });
+    const row = within(region).getByRole('row', { name: /ztapi-tool-search/ });
+    const cells = within(row).getAllByRole('cell');
+    for (const index of [2, 3, 4]) {
+      expect(cells[index]).toHaveTextContent(/^待核对$/);
+    }
+    expect(cells[5]).toHaveTextContent(/^待核对 \/ 待核对$/);
+    expect(within(row).getByText('估算待核对')).toBeVisible();
+    expect(region).not.toHaveTextContent(/undefined|null|NaN/);
+  },
+);
+
+it('preserves explicit zero in every hosted call count', async () => {
+  adminRequest.mockResolvedValue({
+    ...report,
+    hosted_tools: [{
+      ...hostedTool,
+      successful_calls: 0,
+      zero_charge_calls: 0,
+      unknown_calls: 0,
+      test_successful_calls: 0,
+      test_unknown_calls: 0,
+    }],
+  });
+  render(<OverviewPage />);
+  const region = await screen.findByRole('region', { name: '托管工具费用' });
+  const row = within(region).getByRole('row', { name: /ztapi-tool-search/ });
+  const cells = within(row).getAllByRole('cell');
+  for (const index of [2, 3, 4]) {
+    expect(cells[index]).toHaveTextContent(/^0$/);
+  }
+  expect(cells[5]).toHaveTextContent(/^0 \/ 0$/);
+});
+
+it.each([
+  { coverage: 'included', label: '账单内', cost: '15.000000', profit: '5.000000' },
+  { coverage: 'extra', label: '账单外额外费用', cost: '17.000000', profit: '3.000000' },
+  { coverage: 'unknown', label: '覆盖未知', cost: null, profit: null },
+])('uses backend totals without adding hosted quotes or test subsets for $coverage coverage', async ({ coverage, label, cost, profit }) => {
+  adminRequest.mockResolvedValue({
+    ...report,
+    confirmed: profit !== null,
+    actual_cost: cost,
+    gross_profit: profit,
+    hosted_tools: [{ ...hostedTool, test_confirmed_cost_usdt: '2.000000' }],
+    test_confirmed_total: '2.000000',
+    test_estimate_total: '1.000000',
+    test_costs: [{
+      fact_id: 91,
+      request_id: 'hosted-test-91',
+      attempt: 1,
+      channel_id: 11,
+      model: 'ztapi-tool-search',
+      status: 'confirmed',
+      coverage,
+      net_usdt: '2.000000',
+    }],
+  });
+  render(<OverviewPage canWrite={false} />);
+  const hosted = await screen.findByRole('region', { name: '托管工具费用' });
+  const tests = screen.getByRole('region', { name: '测试费用' });
+  expect(within(hosted).getByText('2.000000 USDT')).toBeVisible();
+  expect(within(tests).getByText('2.000000 USDT')).toBeVisible();
+  expect(within(tests).getByText(label)).toBeVisible();
+  expect(within(tests).getByText(/已确认 2\.000000 USDT · 估算 1\.000000 USDT/)).toBeVisible();
+  for (const [title, expected] of [
+    ['消费对应实收收入', '20.000000'],
+    ['上游实际消耗', cost],
+    ['毛利', profit],
+  ]) {
+    const metric = screen.getByText(title, { selector: 'dt' }).parentElement;
+    expect(within(metric).getByRole('definition').textContent).toBe(expected ?? '—');
+  }
+  expect(adminRequest).toHaveBeenCalledTimes(1);
+  expect(adminRequest).toHaveBeenCalledWith({
+    url: expect.stringMatching(/^\/api\/admin\/finance-reporting\/report\?month=/),
+  });
+});

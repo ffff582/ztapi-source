@@ -1,6 +1,7 @@
 package router
 
 import (
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/controller"
 	"github.com/QuantumNous/new-api/middleware"
@@ -11,6 +12,11 @@ import (
 )
 
 func SetRelayRouter(router *gin.Engine) {
+	hostedOptions, hostedEnabled, hostedError := controller.HostedResponsesOptionsFromEnvironment()
+	if hostedError != nil {
+		common.SysLog("Hosted search configuration invalid; hosted requests remain unavailable")
+		hostedOptions = controller.HostedResponsesOptions{Authorize: func(*gin.Context, string) bool { return true }}
+	}
 	router.Use(middleware.CORS())
 	router.Use(middleware.DecompressRequestMiddleware())
 	router.Use(middleware.BodyStorageCleanup()) // 清理请求体存储
@@ -76,9 +82,21 @@ func SetRelayRouter(router *gin.Engine) {
 	relayV1Router := router.Group("/v1")
 	relayV1Router.Use(middleware.RouteTag("relay"))
 	relayV1Router.Use(middleware.SystemPerformanceCheck())
+	if hostedEnabled {
+		relayV1Router.Use(controller.CaptureHostedResponsesCredential())
+	}
 	relayV1Router.Use(middleware.TokenAuth())
 	relayV1Router.Use(middleware.ZTAPIHealthProbePin())
-	relayV1Router.Use(middleware.ModelRequestRateLimit())
+	modelRequestLimit := middleware.ModelRequestRateLimit()
+	relayV1Router.Use(func(c *gin.Context) {
+		// Count logical client requests once. Hidden model continuations are
+		// server-owned, reauthenticated and separately bounded/settled.
+		if controller.IsHostedSearchChild(c.Request) {
+			c.Next()
+			return
+		}
+		modelRequestLimit(c)
+	})
 	{
 		// WebSocket 路由（统一到 Relay）
 		wsRouter := relayV1Router.Group("")
@@ -89,6 +107,9 @@ func SetRelayRouter(router *gin.Engine) {
 	}
 	// A local estimate: no channel is selected and nothing is billed.
 	relayV1Router.POST("/messages/count_tokens", controller.CountClaudeMessageTokens)
+	if hostedEnabled {
+		relayV1Router.POST("/responses", controller.HostedResponsesBridge(router, hostedOptions), middleware.Distribute(), func(c *gin.Context) { controller.Relay(c, types.RelayFormatOpenAIResponses) })
+	}
 	{
 		//http router
 		httpRouter := relayV1Router.Group("")
@@ -108,9 +129,11 @@ func SetRelayRouter(router *gin.Engine) {
 		})
 
 		// response related routes
-		httpRouter.POST("/responses", func(c *gin.Context) {
-			controller.Relay(c, types.RelayFormatOpenAIResponses)
-		})
+		if !hostedEnabled {
+			httpRouter.POST("/responses", func(c *gin.Context) {
+				controller.Relay(c, types.RelayFormatOpenAIResponses)
+			})
+		}
 		httpRouter.POST("/responses/compact", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatOpenAIResponsesCompaction)
 		})

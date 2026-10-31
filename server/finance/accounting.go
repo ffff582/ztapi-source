@@ -115,6 +115,7 @@ type replay struct {
 	revenueByChannelModel map[int]map[string]decimal.Decimal
 	costUnknown           bool
 	testRequests          map[string]bool
+	hostedToolCash        map[string]hostedToolCash
 }
 
 func (r *replay) inMonth(t time.Time) bool { return !t.Before(r.start) && t.Before(r.end) }
@@ -140,11 +141,12 @@ func (r *replay) recognize(s Settlement, b basis, t time.Time, refund bool, chan
 		sign = -1
 	}
 	r.report.ChargedQuota += sign * b.quota.IntPart()
+	r.recordHostedToolCash(s, b, sign)
 	if r.testRequests[s.RequestID] {
 		return
 	}
 	r.known = r.known.Add(b.cash.Mul(decimal.NewFromInt(sign)))
-	if channel > 0 && b.cash.IsPositive() {
+	if channel > 0 && b.cash.IsPositive() && hostedToolName(s) == "" {
 		modelName := settlementSourceModel(s)
 		if modelName == "" {
 			modelName = s.PublicModel
@@ -323,6 +325,9 @@ func (r *replay) buildXcloudEstimates(s Snapshot, names, baseURLs map[int]string
 	costs := map[estimateKey]decimal.Decimal{}
 	complete := true
 	for _, settlement := range r.settlements {
+		if hostedToolName(settlement) != "" {
+			continue
+		}
 		if settlement.Status != "settled" || settlement.CompletedAt <= 0 || !r.inMonth(time.Unix(settlement.CompletedAt, 0)) || time.Unix(settlement.CompletedAt, 0).After(cutoff) {
 			continue
 		}
@@ -1004,6 +1009,7 @@ func Calculate(s Snapshot, facts []Fact, month string, now time.Time) (Report, e
 	out.DirectConfirmedTotal = fixed(directConfirmed)
 	sort.Slice(out.DirectCosts, func(i, j int) bool { return out.DirectCosts[i].FactID < out.DirectCosts[j].FactID })
 	sort.Slice(out.TestCosts, func(i, j int) bool { return out.TestCosts[i].FactID < out.TestCosts[j].FactID })
+	r.buildHostedToolReport(s)
 	out.RecordedCost = fixed(totalCost)
 	if complete {
 		out.ActualCost = stringPtr(out.RecordedCost)

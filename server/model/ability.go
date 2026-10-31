@@ -2,7 +2,6 @@ package model
 
 import (
 	"errors"
-	"strings"
 	"sync"
 
 	"github.com/QuantumNous/new-api/common"
@@ -143,8 +142,8 @@ func GetChannel(group string, model string, retry int) (*Channel, error) {
 }
 
 func (channel *Channel) AddAbilities(tx *gorm.DB) error {
-	models_ := strings.Split(channel.Models, ",")
-	groups_ := strings.Split(channel.Group, ",")
+	models_ := channel.GetModels()
+	groups_ := channel.GetGroups()
 	useDB := DB
 	if tx != nil {
 		useDB = tx
@@ -220,7 +219,7 @@ func (channel *Channel) UpdateAbilities(tx *gorm.DB) error {
 		}()
 	}
 
-	models_ := strings.Split(channel.Models, ",")
+	models_ := channel.GetModels()
 	if err := ValidateZTAPISourceModelNames(tx, models_); err != nil {
 		if isNewTx {
 			tx.Rollback()
@@ -238,7 +237,7 @@ func (channel *Channel) UpdateAbilities(tx *gorm.DB) error {
 	}
 
 	// Then add new abilities
-	groups_ := strings.Split(channel.Group, ",")
+	groups_ := channel.GetGroups()
 	abilitySet := make(map[string]struct{})
 	abilities := make([]Ability, 0, len(models_))
 	for _, model := range models_ {
