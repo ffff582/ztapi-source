@@ -4,11 +4,13 @@
   "sections": [
     { "id": "api", "label": "API 手册", "english": "API reference", "path": "/docs/api" },
     { "id": "integration", "label": "集成指南", "english": "Integration guide", "path": "/docs/integration" },
+    { "id": "codex", "label": "Codex 接入", "english": "Codex setup with search and page reading", "path": "/docs/codex" },
     { "id": "user-guide", "label": "用户指南", "english": "User guide", "path": "/docs/user-guide" },
     { "id": "faq", "label": "常见问题", "english": "Frequently asked questions", "path": "/docs/faq" }
   ],
   "endpoints": [
     ["GET", "/v1/models", "获取当前可用模型"],
+    ["GET", "/codex/models", "Codex 模型能力目录（需要 API Key）"],
     ["POST", "/v1/chat/completions", "OpenAI 兼容对话"],
     ["POST", "/v1/completions", "兼容旧版文本补全"],
     ["POST", "/v1/responses", "Responses 模型调用"],
