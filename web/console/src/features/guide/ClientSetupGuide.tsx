@@ -1,5 +1,6 @@
 import { Copy, RefreshCw, TriangleAlert } from 'lucide-react';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { Link } from 'react-router-dom';
 import { apiClient, getAuthSession, subscribeAuthSession } from '../../api/client';
 import { parseUserModelCatalog, type UserModelCatalogItem } from '../../api/contracts';
 import { useLocale } from '../../i18n/locale';
@@ -117,6 +118,7 @@ export function ClientSetupGuide() {
           </dl>
           <p>{t('配置已使用所选公开模型 ID；将 YOUR_ZTAPI_API_KEY 替换为你的密钥，不要使用供应商模型别名。')}</p>
           {client === 'codex' && <p>{t('将 TOML 配置合并到本机 Codex 配置文件，在启动 Codex 的终端设置 ZTAPI_API_KEY；不要覆盖已有配置或使用 ChatGPT 登录凭据。')}</p>}
+          {client === 'codex' && <p><Link to="/docs/codex">{t('查看 Codex 完整接入说明')}</Link></p>}
           {client === 'claude-code' && <p>{t('Claude Code 使用不带 /v1 的 Base URL，客户端会追加 /v1/messages。示例清除当前终端中冲突的 ANTHROPIC_AUTH_TOKEN，使用 API Key。')}</p>}
           <div className="guide-code-workbench">
             <div className="guide-code-panel">
@@ -140,8 +142,8 @@ export function ClientSetupGuide() {
         <div>
           <strong>{t('端点声明不等于客户端完整验收')}</strong>
           <p>{t('未验证的能力不得从基本文本返回推断：流式输出、工具往返、strict JSON、图像输入和客户端 beta 功能均需按模型、路由和客户端版本单独验收。上方验收状态仅覆盖明确列出的范围。')}</p>
-          <p>{t('不支持（仅 Responses → Chat 转换路径）：previous_response_id、服务端 conversation、托管 web_search / file_search 和原生 grammar 强制执行；多轮请求需携带完整历史。此限制不能外推到原生 Responses 路径。')}</p>
-          <p>{t('Codex Opus 验收代理冲突已修复，但完整上游客户端验收尚未完成；配置模板不代表已完成验收。Cursor Tab 等封闭产品功能不属于 API 网关提供的能力。')}</p>
+          <p>{t('不支持（仅 Responses → Chat 转换路径）：previous_response_id、服务端 conversation、file_search 和原生 grammar 强制执行；多轮请求需携带完整历史。此限制不能外推到原生 Responses 路径。')}</p>
+          <p>{t('Opus 5 已通过网关托管搜索和网页读取验收，工具费用单独结算；不代表其他型号或所有客户端版本均已验收。Cursor Tab 等封闭产品功能不属于 API 网关提供的能力。')}</p>
         </div>
       </aside>
     </section>

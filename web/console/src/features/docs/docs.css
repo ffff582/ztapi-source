@@ -177,6 +177,27 @@
   font-weight: 650;
 }
 
+.docs-section > p {
+  margin: 12px 0;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.docs-codex-notes {
+  display: grid;
+  gap: 12px;
+  padding-left: 20px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.docs-source-link {
+  display: inline-block;
+  margin-top: 36px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+
 .docs-facts {
   margin: 0;
   overflow: hidden;

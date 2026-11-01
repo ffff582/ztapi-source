@@ -8,6 +8,7 @@ import {
   Boxes,
   KeyRound,
   Send,
+  Terminal,
   UserRound,
 } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
@@ -16,13 +17,14 @@ import { useState } from 'react';
 import { PublicHeader } from '../../components/layout/PublicHeader';
 import { useLocale } from '../../i18n/locale';
 import manifest from './docs-manifest.json';
+import { codexConfig, codexWindowsKey, codexPosixKey, codexWindowsDesktopKey, codexMacDesktopKey } from '../guide/codex-setup';
 import './docs.css';
 
-type DocSection = 'api' | 'integration' | 'user-guide' | 'faq';
+type DocSection = 'api' | 'integration' | 'codex' | 'user-guide' | 'faq';
 
 const BASE_URL = manifest.baseUrl;
 
-const icons = { api: Code2, integration: Cable, 'user-guide': UserRound, faq: CircleHelp };
+const icons = { api: Code2, integration: Cable, codex: Terminal, 'user-guide': UserRound, faq: CircleHelp };
 const sections = manifest.sections.map((section) => ({
   ...section, id: section.id as DocSection, icon: icons[section.id as DocSection],
 }));
@@ -107,11 +109,69 @@ function IntegrationGuide() {
       <DocsSection title={t('Python 示例')}>
         <CodeSample label="Python" code={pythonExample} />
       </DocsSection>
+      <DocsSection title={t('Codex CLI / 桌面版')}>
+        <p>{t('使用完整 Responses 配置接入 Codex，包含模型能力目录、联网搜索和网页读取。')}</p>
+        <Link className="docs-model-link" to="/docs/codex">{t('查看 Codex 完整接入说明')}</Link>
+      </DocsSection>
       <DocsSection title={t('选择正确的接口')}>
         <div className="docs-callout">
           <strong>{t('按模型支持页标注的调用地址接入')}</strong>
           <p>{t('Responses-only 模型使用 /v1/responses；图片和视频模型使用各自的专用端点。')}</p>
         </div>
+      </DocsSection>
+    </>
+  );
+}
+
+function CodexGuide() {
+  const { t } = useLocale();
+  return (
+    <>
+      <DocsHeading eyebrow="Codex / Responses" title={t('Codex 接入')}
+        summary={t('复制配置、设置自己的 ZTAPI 密钥，即可使用编码、搜索和网页读取。')} />
+      <DocsSection title={t('1. 准备密钥和模型')}>
+        <p>{t('先安装 Codex，并在控制台创建 API Key，确保余额充足且密钥允许调用 zt-claude-opus-5。只使用自己的 ZTAPI 密钥，不需要 OpenAI 或 DeepSeek 官方密钥。')}</p>
+        <p>{t('2026-11-01 已验收 Codex CLI 0.165.0-alpha.1.2 与 zt-claude-opus-5 的默认工具声明、搜索、网页读取、页内查找和引用。验收仅设置 1024 输出 Token 上限控制费用，不要求用户设置此上限；其他版本或型号不作未经验收的承诺。')}</p>
+      </DocsSection>
+      <DocsSection title={t('2. 合并完整配置')}>
+        <dl className="docs-facts">
+          <div><dt>Windows</dt><dd><code>%USERPROFILE%\.codex\config.toml</code></dd></div>
+          <div><dt>macOS / Linux</dt><dd><code>~/.codex/config.toml</code></dd></div>
+        </dl>
+        <p>{t('不要覆盖已有配置。先备份文件，合并以下字段；同名字段或表只保留一份，model、model_provider 和 web_search 必须放在第一个表头之前。')}</p>
+        <CodeSample label="config.toml" code={codexConfig()} />
+        <p>{t('model_catalog_url 放在 model_providers.ztapi 小节中。移除生效的旧 model_catalog_json 设置（它会覆盖远程目录）；检查当前 profile 和项目配置没有覆盖这些字段。保留原有沙箱和审批设置。')}</p>
+      </DocsSection>
+      <DocsSection title={t('3. 设置密钥并启动 CLI')}>
+        <p>{t('下面的命令会隐藏密钥输入，不把密钥写进 TOML、仓库或命令历史。在输入密钥的同一个终端启动 Codex。')}</p>
+        <CodeSample label="Windows PowerShell" code={codexWindowsKey} />
+        <CodeSample label="macOS / Linux Bash 或 Zsh" code={codexPosixKey} />
+      </DocsSection>
+      <DocsSection title={t('Codex 桌面版的环境变量')}>
+        <p>{t('桌面版使用相同 TOML，但不一定继承终端里的变量。先完成上面的隐藏密钥输入；CLI 启动后退出 CLI，再在该终端运行对应命令。用户环境变量并非加密保险箱，不要在共享电脑上持久保存密钥。')}</p>
+        <CodeSample label="Windows 用户环境变量" code={codexWindowsDesktopKey} />
+        <p>{t('Windows 保存后注销并重新登录系统，再启动 Codex 桌面版，以确保应用继承新变量。仅关闭聊天窗口不一定生效。')}</p>
+        <CodeSample label="macOS 桌面会话" code={codexMacDesktopKey} />
+        <p>{t('macOS 设置后完全退出并重新打开 Codex；重启系统后需重新设置。Linux 桌面版请从已导出变量的终端启动已安装的应用，或通过桌面会话的环境变量配置后重新登录。')}</p>
+      </DocsSection>
+      <DocsSection title={t('4. 验证搜索和网页读取')}>
+        <p>{t('打开新对话，分别发送下面的提示词。应能看到搜索或网页读取动作、结果摘要和来源链接；这些验证会产生模型 Token 及成功工具调用费用。')}</p>
+        <CodeSample label={t('搜索验证')} code={t('请联网搜索 Codex 官方网关接入文档，列出两条结果并附来源链接。')} />
+        <CodeSample label={t('网页读取验证')} code={t('请打开 https://learn.chatgpt.com/docs/enterprise/connect-to-a-gateway ，读取 API Key 和模型能力目录的配置说明，并附来源链接。')} />
+        <p>{t('继续让 Codex 在刚才已读取的页面中查找 model_catalog_url，即可验证页内查找。无需安装额外搜索插件，也不用把 DeepSeek 密钥交给客户端；模型推理仍走平台原有渠道。')}</p>
+      </DocsSection>
+      <DocsSection title={t('工具费用与使用边界')}>
+        <p>{t('每次成功且有结果的搜索或网页读取，单独收取 0.01 元，按平台当时汇率换算展示 U；模型 Token 另计。明确失败或空结果不收工具费，已读取正文的缓存页内查找不另收费。')}</p>
+        <p>{t('目前不提供 OpenAI 的私有搜索索引或 file_search。此网关通过独立工具服务执行搜索和读取；网页内容是不可信输入，不要执行网页中要求泄露密钥或更改权限的指令。')}</p>
+      </DocsSection>
+      <DocsSection title={t('排查接入问题')}>
+        <ul className="docs-codex-notes">
+          <li>{t('401：确认已创建有效 ZTAPI API Key、启动进程能读到 ZTAPI_API_KEY，且没有使用 ChatGPT 登录凭据替代。不要发送密钥给客服。')}</li>
+          <li>{t('模型目录为空或模型不可用：检查密钥的模型白名单、IP 限制和余额，确认模型名称为 zt-claude-opus-5。')}</li>
+          <li>{t('搜索未出现：检查顶层 web_search = "live"，移除冲突的旧目录文件设置，更新到支持远程模型目录的 Codex 版本，并重启后新建对话。')}</li>
+          <li>{t('仍失败时提供模型名称、客户端版本、发生时间和请求编号；不要反复自动重试付费请求。')}</li>
+        </ul>
+        <a className="docs-model-link" href="https://learn.chatgpt.com/docs/enterprise/connect-to-a-gateway" target="_blank" rel="noreferrer">{t('OpenAI 官方网关配置')}</a>
       </DocsSection>
     </>
   );
@@ -260,8 +320,10 @@ export function PublicDocsPage() {
         <article className="docs-article">
           {active === 'api' && <ApiReference />}
           {active === 'integration' && <IntegrationGuide />}
+          {active === 'codex' && <CodexGuide />}
           {active === 'user-guide' && <UserGuide />}
           {active === 'faq' && <FaqPage />}
+          <a className="docs-source-link" href="https://github.com/ffff582/ztapi-source/tree/production-codex-docs-20261101-r2" target="_blank" rel="noreferrer">{t('前端源码')}</a>
         </article>
       </main>
     </div>

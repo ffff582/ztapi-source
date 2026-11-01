@@ -110,6 +110,7 @@ describe('model-aware client setup', () => {
     expect(code).toHaveTextContent('wire_api = "responses"');
     expect(code).toHaveTextContent('env_key = "ZTAPI_API_KEY"');
     expect(code).toHaveTextContent('requires_openai_auth = false');
+    expect(code).toHaveTextContent('model_catalog_url = "https://ztapi.vip/codex/models"');
     expect(code).not.toHaveTextContent(/chat.completions|model_catalog_json|OPENAI_API_KEY|approval_policy/);
     expect(guide.getByRole('note', { name: '客户端接入状态' })).toHaveTextContent('未验证');
     expect(guide.getByText('POST /v1/responses')).toBeVisible();
@@ -148,11 +149,15 @@ describe('model-aware client setup', () => {
     expect(guide.queryByTestId('client-setup-code')).not.toBeInTheDocument();
   });
 
-  it('keeps Codex Opus explicitly unresolved with no copyable claim of completed setup', async () => {
+  it('provides the qualified Opus setup with live search while keeping other Opus aliases unverified', async () => {
     const guide = await setup();
     select(guide, 'zt-claude-opus-5', 'codex');
-    expect(guide.getByRole('note', { name: '客户端接入状态' })).toHaveTextContent('完整上游客户端验收尚未完成');
-    expect(guide.queryByRole('button', { name: '复制配置' })).not.toBeInTheDocument();
+    expect(guide.getByRole('note', { name: '客户端接入状态' })).toHaveTextContent('2026-11-01');
+    expect(guide.getByRole('note', { name: '客户端接入状态' })).toHaveTextContent('搜索');
+    expect(guide.getByTestId('client-setup-code')).toHaveTextContent('web_search = "live"');
+    expect(guide.getByTestId('client-setup-code')).toHaveTextContent('model_catalog_url = "https://ztapi.vip/codex/models"');
+    expect(guide.getByRole('link', { name: '查看 Codex 完整接入说明' })).toHaveAttribute('href', '/docs/codex');
+    expect(getClientSetup({model_name:'zt-claude-opus-other',modality:'text',supported_endpoint_types:['openai']},'codex').status).not.toBe('verified');
     select(guide, 'zt-claude-opus-5', 'claude-code');
     expect(guide.getByTestId('client-setup-code')).toHaveTextContent('ANTHROPIC_API_KEY');
   });
