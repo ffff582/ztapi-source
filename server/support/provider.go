@@ -231,12 +231,17 @@ func (p *HTTPProvider) Complete(ctx context.Context, in ProviderInput) (Provider
 		out.Outcome = "usage_conflict"
 		return out, errors.New("support upstream usage conflicts")
 	}
+	inputRate, cached := p.input, int64(0)
 	if cache == nil {
-		out.Outcome = "usage_missing"
-		return out, errors.New("support upstream cache scope is missing")
+		// A missing cache counter cannot invalidate a visible answer or become a
+		// fabricated zero. Keep it unknown and freeze a conservative quote only.
+		inputRate = decimal.Max(p.input, p.cache)
+		out.QuoteEvidence += UnknownCacheUpperBoundSuffix
+	} else {
+		cached = *cache
 	}
-	uncached := decimal.NewFromInt(*u.PromptTokens - *cache)
-	credit := uncached.Mul(p.input).Add(decimal.NewFromInt(*u.CompletionTokens).Mul(p.output)).Add(decimal.NewFromInt(*cache).Mul(p.cache)).Div(decimal.NewFromInt(1_000_000)).Mul(p.group)
+	uncached := decimal.NewFromInt(*u.PromptTokens - cached)
+	credit := uncached.Mul(inputRate).Add(decimal.NewFromInt(*u.CompletionTokens).Mul(p.output)).Add(decimal.NewFromInt(cached).Mul(p.cache)).Div(decimal.NewFromInt(1_000_000)).Mul(p.group)
 	creditText := credit.String()
 	out.UpstreamCredit = &creditText
 	amount := credit.Mul(p.cash).String()

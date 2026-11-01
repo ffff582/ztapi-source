@@ -3,6 +3,8 @@ package support
 
 import "context"
 
+const UnknownCacheUpperBoundSuffix = ";cache_scope=unknown;quote_basis=all_input_at_max_rate_upper_bound"
+
 type ImageInput struct {
 	MIMEType   string `json:"mime_type"`
 	DataBase64 string `json:"data_base64"`

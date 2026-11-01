@@ -46,6 +46,23 @@ func TestProviderPreservesCacheScopeAndAppliesBothFactorsOnce(t *testing.T) {
 	require.Equal(t, "0.000008256", *r.UpstreamCredit, "group-adjusted credit is quoted separately from prepaid cash")
 }
 
+func TestProviderMissingCacheKeepsAnswerAndExplicitUpperBound(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"answer"}}],"usage":{"prompt_tokens":100,"completion_tokens":5}}`))
+	}))
+	defer srv.Close()
+	p, err := NewHTTPProvider(providerConfig(srv.URL), srv.Client())
+	require.NoError(t, err)
+	r, err := p.Complete(context.Background(), ProviderInput{})
+	require.NoError(t, err)
+	require.Equal(t, "completed", r.Outcome)
+	require.Equal(t, "answer", r.Content)
+	require.Nil(t, r.CacheReadTokens, "missing cache must not become a reported zero")
+	require.NotNil(t, r.QuoteCostU)
+	require.Equal(t, "0.00000495", *r.QuoteCostU)
+	require.Contains(t, r.QuoteEvidence, "quote_basis=all_input_at_max_rate_upper_bound")
+}
+
 func TestProviderRejectsConflictingUsageWithoutRetrying(t *testing.T) {
 	var calls atomic.Int32
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

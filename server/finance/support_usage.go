@@ -34,9 +34,13 @@ func validSupportUsage(u support.FinancialUsage, cutoff time.Time) bool {
 	if strings.TrimSpace(u.CallID) == "" || u.ChannelID <= 0 || strings.TrimSpace(u.Supplier) == "" ||
 		strings.TrimSpace(u.Model) == "" || u.Purpose != customerServicePurpose || !u.Dispatched ||
 		u.CompletedAt == nil || u.CompletedAt.Before(u.StartedAt) || u.CompletedAt.After(cutoff) ||
-		u.InputTokens == nil || u.OutputTokens == nil || u.CacheReadTokens == nil || *u.InputTokens < 0 || *u.OutputTokens < 0 ||
+		u.InputTokens == nil || u.OutputTokens == nil || *u.InputTokens < 0 || *u.OutputTokens < 0 ||
 		(u.InputTokenScope != "inclusive" && u.InputTokenScope != "uncached") {
 		return false
+	}
+	if u.CacheReadTokens == nil {
+		return u.InputTokenScope == "inclusive" && u.Outcome == "completed" && u.QuoteCostU != nil && u.ActualCostU == nil &&
+			strings.HasSuffix(u.QuoteEvidence, support.UnknownCacheUpperBoundSuffix)
 	}
 	return *u.CacheReadTokens >= 0 &&
 		(u.InputTokenScope != "inclusive" || *u.CacheReadTokens <= *u.InputTokens)
@@ -110,6 +114,9 @@ func (r *replay) buildSupportUsage(s Snapshot, totalCost *decimal.Decimal, compl
 		if valid && (hasActual || hasQuote) {
 			value := quote
 			row.Status, row.EvidenceType, row.Evidence = "estimate", "quote", u.QuoteEvidence
+			if u.CacheReadTokens == nil {
+				row.EvidenceType = "quote_upper_bound"
+			}
 			if hasActual {
 				value = actual
 				row.Status, row.EvidenceType, row.Evidence = "confirmed", "supplier_statement", u.ActualEvidence

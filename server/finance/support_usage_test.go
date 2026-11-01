@@ -95,6 +95,24 @@ func TestSupportUsageQuoteIsAddedToEstimatedProfitOnce(t *testing.T) {
 	require.Nil(t, r.GrossProfit)
 }
 
+func TestSupportUnknownCacheUpperBoundIsEstimateOnly(t *testing.T) {
+	u := supportUsageFixture()
+	u.CacheReadTokens, u.Outcome = nil, "completed"
+	u.QuoteEvidence += ";cache_scope=unknown;quote_basis=all_input_at_max_rate_upper_bound"
+	r := calculate(t, snapshotWithSupport(t, Snapshot{QuotaPerUnit: 500000}, "available", u), nil)
+	require.Len(t, r.CustomerServiceCosts, 1)
+	require.Equal(t, "estimate", r.CustomerServiceCosts[0].Status)
+	require.Equal(t, "quote_upper_bound", r.CustomerServiceCosts[0].EvidenceType)
+	require.Nil(t, r.CustomerServiceCosts[0].CacheReadTokens)
+	require.Equal(t, "0.030000", *r.EstimatedCost)
+	require.Nil(t, r.ActualCost)
+	actual := "0.01"
+	u.ActualCostU, u.ActualEvidence = &actual, "not enough to confirm cache scope"
+	r = calculate(t, snapshotWithSupport(t, Snapshot{QuotaPerUnit: 500000}, "available", u), nil)
+	require.Equal(t, "unconfirmed", r.CustomerServiceCosts[0].Status)
+	require.Nil(t, r.ActualCost)
+}
+
 func TestSupportUsageActualRequiresEvidenceAndMonthlyCoverageIsOnce(t *testing.T) {
 	for _, evidence := range []string{"", "supplier receipt-123"} {
 		t.Run(evidence, func(t *testing.T) {
