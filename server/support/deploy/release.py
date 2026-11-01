@@ -66,6 +66,11 @@ def digest(raw):
     return hashlib.sha256(raw).hexdigest()
 
 
+def copy_public_ca(source, destination):
+    shutil.copyfile(source, destination)
+    os.chmod(destination, 0o644)
+
+
 def save(path, data, mode=0o600):
     fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, 'O_NOFOLLOW', 0), mode)
     with os.fdopen(fd, 'wb') as stream:
@@ -274,7 +279,7 @@ def prepare():
         os.chmod(directory / ('ztapi-' + kind), 0o755)
         cert = 'COPY ca-certificates.crt /etc/ssl/certs/ca-certificates.crt\n' if kind != 'finance' else ''
         if cert:
-            shutil.copyfile('/etc/ssl/certs/ca-certificates.crt', directory / 'ca-certificates.crt')
+            copy_public_ca('/etc/ssl/certs/ca-certificates.crt', directory / 'ca-certificates.crt')
         (directory / 'Dockerfile').write_text('FROM scratch\n' + cert + 'COPY ztapi-' + kind + ' /ztapi-' + kind + '\nUSER 10001:10001\nLABEL org.opencontainers.image.revision="' + build['commit'] + '" org.opencontainers.image.source="https://github.com/ffff582/ztapi-source" org.opencontainers.image.licenses="AGPL-3.0-or-later"\nENTRYPOINT ["/ztapi-' + kind + '"]\n')
         docker('build', '-q', '-t', 'ztapi-' + kind + ':support-' + build['commit'][:12], str(directory), timeout=180)
     create_support('ztapi-support:support-' + build['commit'][:12], True)

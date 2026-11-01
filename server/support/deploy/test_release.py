@@ -3,6 +3,7 @@ from pathlib import Path
 import unittest
 import tempfile
 import json
+import os
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('support_release', Path(__file__).with_name('release.py'))
@@ -11,6 +12,19 @@ spec.loader.exec_module(release)
 
 
 class ReleaseTest(unittest.TestCase):
+    def test_public_ca_bundle_is_readable_by_nonroot_under_private_umask(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source, destination = Path(folder) / 'source.crt', Path(folder) / 'image.crt'
+            source.write_bytes(b'public-ca-fixture')
+            previous = os.umask(0o077)
+            try:
+                release.copy_public_ca(source, destination)
+            finally:
+                os.umask(previous)
+            self.assertEqual(destination.read_bytes(), source.read_bytes())
+            if os.name != 'nt':
+                self.assertEqual(destination.stat().st_mode & 0o777, 0o644)
+
     def test_failed_activation_stops_enabled_bot_and_keeps_finance_cost_reader(self):
         metadata = {'Config': {'Labels': {'ztapi.support.release': '20261102'}, 'Env': ['TELEGRAM_SUPPORT_ENABLED=true']}, 'State': {'Running': True}}
         original = b'set $ztapi_finance http://ztapi-finance:3011;'
