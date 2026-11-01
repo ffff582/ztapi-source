@@ -124,6 +124,9 @@ func validateSubmission(in Submission, now time.Time) error {
 		if c == nil || in.Funding != nil || in.Cost != nil || len(c.RequestID) == 0 || len(c.RequestID) > 128 || strings.TrimSpace(c.RequestID) != c.RequestID || c.Attempt <= 0 || c.ChannelID <= 0 || in.Ref != fmt.Sprintf("test:%s:%d:%d", c.RequestID, c.Attempt, c.ChannelID) {
 			return ErrInvalid
 		}
+		if validateInternalCostPurpose(c) != nil {
+			return ErrInvalid
+		}
 		if (c.InputTokens != nil && *c.InputTokens < 0) || (c.OutputTokens != nil && *c.OutputTokens < 0) {
 			return ErrInvalid
 		}
@@ -282,6 +285,13 @@ func (s *Store) Append(ctx context.Context, in Submission, operator int, now tim
 		}
 		if latest.ID != in.PreviousID {
 			return ErrConflict
+		}
+		if latest.ID != 0 && in.Kind == "test_cost" {
+			var previous TestCost
+			if common.UnmarshalJsonStr(latest.Payload, &previous) != nil ||
+				(previous.Purpose == customerServicePurpose) != (in.TestCost.Purpose == customerServicePurpose) {
+				return ErrConflict
+			}
 		}
 		identity := ""
 		if in.Kind == "direct_cost" {

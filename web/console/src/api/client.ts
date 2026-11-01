@@ -28,6 +28,7 @@ type AuthListener = (user: AuthUser | null) => void;
 
 let memorySession: AuthSessionData | null = null;
 let sessionGeneration = 0;
+let sessionLifecycle = 0;
 let refreshAttempt: {
   generation: number;
   controller: AbortController;
@@ -55,8 +56,14 @@ export function getAuthSession() {
   return memorySession;
 }
 
+// JWT refreshes retain this identity; explicit login/logout never do.
+export function getAuthSessionLifecycle() {
+  return sessionLifecycle;
+}
+
 export function setAuthSession(session: AuthSessionData) {
   sessionGeneration += 1;
+  sessionLifecycle += 1;
   refreshAttempt?.controller.abort();
   refreshAttempt = null;
   memorySession = session;
@@ -65,6 +72,7 @@ export function setAuthSession(session: AuthSessionData) {
 
 export function clearAuthSession() {
   sessionGeneration += 1;
+  sessionLifecycle += 1;
   refreshAttempt?.controller.abort();
   refreshAttempt = null;
   memorySession = null;
@@ -363,6 +371,7 @@ export function refreshSession(): Promise<AuthSessionData> {
     .then((session) => {
       if (generation === sessionGeneration) {
         sessionGeneration += 1;
+        if (memorySession?.user.id !== session.user.id) sessionLifecycle += 1;
         memorySession = session;
         notifyAuthListeners();
       }
@@ -372,6 +381,7 @@ export function refreshSession(): Promise<AuthSessionData> {
     .catch((error: unknown) => {
       if (generation === sessionGeneration) {
         sessionGeneration += 1;
+        sessionLifecycle += 1;
         memorySession = null;
         notifyAuthListeners();
       }

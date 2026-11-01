@@ -53,7 +53,7 @@ func (r *Reader) Load(ctx context.Context, before time.Time) (Snapshot, error) {
 	}
 	s := Snapshot{QuotaPerUnit: r.QuotaPerUnit, SourceCommit: r.SourceCommit}
 	err := r.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if e := bounded(tx, "users", "id,username", &s.Users, ""); e != nil {
+		if e := bounded(tx, "users", "id,username,role,deleted_at", &s.Users, ""); e != nil {
 			return e
 		}
 		if e := bounded(tx, "balance_ledgers", "id,user_id,delta,balance_before,balance_after,source_type,request_id,idempotency_key,created_at", &s.Ledgers, "created_at < ?", before); e != nil {

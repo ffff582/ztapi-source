@@ -1,16 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
-import { Menu, X } from 'lucide-react';
+import { Menu, Users, X, type LucideIcon } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { LanguageToggle } from '../../i18n/LanguageToggle';
 import { useLocale } from '../../i18n/locale';
 import { ThemeToggle } from '../../theme/ThemeToggle';
 import './public-header.css';
 
-const links: Array<{ label: string; to: string; external?: boolean }> = [
+const links: Array<{ label: string; to: string; external?: boolean; icon?: LucideIcon }> = [
   { label: '模型市场', to: '/models' },
   { label: 'API 文档', to: '/docs/integration' },
   { label: '快速接入', to: '/#quickstart' },
   { label: '支持', to: 'https://t.me/gan66', external: true },
+  { label: '用户交流群', to: 'https://t.me/ztapivip', external: true, icon: Users },
   { label: '登录', to: '/login' },
 ];
 
@@ -76,9 +77,10 @@ export function PublicHeader() {
                 key={link.label}
                 href={link.to}
                 target="_blank"
-                rel="noreferrer"
+                rel="noopener noreferrer"
                 onClick={() => setOpen(false)}
               >
+                {link.icon && <link.icon aria-hidden="true" size={16} />}
                 {t(link.label)}
               </a>
             ) : (

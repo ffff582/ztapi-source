@@ -150,6 +150,9 @@ func (r *replay) buildHostedToolReport(snapshot Snapshot) {
 		testCostRequests[cost.RequestID] = r.testRequests[cost.RequestID]
 	}
 	for request, settlement := range r.settlements {
+		if r.customerServiceRequests[request] {
+			continue // These calls are itemized exclusively in customer_service_costs.
+		}
 		tool := hostedToolName(settlement)
 		if tool == "" {
 			continue

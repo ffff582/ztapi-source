@@ -18,18 +18,23 @@ import (
 const prefix = "/api/admin/finance-reporting/"
 
 type handler struct {
-	source Source
-	store  *Store
-	origin string
-	now    func() time.Time
-	slots  chan struct{}
+	source  Source
+	support SupportUsageReader
+	store   *Store
+	origin  string
+	now     func() time.Time
+	slots   chan struct{}
 }
 
 func NewHandler(source Source, store *Store, origin string, now func() time.Time) http.Handler {
+	return NewHandlerWithSupportReader(source, store, origin, now, nil)
+}
+
+func NewHandlerWithSupportReader(source Source, store *Store, origin string, now func() time.Time, support SupportUsageReader) http.Handler {
 	if now == nil {
 		now = time.Now
 	}
-	return &handler{source: source, store: store, origin: origin, now: now, slots: make(chan struct{}, 2)}
+	return &handler{source: source, support: support, store: store, origin: origin, now: now, slots: make(chan struct{}, 2)}
 }
 func sendJSON(w http.ResponseWriter, status int, data any) {
 	raw, e := common.Marshal(data)
@@ -92,7 +97,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == "GET" && (r.URL.Path == prefix+"report" || r.URL.Path == prefix+"export"):
 		month := r.URL.Query().Get("month")
-		start, _, e := MonthBounds(month)
+		start, end, e := MonthBounds(month)
 		now := h.now()
 		if e != nil || start.After(now) {
 			failure(w, 400, "invalid_month")
@@ -108,6 +113,23 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if e != nil {
 			failure(w, 503, "financial_records_unavailable")
 			return
+		}
+		if h.support != nil {
+			source.SupportUsages = nil
+			source.SupportSourceStatus = SupportSourceAvailable
+			if before.Before(end) {
+				end = before
+			}
+			if end.After(start) {
+				supportCtx, supportCancel := context.WithTimeout(ctx, 2*time.Second)
+				usages, err := h.support(supportCtx, start, end)
+				supportCancel()
+				if err != nil {
+					source.SupportSourceStatus = SupportSourceUnavailable
+				} else {
+					source.SupportUsages = usages
+				}
+			}
 		}
 		report, e := Calculate(source, facts, month, now)
 		if e != nil {
@@ -185,6 +207,9 @@ func validSourceReference(s Snapshot, in Submission) bool {
 		for _, settlement := range s.Settlements {
 			if settlement.RequestID != in.TestCost.RequestID {
 				continue
+			}
+			if in.TestCost.Purpose == customerServicePurpose && !customerServiceOwner(s, settlement.UserID) {
+				return false
 			}
 			for _, attempt := range s.Attempts {
 				if attempt.SettlementID == settlement.ID && attempt.Attempt == in.TestCost.Attempt && attempt.ChannelID == in.TestCost.ChannelID && !attempt.CreatedAt.IsZero() {
@@ -280,6 +305,23 @@ func exportReport(w http.ResponseWriter, r Report) {
 			output = strconv.FormatInt(*c.OutputTokens, 10)
 		}
 		row(c.RequestID, strconv.Itoa(c.Attempt), strconv.Itoa(c.ChannelID), c.Model, input, output, c.AttemptAt.In(shanghai).Format(time.RFC3339), c.Status, c.Coverage, c.Amount, c.Refund, c.Currency, c.Rate, c.NetUSDT, c.NetCredit, c.EvidenceType, c.Evidence, c.CoverageEvidence, c.RefundEvidence, strconv.FormatUint(uint64(c.FactID), 10), c.RateEvidence, c.SupplierBillID)
+	}
+	row()
+	row("customer_service_confirmed_total", "customer_service_estimate_total", "customer_service_xcloud_credit_total", "support_source_status")
+	row(r.CustomerServiceConfirmedTotal, r.CustomerServiceEstimateTotal, r.CustomerServiceXcloudCreditTotal, r.SupportSourceStatus)
+	row("customer_service_cost", "attempt", "channel_id", "model", "input_tokens", "output_tokens", "input_token_scope", "cache_read_tokens", "cache_write_5m_tokens", "cache_write_1h_tokens", "attempt_at", "status", "coverage", "amount", "refund", "currency", "rate", "net_USDT", "net_xcloud_credit", "evidence", "coverage_evidence", "fact_id", "supplier_bill_id", "rate_evidence", "refund_evidence", "source_ref", "call_id")
+	count := func(p *int64) string {
+		if p == nil {
+			return ""
+		}
+		return strconv.FormatInt(*p, 10)
+	}
+	for _, c := range r.CustomerServiceCosts {
+		factID := ""
+		if c.FactID != 0 {
+			factID = strconv.FormatUint(uint64(c.FactID), 10)
+		}
+		row(c.RequestID, strconv.Itoa(c.Attempt), strconv.Itoa(c.ChannelID), c.Model, count(c.InputTokens), count(c.OutputTokens), c.InputTokenScope, count(c.CacheReadTokens), count(c.CacheWrite5mTokens), count(c.CacheWrite1hTokens), c.AttemptAt.In(shanghai).Format(time.RFC3339), c.Status, c.Coverage, c.Amount, c.Refund, c.Currency, c.Rate, c.NetUSDT, c.NetCredit, c.Evidence, c.CoverageEvidence, factID, c.SupplierBillID, c.RateEvidence, c.RefundEvidence, c.SourceRef, c.CallID)
 	}
 	row()
 	row("direct_supplier", "direct_account", "direct_bill_id", "verification_id", "channel_id", "model", "input_tokens", "output_tokens", "input_token_scope", "cache_read", "cache_write_5m", "cache_write_1h", "occurred_at", "amount", "currency", "rate", "rate_evidence", "net_USDT", "evidence", "link_evidence", "coverage", "coverage_evidence", "month_cost_fact_id", "identity", "fact_id")

@@ -93,29 +93,30 @@ func (p *basis) take(q decimal.Decimal) basis {
 }
 
 type replay struct {
-	report                *Report
-	start, end            time.Time
-	known                 decimal.Decimal
-	unknownRevenue        bool
-	pools                 map[int]*basis
-	holds                 map[string]*basis
-	consumed              map[string]*basis
-	consumedCharges       map[uint]*basis
-	charges               []Charge
-	primaryCharges        map[string][]Charge
-	refunds               map[int]Refund
-	finalized             map[string]bool
-	settlements           map[string]Settlement
-	funding               map[string]Fact
-	usernames             map[int]string
-	attemptChannels       map[uint]map[int]int
-	requiredChannels      map[int]bool
-	holdOwners            map[string]int
-	chargeChannels        map[uint]int
-	revenueByChannelModel map[int]map[string]decimal.Decimal
-	costUnknown           bool
-	testRequests          map[string]bool
-	hostedToolCash        map[string]hostedToolCash
+	report                  *Report
+	start, end              time.Time
+	known                   decimal.Decimal
+	unknownRevenue          bool
+	pools                   map[int]*basis
+	holds                   map[string]*basis
+	consumed                map[string]*basis
+	consumedCharges         map[uint]*basis
+	charges                 []Charge
+	primaryCharges          map[string][]Charge
+	refunds                 map[int]Refund
+	finalized               map[string]bool
+	settlements             map[string]Settlement
+	funding                 map[string]Fact
+	usernames               map[int]string
+	attemptChannels         map[uint]map[int]int
+	requiredChannels        map[int]bool
+	holdOwners              map[string]int
+	chargeChannels          map[uint]int
+	revenueByChannelModel   map[int]map[string]decimal.Decimal
+	costUnknown             bool
+	testRequests            map[string]bool
+	customerServiceRequests map[string]bool
+	hostedToolCash          map[string]hostedToolCash
 }
 
 func (r *replay) inMonth(t time.Time) bool { return !t.Before(r.start) && t.Before(r.end) }
@@ -198,6 +199,9 @@ func testRequestsForReport(s Snapshot, latest map[string]Fact, cutoff, now time.
 		}
 		c, valid := validReportTestCost(f, now)
 		if !valid {
+			continue
+		}
+		if c.Purpose == customerServicePurpose && !validSourceReference(s, Submission{Kind: "test_cost", TestCost: &c}) {
 			continue
 		}
 		settlement, exists := requests[c.RequestID]
@@ -489,7 +493,7 @@ func Calculate(s Snapshot, facts []Fact, month string, now time.Time) (Report, e
 	if cutoff.Before(start) {
 		return Report{}, errors.New("future month")
 	}
-	out := Report{Month: month, Timezone: "Asia/Shanghai", Currency: "USDT", AsOf: now.UTC(), PeriodClosed: !now.Before(end), QuotaPerUnit: s.QuotaPerUnit, Receipts: []Receipt{}, ManualFunding: []FundingRow{}, Channels: []ChannelUsage{}, Costs: []CostRow{}, TestCosts: []TestCostRow{}, Issues: []Issue{}}
+	out := Report{Month: month, Timezone: "Asia/Shanghai", Currency: "USDT", AsOf: now.UTC(), PeriodClosed: !now.Before(end), QuotaPerUnit: s.QuotaPerUnit, Receipts: []Receipt{}, ManualFunding: []FundingRow{}, Channels: []ChannelUsage{}, Costs: []CostRow{}, TestCosts: []TestCostRow{}, CustomerServiceCosts: []TestCostRow{}, Issues: []Issue{}}
 	out.SourceCommit = s.SourceCommit
 	r := &replay{report: &out, start: start, end: cutoff, pools: map[int]*basis{}, holds: map[string]*basis{}, consumed: map[string]*basis{}, finalized: map[string]bool{}, settlements: map[string]Settlement{}, funding: map[string]Fact{}, usernames: map[int]string{}, revenueByChannelModel: map[int]map[string]decimal.Decimal{}}
 	r.consumedCharges = map[uint]*basis{}
@@ -525,6 +529,13 @@ func Calculate(s Snapshot, facts []Fact, month string, now time.Time) (Report, e
 		}
 	}
 	r.testRequests = testRequestsForReport(s, latest, cutoff, now)
+	r.customerServiceRequests = map[string]bool{}
+	for _, fact := range latest {
+		if cost, ok := fact.Payload.(TestCost); fact.Kind == "test_cost" && ok &&
+			cost.Purpose == customerServicePurpose && r.testRequests[cost.RequestID] {
+			r.customerServiceRequests[cost.RequestID] = true
+		}
+	}
 	for _, f := range latest {
 		if f.Kind == "funding" {
 			r.funding[f.Ref] = f
@@ -795,6 +806,8 @@ func Calculate(s Snapshot, facts []Fact, month string, now time.Time) (Report, e
 		}
 	}
 	confirmedTests, estimatedTests, xcloudCredits := zero, zero, zero
+	confirmedService, estimatedService, serviceCredits := zero, zero, zero
+	internalCostRows := []TestCostRow{}
 	directCredits, directConfirmed := zero, zero
 	includedTestsByChannel := map[int]decimal.Decimal{}
 	requestBySettlement := map[uint]string{}
@@ -824,11 +837,25 @@ func Calculate(s Snapshot, facts []Fact, month string, now time.Time) (Report, e
 			r.issue("test_cost_invalid", f.Ref, 0)
 			continue
 		}
+		if c.Purpose == customerServicePurpose && !validSourceReference(s, Submission{Kind: "test_cost", TestCost: &c}) {
+			complete = false
+			r.issue("customer_service_cost_lineage_missing", f.Ref, 0)
+			continue
+		}
+		issue := func(code string) { r.issue(internalCostIssue(c, code), f.Ref, 0) }
+		appendRow := func(row TestCostRow) {
+			internalCostRows = append(internalCostRows, row)
+			if c.Purpose == customerServicePurpose {
+				out.CustomerServiceCosts = append(out.CustomerServiceCosts, row)
+			} else {
+				out.TestCosts = append(out.TestCosts, row)
+			}
+		}
 		key := fmt.Sprintf("test:%s:%d:%d", c.RequestID, c.Attempt, c.ChannelID)
 		at := attemptTimes[key]
 		if at.IsZero() || attemptCounts[key] != 1 || key != f.Ref {
 			complete = false
-			r.issue("test_cost_lineage_missing", f.Ref, 0)
+			issue("test_cost_lineage_missing")
 			continue
 		}
 		if !r.inMonth(at) {
@@ -840,15 +867,19 @@ func Calculate(s Snapshot, facts []Fact, month string, now time.Time) (Report, e
 			refund, refundErr := money(c.Refund, "USDT", "1")
 			if amountErr != nil || refundErr != nil || refund.GreaterThan(amount) || c.Status != "confirmed" || c.EvidenceType != "supplier_statement" || len(strings.TrimSpace(c.Evidence)) < 3 || (refund.IsPositive() && len(strings.TrimSpace(c.RefundEvidence)) < 3) || (c.Rate != "" && (len(strings.TrimSpace(c.RateEvidence)) < 3 || len(c.RateEvidence) > 500)) || (c.Rate == "" && c.Coverage != "unknown") {
 				complete = false
-				r.issue("test_cost_invalid", f.Ref, 0)
+				issue("test_cost_invalid")
 				continue
 			}
-			xcloudCredits = xcloudCredits.Add(amount.Sub(refund))
+			if c.Purpose == customerServicePurpose {
+				serviceCredits = serviceCredits.Add(amount.Sub(refund))
+			} else {
+				xcloudCredits = xcloudCredits.Add(amount.Sub(refund))
+			}
 			netCredit = amount.Sub(refund).StringFixed(8)
 			if c.Rate == "" {
-				out.TestCosts = append(out.TestCosts, TestCostRow{TestCost: c, FactID: f.ID, AttemptAt: at, Model: modelByRequest[c.RequestID], NetCredit: netCredit})
+				appendRow(TestCostRow{TestCost: c, FactID: f.ID, AttemptAt: at, Model: modelByRequest[c.RequestID], NetCredit: netCredit})
 				complete = false
-				r.issue("test_cost_exchange_missing", f.Ref, 0)
+				issue("test_cost_exchange_missing")
 				continue
 			}
 		}
@@ -860,12 +891,16 @@ func Calculate(s Snapshot, facts []Fact, month string, now time.Time) (Report, e
 		refund, re := money(c.Refund, currency, c.Rate)
 		if ae != nil || re != nil || refund.GreaterThan(amount) || (refund.IsPositive() && (c.Status != "confirmed" || len(strings.TrimSpace(c.RefundEvidence)) < 3)) || len(strings.TrimSpace(c.Evidence)) < 3 || (c.Status != "confirmed" && c.Status != "estimate") || (c.Status == "confirmed" && c.EvidenceType != "supplier_statement") || (c.Status == "estimate" && c.EvidenceType != "quote" && c.EvidenceType != "other") {
 			complete = false
-			r.issue("test_cost_invalid", f.Ref, 0)
+			issue("test_cost_invalid")
 			continue
 		}
 		net := amount.Sub(refund)
-		out.TestCosts = append(out.TestCosts, TestCostRow{TestCost: c, FactID: f.ID, AttemptAt: at, Model: modelByRequest[c.RequestID], NetUSDT: fixed(net), NetCredit: netCredit})
-		if c.Status == "confirmed" {
+		appendRow(TestCostRow{TestCost: c, FactID: f.ID, AttemptAt: at, Model: modelByRequest[c.RequestID], NetUSDT: fixed(net), NetCredit: netCredit})
+		if c.Purpose == customerServicePurpose && c.Status == "confirmed" {
+			confirmedService = confirmedService.Add(net)
+		} else if c.Purpose == customerServicePurpose {
+			estimatedService = estimatedService.Add(net)
+		} else if c.Status == "confirmed" {
 			confirmedTests = confirmedTests.Add(net)
 		} else {
 			estimatedTests = estimatedTests.Add(net)
@@ -880,7 +915,7 @@ func Calculate(s Snapshot, facts []Fact, month string, now time.Time) (Report, e
 			}
 			if !matched {
 				complete = false
-				r.issue("test_cost_coverage_missing", f.Ref, 0)
+				issue("test_cost_coverage_missing")
 			} else if c.Status == "confirmed" {
 				includedTestsByChannel[c.ChannelID] = includedTestsByChannel[c.ChannelID].Add(net)
 			}
@@ -893,13 +928,13 @@ func Calculate(s Snapshot, facts []Fact, month string, now time.Time) (Report, e
 			}
 			if c.Status != "confirmed" || len(strings.TrimSpace(c.CoverageEvidence)) < 3 || conflicts {
 				complete = false
-				r.issue("test_cost_unconfirmed", f.Ref, 0)
+				issue("test_cost_unconfirmed")
 			} else {
 				totalCost = totalCost.Add(net)
 			}
 		default:
 			complete = false
-			r.issue("test_cost_coverage_missing", f.Ref, 0)
+			issue("test_cost_coverage_missing")
 		}
 	}
 	for _, f := range latest {
@@ -924,7 +959,7 @@ func Calculate(s Snapshot, facts []Fact, month string, now time.Time) (Report, e
 		}
 		row := DirectCostRow{DirectCost: c, FactID: f.ID, Ref: f.Ref}
 		overlap := false
-		for _, test := range out.TestCosts {
+		for _, test := range internalCostRows {
 			// Missing legacy identities cannot prove these are distinct bills.
 			if test.SupplierBillID == "" || strings.EqualFold(test.SupplierBillID, c.BillID) {
 				overlap = true
@@ -1003,12 +1038,22 @@ func Calculate(s Snapshot, facts []Fact, month string, now time.Time) (Report, e
 		}
 	}
 	out.TestConfirmedTotal = fixed(confirmedTests)
+	out.CustomerServiceConfirmedTotal = fixed(confirmedService)
+	out.CustomerServiceEstimateTotal = fixed(estimatedService)
+	out.CustomerServiceXcloudCreditTotal = serviceCredits.StringFixed(8)
 	out.TestEstimateTotal = fixed(estimatedTests)
 	out.TestXcloudCreditTotal = xcloudCredits.StringFixed(8)
 	out.DirectXcloudCreditTotal = directCredits.StringFixed(8)
 	out.DirectConfirmedTotal = fixed(directConfirmed)
+	r.buildSupportUsage(s, &totalCost, &complete, includedTestsByChannel)
 	sort.Slice(out.DirectCosts, func(i, j int) bool { return out.DirectCosts[i].FactID < out.DirectCosts[j].FactID })
 	sort.Slice(out.TestCosts, func(i, j int) bool { return out.TestCosts[i].FactID < out.TestCosts[j].FactID })
+	sort.Slice(out.CustomerServiceCosts, func(i, j int) bool {
+		if out.CustomerServiceCosts[i].FactID != out.CustomerServiceCosts[j].FactID {
+			return out.CustomerServiceCosts[i].FactID < out.CustomerServiceCosts[j].FactID
+		}
+		return out.CustomerServiceCosts[i].SourceRef < out.CustomerServiceCosts[j].SourceRef
+	})
 	r.buildHostedToolReport(s)
 	out.RecordedCost = fixed(totalCost)
 	if complete {

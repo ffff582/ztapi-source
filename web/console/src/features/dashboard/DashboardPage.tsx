@@ -1,10 +1,11 @@
-import { Activity, Check, Circle, Gauge, ListChecks } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { apiClient } from '../../api/client';
+import { Activity, Check, Circle, Gauge, ListChecks, RefreshCw } from 'lucide-react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
+import { apiClient, getAuthSession, subscribeAuthSession } from '../../api/client';
+import { loadUsageStatistics, usageRangeTimestamps, type UsageRange, type UsageStatistics } from '../../api/usage-statistics';
 import { AccountBalance } from '../wallet/AccountBalance';
 import {
+  DataContractError,
   parseAuthUser,
-  parseUserLogPage,
   parseUserLogStat,
   parseUserTokenPage,
   type AuthUser,
@@ -20,9 +21,11 @@ interface DashboardData {
   logs: UserLogItem[];
   total: number;
   tokenCount: number;
+  statistics: UsageStatistics;
+  range: UsageRange;
 }
 
-type DashboardRange = 'today' | 'yesterday' | '7d' | '30d';
+type DashboardRange = UsageRange;
 
 const dashboardRanges: Array<{ value: DashboardRange; label: string }> = [
   { value: 'today', label: '今天' },
@@ -30,26 +33,6 @@ const dashboardRanges: Array<{ value: DashboardRange; label: string }> = [
   { value: '7d', label: '近 7 天' },
   { value: '30d', label: '近 30 天' },
 ];
-
-function dashboardRangeTimestamps(range: DashboardRange) {
-  const now = new Date();
-  const endOfRange = Math.floor(now.getTime() / 1000);
-  const startOfToday = new Date(now);
-  startOfToday.setHours(0, 0, 0, 0);
-  const todayStart = Math.floor(startOfToday.getTime() / 1000);
-  if (range === 'today') {
-    return { start: todayStart, end: endOfRange };
-  }
-  if (range === 'yesterday') {
-    const yesterdayStart = new Date(startOfToday);
-    yesterdayStart.setDate(yesterdayStart.getDate() - 1);
-    return { start: Math.floor(yesterdayStart.getTime() / 1000), end: todayStart };
-  }
-  const days = range === '7d' ? 6 : 29;
-  const rangeStart = new Date(startOfToday);
-  rangeStart.setDate(rangeStart.getDate() - days);
-  return { start: Math.floor(rangeStart.getTime() / 1000), end: endOfRange };
-}
 
 function formatTimestamp(timestamp: number, locale: 'zh-CN' | 'en') {
   return new Intl.DateTimeFormat(localeTag(locale), {
@@ -66,44 +49,51 @@ export function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [range, setRange] = useState<DashboardRange>('7d');
+  const [revision, setRevision] = useState(0);
+  const userID = useSyncExternalStore(subscribeAuthSession, getAuthSession, getAuthSession)?.user.id;
 
   useEffect(() => {
-    let active = true;
+    const controller = new AbortController();
     setStatus('loading');
-    const timestamps = dashboardRangeTimestamps(range);
+    setData(null);
+    const timestamps = usageRangeTimestamps(range);
     const rangeQuery = new URLSearchParams({
       start_timestamp: String(timestamps.start),
       end_timestamp: String(timestamps.end),
     }).toString();
     void Promise.all([
-      apiClient.get<unknown>('/auth/session'),
-      apiClient.get<unknown>(`/log/self/stat?${rangeQuery}`),
-      apiClient.get<unknown>(`/log/self?p=1&page_size=5&${rangeQuery}`),
-      apiClient.get<unknown>('/token/?p=1&page_size=1'),
+      apiClient.get<unknown>('/auth/session', { signal: controller.signal }),
+      apiClient.get<unknown>(`/log/self/stat?${rangeQuery}`, { signal: controller.signal }),
+      loadUsageStatistics(timestamps, controller.signal),
+      apiClient.get<unknown>('/token/?p=1&page_size=1', { signal: controller.signal }),
     ])
-      .then(([userValue, statValue, logValue, tokenValue]) => {
-        const page = parseUserLogPage(logValue);
+      .then(([userValue, statValue, statistics, tokenValue]) => {
+        const user = parseAuthUser(userValue);
+        if (user.id !== userID) throw new DataContractError();
         const tokenPage = parseUserTokenPage(tokenValue);
-        if (active) {
+        if (!controller.signal.aborted && getAuthSession()?.user.id === userID) {
           setData({
-            user: parseAuthUser(userValue),
+            user,
             stat: parseUserLogStat(statValue),
-            logs: page.items,
-            total: page.total,
+            logs: statistics.recent,
+            total: statistics.requestCount,
             tokenCount: tokenPage.total,
+            statistics,
+            range,
           });
           setStatus('ready');
         }
       })
       .catch(() => {
-        if (active) {
+        if (!controller.signal.aborted) {
           setStatus('error');
+          controller.abort();
         }
       });
     return () => {
-      active = false;
+      controller.abort();
     };
-  }, [range]);
+  }, [range, revision, userID]);
 
   return (
     <div className="console-page">
@@ -139,47 +129,50 @@ export function DashboardPage() {
       )}
       {status === 'error' && (
         <div className="console-state console-state--error" role="alert">
-          {t('使用数据加载失败，请稍后重试。')}
+          <span>{locale === 'en' ? 'Period statistics could not be verified. No partial totals are shown. Retry or select a shorter range.' : '期间统计未能完整核验，未展示部分合计。请重试或缩短范围。'}</span>
+          <button className="console-icon-action" type="button" onClick={() => setRevision((value) => value + 1)}
+            aria-label={locale === 'en' ? 'Retry statistics' : '重试统计'} title={locale === 'en' ? 'Retry statistics' : '重试统计'}>
+            <RefreshCw aria-hidden="true" size={18} />
+          </button>
         </div>
       )}
-      {status === 'ready' && data !== null && (
+      {status === 'ready' && data !== null && data.range === range && data.user.id === userID && (
         <>
           {(() => {
-            const recentSpend = data.logs.reduce((total, log) => total + log.billed_amount, 0);
-            const recentTokens = data.logs.reduce((total, log) => total + log.total_tokens, 0);
             const modelCounts = data.logs.reduce<Record<string, number>>((counts, log) => {
               counts[log.model || t('未知模型')] = (counts[log.model || t('未知模型')] || 0) + 1;
               return counts;
             }, {});
             const topModels = Object.entries(modelCounts).sort((left, right) => right[1] - left[1]).slice(0, 4);
+            const recentSettled = data.logs.filter((log) => log.status === 'success');
             return (
               <>
                 <section className="dashboard-metrics" aria-label={t('关键统计')}>
                   <div className="dashboard-metric-card dashboard-metric-card--spend">
-                    <span>{t('最近记录消费')}</span>
-                    <strong>{recentSpend.toFixed(6)} U</strong>
-                    <small>{t('按当前展示记录统计')}</small>
+                    <span>{locale === 'en' ? 'Settled charge' : '已结算费用'}</span>
+                    <strong>{data.statistics.settledCharge.toFixed(6)} U</strong>
+                    <small>{locale === 'en' ? 'Selected period, excluding pending holds' : '所选期间，不含待核账预留'}</small>
                   </div>
                   <div className="dashboard-metric-card dashboard-metric-card--requests">
-                    <span>{t('请求次数')}</span>
+                    <span>{locale === 'en' ? 'Request records' : '请求记录数'}</span>
                     <strong>{data.total}</strong>
-                    <small>{t('最近一分钟 {{count}} 次', { count: data.stat.rpm })}</small>
+                    <small>{locale === 'en' ? 'Selected period, settled and failed records' : '所选期间，已结算与失败记录'}</small>
                   </div>
                   <div className="dashboard-metric-card dashboard-metric-card--tokens">
-                    <span>{t('Token 用量')}</span>
-                    <strong>{recentTokens.toLocaleString()}</strong>
-                    <small>{t('最近展示记录合计')}</small>
+                    <span>{locale === 'en' ? 'Settled tokens' : '已结算 Token'}</span>
+                    <strong>{data.statistics.settledTokens.toLocaleString(localeTag(locale))}</strong>
+                    <small>{locale === 'en' ? 'Selected period, input + output' : '所选期间，输入 + 输出'}</small>
                   </div>
                 </section>
 
                 <section className="dashboard-analysis" aria-label={t('调用分析')}>
                   <div className="dashboard-analysis__panel">
                     <div className="dashboard-analysis__heading">
-                      <div><p className="console-eyebrow">{t('最近请求')}</p><h2>{t('消费趋势')}</h2></div>
+                      <div><p className="console-eyebrow">{t('最近请求')}</p><h2>{locale === 'en' ? 'Recent settled charges' : '最近已结算费用'}</h2></div>
                       <span>{t('按当前展示记录')}</span>
                     </div>
                     <div className="dashboard-bars" aria-label={t('最近记录消费趋势')}>
-                      {data.logs.length === 0 ? <span>{t('暂无足够数据')}</span> : data.logs.map((log) => (
+                      {recentSettled.length === 0 ? <span>{t('暂无足够数据')}</span> : recentSettled.map((log) => (
                         <div key={`${log.timestamp}-${log.request_id}`} className="dashboard-bars__item">
                           <i style={{ height: `${Math.max(12, Math.min(100, log.billed_amount * 10000))}%` }} />
                           <small>{log.model || t('未知')}</small>
@@ -189,7 +182,7 @@ export function DashboardPage() {
                   </div>
                   <div className="dashboard-analysis__panel">
                     <div className="dashboard-analysis__heading">
-                      <div><p className="console-eyebrow">{t('调用分布')}</p><h2>{t('模型排行')}</h2></div>
+                      <div><p className="console-eyebrow">{t('调用分布')}</p><h2>{locale === 'en' ? 'Recent-record model distribution' : '最近记录模型分布'}</h2></div>
                       <span>{t('{{count}} 条记录', { count: data.logs.length })}</span>
                     </div>
                     <div className="dashboard-model-list">
@@ -249,12 +242,12 @@ export function DashboardPage() {
             </div>
             <div className="summary-metric">
               <Gauge aria-hidden="true" size={20} />
-              <span>{t('最近一分钟请求')}</span>
+              <span>{locale === 'en' ? 'Settled requests in the last minute' : '最近一分钟已结算请求'}</span>
               <strong>{data.stat.rpm}</strong>
             </div>
             <div className="summary-metric">
               <ListChecks aria-hidden="true" size={20} />
-              <span>{t('最近一分钟 Tokens')}</span>
+              <span>{locale === 'en' ? 'Settled tokens in the last minute' : '最近一分钟已结算 Token'}</span>
               <strong>{data.stat.tpm}</strong>
             </div>
           </section>
@@ -275,7 +268,7 @@ export function DashboardPage() {
                   <thead>
                     <tr>
                       <th scope="col">{t('模型')}</th>
-                      <th scope="col">{t('实际费用')}</th>
+                      <th scope="col">{locale === 'en' ? 'Settled charge' : '已结算费用'}</th>
                       <th scope="col">{t('Token 用量')}</th>
                       <th scope="col">{t('状态与耗时')}</th>
                       <th scope="col">{t('调用时间')}</th>
@@ -290,9 +283,9 @@ export function DashboardPage() {
                           <strong>{log.model || '—'}</strong>
                         </td>
                         <td className="usage-log-charge-cell">
-                          <span aria-hidden="true" className="usage-log-cell-label">{t('实际费用')}</span>
-                          <strong>{log.billed_amount.toFixed(6)} U</strong>
-                          <small>{t('本次实际扣费')}</small>
+                          <span aria-hidden="true" className="usage-log-cell-label">{locale === 'en' ? 'Settled charge' : '已结算费用'}</span>
+                          <strong>{log.status === 'success' ? `${log.billed_amount.toFixed(6)} U` : '—'}</strong>
+                          <small>{log.status === 'success' ? t('本次实际扣费') : locale === 'en' ? 'No settlement recorded' : '未记录结算费用'}</small>
                         </td>
                         <td>
                           <span aria-hidden="true" className="usage-log-cell-label">{t('Token 用量')}</span>
@@ -309,7 +302,7 @@ export function DashboardPage() {
                             className={`console-status console-status--${log.status}`}
                           >
                             {log.status === 'success'
-                              ? t('成功')
+                              ? locale === 'en' ? 'Settled' : '已结算'
                               : log.status === 'error'
                                 ? t('失败')
                                 : t('记录')}

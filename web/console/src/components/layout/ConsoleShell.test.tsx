@@ -25,6 +25,7 @@ describe('ConsoleShell navigation', () => {
     expect(within(accountGroup).getByRole('link', { name: '用量日志' })).toHaveAttribute('href', '/console/logs');
     expect(within(accountGroup).getByRole('link', { name: '账单充值' })).toHaveAttribute('href', '/console/wallet');
     expect(within(accountGroup).getByRole('link', { name: '账号设置' })).toHaveAttribute('href', '/console/account');
+    expect(within(accountGroup).getByRole('link', { name: '平台客服' })).toHaveAttribute('href', '/console/support');
     const productMode = screen.getByRole('group', { name: '产品模式' });
     expect(within(productMode).getByRole('link', { name: '控制台' })).toHaveAttribute('href', '/console');
     expect(within(productMode).getByRole('link', { name: '工作台' })).toHaveAttribute('href', '/console/workbench/text');

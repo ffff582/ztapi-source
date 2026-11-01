@@ -12,6 +12,7 @@ import {
 import { adminRequest, adminDownload } from '../../auth/admin-session.js';
 import './overview.css';
 import DirectCostDialog from './DirectCostDialog.jsx';
+import CustomerServiceCosts from './CustomerServiceCosts.jsx';
 
 const API = '/api/admin/finance-reporting/';
 const monthNow = () =>
@@ -57,6 +58,11 @@ const reasons = {
   test_cost_unconfirmed: '额外测试费用尚未确认',
   test_cost_invalid: '测试费用凭证或金额待核对',
   test_cost_lineage_missing: '测试请求尝试来源待核对',
+  customer_service_cost_coverage_missing: '客服费用与整月账单覆盖关系待核对',
+  customer_service_cost_exchange_missing: '客服费用现金折算待核对',
+  customer_service_cost_unconfirmed: '额外客服费用尚未确认',
+  customer_service_cost_invalid: '客服费用凭证或金额待核对',
+  customer_service_cost_lineage_missing: '客服请求的内部调用来源待核对',
   direct_cost_invalid: '直接验收费用凭证待核对',
   direct_cost_exchange_missing: '直接验收费用折算待核对',
   direct_cost_coverage_missing: '直接验收费用账单覆盖待核对',
@@ -83,7 +89,7 @@ function HostedToolCosts({ rows }) {
         <div>
           <h2>托管工具费用</h2>
           <span className='finance-muted'>
-            成功调用按次计量 · 测试为调用及费用的子集
+            客户与管理测试按次计量 · 客服费用单独列示
           </span>
         </div>
       </header>
@@ -981,6 +987,7 @@ export default function OverviewPage({ canWrite = false }) {
             ))}
           </dl>
           <HostedToolCosts rows={report.hosted_tools} />
+          <CustomerServiceCosts report={report} />
           <section aria-label='测试费用'>
             <header className='finance-toolbar'>
               <div>

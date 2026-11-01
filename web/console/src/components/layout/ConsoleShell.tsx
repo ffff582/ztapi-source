@@ -3,6 +3,7 @@ import {
   Boxes,
   KeyRound,
   LayoutDashboard,
+  LifeBuoy,
   ScrollText,
   UserRound,
   WalletCards,
@@ -27,6 +28,7 @@ const consoleNavigation = [
       { to: '/console/logs', label: '用量日志', icon: ScrollText, end: false },
       { to: '/console/wallet', label: '账单充值', icon: WalletCards, end: false },
       { to: '/console/account', label: '账号设置', icon: UserRound, end: false },
+      { to: '/console/support', label: '平台客服', icon: LifeBuoy, end: false },
     ],
   },
 ];

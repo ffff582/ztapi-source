@@ -1,7 +1,11 @@
 // Copyright (C) 2026 QuantumNous. SPDX-License-Identifier: AGPL-3.0-or-later
 package finance
 
-import "time"
+import (
+	"time"
+
+	"github.com/QuantumNous/new-api/support"
+)
 
 type User struct {
 	ID        int
@@ -55,17 +59,19 @@ type Channel struct {
 	BaseURL string
 }
 type Snapshot struct {
-	SourceCommit  string
-	QuotaPerUnit  int64
-	Users         []User
-	Ledgers       []Ledger
-	Settlements   []Settlement
-	Attempts      []Attempt
-	Payments      []Payment
-	Channels      []Channel
-	Charges       []Charge
-	Refunds       []Refund
-	Verifications []Verification
+	SupportUsages       []support.FinancialUsage `json:"support_usages"`
+	SupportSourceStatus string                   `json:"support_source_status"`
+	SourceCommit        string
+	QuotaPerUnit        int64
+	Users               []User
+	Ledgers             []Ledger
+	Settlements         []Settlement
+	Attempts            []Attempt
+	Payments            []Payment
+	Channels            []Channel
+	Charges             []Charge
+	Refunds             []Refund
+	Verifications       []Verification
 }
 type Verification struct {
 	ID            int64
@@ -95,23 +101,28 @@ type Cost struct {
 	ExcludedDirectBillRefs []string `json:"excluded_direct_bill_refs,omitempty"`
 }
 type TestCost struct {
-	RequestID        string `json:"request_id"`
-	Attempt          int    `json:"attempt"`
-	ChannelID        int    `json:"channel_id"`
-	InputTokens      *int64 `json:"input_tokens,omitempty"`
-	OutputTokens     *int64 `json:"output_tokens,omitempty"`
-	Status           string `json:"status"`
-	EvidenceType     string `json:"evidence_type"`
-	Coverage         string `json:"coverage"`
-	Amount           string `json:"amount"`
-	Refund           string `json:"refund"`
-	RefundEvidence   string `json:"refund_evidence"`
-	Currency         string `json:"currency"`
-	Rate             string `json:"rate"`
-	RateEvidence     string `json:"rate_evidence,omitempty"`
-	Evidence         string `json:"evidence"`
-	CoverageEvidence string `json:"coverage_evidence"`
-	SupplierBillID   string `json:"supplier_bill_id,omitempty"`
+	Purpose            string `json:"purpose,omitempty"`
+	RequestID          string `json:"request_id"`
+	Attempt            int    `json:"attempt"`
+	ChannelID          int    `json:"channel_id"`
+	InputTokens        *int64 `json:"input_tokens,omitempty"`
+	OutputTokens       *int64 `json:"output_tokens,omitempty"`
+	InputTokenScope    string `json:"input_token_scope,omitempty"`
+	CacheReadTokens    *int64 `json:"cache_read_tokens,omitempty"`
+	CacheWrite5mTokens *int64 `json:"cache_write_5m_tokens,omitempty"`
+	CacheWrite1hTokens *int64 `json:"cache_write_1h_tokens,omitempty"`
+	Status             string `json:"status"`
+	EvidenceType       string `json:"evidence_type"`
+	Coverage           string `json:"coverage"`
+	Amount             string `json:"amount"`
+	Refund             string `json:"refund"`
+	RefundEvidence     string `json:"refund_evidence"`
+	Currency           string `json:"currency"`
+	Rate               string `json:"rate"`
+	RateEvidence       string `json:"rate_evidence,omitempty"`
+	Evidence           string `json:"evidence"`
+	CoverageEvidence   string `json:"coverage_evidence"`
+	SupplierBillID     string `json:"supplier_bill_id,omitempty"`
 }
 
 // DirectCost identifies a supplier bill independently of platform requests.
@@ -194,6 +205,8 @@ type CostRow struct {
 }
 type TestCostRow struct {
 	TestCost
+	SourceRef string    `json:"source_ref,omitempty"`
+	CallID    string    `json:"call_id,omitempty"`
 	FactID    uint      `json:"fact_id"`
 	AttemptAt time.Time `json:"attempt_at"`
 	Model     string    `json:"model"`
@@ -215,41 +228,46 @@ type SupplierEstimateRow struct {
 	Complete        bool             `json:"complete"`
 }
 type Report struct {
-	SourceCommit            string                `json:"source_commit,omitempty"`
-	Month                   string                `json:"month"`
-	Timezone                string                `json:"timezone"`
-	Currency                string                `json:"currency"`
-	AsOf                    time.Time             `json:"as_of"`
-	PeriodClosed            bool                  `json:"period_closed"`
-	Confirmed               bool                  `json:"confirmed"`
-	Revenue                 *string               `json:"revenue"`
-	KnownRevenue            string                `json:"known_revenue"`
-	ActualCost              *string               `json:"actual_cost"`
-	RecordedCost            string                `json:"recorded_cost"`
-	GrossProfit             *string               `json:"gross_profit"`
-	Margin                  *string               `json:"margin"`
-	EstimatedCost           *string               `json:"estimated_cost"`
-	EstimatedGrossProfit    *string               `json:"estimated_gross_profit"`
-	EstimateComplete        bool                  `json:"estimate_complete"`
-	ReceiptsTotal           string                `json:"receipts_total"`
-	ChargedQuota            int64                 `json:"charged_quota"`
-	PendingRequests         int                   `json:"pending_requests"`
-	PendingQuota            int64                 `json:"pending_quota"`
-	QuotaPerUnit            int64                 `json:"quota_per_unit"`
-	Receipts                []Receipt             `json:"receipts"`
-	ManualFunding           []FundingRow          `json:"manual_funding"`
-	Channels                []ChannelUsage        `json:"channels"`
-	Costs                   []CostRow             `json:"costs"`
-	TestCosts               []TestCostRow         `json:"test_costs"`
-	DirectCosts             []DirectCostRow       `json:"direct_costs"`
-	DirectXcloudCreditTotal string                `json:"direct_xcloud_credit_total"`
-	DirectConfirmedTotal    string                `json:"direct_confirmed_total"`
-	TestConfirmedTotal      string                `json:"test_confirmed_total"`
-	TestEstimateTotal       string                `json:"test_estimate_total"`
-	TestXcloudCreditTotal   string                `json:"test_xcloud_credit_total"`
-	Estimates               []SupplierEstimateRow `json:"estimates"`
-	HostedTools             []HostedToolRow       `json:"hosted_tools,omitempty"`
-	EstimateIssues          []Issue               `json:"estimate_issues"`
-	Issues                  []Issue               `json:"issues"`
-	IssueCount              int                   `json:"issue_count"`
+	SupportSourceStatus              string                `json:"support_source_status"`
+	SourceCommit                     string                `json:"source_commit,omitempty"`
+	Month                            string                `json:"month"`
+	Timezone                         string                `json:"timezone"`
+	Currency                         string                `json:"currency"`
+	AsOf                             time.Time             `json:"as_of"`
+	PeriodClosed                     bool                  `json:"period_closed"`
+	Confirmed                        bool                  `json:"confirmed"`
+	Revenue                          *string               `json:"revenue"`
+	KnownRevenue                     string                `json:"known_revenue"`
+	ActualCost                       *string               `json:"actual_cost"`
+	RecordedCost                     string                `json:"recorded_cost"`
+	GrossProfit                      *string               `json:"gross_profit"`
+	Margin                           *string               `json:"margin"`
+	EstimatedCost                    *string               `json:"estimated_cost"`
+	EstimatedGrossProfit             *string               `json:"estimated_gross_profit"`
+	EstimateComplete                 bool                  `json:"estimate_complete"`
+	ReceiptsTotal                    string                `json:"receipts_total"`
+	ChargedQuota                     int64                 `json:"charged_quota"`
+	PendingRequests                  int                   `json:"pending_requests"`
+	PendingQuota                     int64                 `json:"pending_quota"`
+	QuotaPerUnit                     int64                 `json:"quota_per_unit"`
+	Receipts                         []Receipt             `json:"receipts"`
+	ManualFunding                    []FundingRow          `json:"manual_funding"`
+	Channels                         []ChannelUsage        `json:"channels"`
+	Costs                            []CostRow             `json:"costs"`
+	TestCosts                        []TestCostRow         `json:"test_costs"`
+	CustomerServiceCosts             []TestCostRow         `json:"customer_service_costs"`
+	CustomerServiceConfirmedTotal    string                `json:"customer_service_confirmed_total"`
+	CustomerServiceEstimateTotal     string                `json:"customer_service_estimate_total"`
+	CustomerServiceXcloudCreditTotal string                `json:"customer_service_xcloud_credit_total"`
+	DirectCosts                      []DirectCostRow       `json:"direct_costs"`
+	DirectXcloudCreditTotal          string                `json:"direct_xcloud_credit_total"`
+	DirectConfirmedTotal             string                `json:"direct_confirmed_total"`
+	TestConfirmedTotal               string                `json:"test_confirmed_total"`
+	TestEstimateTotal                string                `json:"test_estimate_total"`
+	TestXcloudCreditTotal            string                `json:"test_xcloud_credit_total"`
+	Estimates                        []SupplierEstimateRow `json:"estimates"`
+	HostedTools                      []HostedToolRow       `json:"hosted_tools,omitempty"`
+	EstimateIssues                   []Issue               `json:"estimate_issues"`
+	Issues                           []Issue               `json:"issues"`
+	IssueCount                       int                   `json:"issue_count"`
 }

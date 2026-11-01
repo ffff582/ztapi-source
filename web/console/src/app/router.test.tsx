@@ -128,11 +128,18 @@ it.each([
   ['/console/test', '文本工作台'],
   ['/console/guide', '使用说明'],
   ['/console/logs', '使用日志'],
+  ['/console/support', '平台客服'],
   ['/console/wallet', '余额充值'],
 ])('renders the authenticated %s route', async (path, heading) => {
   renderWithProviders(path, true);
 
   expect(await screen.findByRole('heading', { name: heading })).toBeInTheDocument();
+});
+
+it('protects the standalone support route from unauthenticated access', async () => {
+  renderWithProviders('/console/support', false);
+  expect(await screen.findByRole('heading', { name: '登录 ZTAPI' })).toBeVisible();
+  expect(screen.queryByLabelText('客服聊天')).toBeNull();
 });
 
 it('keeps model support and integration guidance in the console navigation', async () => {

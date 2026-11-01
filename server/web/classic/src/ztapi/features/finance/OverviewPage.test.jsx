@@ -9,6 +9,7 @@ import {
   within,
 } from '@testing-library/react';
 import OverviewPage from './OverviewPage.jsx';
+import CustomerServiceCosts from './CustomerServiceCosts.jsx';
 import { adminRequest, adminDownload } from '../../auth/admin-session.js';
 vi.mock('../../auth/admin-session.js', () => ({
   adminRequest: vi.fn(),
@@ -38,6 +39,60 @@ beforeEach(() => {
   adminRequest.mockResolvedValue(report);
 });
 afterEach(cleanup);
+it('keeps automatic pending support costs unknown and uses stable call identities', () => {
+  const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+  try {
+    render(<CustomerServiceCosts report={{
+      support_source_status: 'available',
+      customer_service_costs: [
+        {call_id:'auto-one', request_id:'auto-one', channel_id:2, status:'unconfirmed', input_tokens:null, output_tokens:null, net_usdt:null},
+        {call_id:'auto-two', request_id:'auto-two', channel_id:2, status:'unconfirmed', input_tokens:0, output_tokens:0, input_token_scope:'inclusive', cache_read_tokens:0, net_usdt:''},
+      ],
+    }} />);
+    const table = screen.getByRole('table', {name:'客服 Token 与成本明细'});
+    expect(within(table).getAllByText('待确认')).toHaveLength(2);
+    expect(within(table).queryByText('估算')).toBeNull();
+    expect(within(table).queryByText('0 USDT')).toBeNull();
+    expect(within(table).getByText('未提供 / 未提供')).toBeVisible();
+    expect(within(table).getByText('0 / 0')).toBeVisible();
+    expect(errors.mock.calls.filter(([message]) => /unique.*key|same key/i.test(String(message)))).toHaveLength(0);
+  } finally { errors.mockRestore(); }
+});
+it('shows an unavailable support source instead of implying zero monthly costs', () => {
+  render(<CustomerServiceCosts report={{support_source_status:'unavailable', customer_service_costs:[], customer_service_confirmed_total:'0.000000', customer_service_estimate_total:'0.000000'}} />);
+  expect(screen.getByRole('alert')).toHaveTextContent('客服来源不可用');
+  expect(screen.getByRole('alert')).toHaveTextContent('利润待核对');
+  expect(screen.queryByText(/本月暂无客服费用记录/)).toBeNull();
+  expect(screen.queryByText(/已确认 0\.000000/)).toBeNull();
+});
+it('renders automatic quoted credit as data rather than claiming an actual debit', () => {
+  render(<CustomerServiceCosts report={{customer_service_costs:[{call_id:'quote-one', request_id:'quote-one', status:'estimate', currency:'USDT', net_credit:'0.06000000', net_usdt:'0.030000'}]}} />);
+  expect(screen.getByText('0.06000000 Xcloud 额度（报价口径）')).toBeVisible();
+  expect(screen.getByText('0.030000 USDT')).toBeVisible();
+});
+it('shows customer service tokens separately without recomputing backend profit', async () => {
+  adminRequest.mockResolvedValue({
+    ...report, confirmed: true, actual_cost: '15.000000', gross_profit: '5.000000', margin: '25.00',
+    customer_service_confirmed_total: '2.000000', customer_service_estimate_total: '0.030000',
+    customer_service_xcloud_credit_total: '4.00000000',
+    customer_service_costs: [{fact_id:101, purpose:'customer_service', request_id:'support-one', model:'zt-deepseek-v4-flash', channel_id:4, input_tokens:100, output_tokens:0, input_token_scope:'inclusive', cache_read_tokens:20, cache_write_5m_tokens:0, cache_write_1h_tokens:null, status:'confirmed', coverage:'included', currency:'XCLOUD_CREDIT', net_credit:'4.00000000', net_usdt:'2.000000'}],
+  });
+  render(<OverviewPage canWrite={false} />);
+  const section = await screen.findByRole('region', {name:'客服消耗成本'});
+  expect(within(section).getByText('support-one')).toBeVisible();
+  expect(within(section).getByText('100 / 0')).toBeVisible();
+  expect(within(section).getByText('20 / 0 / 未提供')).toBeVisible();
+  expect(within(section).getByText('含缓存')).toBeVisible();
+  expect(within(section).getByText('账单内')).toBeVisible();
+  expect(screen.getByText('5.000000')).toBeVisible();
+  expect(within(section).queryByRole('button')).toBeNull();
+});
+it('does not turn a missing old customer-service report into a zero cost', async () => {
+  render(<OverviewPage canWrite={false} />);
+  const section = await screen.findByRole('region', {name:'客服消耗成本'});
+  expect(within(section).getByText('当前报表未提供客服费用分类。')).toBeVisible();
+  expect(within(section).queryByText(/已确认 0\.000000/)).toBeNull();
+});
 it('records direct verification bills without a fabricated request', async () => {
   render(<OverviewPage canWrite />);
   fireEvent.click(await screen.findByRole('button', { name: '录入直接上游验收费用' }));

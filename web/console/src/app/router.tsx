@@ -21,6 +21,7 @@ import { PlaygroundPage } from '../features/playground/PlaygroundPage';
 import { SupportedModelsPage } from '../features/models/SupportedModelsPage';
 import { WalletPage } from '../features/wallet/WalletPage';
 import { AccountPage } from '../features/account/AccountPage';
+import { SupportPage } from '../features/support/SupportPage';
 
 const routes: RouteObject[] = [
   {
@@ -127,6 +128,10 @@ const routes: RouteObject[] = [
       {
         path: 'account',
         element: <AccountPage />,
+      },
+      {
+        path: 'support',
+        element: <SupportPage />,
       },
     ],
   },

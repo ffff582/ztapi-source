@@ -32,6 +32,8 @@ func TestReaderUsesPostingTimeAndOnlySelectsFinancialColumns(t *testing.T) {
 	s, e := reader.Load(context.Background(), moment("2026-10-26T00:00:00Z"))
 	require.NoError(t, e)
 	require.Len(t, s.Settlements, 1)
+	require.Len(t, s.Users, 1)
+	require.Equal(t, 100, s.Users[0].Role, "snapshot classification must use actual source identity")
 	require.Equal(t, int64(1789516800), s.Settlements[0].CompletedAt)
 	require.Len(t, s.Verifications, 1)
 	require.Equal(t, int64(656), s.Verifications[0].ID)

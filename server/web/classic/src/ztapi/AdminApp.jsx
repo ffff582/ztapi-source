@@ -48,6 +48,7 @@ import ReconciliationPage from './features/finance/ReconciliationPage.jsx';
 import WatchedAddressesPage from './features/finance/WatchedAddressesPage.jsx';
 import AdminLogsPage from './features/logs/AdminLogsPage.jsx';
 import AuditLogPage from './features/logs/AuditLogPage.jsx';
+import SupportTicketsPage from './features/support/SupportTicketsPage.jsx';
 import AdminSettingsPage from './features/settings/AdminSettingsPage.jsx';
 import './styles/admin.css';
 
@@ -279,6 +280,14 @@ function AdminRoutes() {
             title='收款地址监听'
           >
             <WatchedAddressesPage canWrite={canWatchPaymentAddresses} />
+          </ProtectedPage>
+        }
+      />
+      <Route
+        path='/support/tickets'
+        element={
+          <ProtectedPage permission={AdminPermission.userRead} title='客服工单'>
+            <SupportTicketsPage key={auth.session?.user?.id} />
           </ProtectedPage>
         }
       />
