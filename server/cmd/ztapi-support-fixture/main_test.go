@@ -9,6 +9,7 @@ import (
 	"image"
 	"image/png"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -76,6 +77,57 @@ func TestFixtureRejectsNonLoopbackConfiguration(t *testing.T) {
 	f, err := newFixture(fixtureOptions{StateRoot: t.TempDir(), PublicOrigin: "https://production.example", AdminOrigin: "http://127.0.0.1:4188"})
 	require.Error(t, err)
 	require.Nil(t, f)
+}
+
+func TestFixtureTelegramBindingUsesWebsiteConsentAndSyntheticClaim(t *testing.T) {
+	f := startTestFixture(t)
+	token, id := login(t, f, "fixture-alice-1440")
+	config := payload(t, call(t, f, "GET", "/api/support/config", token, id, nil))
+	require.Equal(t, true, config["telegram_binding_enabled"])
+	created := call(t, f, "POST", "/api/support/telegram-binding", token, id, map[string]string{"action": "create", "idempotency_key": "create-fixture-binding"})
+	require.Equal(t, 200, created.Code, created.Body.String())
+	view := payload(t, created)
+	link, err := url.Parse(view["binding_url"].(string))
+	require.NoError(t, err)
+	challenge := view["pending"].(map[string]any)["id"].(string)
+	get := payload(t, call(t, f, "GET", "/api/support/telegram-binding", token, id, nil))
+	require.NotContains(t, get, "binding_url")
+	require.Equal(t, false, get["bound"])
+	replayed := payload(t, call(t, f, "POST", "/api/support/telegram-binding", token, id, map[string]string{"action": "create", "idempotency_key": "create-fixture-binding"}))
+	t.Run("replayed_create_does_not_reissue_capability", func(t *testing.T) {
+		_, hasURL := replayed["binding_url"]
+		require.False(t, hasURL, "only a fresh create may return the bot capability URL")
+	})
+	claim := call(t, f, "POST", "/__fixture/telegram-claim", token, id, map[string]string{"token": strings.TrimPrefix(link.Query().Get("start"), "bind_")})
+	require.Equal(t, 200, claim.Code, claim.Body.String())
+	get = payload(t, call(t, f, "GET", "/api/support/telegram-binding", token, id, nil))
+	require.Equal(t, false, get["bound"])
+	require.Equal(t, true, get["pending"].(map[string]any)["claimed"])
+	confirmed := payload(t, call(t, f, "POST", "/api/support/telegram-binding", token, id, map[string]string{"action": "confirm", "idempotency_key": "confirm-fixture-binding", "challenge_id": challenge}))
+	require.Equal(t, true, confirmed["bound"])
+	require.EqualValues(t, 900000000+id, confirmed["telegram_id"])
+	unbound := payload(t, call(t, f, "POST", "/api/support/telegram-binding", token, id, map[string]string{"action": "unbind", "idempotency_key": "unbind-fixture-binding"}))
+	require.Equal(t, false, unbound["bound"])
+	require.EqualValues(t, 0, f.provider.calls.Load())
+	require.Equal(t, 401, call(t, f, "POST", "/__fixture/telegram-claim", "", 0, map[string]string{"token": "synthetic-invalid"}).Code)
+}
+
+func TestFixtureTelegramClaimRejectsUntrustedInputsWithoutInference(t *testing.T) {
+	f := startTestFixture(t)
+	token, id := login(t, f, "fixture-alice-1440")
+	require.Equal(t, 405, call(t, f, "GET", "/__fixture/telegram-claim", token, id, nil).Code)
+	require.Equal(t, 400, call(t, f, "POST", "/__fixture/telegram-claim", token, id, map[string]any{"token": "synthetic", "telegram_id": 42}).Code)
+	require.Equal(t, 401, call(t, f, "POST", "/__fixture/telegram-claim", token+"forged", id, map[string]string{"token": "synthetic"}).Code)
+	r := httptest.NewRequest("POST", "http://127.0.0.1:18087/__fixture/telegram-claim", strings.NewReader(`{"token":"synthetic"}`))
+	r.RemoteAddr = "127.0.0.1:44000"
+	r.Header.Set("Origin", "https://untrusted.invalid")
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("Authorization", "Bearer "+token)
+	r.Header.Set("New-Api-User", fmt.Sprint(id))
+	w := httptest.NewRecorder()
+	f.ServeHTTP(w, r)
+	require.Equal(t, 403, w.Code)
+	require.EqualValues(t, 0, f.provider.calls.Load())
 }
 
 func TestFixtureAuthenticatesRealLocalJWTAndRefreshCookie(t *testing.T) {

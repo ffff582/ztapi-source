@@ -32,3 +32,29 @@ func TestTelegramConfigurationRequiresPrivateOwnerAndAuthorizedFlash(t *testing.
 		require.NotContains(t, err.Error(), "offline-provider-key")
 	}
 }
+
+func TestOptionalBridgeConfigurationRequiresFixedInternalEndpointAndRaw32ByteSecret(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bot.json")
+	endpoint := "http://ztapi-support-20261102:3012/internal/telegram-support"
+	secret := strings.Repeat("ab", 32)
+	withBridge := func(bridge string) string {
+		return strings.TrimSuffix(configFixture(), "}") + `,"bridge":` + bridge + `}`
+	}
+	valid := `{"endpoint":"` + endpoint + `","secret":"` + secret + `"}`
+	require.NoError(t, os.WriteFile(path, []byte(withBridge(valid)), 0600))
+	_, err := readConfig(path)
+	require.NoError(t, err)
+	for _, bridge := range []string{
+		`{}`, `{"endpoint":"` + endpoint + `"}`, `{"secret":"` + secret + `"}`,
+		strings.Replace(valid, endpoint, "https://evil.invalid/internal/telegram-support", 1),
+		strings.Replace(valid, secret, strings.Repeat("a", 63), 1),
+		strings.Replace(valid, secret, strings.Repeat("zz", 32), 1),
+		strings.Replace(valid, secret, strings.Repeat("00", 32), 1),
+		strings.Replace(valid, `"endpoint":`, `"endpoint":"bad","endpoint":`, 1),
+	} {
+		require.NoError(t, os.WriteFile(path, []byte(withBridge(bridge)), 0600))
+		_, err := readConfig(path)
+		require.Error(t, err)
+		require.NotContains(t, err.Error(), secret)
+	}
+}

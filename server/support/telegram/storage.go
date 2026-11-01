@@ -28,11 +28,16 @@ type inbox struct {
 	Text                                  string `gorm:"type:text"`
 	Command                               string
 	Directed, Sensitive, Invalid, IsGroup bool
-	FileID, MIMEType                      string
-	FileSize                              int64
-	State                                 string `gorm:"size:24;index"`
-	CallID                                string `gorm:"size:64"`
-	CreatedAt                             time.Time
+	Credential                            bool
+	Username, DisplayName                 string
+	// BindToken contains AES-GCM ciphertext, never the plaintext challenge.
+	BindToken        string
+	BindingAttempt   bool
+	FileID, MIMEType string
+	FileSize         int64
+	State            string `gorm:"size:24;index"`
+	CallID           string `gorm:"size:64"`
+	CreatedAt        time.Time
 }
 
 func (inbox) TableName() string { return "telegram_support_inbox" }
@@ -48,6 +53,10 @@ type outbox struct {
 	Attempts, SentMessageID int
 	NextAttemptAt           time.Time `gorm:"index"`
 	CreatedAt               time.Time
+	BridgeEventID           string `gorm:"size:64;index"`
+	BindingGeneration       string `gorm:"size:64"`
+	ActorID                 int64
+	Acknowledged            bool
 }
 
 func (outbox) TableName() string { return "telegram_support_outbox" }
@@ -61,3 +70,21 @@ type dialogue struct {
 }
 
 func (dialogue) TableName() string { return "telegram_support_dialogues" }
+
+type preference struct {
+	Key               string `gorm:"primaryKey;size:128"`
+	Client, OS, Model string `gorm:"size:80"`
+}
+
+func (preference) TableName() string { return "telegram_support_preferences" }
+
+type intake struct {
+	ID                   string `gorm:"primaryKey;size:96"`
+	SenderID, ChatID     int64
+	ThreadID             int
+	Content              string `gorm:"type:text"`
+	Status               string `gorm:"size:16"`
+	CreatedAt, UpdatedAt time.Time
+}
+
+func (intake) TableName() string { return "telegram_support_intakes" }

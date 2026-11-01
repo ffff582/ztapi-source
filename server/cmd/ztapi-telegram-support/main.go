@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"log"
 	"net"
@@ -75,7 +76,18 @@ func run() error {
 		return errors.New("Telegram support API configuration unavailable")
 	}
 	public := &support.Reader{CatalogURL: os.Getenv("TELEGRAM_SUPPORT_CATALOG_URL")}
-	worker, err := telegram.NewWorker(telegram.Config{OwnerID: cfg.OwnerID, BotID: cfg.BotID, BotUsername: cfg.BotUsername, ChannelID: cfg.Provider.ChannelID, Model: cfg.Provider.Model, Supplier: cfg.Provider.Supplier, Environment: "telegram-production", VisionEnabled: cfg.Provider.VisionEnabled, AdmitWrite: storageAdmission(path)}, db, store, provider, public.PublicKnowledge, client)
+	bridge, err := newRuntimeBridge(cfg.Bridge)
+	if err != nil {
+		return err
+	}
+	var bindingKey []byte
+	if cfg.Bridge != nil {
+		bindingKey, err = hex.DecodeString(cfg.Bridge.Secret)
+		if err != nil {
+			return errors.New("invalid protected Telegram binding configuration")
+		}
+	}
+	worker, err := telegram.NewWorker(telegram.Config{BindingKey: bindingKey, Bridge: bridge, OwnerID: cfg.OwnerID, BotID: cfg.BotID, BotUsername: cfg.BotUsername, ChannelID: cfg.Provider.ChannelID, Model: cfg.Provider.Model, Supplier: cfg.Provider.Supplier, Environment: "telegram-production", VisionEnabled: cfg.Provider.VisionEnabled, AdmitWrite: storageAdmission(path)}, db, store, provider, public.PublicKnowledge, client)
 	if err != nil {
 		return errors.New("Telegram support worker initialization failed")
 	}

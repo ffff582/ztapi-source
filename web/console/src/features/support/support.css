@@ -1,6 +1,71 @@
 .support-page {
   min-width: 0;
 }
+.support-privacy,
+.support-binding p {
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.support-privacy {
+  color: var(--text-muted, #687077);
+  margin: 0 0 16px;
+}
+.support-binding {
+  border-block: 1px solid var(--border);
+  padding-block: 12px;
+  margin-bottom: 20px;
+  min-width: 0;
+}
+.support-binding-summary,
+.support-binding-confirm {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.support-binding-summary p {
+  margin-block: 8px;
+}
+.support-binding .console-button {
+  white-space: normal;
+  max-width: 100%;
+  min-height: 36px;
+  overflow-wrap: anywhere;
+}
+.support-binding .console-button svg {
+  flex-shrink: 0;
+}
+.support-binding-consent {
+  display: grid;
+  gap: 10px;
+  margin-block: 12px;
+  justify-items: start;
+}
+.support-binding-consent p {
+  margin: 0;
+}
+.support-binding-consent label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.support-binding-consent input {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  margin: 3px 0 0;
+}
+.support-binding-confirm {
+  margin-block: 12px;
+}
+.support-binding-confirm p {
+  flex-basis: 100%;
+  margin: 0;
+}
 .support-attachment {
   margin-top: 10px;
 }

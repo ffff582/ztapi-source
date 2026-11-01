@@ -53,6 +53,8 @@ type fixture struct {
 	provider              *fakeProvider
 	source                *fakeSource
 	support, finance      http.Handler
+	bridge                *support.TelegramBridge
+	bridgeSecret          [32]byte
 	origins               []string
 	mu                    sync.Mutex
 	sessions              map[string]int
@@ -164,7 +166,14 @@ func newFixture(options fixtureOptions) (_ *fixture, err error) {
 	if err != nil {
 		return nil, err
 	}
-	f.support = support.NewHandler(f.source, store, f.provider, support.HandlerConfig{Enabled: true, VisionEnabled: true, Model: "fixture-synthetic-flash", ChannelID: 1, Supplier: "fixture-synthetic-supplier", Environment: "fixture", Origins: f.origins, Now: func() time.Time { return f.now }})
+	if _, err = rand.Read(f.bridgeSecret[:]); err != nil {
+		return nil, err
+	}
+	f.bridge, err = support.NewTelegramBridge(store, f.source, support.TelegramBridgeConfig{Secret: f.bridgeSecret[:], BotUsername: "ztapi_fixture_bot", Now: func() time.Time { return f.now }})
+	if err != nil {
+		return nil, err
+	}
+	f.support = support.NewHandler(f.source, store, f.provider, support.HandlerConfig{Enabled: true, VisionEnabled: true, Model: "fixture-synthetic-flash", ChannelID: 1, Supplier: "fixture-synthetic-supplier", Environment: "fixture", Origins: f.origins, Now: func() time.Time { return f.now }, TelegramBridge: f.bridge})
 	f.finance = finance.NewHandlerWithSupportReader(fakeFinanceSource{f.source}, financeStore, options.AdminOrigin, func() time.Time { return f.now.Add(time.Minute) }, f.readUsages)
 	return f, nil
 }
@@ -337,6 +346,9 @@ func (f *fixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch {
+	case r.URL.Path == "/__fixture/telegram-claim":
+		f.claimTelegram(w, r)
+		return
 	case r.Method == "GET" && (r.URL.Path == "/healthz" || r.URL.Path == "/__fixture/status"):
 		sendJSON(w, 200, map[string]any{"fixture": "synthetic-local-support", "paid_calls": 0, "provider_calls": f.provider.calls.Load(), "image_calls": f.provider.images.Load(), "provider_failures": f.provider.failures.Load(), "state_dir": f.stateDir, "fixture_now": f.now, "finance_month": f.now.In(time.FixedZone("Asia/Shanghai", 8*3600)).Format("2006-01"), "users": f.source.users})
 		return

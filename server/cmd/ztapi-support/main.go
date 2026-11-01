@@ -128,7 +128,19 @@ func run() error {
 		return errors.New("support incomplete calls could not be recorded")
 	}
 	source := &support.Reader{DB: readDB, CatalogURL: os.Getenv("SUPPORT_CATALOG_URL")}
-	handler := support.NewHandler(source, store, provider, support.HandlerConfig{Enabled: os.Getenv("SUPPORT_ENABLED") == "true", VisionEnabled: providerConfig.VisionEnabled, Model: providerConfig.Model, ChannelID: providerConfig.ChannelID, Supplier: providerConfig.Supplier, Environment: os.Getenv("SUPPORT_ENVIRONMENT"), Origins: []string{publicOrigin, adminOrigin}, AdmitWrite: storageAdmission(path)})
+	var bridge *support.TelegramBridge
+	if bridgePath := os.Getenv("SUPPORT_TELEGRAM_BRIDGE_CONFIG"); bridgePath != "" {
+		cfg, e := readTelegramBridgeConfig(bridgePath)
+		if e != nil {
+			return e
+		}
+		cfg.AdmitWrite = storageAdmission(path)
+		bridge, e = support.NewTelegramBridge(store, source, cfg)
+		if e != nil {
+			return errors.New("support Telegram bridge unavailable")
+		}
+	}
+	handler := support.NewHandler(source, store, provider, support.HandlerConfig{Enabled: os.Getenv("SUPPORT_ENABLED") == "true", VisionEnabled: providerConfig.VisionEnabled, Model: providerConfig.Model, ChannelID: providerConfig.ChannelID, Supplier: providerConfig.Supplier, Environment: os.Getenv("SUPPORT_ENVIRONMENT"), Origins: []string{publicOrigin, adminOrigin}, AdmitWrite: storageAdmission(path), TelegramBridge: bridge})
 	address := os.Getenv("SUPPORT_LISTEN")
 	if address == "" {
 		address = "127.0.0.1:3012"

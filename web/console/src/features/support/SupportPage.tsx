@@ -24,6 +24,7 @@ import {
 } from '../../api/support';
 import { readSupportImage } from './image';
 import { SupportAttachment } from './SupportAttachment';
+import { TelegramBinding } from './TelegramBinding';
 import './support.css';
 
 type Pending = {
@@ -572,7 +573,7 @@ function SupportWorkspace({ userId }: { userId: number }) {
     <div className="console-page support-page">
       <header className="console-page__header">
         <div>
-          <p className="console-eyebrow">ZTAPI</p>
+          <p className="console-eyebrow">ZTAPI · 小 Z</p>
           <h1>{t('平台客服')}</h1>
         </div>
         <div className="console-actions">
@@ -583,6 +584,8 @@ function SupportWorkspace({ userId }: { userId: number }) {
           </a>
         </div>
       </header>
+      <p className="support-privacy">{t('配置问题无需绑定 Telegram。不要发送密码、API Key 或支付凭证中的敏感信息；客服不会代建密钥或操作资金。')}</p>
+      {config?.telegram_binding_enabled === true && <TelegramBinding />}
       {error && (
         <p className="console-alert" role="alert">
           {t(error)}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/hex"
 	"errors"
 	"io"
 	"os"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/support"
+	"github.com/QuantumNous/new-api/support/telegram"
 )
 
 type runtimeConfig struct {
@@ -18,6 +20,30 @@ type runtimeConfig struct {
 	BotID       int64                  `json:"bot_id"`
 	BotUsername string                 `json:"bot_username"`
 	Provider    support.ProviderConfig `json:"provider"`
+	Bridge      *bridgeConfig          `json:"bridge,omitempty"`
+}
+
+type bridgeConfig struct {
+	Endpoint string `json:"endpoint"`
+	Secret   string `json:"secret"`
+}
+
+func (bridgeConfig) String() string     { return "TelegramBridgeConfig{credentials:hidden}" }
+func (b bridgeConfig) GoString() string { return b.String() }
+
+func newRuntimeBridge(cfg *bridgeConfig) (telegram.Bridge, error) {
+	if cfg == nil {
+		return nil, nil
+	}
+	secret, err := hex.DecodeString(cfg.Secret)
+	if err != nil || len(cfg.Secret) != 64 || len(secret) != 32 || bytes.Equal(secret, make([]byte, 32)) {
+		return nil, errors.New("invalid protected Telegram bridge configuration")
+	}
+	client, err := telegram.NewBridgeClient(cfg.Endpoint, secret, nil)
+	if err != nil {
+		return nil, errors.New("invalid protected Telegram bridge configuration")
+	}
+	return client, nil
 }
 
 func readConfig(path string) (runtimeConfig, error) {
@@ -38,6 +64,9 @@ func readConfig(path string) (runtimeConfig, error) {
 	}
 	if _, err := support.NewHTTPProvider(cfg.Provider, nil); err != nil {
 		return runtimeConfig{}, errors.New("unauthorized Telegram support provider")
+	}
+	if _, err := newRuntimeBridge(cfg.Bridge); err != nil {
+		return runtimeConfig{}, err
 	}
 	return cfg, nil
 }

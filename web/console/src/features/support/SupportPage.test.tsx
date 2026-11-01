@@ -26,6 +26,8 @@ vi.mock('../../api/support', async (original) => {
       sendMessage: vi.fn(),
       createTicket: vi.fn(),
       attachment: vi.fn(),
+      telegramBinding: vi.fn(),
+      updateTelegramBinding: vi.fn(),
     },
   };
 });
@@ -77,9 +79,9 @@ const ticket = {
   created_at: conversation.created_at,
   updated_at: conversation.updated_at,
 };
-function mount() {
+function mount(url = '/console/support') {
   return render(
-    <MemoryRouter initialEntries={['/console/support']}>
+    <MemoryRouter initialEntries={[url]}>
       <SupportPage />
     </MemoryRouter>,
   );
@@ -122,6 +124,44 @@ function scrollMetrics(height = 1200) {
 }
 
 describe('platform support', () => {
+  it('keeps general setup help available on old servers without a binding or additional login', async () => {
+    mount();
+    await screen.findByText(message.content);
+    expect(screen.getByLabelText('消息内容')).toBeEnabled();
+    expect(supportApi.telegramBinding).not.toHaveBeenCalled();
+    expect(screen.getByText(/小 Z/)).toBeInTheDocument();
+    expect(screen.getByText(/不要发送密码、API Key/)).toBeInTheDocument();
+  });
+
+  it('loads opt-in binding independently without blocking general setup on binding failure', async () => {
+    vi.mocked(supportApi.config).mockResolvedValue({ ...config, telegram_binding_enabled: true });
+    vi.mocked(supportApi.telegramBinding).mockRejectedValue(new SupportError(503));
+    mount();
+    await screen.findByText(message.content);
+    await screen.findByRole('region', { name: 'Telegram 工单通知' });
+    expect(screen.getByLabelText('消息内容')).toBeEnabled();
+    expect(screen.getByRole('button', { name: '申请人工工单' })).toBeEnabled();
+    expect(screen.getByRole('alert')).toHaveTextContent('绑定结果尚未确认');
+  });
+
+  it('opens an owned conversation from a deterministic ticket link', async () => {
+    const owned = { ...conversation, id: 'owned-link', title: '链接中的工单' };
+    vi.mocked(supportApi.conversation).mockResolvedValue({ conversation: owned, messages: [{ ...message, content: '本人进度' }] });
+    mount('/console/support?conversation=owned-link');
+    await screen.findByText('本人进度');
+    expect(supportApi.conversation).toHaveBeenCalledWith('owned-link');
+    expect(supportApi.createConversation).not.toHaveBeenCalled();
+  });
+
+  it('does not fall back to another conversation or invent success for a foreign link', async () => {
+    vi.mocked(supportApi.conversation).mockRejectedValue(new SupportError(404));
+    mount('/console/support?conversation=foreign');
+    await screen.findByRole('alert');
+    expect(screen.getByRole('alert')).toHaveTextContent('记录不存在或无权访问');
+    expect(supportApi.conversation).toHaveBeenCalledExactlyOnceWith('foreign');
+    expect(screen.queryByText(message.content)).not.toBeInTheDocument();
+  });
+
   it('offers the authorized user community without replacing private support or handoff', async () => {
     mount(); await screen.findByText(message.content);
     const community = screen.getByRole('link', { name: '用户交流群' });

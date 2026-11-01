@@ -25,6 +25,42 @@ afterEach(() => {
 });
 
 describe('support HTTP contract', () => {
+  it('reads binding state without tokens and preserves old config compatibility', async () => {
+    const view = { enabled: true, bound: false };
+    const fetchMock = vi.fn().mockResolvedValue(response(view));
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await supportApi.telegramBinding()).toEqual(view);
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/support/telegram-binding');
+    expect(fetchMock.mock.calls[0][1].method).toBe('GET');
+    expect(fetchMock.mock.calls[0][1].body).toBeUndefined();
+    fetchMock.mockResolvedValue(response({ enabled: true }));
+    expect((await supportApi.config()).telegram_binding_enabled).toBeUndefined();
+  });
+
+  it.each(['create', 'confirm', 'cancel', 'unbind'] as const)(
+    'sends explicit binding %s once with a stable idempotency key', async (action) => {
+      const view = { enabled: true, bound: action === 'confirm' };
+      const fetchMock = vi.fn().mockResolvedValue(response(view));
+      vi.stubGlobal('fetch', fetchMock);
+      const input = { action, idempotency_key: 'binding-attempt', ...(action === 'confirm' || action === 'cancel' ? { challenge_id: 'challenge-1' } : {}) };
+      expect(await supportApi.updateTelegramBinding(input)).toEqual(view);
+      expect(fetchMock).toHaveBeenCalledOnce();
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toBe('/api/support/telegram-binding');
+      expect(init.method).toBe('POST');
+      expect(init.cache).toBe('no-store');
+      expect(JSON.parse(init.body)).toEqual(input);
+      expect(new Headers(init.headers).get('Authorization')).toBe('Bearer test-session');
+    },
+  );
+
+  it.each([401, 403, 409, 410, 429, 500])('never replays binding mutations on %i', async (status) => {
+    const fetchMock = vi.fn().mockResolvedValue(response(null, status));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(supportApi.updateTelegramBinding({ action: 'confirm', challenge_id: 'foreign', idempotency_key: 'one' })).rejects.toMatchObject({ status });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it('recognizes only the stable image-storage-full error code, never arbitrary upstream text', async () => {
     vi.stubGlobal(
       'fetch',

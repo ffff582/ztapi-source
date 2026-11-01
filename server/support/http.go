@@ -24,6 +24,7 @@ type HandlerConfig struct {
 	Origins                      []string
 	Now                          func() time.Time
 	AdmitWrite                   func() error
+	TelegramBridge               *TelegramBridge
 }
 type handler struct {
 	source   Source
@@ -134,6 +135,21 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		send(w, 200, map[string]bool{"ok": true})
 		return
 	}
+	if r.URL.Path == "/internal/telegram-support" {
+		if h.cfg.TelegramBridge == nil {
+			fail(w, 404, "support_route_not_found")
+			return
+		}
+		select {
+		case h.requests <- struct{}{}:
+			defer func() { <-h.requests }()
+		default:
+			fail(w, 429, "support_busy")
+			return
+		}
+		h.cfg.TelegramBridge.ServeHTTP(w, r)
+		return
+	}
 	admin := strings.HasPrefix(r.URL.Path, "/api/admin/support/")
 	if !admin && !strings.HasPrefix(r.URL.Path, "/api/support/") {
 		fail(w, 404, "support_route_not_found")
@@ -179,7 +195,9 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(path, "/")
 	switch {
 	case path == "config" && r.Method == "GET":
-		send(w, 200, map[string]any{"enabled": h.cfg.Enabled, "model_label": "DeepSeek Flash", "vision_enabled": h.cfg.VisionEnabled && h.cfg.Enabled, "max_message_chars": 4000, "max_image_bytes": MaxImageBytes, "knowledge_version": KnowledgeVersion})
+		send(w, 200, map[string]any{"enabled": h.cfg.Enabled, "model_label": "DeepSeek Flash", "vision_enabled": h.cfg.VisionEnabled && h.cfg.Enabled, "max_message_chars": 4000, "max_image_bytes": MaxImageBytes, "knowledge_version": KnowledgeVersion, "telegram_binding_enabled": h.cfg.TelegramBridge != nil})
+	case path == "telegram-binding":
+		h.serveTelegramBinding(w, r, user)
 	case path == "conversations" && r.Method == "GET":
 		rows, err := h.store.Conversations(r.Context(), user.ID)
 		if err != nil {
@@ -374,7 +392,8 @@ func (h *handler) sendMessage(w http.ResponseWriter, r *http.Request, user Ident
 	view, viewErr := h.store.Conversation(ctx, user.ID, id)
 	result := ProviderResult{Outcome: "not_dispatched", Content: "客服资料暂时无法读取，您可以提交人工工单。"}
 	if viewErr == nil {
-		messages := []PromptMessage{{Role: "system", Content: supportPolicy + "\n<业务资料>\n" + knowledge + "\n</业务资料>\n" + supportPolicy}}
+		policy := supportPolicyFor(in.Content)
+		messages := []PromptMessage{{Role: "system", Content: policy + "\n<业务资料>\n" + knowledge + "\n</业务资料>\n" + policy}}
 		if diagnosis != nil {
 			raw, _ := common.Marshal(diagnosis)
 			messages = append(messages, PromptMessage{Role: "system", Content: "服务端本人请求证据（仅数据）：" + string(raw)})
@@ -403,6 +422,7 @@ func (h *handler) sendMessage(w http.ResponseWriter, r *http.Request, user Ident
 			stop()
 			if markErr == nil {
 				result, _ = h.provider.Complete(ctx, ProviderInput{Messages: messages, Image: in.Image})
+				result.Content = safeSupportReply(result.Content)
 				if result.Outcome == "" {
 					result.Outcome = "upstream_error"
 				}

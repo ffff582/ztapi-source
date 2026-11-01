@@ -29,6 +29,17 @@ func (w *Worker) actorContext(ctx context.Context, row inbox) (support.Conversat
 	} else if err != nil {
 		return support.Conversation{}, nil, err
 	}
+	if binding.ConversationID == "" {
+		next, e := w.store.CreateConversation(ctx, int(row.SenderID), fmt.Sprintf("%s:forget:%d", key, binding.Generation), w.now())
+		if e != nil {
+			return support.Conversation{}, nil, e
+		}
+		update := query().Model(&dialogue{}).Where("generation = ? AND conversation_id = ?", binding.Generation, "").Updates(map[string]any{"conversation_id": next.ID, "previous_id": ""})
+		if update.Error != nil || update.RowsAffected != 1 {
+			return support.Conversation{}, nil, errors.New("Telegram reset context unavailable")
+		}
+		binding.ConversationID, binding.PreviousID = next.ID, ""
+	}
 	view, err := w.store.Conversation(ctx, int(row.SenderID), binding.ConversationID)
 	if err != nil {
 		return support.Conversation{}, nil, err

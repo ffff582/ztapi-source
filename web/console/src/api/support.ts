@@ -53,6 +53,29 @@ export type SupportConfig = {
   max_message_chars: number;
   max_image_bytes: number;
   knowledge_version: string;
+  telegram_binding_enabled?: boolean;
+};
+export type BindingView = {
+  enabled: boolean;
+  bound: boolean;
+  telegram_id?: number;
+  username?: string;
+  display_name?: string;
+  bound_at?: string;
+  pending?: {
+    id: string;
+    claimed: boolean;
+    telegram_id?: number;
+    username?: string;
+    display_name?: string;
+    expires_at: string;
+  };
+  binding_url?: string;
+};
+export type BindingInput = {
+  action: 'create' | 'confirm' | 'cancel' | 'unbind';
+  idempotency_key: string;
+  challenge_id?: string;
 };
 export type ConversationDetail = {
   conversation: Conversation;
@@ -149,6 +172,9 @@ export function supportErrorMessage(error: unknown) {
   return '客服请求失败，结果尚未确认。请刷新查看或显式重试原请求。';
 }
 export const supportApi = {
+  telegramBinding: () => request<BindingView>('/telegram-binding'),
+  updateTelegramBinding: (input: BindingInput) =>
+    request<BindingView>('/telegram-binding', input),
   async attachment(id: number): Promise<SupportImage> {
     const lifecycle = getAuthSessionLifecycle();
     const value = await apiClient.get<SupportImage>(

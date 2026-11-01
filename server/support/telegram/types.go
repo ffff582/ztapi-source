@@ -1,9 +1,20 @@
 // Copyright (C) 2026 QuantumNous. SPDX-License-Identifier: AGPL-3.0-or-later
 package telegram
 
-import "time"
+import (
+	"context"
+	"time"
+
+	"github.com/QuantumNous/new-api/support/bridgeapi"
+)
+
+type Bridge interface {
+	Execute(context.Context, bridgeapi.Request) (bridgeapi.Result, error)
+}
 
 type Config struct {
+	Bridge                       Bridge
+	BindingKey                   []byte
 	OwnerID, BotID               int64
 	BotUsername                  string
 	ChannelID                    int
@@ -14,9 +25,11 @@ type Config struct {
 }
 
 type User struct {
-	ID       int64  `json:"id"`
-	IsBot    bool   `json:"is_bot"`
-	Username string `json:"username,omitempty"`
+	ID        int64  `json:"id"`
+	IsBot     bool   `json:"is_bot"`
+	Username  string `json:"username,omitempty"`
+	FirstName string `json:"first_name,omitempty"`
+	LastName  string `json:"last_name,omitempty"`
 }
 type Chat struct {
 	ID   int64  `json:"id"`
