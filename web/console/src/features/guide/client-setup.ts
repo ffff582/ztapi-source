@@ -1,4 +1,5 @@
 import type { UserModelCatalogItem, UserModelEndpointType } from '../../api/contracts';
+import { codexConfig, codexQualifiedModel } from './codex-setup';
 
 export type GuideClient = 'openai' | 'codex' | 'claude-code';
 
@@ -38,18 +39,7 @@ const clientDetails: Record<GuideClient, {
   codex: {
     endpoint: 'openai-response', path: '/v1/responses', baseURL: 'https://ztapi.vip/v1',
     auth: 'Authorization: Bearer YOUR_ZTAPI_API_KEY', format: '~/.codex/config.toml',
-    snippet: [
-      '# PowerShell: $env:ZTAPI_API_KEY = "YOUR_ZTAPI_API_KEY"',
-      'model_provider = "ztapi"',
-      'model = "YOUR_MODEL_ID"',
-      '',
-      '[model_providers.ztapi]',
-      'name = "ZTAPI"',
-      'base_url = "https://ztapi.vip/v1"',
-      'wire_api = "responses"',
-      'env_key = "ZTAPI_API_KEY"',
-      'requires_openai_auth = false',
-    ].join('\n'),
+    snippet: codexConfig('YOUR_MODEL_ID'),
   },
   'claude-code': {
     endpoint: 'anthropic', path: '/v1/messages', baseURL: 'https://ztapi.vip',
@@ -75,9 +65,13 @@ export function getClientSetup(model: SetupModel | undefined, client: GuideClien
   } else if (model.modality !== 'text') {
     status = 'unsupported';
     message = '不支持此文本客户端配置：向量、图片和视频模型需使用各自专用端点，不能作为聊天或编码模型。';
+  } else if (client === 'codex' && model.model_name === codexQualifiedModel
+    && model.supported_endpoint_types.includes('openai')) {
+    status = 'verified';
+    message = '2026-11-01 已验收：Codex 0.165.0-alpha.1.2，Opus 5 完成默认工具声明下的搜索、网页读取、页内查找、引用和最终回复；仅覆盖此型号与验收版本。';
   } else if (client === 'codex' && model.model_name.toLowerCase().includes('opus')) {
     status = 'unverified';
-    message = '未验证：Codex Opus 完整上游客户端验收尚未完成；验收代理冲突已修复，隔离工具链回归通过，但不能替代真实上游验收。';
+    message = '未验证：该 Opus 型号没有对应的完整 Codex 验收记录，不能沿用其他型号的结论。';
   } else if (client === 'codex' && model.model_name === 'zt-kimi-k2.6'
     && model.supported_endpoint_types.includes('openai')) {
     status = 'verified';
@@ -97,7 +91,7 @@ export function getClientSetup(model: SetupModel | undefined, client: GuideClien
     message = '不支持此配置：当前模型目录未声明该客户端所需端点，请换用匹配的客户端；这不是对所有后端能力的判定。';
   }
   const snippet = model && (status === 'verified' || status === 'declared')
-    ? details.snippet.replace('"YOUR_MODEL_ID"', () => client === 'claude-code'
+    ? client === 'codex' ? codexConfig(model.model_name) : details.snippet.replace('"YOUR_MODEL_ID"', () => client === 'claude-code'
       ? `'${model.model_name.replaceAll("'", "''")}'`
       : JSON.stringify(model.model_name))
     : null;
