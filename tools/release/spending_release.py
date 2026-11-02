@@ -520,11 +520,11 @@ def nginx_without_spending(raw):
     require(finish >= 0 and not raw[start:raw.index(begin)].strip(), 'unknown_spending_marker')
     base = raw[:start] + raw[finish + 1:]
     require(b'spending' not in base.lower(), 'unknown_spending_marker')
-    require(_insert_route(base) == raw, 'spending_route_modified')
+    require(_insert_route(base) == raw or _insert_route(base, legacy_cache_header=True) == raw, 'spending_route_modified')
     return base
 
 
-def _insert_route(raw):
+def _insert_route(raw, *, legacy_cache_header=False):
     nodes = _nginx_tree(raw)
     def public_tls(node):
         if node['head'] != [b'server'] or node['parent'] is not None:
@@ -545,7 +545,10 @@ def _insert_route(raw):
     lines = [BEGIN, 'location ^~ /api/spending/ {', '    proxy_pass http://' + SERVICE + ':3014;',
              '    proxy_http_version 1.1;', '    proxy_set_header Host $host;', '    proxy_set_header Connection "";',
              '    proxy_connect_timeout 3s;', '    proxy_read_timeout 10s;', '    proxy_send_timeout 10s;',
-             '    client_max_body_size 8k;', '    add_header Cache-Control "no-store" always;', '}', END]
+             '    client_max_body_size 8k;']
+    if legacy_cache_header:
+        lines.append('    add_header Cache-Control "no-store" always;')
+    lines += ['}', END]
     insertion = b''.join(indent + line.encode() + b'\n' for line in lines)
     result = raw[:start] + insertion + raw[start:]
     _nginx_tree(result)

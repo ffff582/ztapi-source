@@ -30,6 +30,19 @@ server { listen 172.30.0.2:3000; location / { return 404; } }
 
 
 class ProductionShapeTests(unittest.TestCase):
+    def test_new_route_keeps_inherited_source_and_hsts_headers(self):
+        changed = r.nginx_with_spending(PUBLIC)
+        node = next(n for n in r._nginx_tree(changed) if n['head'] == [b'location', b'^~', b'/api/spending/'])
+        self.assertFalse(any(d[0] == b'add_header' for d in node['directives']))
+
+    def test_exact_legacy_cache_header_route_can_be_safely_migrated(self):
+        legacy = r._insert_route(PUBLIC, legacy_cache_header=True)
+        self.assertIn(b'add_header Cache-Control', legacy)
+        self.assertEqual(r.nginx_without_spending(legacy), PUBLIC)
+        modern = r.nginx_with_spending(legacy)
+        self.assertNotIn(b'add_header Cache-Control', modern)
+        self.assertEqual(r.nginx_without_spending(modern), PUBLIC)
+
     def test_public_tls_route_does_not_treat_the_admin_support_route_as_duplicate(self):
         admin = b'''server {
     listen 443 ssl;
