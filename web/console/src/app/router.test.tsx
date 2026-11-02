@@ -128,6 +128,7 @@ it.each([
   ['/console/test', '文本工作台'],
   ['/console/guide', '使用说明'],
   ['/console/logs', '使用日志'],
+  ['/console/spending', '消费预警'],
   ['/console/support', '平台客服'],
   ['/console/wallet', '余额充值'],
 ])('renders the authenticated %s route', async (path, heading) => {
@@ -225,6 +226,7 @@ it.each([
   ['/console/test', true, 'Text workbench'],
   ['/console/guide', true, 'Integration guide'],
   ['/console/logs', true, 'Usage logs'],
+  ['/console/spending', true, 'Spending alerts'],
   ['/console/wallet', true, 'Add funds'],
 ])('renders fixed copy in English on %s', async (path, authenticated, heading) => {
   localStorage.setItem('ztapi.locale', 'en');

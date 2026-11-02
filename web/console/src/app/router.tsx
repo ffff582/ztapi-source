@@ -22,6 +22,7 @@ import { SupportedModelsPage } from '../features/models/SupportedModelsPage';
 import { WalletPage } from '../features/wallet/WalletPage';
 import { AccountPage } from '../features/account/AccountPage';
 import { SupportPage } from '../features/support/SupportPage';
+import { SpendingPage } from '../features/spending/SpendingPage';
 
 const routes: RouteObject[] = [
   {
@@ -120,6 +121,10 @@ const routes: RouteObject[] = [
       {
         path: 'logs',
         element: <LogsPage />,
+      },
+      {
+        path: 'spending',
+        element: <SpendingPage />,
       },
       {
         path: 'wallet',

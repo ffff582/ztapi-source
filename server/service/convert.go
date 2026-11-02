@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -452,40 +453,41 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 			info.ClaudeConvertInfo.LastMessagesType = relaycommon.LastMessageTypeTools
 			info.ClaudeConvertInfo.ToolCallBaseIndex = 0
 			info.ClaudeConvertInfo.ToolCallMaxIndexOffset = 0
-			var toolCall dto.ToolCallResponse
-			if len(openAIResponse.Choices) > 0 && len(openAIResponse.Choices[0].Delta.ToolCalls) > 0 {
-				toolCall = openAIResponse.Choices[0].Delta.ToolCalls[0]
-			} else {
-				first := openAIResponse.GetFirstToolCall()
-				if first != nil {
-					toolCall = *first
-				} else {
-					toolCall = dto.ToolCallResponse{}
+			toolCalls := append([]dto.ToolCallResponse(nil), openAIResponse.Choices[0].Delta.ToolCalls...)
+			for i := range toolCalls {
+				if toolCalls[i].Index == nil {
+					toolCalls[i].Index = common.GetPointer(i)
 				}
 			}
-			resp := &dto.ClaudeResponse{
-				Type: "content_block_start",
-				ContentBlock: &dto.ClaudeMediaMessage{
-					Id:    toolCall.ID,
-					Type:  "tool_use",
-					Name:  toolCall.Function.Name,
-					Input: map[string]interface{}{},
-				},
-			}
-			resp.SetIndex(0)
-			claudeResponses = append(claudeResponses, resp)
-			// 首块包含工具 delta，则追加 input_json_delta
-			if toolCall.Function.Arguments != "" {
-				idx := 0
-				claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
-					Index: &idx,
-					Type:  "content_block_delta",
-					Delta: &dto.ClaudeMediaMessage{
-						Type:        "input_json_delta",
-						PartialJson: &toolCall.Function.Arguments,
+			sort.SliceStable(toolCalls, func(i, j int) bool { return *toolCalls[i].Index < *toolCalls[j].Index })
+			for _, toolCall := range toolCalls {
+				idx := *toolCall.Index
+				if idx > info.ClaudeConvertInfo.ToolCallMaxIndexOffset {
+					info.ClaudeConvertInfo.ToolCallMaxIndexOffset = idx
+				}
+				resp := &dto.ClaudeResponse{
+					Type: "content_block_start",
+					ContentBlock: &dto.ClaudeMediaMessage{
+						Id:    toolCall.ID,
+						Type:  "tool_use",
+						Name:  toolCall.Function.Name,
+						Input: map[string]interface{}{},
 					},
-				})
+				}
+				resp.SetIndex(idx)
+				claudeResponses = append(claudeResponses, resp)
+				if toolCall.Function.Arguments != "" {
+					claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
+						Index: &idx,
+						Type:  "content_block_delta",
+						Delta: &dto.ClaudeMediaMessage{
+							Type:        "input_json_delta",
+							PartialJson: &toolCall.Function.Arguments,
+						},
+					})
+				}
 			}
+			info.ClaudeConvertInfo.Index = info.ClaudeConvertInfo.ToolCallMaxIndexOffset
 		} else {
 
 		}

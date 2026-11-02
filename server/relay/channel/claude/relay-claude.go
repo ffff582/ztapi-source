@@ -604,12 +604,14 @@ func ResponseClaude2OpenAI(claudeResponse *dto.ClaudeResponse) *dto.OpenAITextRe
 }
 
 type ClaudeResponseInfo struct {
-	ResponseId   string
-	Created      int64
-	Model        string
-	ResponseText strings.Builder
-	Usage        *dto.Usage
-	Done         bool
+	ResponseId     string
+	Created        int64
+	Model          string
+	ResponseText   strings.Builder
+	Usage          *dto.Usage
+	Done           bool
+	MessageStopped bool
+	OpenAITerminal *dto.ChatCompletionsStreamResponse
 }
 
 func cacheCreationTokensForOpenAIUsage(usage *dto.Usage) int {
@@ -791,8 +793,11 @@ func FormatClaudeResponseInfo(claudeResponse *dto.ClaudeResponse, oaiResponse *d
 			claudeInfo.Usage.TotalTokens = claudeInfo.Usage.PromptTokens + claudeInfo.Usage.CompletionTokens
 		}
 
-		// 判断是否完整
+		// message_delta completes usage reporting, not the stream.
 		claudeInfo.Done = true
+	} else if claudeResponse.Type == "message_stop" {
+		claudeInfo.MessageStopped = true
+		return false
 	} else if claudeResponse.Type == "content_block_start" {
 	} else {
 		return false
@@ -810,11 +815,12 @@ func HandleStreamResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 	err := common.UnmarshalJsonStr(data, &claudeResponse)
 	if err != nil {
 		common.SysLog("error unmarshalling stream response: " + err.Error())
-		return types.NewError(err, types.ErrorCodeBadResponseBody)
+		return types.NewError(err, types.ErrorCodeBadResponseBody, types.ErrOptionWithSkipRetry())
 	}
 	if claudeError := claudeResponse.GetClaudeError(); claudeError != nil && claudeError.Type != "" {
-		return types.WithClaudeError(*claudeError, http.StatusInternalServerError)
+		return types.WithClaudeError(*claudeError, http.StatusInternalServerError, types.ErrOptionWithSkipRetry())
 	}
+	captureClaudeStreamUsageEvidence(info, data, claudeResponse.Type)
 	if claudeResponse.StopReason != "" {
 		maybeMarkClaudeRefusal(c, claudeResponse.StopReason)
 	}
@@ -843,6 +849,14 @@ func HandleStreamResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 		if !FormatClaudeResponseInfo(&claudeResponse, response, claudeInfo) {
 			return nil
 		}
+		if claudeResponse.Type == "message_delta" && response != nil {
+			for _, choice := range response.Choices {
+				if choice.FinishReason != nil {
+					claudeInfo.OpenAITerminal = response
+					return nil
+				}
+			}
+		}
 
 		err = helper.ObjectData(c, response)
 		if err != nil {
@@ -852,7 +866,50 @@ func HandleStreamResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 	return nil
 }
 
-func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, claudeInfo *ClaudeResponseInfo) {
+func captureClaudeStreamUsageEvidence(info *relaycommon.RelayInfo, data, eventType string) {
+	if info.ZTAPIPublicationSnapshot == nil {
+		return
+	}
+	path := "usage"
+	switch eventType {
+	case "message_start":
+		path = "message.usage"
+	case "message_delta":
+	default:
+		return
+	}
+	current := types.FilterZTAPINumericUsage([]byte(gjson.Get(data, path).Raw))
+	if len(current) == 0 {
+		return
+	}
+	merged := make(map[string]json.RawMessage)
+	if info.ZTAPIMetering != nil && info.ZTAPIMetering.UpstreamProtocol == string(types.RelayFormatClaude) {
+		for field, value := range types.FilterZTAPINumericUsage(info.ZTAPIMetering.RawUsage) {
+			merged[field] = value
+		}
+	}
+	// Native deltas may contain only output_tokens; retain earlier input/cache evidence.
+	for field, value := range current {
+		if field == "cache_creation" {
+			tiers := types.FilterZTAPINumericUsage(merged[field])
+			if tiers == nil {
+				tiers = make(map[string]json.RawMessage)
+			}
+			for tier, quantity := range types.FilterZTAPINumericUsage(value) {
+				tiers[tier] = quantity
+			}
+			if encoded, err := common.Marshal(tiers); err == nil {
+				value = encoded
+			}
+		}
+		merged[field] = value
+	}
+	if raw, err := common.Marshal(map[string]any{"usage": merged}); err == nil {
+		relaycommon.CaptureZTAPIUpstreamUsageEvidence(info, raw, "stream")
+	}
+}
+
+func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, claudeInfo *ClaudeResponseInfo) *types.NewAPIError {
 	if claudeInfo.Usage.PromptTokens == 0 {
 		//上游出错
 	}
@@ -878,16 +935,24 @@ func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, clau
 	if info.RelayFormat == types.RelayFormatClaude {
 		//
 	} else if info.RelayFormat == types.RelayFormatOpenAI {
+		// SDK callers also finalize here; the HTTP handler validates its scanner before this call.
+		if claudeInfo.OpenAITerminal != nil {
+			if err := helper.ObjectData(c, claudeInfo.OpenAITerminal); err != nil {
+				return types.NewErrorWithStatusCode(err, types.ErrorCodeBadResponse, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
+			}
+		}
 		if info.ShouldIncludeUsage {
 			openAIUsage := buildOpenAIStyleUsageFromClaudeUsage(claudeInfo.Usage)
 			response := helper.GenerateFinalUsageResponse(claudeInfo.ResponseId, claudeInfo.Created, info.UpstreamModelName, openAIUsage)
 			err := helper.ObjectData(c, response)
 			if err != nil {
 				common.SysLog("send final response failed: " + err.Error())
+				return types.NewErrorWithStatusCode(err, types.ErrorCodeBadResponse, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
 			}
 		}
 		helper.Done(c)
 	}
+	return nil
 }
 
 func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (*dto.Usage, *types.NewAPIError) {
@@ -903,14 +968,26 @@ func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.
 		err = HandleStreamResponseData(c, info, claudeInfo, data)
 		if err != nil {
 			sr.Stop(err)
+			return
+		}
+		if claudeInfo.MessageStopped {
+			sr.Done()
 		}
 	})
-	if err != nil {
-		return nil, err
+	if err == nil {
+		if contextErr := c.Request.Context().Err(); contextErr != nil {
+			err = types.NewErrorWithStatusCode(fmt.Errorf("Claude stream canceled: %w", contextErr), types.ErrorCodeBadResponse, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
+		} else if !claudeInfo.MessageStopped || info.StreamStatus == nil ||
+			(info.RelayFormat == types.RelayFormatOpenAI && claudeInfo.OpenAITerminal == nil) ||
+			!info.StreamStatus.IsNormalEnd() || info.StreamStatus.HasErrors() || info.StreamStatus.EndError != nil {
+			err = types.NewErrorWithStatusCode(fmt.Errorf("upstream Claude stream ended without a valid completion"), types.ErrorCodeBadResponse, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
+		}
 	}
-
-	HandleStreamFinalResponse(c, info, claudeInfo)
-	return claudeInfo.Usage, nil
+	if err != nil {
+		// Preserve provider-reported usage without estimating or emitting a successful terminal frame.
+		return claudeInfo.Usage, err
+	}
+	return claudeInfo.Usage, HandleStreamFinalResponse(c, info, claudeInfo)
 }
 
 func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claudeInfo *ClaudeResponseInfo, httpResp *http.Response, data []byte) *types.NewAPIError {

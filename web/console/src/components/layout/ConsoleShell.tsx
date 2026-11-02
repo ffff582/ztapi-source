@@ -1,5 +1,6 @@
 import {
   BookOpenText,
+  BellRing,
   Boxes,
   KeyRound,
   LayoutDashboard,
@@ -26,6 +27,7 @@ const consoleNavigation = [
     items: [
       { to: '/console/keys', label: 'API Key', icon: KeyRound, end: false },
       { to: '/console/logs', label: '用量日志', icon: ScrollText, end: false },
+      { to: '/console/spending', label: '消费预警', icon: BellRing, end: false },
       { to: '/console/wallet', label: '账单充值', icon: WalletCards, end: false },
       { to: '/console/account', label: '账号设置', icon: UserRound, end: false },
       { to: '/console/support', label: '平台客服', icon: LifeBuoy, end: false },

@@ -1,6 +1,7 @@
 package helper
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -54,12 +55,31 @@ func SetEventStreamHeaders(c *gin.Context) {
 	c.Writer.Header().Set("X-Accel-Buffering", "no")
 }
 
+func publicClaudeStreamPayload(resp dto.ClaudeResponse, data string) string {
+	var frame struct {
+		Type    string          `json:"type"`
+		Message json.RawMessage `json:"message"`
+		Error   json.RawMessage `json:"error"`
+	}
+	parsed := common.UnmarshalJsonStr(data, &frame) == nil
+	if resp.Type == "message_start" && resp.Message != nil && resp.GetClaudeError() == nil &&
+		parsed && frame.Type == "message_start" && common.GetJsonType(frame.Message) == "object" &&
+		(len(frame.Error) == 0 || common.GetJsonType(frame.Error) == "null") {
+		return data
+	}
+	// A string-valued top-level message is not a valid Claude stream frame.
+	if parsed && common.GetJsonType(frame.Message) == "string" {
+		data = `{"type":"error","error":{"type":"api_error","message":"Invalid upstream error response."}}`
+	}
+	return types.PublicStreamErrorPayload(data)
+}
+
 func ClaudeData(c *gin.Context, resp dto.ClaudeResponse) error {
 	jsonData, err := common.Marshal(resp)
 	if err != nil {
 		common.SysError("error marshalling stream response: " + err.Error())
 	} else {
-		jsonData = []byte(types.PublicStreamErrorPayload(string(jsonData)))
+		jsonData = []byte(publicClaudeStreamPayload(resp, string(jsonData)))
 		c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("event: %s\n", resp.Type)})
 		c.Render(-1, common.CustomEvent{Data: "data: " + string(jsonData)})
 	}
@@ -68,7 +88,7 @@ func ClaudeData(c *gin.Context, resp dto.ClaudeResponse) error {
 }
 
 func ClaudeChunkData(c *gin.Context, resp dto.ClaudeResponse, data string) {
-	data = types.PublicStreamErrorPayload(data)
+	data = publicClaudeStreamPayload(resp, data)
 	c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("event: %s\n", resp.Type)})
 	c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("data: %s\n", data)})
 	_ = FlushWriter(c)

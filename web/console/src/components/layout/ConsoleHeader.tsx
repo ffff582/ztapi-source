@@ -4,6 +4,7 @@ import { useAuth } from '../../auth/session';
 import { LanguageToggle } from '../../i18n/LanguageToggle';
 import { useLocale } from '../../i18n/locale';
 import { ThemeToggle } from '../../theme/ThemeToggle';
+import { SpendingBell } from '../../features/spending/SpendingBell';
 
 export function ConsoleHeader() {
   const navigate = useNavigate();
@@ -16,7 +17,7 @@ export function ConsoleHeader() {
   }
 
   return (
-    <header className="console-header">
+    <header className="console-header console-header--spending">
       <div className="console-mode-switch" role="group" aria-label={t('产品模式')}>
         <NavLink
           className={({ isActive }) => isActive ? 'console-mode-switch__link is-active' : 'console-mode-switch__link'}
@@ -37,6 +38,7 @@ export function ConsoleHeader() {
       </Link>
       <LanguageToggle />
       <ThemeToggle />
+      <SpendingBell />
       <span className="console-user">
         <span className="console-user__label">{t('当前账号')}</span>
         <strong>{user?.username}</strong>
