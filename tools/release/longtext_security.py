@@ -21,11 +21,11 @@ import time
 from urllib import request, error, parse
 
 STAGE = Path(__file__).resolve().parent
-RELEASE = 'longtext-security-20261102-r2'
+RELEASE = 'longtext-security-20261102-r3'
 MAIN = 'ztapi-server-1'
 NGINX = 'ztapi-nginx-1'
-CANDIDATE = 'ztapi-longtext-security-candidate-r2'
-PREVIOUS = 'ztapi-server-before-longtext-security-r2'
+CANDIDATE = 'ztapi-longtext-security-candidate-r3'
+PREVIOUS = 'ztapi-server-before-longtext-security-r3'
 CONF = '/etc/nginx/conf.d/default.conf'
 APP_NETWORK = 'ztapi_app'
 DRAIN_TIMEOUT = 600
@@ -698,6 +698,18 @@ def backup():
     return {'sha256': sha(packed), 'gunzip_verified': True}
 
 
+def build_image(original, build):
+    binary = STAGE / 'ztapi-linux-amd64'
+    require(sha(binary.read_bytes()) == build['binary_sha256'], 'binary_hash_mismatch')
+    os.chmod(binary, 0o555)
+    image = 'ztapi-main:longtext-security-r3'
+    recipe = ('FROM ' + original['Image'] + '\nCOPY ztapi-linux-amd64 /usr/local/bin/ztapi\nLABEL org.opencontainers.image.revision="' + build['commit'] + '"\n').encode()
+    save('main.Dockerfile', recipe)
+    save('.dockerignore', b'**\n!main.Dockerfile\n!ztapi-linux-amd64\n')
+    docker('build', '--network=none', '--pull=false', '-f', str(STAGE / 'main.Dockerfile'), '-t', image, str(STAGE), timeout=180)
+    return image
+
+
 def prepare(baseline, build):
     pins(baseline)
     original = inspect(MAIN)
@@ -708,13 +720,7 @@ def prepare(baseline, build):
     save('nginx-original.conf', docker('exec', NGINX, 'cat', CONF))
     save('public-index-before.html', docker('exec', NGINX, 'cat', '/usr/share/nginx/public/index.html'))
     proof = backup()
-    binary = STAGE / 'ztapi-linux-amd64'
-    require(sha(binary.read_bytes()) == build['binary_sha256'], 'binary_hash_mismatch')
-    os.chmod(binary, 0o555)
-    image = 'ztapi-main:longtext-security-r2'
-    recipe = ('FROM ' + original['Image'] + '\nCOPY --chmod=555 ztapi-linux-amd64 /usr/local/bin/ztapi\nLABEL org.opencontainers.image.revision="' + build['commit'] + '"\n').encode()
-    save('main.Dockerfile', recipe)
-    docker('build', '--network=none', '--pull=false', '-f', str(STAGE / 'main.Dockerfile'), '-t', image, str(STAGE), timeout=180)
+    image = build_image(original, build)
     security_tests = isolated_tests(image, build)
     bindings = catalog_bindings(baseline)
     run(['nsenter', '--version'])

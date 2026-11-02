@@ -169,6 +169,18 @@ class RolloutTests(OfflineTestCase):
             with self.assertRaisesRegex(RuntimeError, 'static_file_hash_mismatch'):
                 release.validate_static(build)
 
+    def test_image_build_is_legacy_compatible_and_excludes_private_context(self):
+        raw = b'offline verified binary fixture'
+        with tempfile.TemporaryDirectory() as root, patch.object(release, 'STAGE', Path(root)), patch.object(release, 'docker', return_value=b'') as docker:
+            (Path(root) / 'ztapi-linux-amd64').write_bytes(raw)
+            image = release.build_image({'Image': 'sha256:' + 'a' * 64}, {'binary_sha256': release.sha(raw), 'commit': 'b' * 40})
+            recipe = (Path(root) / 'main.Dockerfile').read_text()
+            self.assertIn('COPY ztapi-linux-amd64 /usr/local/bin/ztapi\n', recipe)
+            self.assertNotIn('--chmod', recipe)
+            self.assertNotIn('RUN ', recipe)
+            self.assertEqual((Path(root) / '.dockerignore').read_text(), '**\n!main.Dockerfile\n!ztapi-linux-amd64\n')
+            self.assertEqual(docker.call_args.args, ('build', '--network=none', '--pull=false', '-f', str(Path(root) / 'main.Dockerfile'), '-t', image, str(Path(root))))
+
     def test_isolated_tests_have_no_runtime_secrets_data_or_network(self):
         calls = []
         with tempfile.TemporaryDirectory() as root, patch.object(release, 'STAGE', Path(root)):
