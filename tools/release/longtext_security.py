@@ -21,11 +21,11 @@ import time
 from urllib import request, error, parse
 
 STAGE = Path(__file__).resolve().parent
-RELEASE = 'longtext-security-20261102-r1'
+RELEASE = 'longtext-security-20261102-r2'
 MAIN = 'ztapi-server-1'
 NGINX = 'ztapi-nginx-1'
-CANDIDATE = 'ztapi-longtext-security-candidate-r1'
-PREVIOUS = 'ztapi-server-before-longtext-security-r1'
+CANDIDATE = 'ztapi-longtext-security-candidate-r2'
+PREVIOUS = 'ztapi-server-before-longtext-security-r2'
 CONF = '/etc/nginx/conf.d/default.conf'
 APP_NETWORK = 'ztapi_app'
 DRAIN_TIMEOUT = 600
@@ -316,7 +316,10 @@ def validate_static(build):
             size += member.size
             require(0 <= member.size <= 64 << 20 and size <= 256 << 20, 'static_archive_too_large')
             with archive.extractfile(member) as stream:
-                require(hashlib.file_digest(stream, 'sha256').hexdigest() == expected[name], 'static_file_hash_mismatch:' + name)
+                digest = hashlib.sha256()
+                for block in iter(lambda: stream.read(1 << 20), b''):
+                    digest.update(block)
+                require(digest.hexdigest() == expected[name], 'static_file_hash_mismatch:' + name)
             found.add(name)
     require(found == set(expected), 'static_archive_missing_files')
 
@@ -708,7 +711,7 @@ def prepare(baseline, build):
     binary = STAGE / 'ztapi-linux-amd64'
     require(sha(binary.read_bytes()) == build['binary_sha256'], 'binary_hash_mismatch')
     os.chmod(binary, 0o555)
-    image = 'ztapi-main:longtext-security-r1'
+    image = 'ztapi-main:longtext-security-r2'
     recipe = ('FROM ' + original['Image'] + '\nCOPY --chmod=555 ztapi-linux-amd64 /usr/local/bin/ztapi\nLABEL org.opencontainers.image.revision="' + build['commit'] + '"\n').encode()
     save('main.Dockerfile', recipe)
     docker('build', '--network=none', '--pull=false', '-f', str(STAGE / 'main.Dockerfile'), '-t', image, str(STAGE), timeout=180)

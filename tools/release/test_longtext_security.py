@@ -154,6 +154,21 @@ class RolloutTests(OfflineTestCase):
                 release.validate_static(build)
             docker.assert_not_called()
 
+    def test_static_verification_on_python_310_without_file_digest(self):
+        import tarfile
+        raw = b'portable static verification'
+        with tempfile.TemporaryDirectory() as root, patch.object(release, 'STAGE', Path(root)), patch.dict(release.hashlib.__dict__):
+            release.hashlib.__dict__.pop('file_digest', None)
+            with tarfile.open(Path(root) / 'public-dist.tar.gz', 'w:gz') as archive:
+                info = tarfile.TarInfo('index.html')
+                info.size = len(raw)
+                archive.addfile(info, io.BytesIO(raw))
+            build = {'public_files': {'index.html': release.sha(raw)}}
+            release.validate_static(build)
+            build['public_files']['index.html'] = '0' * 64
+            with self.assertRaisesRegex(RuntimeError, 'static_file_hash_mismatch'):
+                release.validate_static(build)
+
     def test_isolated_tests_have_no_runtime_secrets_data_or_network(self):
         calls = []
         with tempfile.TemporaryDirectory() as root, patch.object(release, 'STAGE', Path(root)):
