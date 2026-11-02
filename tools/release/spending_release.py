@@ -357,11 +357,29 @@ def container_spec(image, signing_key, credentials, stage, commit, base_env):
             'NetworkingConfig': {'EndpointsConfig': {n: {'Aliases': [SERVICE]} for n in sorted(SERVICE_NETWORKS)}}}
 
 
-def verify_service(actual, desired):
+def validated_image_labels(labels):
+    allowed = {'org.opencontainers.image.source', 'org.opencontainers.image.licenses', 'org.opencontainers.image.revision'}
+    require(isinstance(labels, dict) and set(labels) <= allowed, 'unsafe_base_image_labels')
+    require(all(isinstance(v, str) and 0 < len(v) <= 1024 and '\n' not in v and '\0' not in v for v in labels.values()),
+            'unsafe_base_image_labels')
+    if 'org.opencontainers.image.source' in labels:
+        require(re.fullmatch(r'https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', labels['org.opencontainers.image.source']),
+                'unsafe_base_image_labels')
+    if 'org.opencontainers.image.licenses' in labels:
+        require(labels['org.opencontainers.image.licenses'] in ('AGPL-3.0', 'AGPL-3.0-only', 'AGPL-3.0-or-later'),
+                'unsafe_base_image_labels')
+    if 'org.opencontainers.image.revision' in labels:
+        require(re.fullmatch('[a-f0-9]{40}', labels['org.opencontainers.image.revision']), 'unsafe_base_image_labels')
+    return dict(labels)
+
+
+def verify_service(actual, desired, image_labels=None):
     require(actual['Image'] == desired['Image'], 'spending_service_drift')
     config, host = actual['Config'], actual['HostConfig']
-    for key in ('User', 'WorkingDir', 'Entrypoint', 'Labels', 'Healthcheck'):
+    for key in ('User', 'WorkingDir', 'Entrypoint', 'Healthcheck'):
         require(config.get(key) == desired[key], 'spending_service_drift')
+    expected_labels = {**validated_image_labels(image_labels or {}), **desired['Labels']}
+    require(config.get('Labels') == expected_labels, 'spending_service_drift')
     require((config.get('Cmd') or []) == desired['Cmd'] and sorted(config.get('Env') or []) == sorted(desired['Env']), 'spending_service_drift')
     for key, value in desired['HostConfig'].items():
         require((host.get(key) or ([] if isinstance(value, list) else {} if isinstance(value, dict) else host.get(key))) == value,
@@ -421,6 +439,7 @@ def build_spending_image(stage, original, build, raw, columns_raw, columns, back
     image = backend.inspect(base)
     base_config = image['Config']
     base_env = validated_image_env(envmap(image))
+    validated_image_labels(base_config.get('Labels') or {})
     require(not base_config.get('OnBuild')
             and set(base_config.get('Volumes') or {}) <= {'/data'}, 'unsafe_base_image_defaults')
     context = stage / 'spending-build'
@@ -569,7 +588,7 @@ def prepare(baseline, build, *, stage, backend=None):
         prior = backend.optional(SERVICE)
         if prior is not None:
             require(created_path.exists() and _read(created_path) == {'container': prior['Id'], 'spec_sha256': fingerprint}, 'existing_service_unowned')
-            verify_service(prior, desired)
+            verify_service(prior, desired, backend.inspect(image)['Config'].get('Labels') or {})
             cid = prior['Id']
         else:
             require(not created_path.exists(), 'created_service_missing')
@@ -578,7 +597,7 @@ def prepare(baseline, build, *, stage, backend=None):
             protected_save(created_path, {'container': cid, 'spec_sha256': fingerprint})
         backend.start(cid)
         backend.healthy(cid)
-        verify_service(backend.inspect(SERVICE), desired)
+        verify_service(backend.inspect(SERVICE), desired, backend.inspect(image)['Config'].get('Labels') or {})
         backend.check_default_off()
         pins(baseline, backend)
         result = {'prepared': True, 'service': SERVICE, 'container': cid, 'image': image,
@@ -615,7 +634,7 @@ def activate_route(baseline, *, stage, backend=None):
         require(sha(encoded(desired)) == prepared['spec_sha256'], 'prepared_service_changed')
         actual = backend.inspect(SERVICE)
         require(actual['Id'] == prepared['container'] and actual['State']['Running'], 'prepared_service_changed')
-        verify_service(actual, desired)
+        verify_service(actual, desired, backend.inspect(prepared['image'])['Config'].get('Labels') or {})
         backend.healthy(prepared['container'])
         require(sha(telegram_projection(backend.read_bot_config())) == prepared['telegram_sha256'], 'telegram_config_changed')
         require(sha((stage / 'telegram.json').read_bytes()) == prepared['telegram_sha256'], 'telegram_config_changed')

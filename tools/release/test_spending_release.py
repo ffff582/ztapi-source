@@ -169,6 +169,9 @@ class FakeHost:
         merged = dict(x.split('=', 1) for x in self.image['Config']['Env'])
         merged.update(x.split('=', 1) for x in c['Config']['Env'])
         c['Config']['Env'] = [k + '=' + v for k, v in merged.items()]
+        labels = dict(self.image['Config'].get('Labels') or {})
+        labels.update(c['Config']['Labels'])
+        c['Config']['Labels'] = labels
         c['NetworkSettings'] = {'Networks': {n: {'IPAddress': '172.31.0.8'}
                                              for n in desired['NetworkingConfig']['EndpointsConfig']}}
         c['Mounts'] = []
@@ -494,6 +497,27 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(env['ZTAPI_RELEASE_VERSION'], r.RELEASE)
         self.assertEqual(env['ZTAPI_SOURCE_TAG'], 'production-claude-spend-20261102-r1')
         self.assertEqual(env['PORT'], '3014')
+
+    def test_docker_baked_source_and_license_labels_are_preserved_and_checked(self):
+        self.host.image['Config']['Labels'] = {
+            'org.opencontainers.image.source': 'https://github.com/QuantumNous/new-api',
+            'org.opencontainers.image.licenses': 'AGPL-3.0',
+            'org.opencontainers.image.revision': 'a' * 40,
+        }
+        self.prepare()
+        actual = self.host.cs[r.SERVICE]
+        self.assertEqual(actual['Config']['Labels']['org.opencontainers.image.licenses'], 'AGPL-3.0')
+        self.assertEqual(actual['Config']['Labels']['org.opencontainers.image.revision'], self.build['commit'])
+        actual['Config']['Labels']['org.opencontainers.image.licenses'] = 'MIT'
+        with self.assertRaisesRegex(r.ReleaseError, 'spending_service_drift'):
+            self.activate()
+        self.assertEqual(self.host.nginx, PUBLIC)
+
+    def test_unknown_baked_labels_cannot_smuggle_compose_ownership(self):
+        self.host.image['Config']['Labels'] = {'com.docker.compose.project': 'ztapi'}
+        with self.assertRaisesRegex(r.ReleaseError, 'unsafe_base_image_labels'):
+            self.prepare()
+        self.assertFalse(self.host.users)
 
     def test_three_networks_and_reader_host_are_data_not_app_scoped(self):
         self.prepare()
