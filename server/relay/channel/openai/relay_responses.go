@@ -70,11 +70,7 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		return usage, apiErr
 	}
 	if c.Writer != nil {
-		for k, v := range resp.Header {
-			if service.ShouldCopyUpstreamHeader(c, k, v) {
-				c.Writer.Header().Set(k, v[0])
-			}
-		}
+		service.CopyUpstreamResponseHeaders(c, resp.Header)
 		c.Writer.Header().Set("Content-Length", fmt.Sprintf("%d", len(responseBody)))
 		c.Writer.WriteHeader(resp.StatusCode)
 		n, err := c.Writer.Write(responseBody)
@@ -279,6 +275,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			forward = true
 		}
 		if downstreamErr == nil && forward {
+			data = types.PublicStreamErrorPayload(data)
 			payload := fmt.Sprintf("event: %s\ndata: %s\n\n", streamResponse.Type, data)
 			n, err := c.Writer.Write([]byte(payload))
 			if err == nil && n != len(payload) {

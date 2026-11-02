@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -67,20 +68,34 @@ const (
 	LogTypeLogin   = 7
 )
 
+func (log *Log) BeforeCreate(_ *gorm.DB) error {
+	if log.Type == LogTypeError {
+		log.Content = common.RedactSecrets(log.Content)
+		log.Other = common.RedactSecrets(log.Other)
+	}
+	return nil
+}
+
 func formatUserLogs(logs []*Log, startIdx int) {
 	for i := range logs {
 		logs[i].ChannelName = ""
-		var otherMap map[string]interface{}
-		otherMap, _ = common.StrToMap(logs[i].Other)
-		if otherMap != nil {
+		logs[i].Content = common.RedactSecrets(logs[i].Content)
+		logs[i].Other = common.RedactSecrets(logs[i].Other)
+		// Preserve exact numeric accounting and audit values in the read projection.
+		var otherMap map[string]json.RawMessage
+		if common.Unmarshal([]byte(logs[i].Other), &otherMap) == nil && otherMap != nil {
 			// Remove admin-only debug fields.
 			delete(otherMap, "admin_info")
 			// Remove operation-audit details (operator/route info), admin-only.
 			delete(otherMap, "audit_info")
 			// delete(otherMap, "reject_reason")
 			delete(otherMap, "stream_status")
+			if otherJSON, err := common.Marshal(otherMap); err == nil {
+				logs[i].Other = string(otherJSON)
+			}
+		} else {
+			logs[i].Other = "null"
 		}
-		logs[i].Other = common.MapToJsonStr(otherMap)
 		logs[i].Id = startIdx + i + 1
 	}
 }
@@ -236,6 +251,7 @@ func RecordTopupLog(userId int, content string, callerIp string, paymentMethod s
 
 func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string, tokenName string, content string, tokenId int, useTimeSeconds int,
 	isStream bool, group string, other map[string]interface{}) {
+	content = common.RedactSecrets(content)
 	logger.LogInfo(c, fmt.Sprintf("record error log: userId=%d, channelId=%d, modelName=%s, tokenName=%s, content=%s", userId, channelId, modelName, tokenName, common.LocalLogPreview(content)))
 	username := c.GetString("username")
 	requestId := c.GetString(common.RequestIdKey)

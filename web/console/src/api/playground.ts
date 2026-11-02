@@ -5,6 +5,7 @@ export type PlaygroundErrorKind =
   | 'insufficient_balance'
   | 'model_unavailable'
   | 'rate_limited'
+  | 'request_too_large'
   | 'invalid_response'
   | 'unknown';
 
@@ -27,6 +28,23 @@ export interface PlaygroundChatInput {
   model: string;
   prompt: string;
   history?: readonly PlaygroundChatMessage[];
+}
+
+export function serializePlaygroundChatRequest(input: PlaygroundChatInput): string {
+  const body = JSON.stringify({
+    model: input.model,
+    messages: [
+      { role: 'system', content: '你是一个简洁、可靠的助手。' },
+      ...(input.history ?? []),
+      { role: 'user', content: input.prompt },
+    ],
+    stream: false,
+    max_tokens: 256,
+  });
+  if (new TextEncoder().encode(body).byteLength > 4 * 1024 * 1024) {
+    throw new PlaygroundClientError('request_too_large');
+  }
+  return body;
 }
 
 export interface PlaygroundUsage {
@@ -322,6 +340,7 @@ async function chatRequest(
     throw new PlaygroundClientError('unauthorized');
   }
 
+  const serializedBody = serializePlaygroundChatRequest(input);
   let response: Response;
   try {
     response = await fetch('/pg/chat/completions', {
@@ -333,16 +352,7 @@ async function chatRequest(
         'Content-Type': 'application/json',
         'New-Api-User': String(session.user.id),
       },
-      body: JSON.stringify({
-        model: input.model,
-        messages: [
-          { role: 'system', content: '你是一个简洁、可靠的助手。' },
-          ...(input.history ?? []),
-          { role: 'user', content: input.prompt },
-        ],
-        stream: false,
-        max_tokens: 256,
-      }),
+      body: serializedBody,
     });
   } catch {
     throw new PlaygroundClientError('unknown');

@@ -53,7 +53,7 @@ func RelayMidjourneyImage(c *gin.Context) {
 	fetchSetting := system_setting.GetFetchSetting()
 	if err := common.ValidateURLWithFetchSetting(midjourneyTask.ImageUrl, fetchSetting.EnableSSRFProtection, fetchSetting.AllowPrivateIp, fetchSetting.DomainFilterMode, fetchSetting.IpFilterMode, fetchSetting.DomainList, fetchSetting.IpList, fetchSetting.AllowedPorts, fetchSetting.ApplyIPFilterForDomain); err != nil {
 		c.JSON(http.StatusForbidden, gin.H{
-			"error": fmt.Sprintf("request blocked: %v", err),
+			"error": "image_url_not_permitted",
 		})
 		return
 	}
@@ -66,15 +66,14 @@ func RelayMidjourneyImage(c *gin.Context) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		responseBody, _ := io.ReadAll(resp.Body)
 		c.JSON(resp.StatusCode, gin.H{
-			"error": string(responseBody),
+			"error": "image_upstream_error",
 		})
 		return
 	}
 	// 从Content-Type头获取MIME类型
 	contentType := resp.Header.Get("Content-Type")
-	if contentType == "" {
+	if !service.ShouldCopyUpstreamHeader(c, "Content-Type", []string{contentType}) {
 		// 如果无法确定内容类型，则默认为jpeg
 		contentType = "image/jpeg"
 	}

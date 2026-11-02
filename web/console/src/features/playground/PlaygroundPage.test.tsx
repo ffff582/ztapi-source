@@ -561,6 +561,228 @@ describe('PlaygroundPage', () => {
     expect(screen.getByText('已保存的回复')).toBeVisible();
   });
 
+  it.each([true, false])('sends text over 4000 characters without a cap or whitespace loss: workbench=%s', async (workbench) => {
+    const submitted: Array<{ messages: Array<{ role: string; content: string }>; max_tokens: number }> = [];
+    stubFetch('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (input.toString() === '/api/user/models') return jsonResponse(catalogResponse());
+      submitted.push(JSON.parse(String(init?.body)));
+      return jsonResponse({ choices: [{ message: { content: 'Long text accepted' } }] });
+    }));
+    render(<MemoryRouter><PlaygroundPage workbench={workbench} /></MemoryRouter>);
+    await screen.findByRole('option', { name: 'zt-gpt-5.6-sol' });
+    const input = screen.getByLabelText(workbench ? '输入消息' : '测试问题');
+    const prompt = ` \n${'中文😀'.repeat(1800)}TYPED_TAIL\n `;
+    expect(input).not.toHaveAttribute('maxlength');
+    expect(screen.queryByText(/\/\s*4000/)).not.toBeInTheDocument();
+    fireEvent.change(input, { target: { value: prompt } });
+    fireEvent.click(screen.getByRole('button', { name: workbench ? '发送' : '发送测试请求' }));
+    await screen.findByText('Long text accepted');
+
+    expect(submitted).toHaveLength(1);
+    expect(submitted[0].messages.at(-1)).toEqual({ role: 'user', content: prompt });
+    expect(submitted[0].max_tokens).toBe(256);
+    if (workbench) {
+      const saved = JSON.parse(localStorage.getItem('ztapi:workbench:text-conversations:v1:9')!);
+      expect(saved[0].messages[0].content).toBe(prompt);
+    }
+  });
+
+  it('appends complete long attachments and accepts a file exactly 1 MiB', async () => {
+    const submitted: Array<{ messages: Array<{ content: string }> }> = [];
+    stubFetch('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (input.toString() === '/api/user/models') return jsonResponse(catalogResponse());
+      submitted.push(JSON.parse(String(init?.body)));
+      return jsonResponse({ choices: [{ message: { content: 'Attachments accepted' } }] });
+    }));
+    const view = render(<MemoryRouter><PlaygroundPage workbench /></MemoryRouter>);
+    await screen.findByRole('option', { name: 'zt-gpt-5.6-sol' });
+    const prompt = `${'原文'.repeat(2500)}DRAFT_TAIL`;
+    const content = `${'附件😀'.repeat(2500)}ATTACHMENT_TAIL\n `;
+    const boundaryContent = `${'x'.repeat(1_048_576 - 13)}BOUNDARY_TAIL`;
+    const first = new File([content], 'long.md', { type: 'text/markdown' });
+    const second = new File([boundaryContent], 'boundary.txt', { type: 'text/plain' });
+    Object.defineProperty(first, 'text', { value: vi.fn().mockResolvedValue(content) });
+    Object.defineProperty(second, 'text', { value: vi.fn().mockResolvedValue(boundaryContent) });
+    fireEvent.change(screen.getByLabelText('输入消息'), { target: { value: prompt } });
+    const attachmentInput = view.container.querySelector('input[accept=".txt,.md,.json,.csv"]')!;
+    fireEvent.change(attachmentInput, { target: { files: [first] } });
+    await screen.findByText('long.md');
+    fireEvent.change(attachmentInput, { target: { files: [second] } });
+    await screen.findByText('boundary.txt');
+    const full = `${prompt}\n\n[附件：long.md]\n${content}\n\n[附件：boundary.txt]\n${boundaryContent}`;
+    expect((screen.getByLabelText('输入消息') as HTMLTextAreaElement).value === full).toBe(true);
+    expect(second.size).toBe(1_048_576);
+    fireEvent.click(screen.getByRole('button', { name: '发送' }));
+    await screen.findByText('Attachments accepted');
+    expect(submitted[0].messages.at(-1)?.content === full).toBe(true);
+  });
+
+  it('rejects a file over 1 MiB before reading and preserves the existing draft and history', async () => {
+    const key = 'ztapi:workbench:text-conversations:v1:9';
+    const stored = JSON.stringify([{ id: 'saved', title: 'Saved', model: 'zt-gpt-5.6-sol', updatedAt: 1,
+      messages: [{ role: 'user', content: 'Saved question' }, { role: 'assistant', content: 'Saved answer' }] }]);
+    localStorage.setItem(key, stored);
+    const fetchMock = vi.fn(async () => jsonResponse(catalogResponse()));
+    stubFetch('fetch', fetchMock);
+    const view = render(<MemoryRouter><PlaygroundPage workbench /></MemoryRouter>);
+    await screen.findByRole('option', { name: 'zt-gpt-5.6-sol' });
+    fireEvent.change(screen.getByLabelText('输入消息'), { target: { value: 'Keep my draft' } });
+    const file = new File([new Uint8Array(1_048_577)], 'oversize.txt', { type: 'text/plain' });
+    const read = vi.fn().mockResolvedValue('Must never be read');
+    Object.defineProperty(file, 'text', { value: read });
+    const callsBefore = fetchMock.mock.calls.length;
+    fireEvent.change(view.container.querySelector('input[accept=".txt,.md,.json,.csv"]')!, { target: { files: [file] } });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('1 MiB');
+    expect(read).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(callsBefore);
+    expect(screen.getByLabelText('输入消息')).toHaveValue('Keep my draft');
+    expect(screen.getByText('Saved answer')).toBeVisible();
+    expect(localStorage.getItem(key)).toBe(stored);
+    expect(screen.queryByText('oversize.txt')).not.toBeInTheDocument();
+  });
+
+  it('rejects cumulative history plus draft over 4 MiB without any dispatch or loss', async () => {
+    const key = 'ztapi:workbench:text-conversations:v1:9';
+    const stored = JSON.stringify([{ id: 'saved', title: 'Saved long history', model: 'zt-gpt-5.6-sol', updatedAt: 1,
+      messages: [{ role: 'user', content: `${'h'.repeat(2_100_000)}HISTORY_TAIL` }, { role: 'assistant', content: 'Saved answer' }] }]);
+    localStorage.setItem(key, stored);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (input.toString() === '/api/user/models') return jsonResponse(catalogResponse());
+      if (input.toString().startsWith('/api/token/')) return keyResponse();
+      return jsonResponse({ choices: [{ message: { content: 'Must not dispatch' } }] });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<MemoryRouter><PlaygroundPage workbench /></MemoryRouter>);
+    await screen.findByRole('option', { name: 'zt-gpt-5.6-sol' });
+    const prompt = `${'中'.repeat(700_000)}DRAFT_TAIL`;
+    fireEvent.change(screen.getByLabelText('输入消息'), { target: { value: prompt } });
+    await waitFor(() => expect(screen.getByRole('button', { name: '发送' })).toBeEnabled());
+    const callsBefore = fetchMock.mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: '发送' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('4 MiB');
+    expect(fetchMock).toHaveBeenCalledTimes(callsBefore);
+    expect((screen.getByLabelText('输入消息') as HTMLTextAreaElement).value === prompt).toBe(true);
+    expect(screen.getByText('Saved answer')).toBeVisible();
+    expect(localStorage.getItem(key) === stored).toBe(true);
+    expect(screen.queryByText('Must not dispatch')).not.toBeInTheDocument();
+  });
+
+  it.each(['image', 'video'] as const)('keeps the existing %s prompt limit in both layouts', async (mode) => {
+    stubFetch('fetch', vi.fn(async () => jsonResponse(mediaCatalogResponse())));
+    const view = render(<MemoryRouter><PlaygroundPage initialMode={mode} workbench /></MemoryRouter>);
+    expect(await screen.findByLabelText(mode === 'image' ? '图片提示词' : '视频提示词')).toHaveAttribute('maxlength', '4000');
+    expect(screen.getByText(/4000 字符/)).toBeVisible();
+    view.rerender(<MemoryRouter><PlaygroundPage initialMode={mode} /></MemoryRouter>);
+    expect(await screen.findByLabelText(mode === 'image' ? '图片提示词' : '视频提示词')).toHaveAttribute('maxlength', '4000');
+    expect(screen.getByText(/4000 字符/)).toBeVisible();
+  });
+
+  it.each(['user', 'assistant'] as const)('bounds extreme %s message display while retaining expandable full history and payload', async (role) => {
+    const storageKey = 'ztapi:workbench:text-conversations:v1:9';
+    const content = `${'p'.repeat(1999)}🚀${'h'.repeat(2_100_000)}EXTREME_HISTORY_TAIL`;
+    const messages = [
+      { role: 'user', content: role === 'user' ? content : 'Saved question' },
+      { role: 'assistant', content: role === 'assistant' ? content : 'Saved answer' },
+    ];
+    const stored = JSON.stringify([{ id: 'extreme', title: 'Extreme history', model: 'zt-gpt-5.6-sol', updatedAt: 1, messages }]);
+    localStorage.setItem(storageKey, stored);
+    const submitted: Array<{ messages: Array<{ role: string; content: string }> }> = [];
+    stubFetch('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (input.toString() === '/api/user/models') return jsonResponse(catalogResponse());
+      submitted.push(JSON.parse(String(init?.body)));
+      return jsonResponse({ choices: [{ message: { content: 'Full history retained' } }] });
+    }));
+    const view = render(<MemoryRouter><PlaygroundPage workbench /></MemoryRouter>);
+    await screen.findByRole('option', { name: 'zt-gpt-5.6-sol' });
+    const thread = view.container.querySelector('.zt-workbench__thread')!;
+    expect(thread.textContent!.length).toBeLessThan(5_000);
+    expect(thread.textContent).not.toContain('EXTREME_HISTORY_TAIL');
+    expect(thread.textContent).not.toContain('\uD83D');
+    expect(screen.getByText('长消息预览')).toBeVisible();
+    const expand = screen.getByRole('button', { name: '展开完整消息' });
+    expect(expand).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByLabelText('完整消息')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('输入消息'), { target: { value: 'Keep this follow-up draft' } });
+    fireEvent.click(expand);
+    const full = screen.getByLabelText('完整消息') as HTMLTextAreaElement;
+    expect(full.value === content).toBe(true);
+    expect(full).toHaveAttribute('readonly');
+    expect(full).toHaveAttribute('wrap', 'off');
+    expect(screen.getByRole('button', { name: '收起完整消息' })).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(screen.getByRole('button', { name: '收起完整消息' }));
+    expect(screen.queryByLabelText('完整消息')).not.toBeInTheDocument();
+    expect(thread.textContent!.length).toBeLessThan(5_000);
+    expect(screen.getByLabelText('输入消息')).toHaveValue('Keep this follow-up draft');
+    expect(localStorage.getItem(storageKey) === stored).toBe(true);
+    expect(submitted).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: '发送' }));
+    await screen.findByText('Full history retained');
+    expect(submitted[0].messages.slice(1)).toEqual([...messages, { role: 'user', content: 'Keep this follow-up draft' }]);
+    const saved = JSON.parse(localStorage.getItem(storageKey)!);
+    expect(saved[0].messages[role === 'user' ? 0 : 1].content === content).toBe(true);
+  });
+
+  it.each([true, false])('keeps extreme editable text complete without expensive soft wrapping: workbench=%s', async (workbench) => {
+    const submitted: Array<{ messages: Array<{ content: string }> }> = [];
+    stubFetch('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (input.toString() === '/api/user/models') return jsonResponse(catalogResponse());
+      submitted.push(JSON.parse(String(init?.body)));
+      return jsonResponse({ choices: [{ message: { content: 'Extreme draft accepted' } }] });
+    }));
+    render(<MemoryRouter><PlaygroundPage workbench={workbench} /></MemoryRouter>);
+    await screen.findByRole('option', { name: 'zt-gpt-5.6-sol' });
+    const input = screen.getByLabelText(workbench ? '输入消息' : '测试问题') as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: 'Short draft' } });
+    expect(input).not.toHaveAttribute('wrap', 'off');
+    const draft = `${'h'.repeat(2_100_000)}EXTREME_DRAFT_TAIL`;
+    fireEvent.change(input, { target: { value: draft } });
+    expect(input).toHaveAttribute('wrap', 'off');
+    expect(input.value === draft).toBe(true);
+    expect(input).not.toHaveAttribute('maxlength');
+    fireEvent.click(screen.getByRole('button', { name: workbench ? '发送' : '发送测试请求' }));
+    await screen.findByText('Extreme draft accepted');
+    expect(submitted[0].messages.at(-1)?.content === draft).toBe(true);
+  });
+
+  it('keeps long histories account-owned and submits only the current account context', async () => {
+    const key = (id: number) => `ztapi:workbench:text-conversations:v1:${id}`;
+    const aliceQuestion = `${'Alice中文🚀'.repeat(1000)}ALICE_HISTORY_TAIL`;
+    const bobQuestion = `${'Bob中文😀'.repeat(1000)}BOB_HISTORY_TAIL`;
+    const history = (id: string, content: string) => JSON.stringify([{ id, title: id, model: 'zt-gpt-5.6-sol', updatedAt: 1,
+      messages: [{ role: 'user', content }, { role: 'assistant', content: `${id} saved answer` }] }]);
+    const aliceStored = history('Alice', aliceQuestion);
+    localStorage.setItem(key(9), aliceStored);
+    localStorage.setItem(key(10), history('Bob', bobQuestion));
+    const submitted: Array<{ messages: Array<{ role: string; content: string }> }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (input.toString() === '/api/user/models') return jsonResponse(catalogResponse());
+      if (input.toString().startsWith('/api/token/')) return keyResponse([keyMetadata({ user_id: getAuthSession()?.user.id })]);
+      submitted.push(JSON.parse(String(init?.body)));
+      return jsonResponse({ choices: [{ message: { content: 'Bob current answer' } }] });
+    }));
+    const view = render(<MemoryRouter><PlaygroundPage workbench /></MemoryRouter>);
+    await screen.findByText('Alice saved answer');
+    act(() => setAuthSession({ access_token: 'bob', expires_in: 900, user: { id: 10, username: 'bob', role: 1, group: 'default' } }));
+    view.rerender(<MemoryRouter><PlaygroundPage workbench /></MemoryRouter>);
+    await screen.findByText('Bob saved answer');
+    await screen.findByRole('option', { name: 'zt-gpt-5.6-sol' });
+    const prompt = `${'新问题😀'.repeat(1500)}BOB_DRAFT_TAIL`;
+    fireEvent.change(screen.getByLabelText('输入消息'), { target: { value: prompt } });
+    await waitFor(() => expect(screen.getByRole('button', { name: '发送' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: '发送' }));
+    await screen.findByText('Bob current answer');
+    expect(submitted[0].messages).toEqual([
+      { role: 'system', content: '你是一个简洁、可靠的助手。' },
+      { role: 'user', content: bobQuestion },
+      { role: 'assistant', content: 'Bob saved answer' },
+      { role: 'user', content: prompt },
+    ]);
+    expect(localStorage.getItem(key(9))).toBe(aliceStored);
+    expect(localStorage.getItem(key(10))).not.toContain('ALICE_HISTORY_TAIL');
+  });
+
   it('keeps billing metrics and request ids out of the text conversation', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();

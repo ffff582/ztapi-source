@@ -41,7 +41,13 @@ func TestRelayClientErrorKeepsInternalAndNonAuthErrorsIntact(t *testing.T) {
 			require.Nil(t, relayClientError(nil, types.RelayFormatClaude))
 			continue
 		}
-		require.Same(t, original, relayClientError(original, types.RelayFormatClaude))
+		beforeMessage, beforeStatus, beforeCode := original.Error(), original.StatusCode, original.GetErrorCode()
+		projected := relayClientError(original, types.RelayFormatClaude)
+		require.NotSame(t, original, projected, "public output must be independently sanitized")
+		require.Equal(t, beforeStatus, projected.StatusCode, "non-auth normalization must not change the HTTP outcome")
+		require.Equal(t, beforeMessage, original.Error(), "internal evidence must remain untouched")
+		require.Equal(t, beforeStatus, original.StatusCode)
+		require.Equal(t, beforeCode, original.GetErrorCode())
 	}
 	for _, original := range []*types.NewAPIError{
 		types.WithOpenAIError(types.OpenAIError{Code: "model_not_granted"}, http.StatusForbidden),
@@ -70,6 +76,9 @@ func TestZTAPIUpstreamAuthIsNotReportedAsCustomerAuthentication(t *testing.T) {
 					require.NotContains(t, response.Body.String(), "raw-provider-auth-detail")
 					require.NotContains(t, response.Body.String(), "invalid_api_key")
 					require.Contains(t, response.Body.String(), "upstream")
+					localID := response.Header().Get("X-Request-ID")
+					require.NotEmpty(t, localID)
+					require.Contains(t, response.Body.String(), localID, "safe public failures retain their local request ID")
 					if path == "/v1/messages" {
 						require.Equal(t, "error", gjson.GetBytes(response.Body.Bytes(), "type").String())
 						require.Equal(t, "overloaded_error", gjson.GetBytes(response.Body.Bytes(), "error.type").String())

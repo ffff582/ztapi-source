@@ -281,7 +281,7 @@ func awsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) (
 				return respErr, nil
 			}
 		case *bedrockruntimeTypes.UnknownUnionMember:
-			fmt.Println("unknown tag:", v.Tag)
+			common.SysError(fmt.Sprintf("unknown tag: %s", v.Tag))
 			return types.NewError(errors.New("unknown response type"), types.ErrorCodeInvalidRequest), nil
 		default:
 			fmt.Println("union is nil or unknown type")

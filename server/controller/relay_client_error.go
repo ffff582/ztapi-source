@@ -11,6 +11,17 @@ import (
 // relayClientError maps only the public response. Retry, health and billing
 // retain the original supplier status and error rather than the mapped 503.
 func relayClientError(err *types.NewAPIError, format types.RelayFormat) *types.NewAPIError {
+	err = normalizeRelayClientAuthorizationError(err, format)
+	if err == nil {
+		return nil
+	}
+	if format == types.RelayFormatClaude {
+		return types.WithClaudeError(err.ToPublicClaudeError(), err.StatusCode)
+	}
+	return types.WithOpenAIError(err.ToPublicOpenAIError(), err.StatusCode)
+}
+
+func normalizeRelayClientAuthorizationError(err *types.NewAPIError, format types.RelayFormat) *types.NewAPIError {
 	if err == nil || (err.StatusCode != http.StatusUnauthorized && err.StatusCode != http.StatusForbidden) {
 		return err
 	}

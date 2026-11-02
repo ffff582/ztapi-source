@@ -1,11 +1,12 @@
-import { CheckCircle2, CircleAlert, CircleDollarSign, Copy, Download, FilePlus2, Image as ImageIcon, Images, MessageCircle, Paperclip, Play, Plus, RefreshCw, RotateCcw, Send, Settings2, Sparkles, Video as VideoIcon } from 'lucide-react';
-import { ChangeEvent, DragEvent as ReactDragEvent, FormEvent, PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { CheckCircle2, ChevronDown, ChevronUp, CircleAlert, CircleDollarSign, Copy, Download, FilePlus2, Image as ImageIcon, Images, MessageCircle, Paperclip, Play, Plus, RefreshCw, RotateCcw, Send, Settings2, Sparkles, Video as VideoIcon } from 'lucide-react';
+import { ChangeEvent, DragEvent as ReactDragEvent, FormEvent, PointerEvent as ReactPointerEvent, useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { apiClient, getAuthSession, subscribeAuthSession } from '../../api/client';
 import { parseUserLogPage, parseUserModelCatalog, type UserModelCatalogItem, type UserModelSupportedOptions } from '../../api/contracts';
 import {
   PlaygroundClientError,
   playgroundClient,
+  serializePlaygroundChatRequest,
   type PlaygroundChatResult,
   type PlaygroundImageResult,
   type PlaygroundVideoTask,
@@ -54,6 +55,8 @@ function testErrorMessage(error: unknown) {
         return '当前模型暂不可用，请更换模型或稍后再试。';
       case 'rate_limited':
         return '请求较多，请稍后再试。';
+      case 'request_too_large':
+        return '完整聊天请求（含历史记录）超过 4 MiB，未发送。请减少内容或新建对话，草稿和历史记录已保留。';
       case 'unauthorized':
         return '登录状态已失效，请重新登录。';
       case 'invalid_response':
@@ -234,6 +237,49 @@ type TextConversation = {
 const TEXT_CONVERSATIONS_STORAGE_PREFIX = 'ztapi:workbench:text-conversations:v1:';
 const MAX_TEXT_CONVERSATIONS = 20;
 
+// Presentation budgets only: draft, history, storage and requests always retain the original text.
+const LONG_TEXT_INLINE_LENGTH = 12_000;
+const LONG_TEXT_PREVIEW_LENGTH = 2_000;
+
+function TextMessageContent({ content, assistant }: { content: string; assistant: boolean }) {
+  const { t } = useLocale();
+  const [expanded, setExpanded] = useState(false);
+  const readerID = useId();
+  const long = content.length > LONG_TEXT_INLINE_LENGTH;
+  const preview = long ? `${content.slice(0, LONG_TEXT_PREVIEW_LENGTH).replace(/[\uD800-\uDBFF]$/, '')}…` : content;
+  const previewStyle = long ? { maxHeight: 192, overflow: 'auto' } as const : undefined;
+
+  return <>
+    {long && <span>{t('长消息预览')}</span>}
+    {assistant
+      ? <div className="zt-workbench__answer" style={previewStyle}>{preview}</div>
+      : <p style={previewStyle}>{preview}</p>}
+    {long && <>
+      <button
+        aria-controls={readerID}
+        aria-expanded={expanded}
+        className="console-button console-button--secondary"
+        style={{ alignSelf: assistant ? 'flex-start' : 'flex-end' }}
+        type="button"
+        onClick={() => setExpanded((current) => !current)}
+      >
+        {expanded ? <ChevronUp aria-hidden="true" size={15} /> : <ChevronDown aria-hidden="true" size={15} />}
+        {t(expanded ? '收起完整消息' : '展开完整消息')}
+      </button>
+      {expanded && <textarea
+        aria-label={t('完整消息')}
+        id={readerID}
+        readOnly
+        rows={10}
+        spellCheck={false}
+        style={{ boxSizing: 'border-box', width: '100%', minWidth: 0, height: 192, minHeight: 96, maxHeight: 320, overflow: 'auto', resize: 'vertical', padding: 12, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--input)', color: 'var(--text)', fontFamily: 'monospace', fontSize: 14, lineHeight: 1.7 }}
+        value={content}
+        wrap="off"
+      />}
+    </>}
+  </>;
+}
+
 function textConversationsStorageKey(userID: number | undefined) {
   return userID === undefined ? '' : `${TEXT_CONVERSATIONS_STORAGE_PREFIX}${userID}`;
 }
@@ -317,6 +363,7 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
   const [videoDuration, setVideoDuration] = useState(5);
   const [videoStartedAt, setVideoStartedAt] = useState<number | null>(null);
   const [textAttachmentName, setTextAttachmentName] = useState('');
+  const [textAttachmentError, setTextAttachmentError] = useState('');
   const [textConversations, setTextConversations] = useState<TextConversation[]>([]);
   const [activeTextConversationID, setActiveTextConversationID] = useState<string | null>(null);
   const [textHistoryReady, setTextHistoryReady] = useState(!workbench || initialMode !== 'text');
@@ -412,6 +459,7 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
     setErrorMessage('');
     setPromptByMode({ text: '', image: '', video: '' });
     setTextAttachmentName('');
+    setTextAttachmentError('');
     setReferenceImages((current) => {
       current.forEach(revokeReferencePreview);
       return [];
@@ -524,6 +572,7 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
     setBilledAmount(null);
     setElapsedMs(null);
     setErrorMessage('');
+    setTextAttachmentError('');
   }
 
   function handleModeChange(nextMode: PlaygroundMode) {
@@ -608,10 +657,25 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const normalizedPrompt = prompt.trim();
-    if (requestStatus === 'sending' || !canRun || normalizedPrompt === '') return;
+    const normalizedPrompt = mode === 'text' ? prompt : prompt.trim();
+    if (requestStatus === 'sending' || !canRun || prompt.trim() === '') return;
     if (userID === undefined || userID !== getAuthSession()?.user.id) return;
     if (workbench && mode === 'text' && !textHistoryIsCurrent) return;
+
+    const chatInput = {
+      model,
+      prompt: normalizedPrompt,
+      ...(workbench ? { history: activeTextConversation?.messages ?? [] } : {}),
+    };
+    if (mode === 'text') {
+      try {
+        serializePlaygroundChatRequest(chatInput);
+      } catch (error) {
+        setErrorMessage(testErrorMessage(error));
+        setRequestStatus('error');
+        return;
+      }
+    }
 
     const sequence = ++requestSequence.current;
     textAttachmentSequence.current += 1;
@@ -631,11 +695,7 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
         return;
       }
       if (mode === 'text') {
-        const value = await playgroundClient.chat({
-          model,
-          prompt: normalizedPrompt,
-          ...(workbench ? { history: activeTextConversation?.messages ?? [] } : {}),
-        });
+        const value = await playgroundClient.chat(chatInput);
         if (sequence !== requestSequence.current || userID !== getAuthSession()?.user.id) return;
         setElapsedMs(Math.max(0, Math.round(performance.now() - startedAt)));
         setChatResult(value);
@@ -752,13 +812,18 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
     event.target.value = '';
     if (file === undefined) return;
     const sequence = ++textAttachmentSequence.current;
+    if (file.size > 1024 * 1024) {
+      setTextAttachmentError('文本附件超过 1 MiB，未读取文件，草稿和历史记录已保留。');
+      return;
+    }
     const ownerSession = getAuthSession();
     try {
       const content = await file.text();
       if (sequence !== textAttachmentSequence.current || ownerSession !== getAuthSession()) return;
       const attachment = `\n\n[附件：${file.name}]\n${content}`;
-      setPrompt((current) => `${current}${attachment}`.slice(0, 4_000));
+      setPrompt((current) => `${current}${attachment}`);
       setTextAttachmentName(file.name);
+      setTextAttachmentError('');
     } catch {
       if (sequence !== textAttachmentSequence.current || ownerSession !== getAuthSession()) return;
       setTextAttachmentName('附件读取失败');
@@ -892,7 +957,7 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
     return (
       <div className="zt-workbench zt-workbench--text" onPointerLeave={handleWorkbenchPointerLeave} onPointerMove={handleWorkbenchPointerMove}>
         <div aria-hidden="true" className="zt-workbench__pointer-follow" />
-        <aside className="zt-workbench__conversation-rail" aria-label="文本会话">
+        <aside className="zt-workbench__conversation-rail" aria-label="文本会话" style={{ minWidth: 0 }}>
           <button className="zt-workbench__new-chat" type="button" onClick={startTextConversation}>
             <Plus aria-hidden="true" size={16} />
             <span>新对话</span>
@@ -921,11 +986,11 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
                 <p>选择模型，输入问题，直接体验当前账号的真实 API 能力。</p>
               </div>
             ) : (
-              <div className="zt-workbench__thread">
+              <div className="zt-workbench__thread" style={{ overflowWrap: 'anywhere' }}>
                 {activeTextConversation.messages.map((message, index) => (
                   <div className={`zt-workbench__message zt-workbench__message--${message.role}`} key={`${activeTextConversation.id}-${index}`}>
                     <span>{message.role === 'user' ? '你' : 'ZTAPI'}</span>
-                    {message.role === 'user' ? <p>{message.content}</p> : <div className="zt-workbench__answer">{message.content}</div>}
+                    <TextMessageContent content={message.content} assistant={message.role === 'assistant'} />
                   </div>
                 ))}
               </div>
@@ -933,7 +998,7 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
           </div>
           <form className="zt-workbench__composer" onSubmit={handleSubmit}>
             <div className="zt-workbench__composer-title">询问 ZTAPI</div>
-            <textarea aria-label="输入消息" id="workbench-text-prompt" maxLength={4_000} value={prompt} onChange={(event) => setPrompt(event.target.value)} />
+            <textarea aria-label="输入消息" id="workbench-text-prompt" value={prompt} wrap={prompt.length > LONG_TEXT_INLINE_LENGTH ? 'off' : 'soft'} onChange={(event) => setPrompt(event.target.value)} />
             <div className="zt-workbench__composer-toolbar">
               <div className="zt-workbench__composer-left">
                 <button aria-label="添加附件" className="zt-workbench__icon-button" title="添加文本附件" type="button" onClick={() => textAttachmentInput.current?.click()}>
@@ -953,7 +1018,7 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
                 <span>{requestStatus === 'sending' ? '发送中' : '发送'}</span>
               </button>
             </div>
-            <p className="zt-workbench__composer-meta">{prompt.length}/4000 字符</p>
+            {textAttachmentError !== '' && <div className="console-alert playground-result-alert" role="alert">{t(textAttachmentError)}</div>}
             {renderKeyState()}
             {textHistoryWarning !== '' && <p className="zt-workbench__composer-meta" role="status" aria-label="聊天记录保存状态" aria-live="polite">{textHistoryWarning}</p>}
           </form>
@@ -1134,8 +1199,8 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
                   </div>
                   <div className="console-field">
                     <label htmlFor={mode === 'text' ? 'playground-prompt' : `playground-${mode}-prompt`}>{mode === 'text' ? t('测试问题') : `${mode === 'image' ? '图片' : '视频'}提示词`}</label>
-                    <textarea id={mode === 'text' ? 'playground-prompt' : `playground-${mode}-prompt`} maxLength={4_000} rows={mode === 'text' ? 7 : 5} value={prompt} onChange={(event) => setPrompt(event.target.value)} />
-                    <p className="console-field__help">{t('{{count}} / 4000 字符', { count: prompt.length })}</p>
+                    <textarea id={mode === 'text' ? 'playground-prompt' : `playground-${mode}-prompt`} maxLength={mode === 'text' ? undefined : 4_000} rows={mode === 'text' ? 7 : 5} value={prompt} wrap={mode === 'text' ? prompt.length > LONG_TEXT_INLINE_LENGTH ? 'off' : 'soft' : undefined} onChange={(event) => setPrompt(event.target.value)} />
+                    {mode !== 'text' && <p className="console-field__help">{t('{{count}} / 4000 字符', { count: prompt.length })}</p>}
                   </div>
                   {mode === 'image' && renderImageReferenceField()}
                   {mode === 'image' && selectedOptions && (
