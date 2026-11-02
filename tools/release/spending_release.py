@@ -144,14 +144,16 @@ def grant_sql(database, user, host, columns=None):
 
 def verify_grants(rows, database, user, host, columns=None):
     account = sql_identity(database, user, host)
+    account_forms = {account, '`' + user + '`@`' + host + '`'}
+    account_pattern = '(?:' + '|'.join(re.escape(value) for value in sorted(account_forms)) + ')'
     columns = _validate_columns(columns)
     found, usages = {}, 0
     for row in rows:
         row = row.strip().rstrip(';')
-        if row == 'GRANT USAGE ON *.* TO ' + account:
+        if row in {'GRANT USAGE ON *.* TO ' + value for value in account_forms}:
             usages += 1
             continue
-        match = re.fullmatch(r'GRANT SELECT\s*\(([^)]+)\) ON `([A-Za-z0-9_]+)`\.`([a-z_]+)` TO ' + re.escape(account), row)
+        match = re.fullmatch(r'GRANT SELECT\s*\(([^)]+)\) ON `([A-Za-z0-9_]+)`\.`([a-z_]+)` TO ' + account_pattern, row)
         require(match is not None, 'reader_grants_not_minimal')
         csv, db, table = match.groups()
         cols = [part.strip().strip('`') for part in csv.split(',')]
@@ -505,15 +507,19 @@ def nginx_without_spending(raw):
 
 def _insert_route(raw):
     nodes = _nginx_tree(raw)
-    anchors = [n for n in nodes if n['head'] in ([b'location', b'^~', b'/api/support/'], [b'location', b'/api/support/'])]
+    def public_tls(node):
+        if node['head'] != [b'server'] or node['parent'] is not None:
+            return False
+        ds = node['directives']
+        return (any(d[0] == b'server_name' and b'ztapi.vip' in d[1:] for d in ds)
+                and any(d[0] == b'listen' and b'ssl' in d[1:] and any(x == b'443' or x.endswith(b':443') for x in d[1:]) for d in ds))
+    servers = [n for n in nodes if public_tls(n)]
+    require(len(servers) == 1, 'support_anchor_not_public' if not servers else 'support_anchor_not_unique')
+    server = servers[0]
+    anchors = [n for n in nodes if n['parent'] is server and n['head'] in
+               ([b'location', b'^~', b'/api/support/'], [b'location', b'/api/support/'])]
     require(len(anchors) == 1, 'support_anchor_not_unique')
     anchor = anchors[0]
-    server = anchor['parent']
-    require(server and server['head'] == [b'server'] and server['parent'] is None, 'support_anchor_not_public')
-    ds = server['directives']
-    require(any(d[0] == b'server_name' and b'ztapi.vip' in d[1:] for d in ds)
-            and any(d[0] == b'listen' and b'ssl' in d[1:] and any(x == b'443' or x.endswith(b':443') for x in d[1:]) for d in ds),
-            'support_anchor_not_public')
     start = raw.rfind(b'\n', 0, anchor['start']) + 1
     indent = raw[start:anchor['start']]
     require(not indent.strip(), 'support_anchor_not_line_aligned')

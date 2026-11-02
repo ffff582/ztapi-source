@@ -29,6 +29,39 @@ server { listen 172.30.0.2:3000; location / { return 404; } }
 '''
 
 
+class ProductionShapeTests(unittest.TestCase):
+    def test_public_tls_route_does_not_treat_the_admin_support_route_as_duplicate(self):
+        admin = b'''server {
+    listen 443 ssl;
+    server_name admin.ztapi.vip;
+    location ^~ /api/support/ { proxy_pass http://support:3013; }
+    location / { root /usr/share/nginx/admin; }
+}
+'''
+        original = PUBLIC + admin
+        changed = r.nginx_with_spending(original)
+        self.assertEqual(changed.count(b'location ^~ /api/spending/'), 1)
+        self.assertTrue(changed.endswith(admin))
+        self.assertEqual(r.nginx_without_spending(changed), original)
+
+    def test_two_public_tls_servers_still_fail_closed(self):
+        with self.assertRaises(r.ReleaseError):
+            r.nginx_with_spending(PUBLIC + PUBLIC)
+
+    def test_mysql_backtick_account_grants_are_equivalent_but_not_broader(self):
+        host = '172.31.0.0/255.255.0.0'
+        quoted = r.sql_identity('app', r.READ_USER, host)
+        actual = '`' + r.READ_USER + '`@`' + host + '`'
+        rows = ['GRANT USAGE ON *.* TO ' + actual] + [
+            line.rstrip(';').replace(quoted, actual)
+            for line in r.grant_sql('app', r.READ_USER, host, r.GRANTS).splitlines()
+        ]
+        r.verify_grants(rows, 'app', r.READ_USER, host, r.GRANTS)
+        with self.assertRaises(r.ReleaseError):
+            r.verify_grants([line.replace(actual, '`' + r.READ_USER + '`@`%`') for line in rows],
+                            'app', r.READ_USER, host, r.GRANTS)
+
+
 def digest(raw):
     return hashlib.sha256(raw).hexdigest()
 
