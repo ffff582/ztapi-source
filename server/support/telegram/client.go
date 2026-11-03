@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -42,8 +43,8 @@ func NewClient(token string, httpClient *http.Client) (*Client, error) {
 	}
 	copy.Jar = nil
 	copy.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	if copy.Timeout <= 0 || copy.Timeout > 30*time.Second {
-		copy.Timeout = 30 * time.Second
+	if copy.Timeout <= 0 || copy.Timeout > 40*time.Second {
+		copy.Timeout = 40 * time.Second
 	}
 	return &Client{token: token, botID: id, http: &copy}, nil
 }
@@ -56,7 +57,11 @@ func (c *Client) call(ctx context.Context, method string, payload, result any) e
 	default:
 		return errors.New("Telegram method is not allowed")
 	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	timeout := 30 * time.Second
+	if method == "getUpdates" {
+		timeout = 40 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	raw, err := common.Marshal(payload)
 	if err != nil {
@@ -69,7 +74,7 @@ func (c *Client) call(ctx context.Context, method string, payload, result any) e
 	req.Header.Set("Content-Type", "application/json")
 	response, err := c.http.Do(req)
 	if err != nil {
-		return &APIError{}
+		return transportError(err)
 	}
 	defer response.Body.Close()
 	maxResponseBytes := int64(1 << 20)
@@ -77,8 +82,11 @@ func (c *Client) call(ctx context.Context, method string, payload, result any) e
 		maxResponseBytes = 4 << 20
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
-	if err != nil || int64(len(body)) > maxResponseBytes {
-		return &APIError{}
+	if err != nil {
+		return transportError(err)
+	}
+	if int64(len(body)) > maxResponseBytes {
+		return &APIError{Category: "invalid_response"}
 	}
 	var envelope struct {
 		OK         bool            `json:"ok"`
@@ -89,7 +97,7 @@ func (c *Client) call(ctx context.Context, method string, payload, result any) e
 		} `json:"parameters"`
 	}
 	if common.Unmarshal(body, &envelope) != nil {
-		return &APIError{Code: response.StatusCode}
+		return &APIError{Code: response.StatusCode, Category: apiCategory(response.StatusCode)}
 	}
 	if response.StatusCode != http.StatusOK || !envelope.OK {
 		code := envelope.Code
@@ -104,12 +112,36 @@ func (c *Client) call(ctx context.Context, method string, payload, result any) e
 			}
 			delay = time.Duration(seconds) * time.Second
 		}
-		return &APIError{Code: code, RetryAfter: delay}
+		return &APIError{Code: code, RetryAfter: delay, Category: apiCategory(code), Rejected: !envelope.OK && code >= 400 && code < 500}
 	}
 	if len(envelope.Result) == 0 || common.Unmarshal(envelope.Result, result) != nil {
-		return &APIError{}
+		return &APIError{Category: "invalid_response"}
 	}
 	return nil
+}
+
+func transportError(err error) *APIError {
+	category := "network"
+	var timeout net.Error
+	if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &timeout) && timeout.Timeout()) {
+		category = "timeout"
+	}
+	return &APIError{Category: category}
+}
+
+func apiCategory(code int) string {
+	switch {
+	case code == 401 || code == 403:
+		return "auth"
+	case code == 409:
+		return "receiver_conflict"
+	case code == 429:
+		return "rate_limited"
+	case code >= 500:
+		return "telegram_server"
+	default:
+		return "invalid_response"
+	}
 }
 
 func (c *Client) GetUpdates(ctx context.Context, offset int64) ([]Update, error) {

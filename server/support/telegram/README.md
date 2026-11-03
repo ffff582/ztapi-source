@@ -55,6 +55,35 @@ Do not run multiple workers against the same database; enforce the parent's leas
 
 ## Durable Behavior
 
+### Poll Recovery And Health
+
+The 20-second long poll has a 40-second network deadline. Other Bot API calls
+retain a 30-second deadline. Transient failures retry with exponential backoff
+and bounded jitter (1 to 30 seconds); Telegram `retry_after` takes precedence.
+One owner-only incident alert is queued after BOTH 3 consecutive failures and
+60 seconds of continuous failure. Authentication (401/403) and competing receiver
+(409) failures alert immediately. A single recovery is queued on successful poll.
+Incident identity, failure counters and last successful poll persist in the
+additive private `telegram_support_poll_state` table, including across restarts.
+Failure logs contain only fixed categories, numeric codes/counters and incident
+sequence, never URLs, credentials, user text or raw upstream error bodies.
+
+Polling status notifications are separate from customer replies: claim before
+send; retry explicit Telegram 4xx rejections respecting `retry_after`; mark
+transport/response ambiguity `delivery_unknown` without a blind resend. A crash
+during dispatch also becomes unknown at startup. This deliberately trades an
+occasional unconfirmed status alert for avoiding duplicate outage spam; Telegram
+offers no send idempotency guarantee. Recovery mentions an unconfirmed prior
+alert and suppresses its still-pending send. New outages supersede stale pending
+recoveries. Existing customer replies keep their durable at-least-once policy;
+no notification retry invokes a model again.
+
+The CLI `/healthz` returns 503 before any successful poll, during an announced
+outage or when the loop stops progressing. It exposes only sanitized polling
+metadata. Active bounded processing advances progress rather than appearing to
+be a stuck receiver. Disabled candidates remain `{"ok":true,"enabled":false}`
+and do not poll Telegram or invoke a model.
+
 - Private tables: `telegram_support_cursor`, `telegram_support_groups`,
   `telegram_support_inbox`, `telegram_support_outbox`, `telegram_support_dialogues`,
   `telegram_support_preferences`, `telegram_support_intakes`.

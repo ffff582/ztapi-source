@@ -31,6 +31,10 @@ type Worker struct {
 	mu                   sync.Mutex
 	startedAt            time.Time
 	nextNotificationPoll time.Time
+	pollMu               sync.RWMutex
+	poll                 pollState
+	pollPhase            string
+	pollProgress         time.Time
 }
 
 func NewWorker(cfg Config, db *gorm.DB, store *support.Store, provider support.Provider, knowledge func(context.Context, string) (string, error), client *Client) (*Worker, error) {
@@ -62,7 +66,11 @@ func NewWorker(cfg Config, db *gorm.DB, store *support.Store, provider support.P
 	if err != nil || state.BotID != cfg.BotID || state.OwnerID != cfg.OwnerID {
 		return nil, errors.New("Telegram private database identity mismatch")
 	}
-	return &Worker{cfg: cfg, db: db, store: store, provider: provider, knowledge: knowledge, client: client, startedAt: cfg.Now().UTC()}, nil
+	w := &Worker{cfg: cfg, db: db, store: store, provider: provider, knowledge: knowledge, client: client, startedAt: cfg.Now().UTC()}
+	if err := w.initPoll(ctx); err != nil {
+		return nil, err
+	}
+	return w, nil
 }
 
 const (
@@ -85,10 +93,7 @@ func (w *Worker) Run(ctx context.Context) error {
 		delay := 250 * time.Millisecond
 		if err != nil {
 			delay = time.Second
-			var apiErr *APIError
-			if errors.As(err, &apiErr) && apiErr.RetryAfter > delay {
-				delay = apiErr.RetryAfter
-			}
+			delay = w.pollRetryDelay(err)
 		}
 		timer := time.NewTimer(delay)
 		select {
@@ -101,17 +106,27 @@ func (w *Worker) Run(ctx context.Context) error {
 	return ctx.Err()
 }
 
-func (w *Worker) Step(ctx context.Context) error {
+func (w *Worker) Step(ctx context.Context) (stepErr error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
+	w.pollTouch("processing")
+	defer func() {
+		phase := "idle"
+		var apiErr *APIError
+		if stepErr != nil && ctx.Err() == nil && !errors.As(stepErr, &apiErr) {
+			phase = "blocked"
+		}
+		w.pollTouch(phase)
+	}()
 	var interrupted []inbox
 	if w.db.WithContext(ctx).Where("state IN ? AND call_id <> ?", []string{"queued", "admitted", "dispatched"}, "").Order("update_id ASC").Limit(20).Find(&interrupted).Error != nil {
 		return errors.New("Telegram interrupted inbox unavailable")
 	}
 	for _, row := range interrupted {
+		w.pollTouch("processing")
 		if err := w.process(ctx, row); err != nil {
 			return err
 		}
@@ -125,15 +140,19 @@ func (w *Worker) Step(ctx context.Context) error {
 	if w.db.WithContext(ctx).Where("id = ?", 1).Take(&state).Error != nil {
 		return errors.New("Telegram cursor unavailable")
 	}
+	w.pollTouch("polling")
 	updates, err := w.client.GetUpdates(ctx, state.Offset)
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if statusErr := w.recordPoll(ctx, err); statusErr != nil {
+		return statusErr
+	}
 	if err != nil {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		_ = w.alert(ctx, "poll", "Telegram 客服轮询暂时不可用，请检查服务状态。")
 		_ = w.flush(ctx)
 		return err
 	}
+	w.pollTouch("processing")
 	if err = w.ingest(ctx, updates); err != nil {
 		return err
 	}
@@ -142,6 +161,7 @@ func (w *Worker) Step(ctx context.Context) error {
 		return errors.New("Telegram inbox unavailable")
 	}
 	for _, row := range rows {
+		w.pollTouch("processing")
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -151,10 +171,12 @@ func (w *Worker) Step(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+		w.pollTouch("processing")
 		if err = w.flush(ctx); err != nil {
 			return err
 		}
 	}
+	w.pollTouch("processing")
 	if err = w.pollNotifications(ctx); err != nil && ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -506,8 +528,14 @@ func (w *Worker) flush(ctx context.Context) error {
 				continue
 			}
 		}
-		if (row.Kind == "alert" || row.Kind == "intake_owner") && row.ChatID != w.cfg.OwnerID {
+		if (row.Kind == "alert" || row.Kind == "intake_owner" || pollStatusKind(row.Kind)) && row.ChatID != w.cfg.OwnerID {
 			return errors.New("Telegram private alert target rejected")
+		}
+		if pollStatusKind(row.Kind) {
+			if err := w.sendPollStatus(ctx, row); err != nil {
+				return err
+			}
+			continue
 		}
 		text := row.Text
 		if row.Kind == "notification" {

@@ -15,12 +15,66 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/support"
 )
 
 const testToken = "123456789:TEST_ONLY_NOT_A_REAL_TOKEN_123456789"
+
+func TestClientClassifiesFailuresWithoutRetainingSecrets(t *testing.T) {
+	for _, tc := range []struct {
+		code     int
+		category string
+	}{{401, "auth"}, {403, "auth"}, {409, "receiver_conflict"}, {429, "rate_limited"}, {503, "telegram_server"}} {
+		t.Run(fmt.Sprint(tc.code), func(t *testing.T) {
+			client, _ := NewClient(testToken, &http.Client{Transport: testTransport(func(r *http.Request) (*http.Response, error) {
+				return testResponse(tc.code, fmt.Sprintf(`{"ok":false,"error_code":%d,"description":"%s"}`, tc.code, testToken)), nil
+			})})
+			_, err := client.GetUpdates(context.Background(), 0)
+			var got *APIError
+			if !errors.As(err, &got) || got.Category != tc.category || got.Code != tc.code {
+				t.Fatalf("lost error classification: %+v", err)
+			}
+			if strings.Contains(fmt.Sprintf("%v %+v %#v", err, err, err), testToken) {
+				t.Fatal("secret retained in diagnostic error")
+			}
+		})
+	}
+	client, _ := NewClient(testToken, &http.Client{Transport: testTransport(func(r *http.Request) (*http.Response, error) { return nil, context.DeadlineExceeded })})
+	_, err := client.GetUpdates(context.Background(), 0)
+	var timeout *APIError
+	if !errors.As(err, &timeout) || timeout.Category != "timeout" {
+		t.Fatal("timeout not distinguished")
+	}
+}
+
+func TestClientUsesLongPollMarginWithoutExtendingSendDeadline(t *testing.T) {
+	client, _ := NewClient(testToken, &http.Client{Transport: testTransport(func(r *http.Request) (*http.Response, error) {
+		deadline, ok := r.Context().Deadline()
+		if !ok {
+			t.Fatal("unbounded Bot API request")
+		}
+		remaining := time.Until(deadline)
+		if strings.HasSuffix(r.URL.Path, "/getUpdates") {
+			if remaining < 38*time.Second || remaining > 40*time.Second {
+				t.Fatalf("long poll deadline=%v", remaining)
+			}
+			return testResponse(200, `{"ok":true,"result":[]}`), nil
+		}
+		if remaining < 28*time.Second || remaining > 30*time.Second {
+			t.Fatalf("send deadline=%v", remaining)
+		}
+		return testResponse(200, `{"ok":true,"result":{"message_id":1}}`), nil
+	})})
+	if _, err := client.GetUpdates(context.Background(), 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.send(context.Background(), 42, 0, 0, "test"); err != nil {
+		t.Fatal(err)
+	}
+}
 
 type testTransport func(*http.Request) (*http.Response, error)
 

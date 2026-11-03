@@ -22,6 +22,7 @@ type Config struct {
 	VisionEnabled                bool
 	Now                          func() time.Time
 	AdmitWrite                   func() error
+	PollLog                      func(PollEvent)
 }
 
 type User struct {
@@ -74,6 +75,8 @@ type Update struct {
 type APIError struct {
 	Code       int
 	RetryAfter time.Duration
+	Category   string
+	Rejected   bool
 }
 
 func (e *APIError) Error() string { return "telegram API request failed" }

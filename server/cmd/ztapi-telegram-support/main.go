@@ -87,7 +87,9 @@ func run() error {
 			return errors.New("invalid protected Telegram binding configuration")
 		}
 	}
-	worker, err := telegram.NewWorker(telegram.Config{BindingKey: bindingKey, Bridge: bridge, OwnerID: cfg.OwnerID, BotID: cfg.BotID, BotUsername: cfg.BotUsername, ChannelID: cfg.Provider.ChannelID, Model: cfg.Provider.Model, Supplier: cfg.Provider.Supplier, Environment: "telegram-production", VisionEnabled: cfg.Provider.VisionEnabled, AdmitWrite: storageAdmission(path)}, db, store, provider, public.PublicKnowledge, client)
+	worker, err := telegram.NewWorker(telegram.Config{BindingKey: bindingKey, Bridge: bridge, OwnerID: cfg.OwnerID, BotID: cfg.BotID, BotUsername: cfg.BotUsername, ChannelID: cfg.Provider.ChannelID, Model: cfg.Provider.Model, Supplier: cfg.Provider.Supplier, Environment: "telegram-production", VisionEnabled: cfg.Provider.VisionEnabled, AdmitWrite: storageAdmission(path), PollLog: func(event telegram.PollEvent) {
+		log.Printf("telegram_poll event=%s category=%s code=%d failures=%d incident=%d", event.Event, event.Category, event.Code, event.Failures, event.Incident)
+	}}, db, store, provider, public.PublicKnowledge, client)
 	if err != nil {
 		return errors.New("Telegram support worker initialization failed")
 	}
@@ -100,15 +102,7 @@ func run() error {
 		receiver = worker
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Cache-Control", "no-store")
-		if enabled {
-			_, _ = w.Write([]byte(`{"ok":true,"enabled":true}`))
-		} else {
-			_, _ = w.Write([]byte(`{"ok":true,"enabled":false}`))
-		}
-	})
+	mux.Handle("/healthz", healthHandler(enabled, worker.PollHealth))
 	address := os.Getenv("TELEGRAM_SUPPORT_LISTEN")
 	if address == "" {
 		address = "127.0.0.1:3013"
