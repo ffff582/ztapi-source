@@ -162,7 +162,7 @@ export function RegisterPage() {
       });
       navigate('/console', { replace: true });
     } catch (error) {
-      setServerError(authErrorMessage(error));
+      setServerError(t(authErrorMessage(error)));
       // Every challenge is single use, so a failed attempt needs a fresh one.
       void loadCaptcha();
       captchaRef.current?.focus();

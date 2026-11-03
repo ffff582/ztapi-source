@@ -331,7 +331,7 @@ export function PublicDocsPage() {
           {active === 'codex' && <CodexGuide />}
           {active === 'user-guide' && <UserGuide />}
           {active === 'faq' && <FaqPage />}
-          <a className="docs-source-link" href="https://github.com/ffff582/ztapi-source/tree/production-codex-docs-20261101-r3" target="_blank" rel="noreferrer">{t('前端源码')}</a>
+          <a className="docs-source-link" href="https://github.com/ffff582/ztapi-source/tree/production-registration-captcha-20261103-r1" target="_blank" rel="noreferrer">{t('前端源码')}</a>
         </article>
       </main>
     </div>

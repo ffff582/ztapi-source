@@ -361,6 +361,7 @@ const english: Record<string, string> = {
   '验证码加载失败，请点击刷新': 'Verification code failed to load. Click to retry.',
   '看不清可以点击图片换一张': 'Click the image to get a new code.',
   '请输入图中的验证码': 'Enter the verification code shown in the image.',
+  '验证码错误或已过期，请输入新的验证码': 'The verification code is incorrect or expired. Enter the new code.',
   '3-32 字节，可使用字母、数字、下划线或连字符': '3-32 bytes; letters, numbers, underscores, and hyphens are allowed.',
   '至少 10 个字符，最多 256 字节': 'At least 10 characters and no more than 256 bytes.',
   '账户安全': 'Account security',

@@ -11,6 +11,7 @@ export type AuthErrorKind =
   | 'invalid_credentials'
   | 'username_unavailable'
   | 'invalid_registration'
+  | 'invalid_captcha'
   | 'unauthorized'
   | 'unknown';
 
@@ -89,6 +90,10 @@ export function subscribeAuthSession(listener: AuthListener) {
 
 function classifyServerError(message: unknown, status: number): AuthErrorKind {
   const normalized = typeof message === 'string' ? message.trim().toLowerCase() : '';
+
+  if (status === 400 && normalized === 'invalid captcha') {
+    return 'invalid_captcha';
+  }
 
   if (
     normalized.includes('invalid credentials') ||
@@ -469,6 +474,8 @@ export function authErrorMessage(error: unknown) {
         return '账号不可用，请更换后重试';
       case 'invalid_registration':
         return '账号格式或密码不符合要求';
+      case 'invalid_captcha':
+        return '验证码错误或已过期，请输入新的验证码';
       case 'unauthorized':
       case 'unknown':
         break;
