@@ -64,6 +64,7 @@ type Message struct {
 	ReplyToMessage  *Message    `json:"reply_to_message,omitempty"`
 	Photo           []PhotoSize `json:"photo,omitempty"`
 	Document        *Document   `json:"document,omitempty"`
+	NewChatMembers  []User      `json:"new_chat_members,omitempty"`
 }
 type Update struct {
 	UpdateID int64    `json:"update_id"`

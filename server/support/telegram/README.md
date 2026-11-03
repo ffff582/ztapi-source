@@ -67,6 +67,11 @@ Do not run multiple workers against the same database; enforce the parent's leas
   deterministic SHA-256 selection modulo 40 plus a persisted 30-minute group
   cooldown. Old non-directed messages, other commands, and unsolicited images are
   not casually processed. Receiving no normal messages cannot trigger posting.
+- Fresh `new_chat_members` service messages welcome human members only in groups
+  already enabled by the owner. One fixed welcome covers the whole event, never
+  calls a model or stores member names, and reuses durable update/outbox identity.
+  Bot-only, private, unknown-group and stale joins are ignored. Pending welcome
+  retries are suppressed if the owner disables the group before delivery.
 - The Store enforces six admitted calls per sender/minute and sixty globally per
   minute. There is no daily usage cap. Rejections receive fixed durable replies.
 - Exactly one model attempt is permitted per update. Admission is durable before

@@ -183,7 +183,12 @@ func (w *Worker) ingest(ctx context.Context, updates []Update) error {
 			if insert.Error != nil {
 				return insert.Error
 			}
-			if insert.RowsAffected > 0 && (row.Directed || row.Command != "") {
+			if insert.RowsAffected > 0 && row.Command == "welcome" {
+				if err := w.queueWelcome(ctx, tx, row); err != nil {
+					return err
+				}
+			}
+			if insert.RowsAffected > 0 && row.Command != "welcome" && (row.Directed || row.Command != "") {
 				if err := tx.Create(&outbox{Key: replyKey(row.UpdateID), UpdateID: row.UpdateID, ChatID: row.ChatID, MessageID: row.MessageID, ThreadID: row.ThreadID, Text: interruptedReply, Kind: "reply", State: "held", NextAttemptAt: w.now(), CreatedAt: w.now()}).Error; err != nil {
 					return err
 				}
@@ -199,6 +204,9 @@ func (w *Worker) ingest(ctx context.Context, updates []Update) error {
 }
 
 func (w *Worker) capture(update Update) inbox {
+	if row, handled := w.captureWelcome(update); handled {
+		return row
+	}
 	row := inbox{UpdateID: update.UpdateID, State: "done", CreatedAt: w.now()}
 	m := update.Message
 	if m == nil || m.From == nil || m.From.IsBot || m.From.ID <= 0 || int64(int(m.From.ID)) != m.From.ID {
@@ -485,6 +493,18 @@ func (w *Worker) flush(ctx context.Context) error {
 	for _, row := range rows {
 		if ctx.Err() != nil {
 			return ctx.Err()
+		}
+		if row.Kind == "welcome" {
+			enabled, err := w.enabled(ctx, row.ChatID)
+			if err != nil {
+				return err
+			}
+			if !enabled {
+				if err := w.db.WithContext(ctx).Model(&outbox{}).Where("key = ? AND state = ?", row.Key, "pending").Update("state", "suppressed").Error; err != nil {
+					return errors.New("Telegram welcome suppression failed")
+				}
+				continue
+			}
 		}
 		if (row.Kind == "alert" || row.Kind == "intake_owner") && row.ChatID != w.cfg.OwnerID {
 			return errors.New("Telegram private alert target rejected")
