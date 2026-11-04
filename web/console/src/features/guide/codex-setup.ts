@@ -20,15 +20,39 @@ export const codexWindowsKey = [
   '$key = Read-Host "ZTAPI API Key" -AsSecureString',
   '$env:ZTAPI_API_KEY = [System.Net.NetworkCredential]::new("", $key).Password',
   'Remove-Variable key',
-  'codex',
+  'if ([string]::IsNullOrWhiteSpace($env:ZTAPI_API_KEY)) {',
+  '  Write-Error "No key entered; Codex was not started."',
+  '} else {',
+  '  codex',
+  '}',
 ].join('\n');
 
 export const codexPosixKey = [
   'printf "ZTAPI API Key: "',
   'read -r -s ZTAPI_API_KEY',
   'printf "\\n"',
-  'export ZTAPI_API_KEY',
-  'codex',
+  'if [ -n "$ZTAPI_API_KEY" ]; then',
+  '  export ZTAPI_API_KEY',
+  '  codex',
+  'else',
+  '  printf "No key entered; Codex was not started.\\n" >&2',
+  'fi',
+].join('\n');
+
+export const codexPosixLauncher = [
+  'setup_dir="$(mktemp -d)" &&',
+  'curl --fail --show-error --location --proto "=https" --proto-redir "=https" --tlsv1.2 \\',
+  '  https://ztapi.vip/assets/ztapi-codex-20261104.sh \\',
+  '  -o "$setup_dir/ztapi-codex.sh" &&',
+  'bash "$setup_dir/ztapi-codex.sh"',
+].join('\n');
+
+export const codexWindowsLauncher = [
+  '& {',
+  '  $setup = Join-Path ([IO.Path]::GetTempPath()) ("ztapi-codex-" + [guid]::NewGuid().ToString("N") + ".ps1")',
+  '  Invoke-WebRequest -Uri "https://ztapi.vip/assets/ztapi-codex-20261104.ps1" -OutFile $setup -ErrorAction Stop',
+  '  & $setup',
+  '}',
 ].join('\n');
 
 export const codexWindowsDesktopKey = '[Environment]::SetEnvironmentVariable("ZTAPI_API_KEY", $env:ZTAPI_API_KEY, "User")';

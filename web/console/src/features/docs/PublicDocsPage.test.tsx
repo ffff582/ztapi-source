@@ -19,6 +19,18 @@ afterEach(() => {
 });
 
 describe('public documentation', () => {
+  it('explains the exact missing-variable error before the manual configuration and offers safe launchers', () => {
+    renderDocs('codex');
+    const text = document.body.textContent ?? '';
+    expect(text).toContain('Missing environment variable');
+    expect(text).toContain('env_key 是环境变量名称，不是密钥本身');
+    expect(text).toContain('auth.json');
+    expect(text).toContain('同一个终端');
+    expect(text.indexOf('Missing environment variable')).toBeLessThan(text.indexOf('2. 合并完整配置'));
+    expect(screen.getByRole('link', { name: '下载 Bash 启动脚本' })).toHaveAttribute('href', '/assets/ztapi-codex-20261104.sh');
+    expect(screen.getByRole('link', { name: '下载 PowerShell 启动脚本' })).toHaveAttribute('href', '/assets/ztapi-codex-20261104.ps1');
+    expect(text).not.toContain('Set-ExecutionPolicy');
+  });
   it.each([
     ['api', 'API 手册'], ['integration', '集成指南'], ['codex', 'Codex 接入'], ['user-guide', '用户指南'], ['faq', '常见问题'],
   ])('keeps section navigation and model links public on %s', (section, title) => {
@@ -122,7 +134,7 @@ describe('public documentation', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Codex setup' })).toBeVisible();
     expect(screen.getByRole('heading', { name: 'Tool fees and limitations' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Copy config.toml example' })).toBeVisible();
-    expect(document.querySelector('pre code')).toHaveTextContent('model_catalog_url');
+    expect(screen.getByRole('button', { name: 'Copy config.toml example' }).closest('.docs-code')?.querySelector('pre code')).toHaveTextContent('model_catalog_url');
     expect(screen.getByRole('button', { name: 'Copy Search check example' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Copy Windows user environment variable example' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Copy macOS desktop session example' })).toBeVisible();

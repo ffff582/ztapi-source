@@ -116,7 +116,7 @@ export function ClientSetupGuide() {
             <div><dt>Base URL</dt><dd><code>{setup.baseURL}</code></dd></div>
             <div><dt>{t('鉴权方式')}</dt><dd><code>{setup.auth}</code></dd></div>
           </dl>
-          <p>{t('配置已使用所选公开模型 ID；将 YOUR_ZTAPI_API_KEY 替换为你的密钥，不要使用供应商模型别名。')}</p>
+          <p>{t(client === 'codex' ? 'env_key 是环境变量名称，不是密钥本身；固定保留 ZTAPI_API_KEY，真实 Key 在启动终端中隐藏输入。' : '配置已使用所选公开模型 ID；将 YOUR_ZTAPI_API_KEY 替换为你的密钥，不要使用供应商模型别名。')}</p>
           {client === 'codex' && <p>{t('将 TOML 配置合并到本机 Codex 配置文件，在启动 Codex 的终端设置 ZTAPI_API_KEY；不要覆盖已有配置或使用 ChatGPT 登录凭据。')}</p>}
           {client === 'codex' && <p><Link to="/docs/codex">{t('查看 Codex 完整接入说明')}</Link></p>}
           {client === 'claude-code' && <p>{t('Claude Code 使用不带 /v1 的 Base URL，客户端会追加 /v1/messages。示例清除当前终端中冲突的 ANTHROPIC_AUTH_TOKEN，使用 API Key。')}</p>}

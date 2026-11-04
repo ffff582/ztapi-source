@@ -17,7 +17,7 @@ import { useEffect, useRef, useState } from 'react';
 import { PublicHeader } from '../../components/layout/PublicHeader';
 import { useLocale } from '../../i18n/locale';
 import manifest from './docs-manifest.json';
-import { codexConfig, codexWindowsKey, codexPosixKey, codexWindowsDesktopKey, codexMacDesktopKey } from '../guide/codex-setup';
+import { codexConfig, codexWindowsKey, codexPosixKey, codexWindowsDesktopKey, codexMacDesktopKey, codexPosixLauncher, codexWindowsLauncher } from '../guide/codex-setup';
 import './docs.css';
 
 type DocSection = 'api' | 'integration' | 'codex' | 'user-guide' | 'faq';
@@ -129,9 +129,29 @@ function CodexGuide() {
     <>
       <DocsHeading eyebrow="Codex / Responses" title={t('Codex 接入')}
         summary={t('复制配置、设置自己的 ZTAPI 密钥，即可使用编码、搜索和网页读取。')} />
+      <DocsSection title={t('先解决 Missing environment variable')}>
+        <div className="docs-callout docs-callout--warning">
+          <KeyRound aria-hidden="true" size={20} />
+          <div>
+            <strong>{t('env_key 是环境变量名称，不是密钥本身')}</strong>
+            <p>{t('env_key 固定写 "ZTAPI_API_KEY"，不要替换成 sk- 开头的 Key。实际密钥在下方隐藏输入；只改成 OPENAI_API_KEY 并不会自动创建环境变量。')}</p>
+            <p>{t('出现 Missing environment variable 说明 Codex 尚未读到本机密钥，请先修复本地配置，不要反复发送请求。此环境变量方案不需要修改 auth.json；把 Key 只放进 auth.json 不能替代设置 ZTAPI_API_KEY。')}</p>
+          </div>
+        </div>
+      </DocsSection>
       <DocsSection title={t('1. 准备密钥和模型')}>
         <p>{t('先安装 Codex，并在控制台创建 API Key，确保余额充足且密钥允许调用 zt-claude-opus-5。只使用自己的 ZTAPI 密钥，不需要 OpenAI 或 DeepSeek 官方密钥。')}</p>
         <p>{t('2026-11-01 已验收 Codex CLI 0.165.0-alpha.1.2 与 zt-claude-opus-5 的默认工具声明、搜索、网页读取、页内查找和引用。验收仅设置 1024 输出 Token 上限控制费用，不要求用户设置此上限；其他版本或型号不作未经验收的承诺。')}</p>
+      </DocsSection>
+      <DocsSection title={t('推荐：CLI 安全启动脚本')}>
+        <p>{t('已安装 Codex 的用户可直接运行以下启动脚本，按提示隐藏输入自己的 ZTAPI Key。脚本仅为本次进程设置鉴权和连接参数，不修改 config.toml、auth.json、系统环境变量、沙箱或审批设置；退出后再次使用时需要重新输入 Key。不要把 Key 发到群里。')}</p>
+        <CodeSample label={t('Linux / macOS 快速启动')} code={codexPosixLauncher} />
+        <a className="docs-model-link" href="/assets/ztapi-codex-20261104.sh" download>{t('下载 Bash 启动脚本')}</a>
+        <CodeSample label={t('Windows PowerShell 快速启动')} code={codexWindowsLauncher} />
+        <a className="docs-model-link" href="/assets/ztapi-codex-20261104.ps1" download>{t('下载 PowerShell 启动脚本')}</a>
+        <p>{t('脚本默认选择 zt-claude-opus-5，可在 Codex 中切换为密钥允许的在售模型。脚本不会自动发起模型测试；发送问题和使用搜索后按正常规则计费。脚本只用于 CLI，桌面版请看下方环境变量说明。')}</p>
+        <p>{t('后续请继续用该脚本启动；需要直接运行 codex 时，请完成下方手动配置。也可向脚本传入 --model 和准确的公开模型 ID，显式选择自己的模型。')}</p>
+        <p>{t('若组织策略禁止 PowerShell 脚本，请使用下方手动配置步骤，不要降低系统执行策略。旧版 Codex 0.106.0 的远程目录和搜索能力不在已验收范围内；修复鉴权后如需完整工具能力，请更新客户端。')}</p>
       </DocsSection>
       <DocsSection title={t('2. 合并完整配置')}>
         <dl className="docs-facts">
@@ -166,6 +186,7 @@ function CodexGuide() {
       </DocsSection>
       <DocsSection title={t('排查接入问题')}>
         <ul className="docs-codex-notes">
+          <li>{t('Missing environment variable：将 env_key 恢复为 "ZTAPI_API_KEY"，在启动 Codex 的同一个终端完成隐藏输入和 export，再重新启动；切换终端、SSH 会话、容器或 sudo 后需在实际运行环境重新设置。不要用 echo 或截图展示完整密钥。')}</li>
           <li>{t('401：确认已创建有效 ZTAPI API Key、启动进程能读到 ZTAPI_API_KEY，且没有使用 ChatGPT 登录凭据替代。不要发送密钥给客服。')}</li>
           <li>{t('模型目录为空或模型不可用：检查密钥的模型白名单、IP 限制和余额，确认模型名称为 zt-claude-opus-5。')}</li>
           <li>{t('搜索未出现：检查顶层 web_search = "live"，移除冲突的旧目录文件设置，更新到支持远程模型目录的 Codex 版本，并重启后新建对话。')}</li>
@@ -331,7 +352,7 @@ export function PublicDocsPage() {
           {active === 'codex' && <CodexGuide />}
           {active === 'user-guide' && <UserGuide />}
           {active === 'faq' && <FaqPage />}
-          <a className="docs-source-link" href="https://github.com/ffff582/ztapi-source/tree/production-registration-captcha-20261103-r1" target="_blank" rel="noreferrer">{t('前端源码')}</a>
+          <a className="docs-source-link" href="https://github.com/ffff582/ztapi-source/tree/production-codex-onboarding-20261104-r1" target="_blank" rel="noreferrer">{t('前端源码')}</a>
         </article>
       </main>
     </div>
