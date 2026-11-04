@@ -14,7 +14,7 @@ test('P5 CI runs the real MySQL test with mandatory isolated database coverage',
  const workflow=YAML.parse(readFileSync('.github/workflows/ztapi-financial-ci.yml','utf8'));
  const job=workflow.jobs['health-integrity'];
  assert.ok(job,'a separate MySQL health job must exist');
- assert.deepEqual(job['runs-on'],['self-hosted','ztapi-local']);
+ assert.equal(job['runs-on'],'${{ github.repository == \'ffff582/ztapi-source\' && \'ubuntu-24.04\' || fromJSON(\'["self-hosted","ztapi-local"]\') }}');
  assert.ok(job.steps.some(step=>step.run?.includes('start mysql ztapi_health_ci_only ztapi_health_test')));
  assert.ok(job.steps.some(step=>step.if==='always()' && step.run?.includes('stop mysql')));
  const step=job.steps.find(step=>step.env?.ZTAPI_HEALTH_MYSQL_TEST_DSN);

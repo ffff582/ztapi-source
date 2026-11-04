@@ -12,13 +12,16 @@ on:
 permissions:
   contents: read
 
+env:
+  ZTAPI_CI_ALLOW_IMAGE_PULL: ${{ github.repository == 'ffff582/ztapi-source' }}
+
 concurrency:
   group: ztapi-financial-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   media-commercial-gates:
-    runs-on: [self-hosted, ztapi-local]
+    runs-on: ${{ github.repository == 'ffff582/ztapi-source' && 'ubuntu-24.04' || fromJSON('["self-hosted","ztapi-local"]') }}
     timeout-minutes: 45
     steps:
       - name: Check out source
@@ -52,6 +55,9 @@ jobs:
 
       - name: Install web dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Verify financial CI isolation and hosted routing contracts
+        run: node --test tests/contracts/financial-ci-workflow.test.mjs tests/contracts/media-commercial-gate.test.mjs tests/contracts/commercial-finance-ci.test.mjs tests/contracts/health-deployment.test.mjs tests/contracts/usdt-replay-ci.test.mjs tests/contracts/hosted-financial-ci.test.mjs
 
       - name: Install classic administration dependencies
         working-directory: server/web
@@ -124,7 +130,7 @@ jobs:
       # passing run's report is never opened, and storing every one of them
       # filled the account's artifact quota until no release could be uploaded.
       - name: Upload browser acceptance evidence
-        if: failure()
+        if: failure() && github.repository != 'ffff582/ztapi-source'
         uses: actions/upload-artifact@v4
         with:
           name: media-browser-acceptance
@@ -141,7 +147,7 @@ jobs:
           bash tools/ci-local-service.sh stop mysql
 
   commercial-finance:
-    runs-on: [self-hosted, ztapi-local]
+    runs-on: ${{ github.repository == 'ffff582/ztapi-source' && 'ubuntu-24.04' || fromJSON('["self-hosted","ztapi-local"]') }}
     timeout-minutes: 15
     steps:
       - name: Check out source
@@ -168,7 +174,7 @@ jobs:
         run: bash tools/ci-local-service.sh stop mysql
 
   financial-integrity:
-    runs-on: [self-hosted, ztapi-local]
+    runs-on: ${{ github.repository == 'ffff582/ztapi-source' && 'ubuntu-24.04' || fromJSON('["self-hosted","ztapi-local"]') }}
     timeout-minutes: 15
     steps:
       - name: Check out source
@@ -198,7 +204,7 @@ jobs:
         run: bash tools/ci-local-service.sh stop mysql
 
   usdt-settled-replay:
-    runs-on: [self-hosted, ztapi-local]
+    runs-on: ${{ github.repository == 'ffff582/ztapi-source' && 'ubuntu-24.04' || fromJSON('["self-hosted","ztapi-local"]') }}
     timeout-minutes: 15
     steps:
       - name: Check out source
@@ -229,7 +235,7 @@ jobs:
         run: bash tools/ci-local-service.sh stop mysql
 
   health-integrity:
-    runs-on: [self-hosted, ztapi-local]
+    runs-on: ${{ github.repository == 'ffff582/ztapi-source' && 'ubuntu-24.04' || fromJSON('["self-hosted","ztapi-local"]') }}
     timeout-minutes: 15
     steps:
       - name: Check out source

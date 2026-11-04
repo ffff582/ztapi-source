@@ -14,7 +14,7 @@ function loadMediaGateJob() {
 
 test('media commercial CI uses isolated cached MySQL and password-protected Redis', () => {
   const job = loadMediaGateJob();
-  assert.deepEqual(job['runs-on'], ['self-hosted', 'ztapi-local']);
+  assert.equal(job['runs-on'], '${{ github.repository == \'ffff582/ztapi-source\' && \'ubuntu-24.04\' || fromJSON(\'["self-hosted","ztapi-local"]\') }}');
   const start = job.steps.find((step) => step.run?.includes('start mysql ztapi_media_ci_only ztapi_commercial_test'));
   assert.ok(start, 'the real MySQL service must use its isolated database');
   assert.match(start.run, /start redis ztapi_media_ci_only/);
