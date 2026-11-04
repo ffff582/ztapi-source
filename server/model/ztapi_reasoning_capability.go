@@ -34,6 +34,13 @@ func nonReasoningCapability(sourceModel, modality string) ZTAPIReasoningCapabili
 	}
 }
 
+func sol61DeclaredReasoningCapability() ZTAPIReasoningCapability {
+	capability := pendingTextReasoningCapability("gpt-6.1-sol")
+	capability.ReasoningEfforts = []string{"high", "low", "max", "medium", "xhigh"}
+	capability.EvidenceQuote = "2026-11-04 supplier request req_cc0a838be40082b5 rejected none and declared low, medium, high, xhigh and max. This is a supplier declaration, not a claim that every effort has passed live validation."
+	return capability
+}
+
 // Keys are exact source_model values from the quotation-backed catalog. Empty
 // effort lists mean the provider contract still needs live validation. Standard
 // wire values pass through for compatibility, while local aliases remain closed.
@@ -78,7 +85,7 @@ var ztapiReasoningCapabilities = map[string]ZTAPIReasoningCapability{
 		LiveValidationRequired: true,
 	},
 	"gpt-5.6-terra":            pendingTextReasoningCapability("gpt-5.6-terra"),
-	"gpt-6.1-sol":              pendingTextReasoningCapability("gpt-6.1-sol"),
+	"gpt-6.1-sol":              sol61DeclaredReasoningCapability(),
 	"kimi-k2.5":                pendingTextReasoningCapability("kimi-k2.5"),
 	"kimi-k2.6":                pendingTextReasoningCapability("kimi-k2.6"),
 	"kimi-k2.7-code":           pendingTextReasoningCapability("kimi-k2.7-code"),

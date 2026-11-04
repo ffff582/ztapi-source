@@ -35,15 +35,19 @@ func TestZTAPIReasoningDroppedMetadataSurvivesDurableSanitization(t *testing.T) 
 	require.ErrorIs(t, sanitizeZTAPISettlementLogMetadata(&log), ErrZTAPISettlementLogInvalid)
 }
 
-func TestZTAPISol61PendingCapabilityDoesNotClaimVerifiedEfforts(t *testing.T) {
+func TestZTAPISol61ReasoningCapabilityDoesNotClaimLiveValidation(t *testing.T) {
 	capability, ok := ZTAPIReasoningCapabilityFor("gpt-6.1-sol")
 	require.True(t, ok)
 	require.True(t, capability.LiveValidationRequired)
-	require.Empty(t, capability.ReasoningEfforts)
+	require.Equal(t, []string{"high", "low", "max", "medium", "xhigh"}, capability.ReasoningEfforts)
 	for _, effort := range []string{"none", "minimal", "low", "medium", "high", "xhigh"} {
 		normalized, err := NormalizeZTAPIReasoningEffort("gpt-6.1-sol", effort)
 		require.NoError(t, err)
-		require.Equal(t, effort, normalized)
+		if effort == "none" || effort == "minimal" {
+			require.Empty(t, normalized)
+		} else {
+			require.Equal(t, effort, normalized)
+		}
 	}
 	video, ok := ZTAPIReasoningCapabilityFor("doubao-seedance-2-5")
 	require.True(t, ok)
