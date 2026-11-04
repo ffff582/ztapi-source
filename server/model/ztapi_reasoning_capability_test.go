@@ -12,10 +12,12 @@ func TestZTAPIUltraMapsToMaxOnlyWhenDeclared(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "max", got)
 
-	_, err = NormalizeZTAPIReasoningEffort("gpt-5.4", "ultra")
-	require.ErrorIs(t, err, ErrZTAPIReasoningEffortUnsupported)
-	_, err = NormalizeZTAPIReasoningEffort("model-without-max", "ultra")
-	require.ErrorIs(t, err, ErrZTAPIReasoningEffortUnsupported)
+	got, err = NormalizeZTAPIReasoningEffort("gpt-5.4", "ultra")
+	require.NoError(t, err)
+	require.Empty(t, got)
+	got, err = NormalizeZTAPIReasoningEffort("model-without-max", "ultra")
+	require.NoError(t, err)
+	require.Empty(t, got)
 }
 
 func TestZTAPIPendingReasoningCapabilityPassesKnownWireEffortWithoutGuessingAliases(t *testing.T) {
@@ -23,10 +25,12 @@ func TestZTAPIPendingReasoningCapabilityPassesKnownWireEffortWithoutGuessingAlia
 	require.NoError(t, err)
 	require.Equal(t, "high", got)
 
-	_, err = NormalizeZTAPIReasoningEffort("gpt-5.4", "ultra")
-	require.ErrorIs(t, err, ErrZTAPIReasoningEffortUnsupported)
-	_, err = NormalizeZTAPIReasoningEffort("gpt-5.4", "turbo")
-	require.ErrorIs(t, err, ErrZTAPIReasoningEffortUnsupported)
+	got, err = NormalizeZTAPIReasoningEffort("gpt-5.4", "ultra")
+	require.NoError(t, err)
+	require.Empty(t, got)
+	got, err = NormalizeZTAPIReasoningEffort("gpt-5.4", "turbo")
+	require.NoError(t, err)
+	require.Empty(t, got)
 }
 
 func TestZTAPIQuotationBackedReasoningCapabilitiesAreCompleteAndSorted(t *testing.T) {
@@ -73,11 +77,13 @@ func TestZTAPIPublishedClaudeModelsAcceptStandardCodexEffort(t *testing.T) {
 			require.Empty(t, capability.ReasoningEfforts)
 			require.True(t, capability.LiveValidationRequired)
 			for _, effort := range []string{"ultra", "turbo"} {
-				_, err := NormalizeZTAPIReasoningEffort(source, effort)
-				require.ErrorIs(t, err, ErrZTAPIReasoningEffortUnsupported)
+				got, err := NormalizeZTAPIReasoningEffort(source, effort)
+				require.NoError(t, err)
+				require.Empty(t, got)
 			}
 		})
 	}
-	_, err := NormalizeZTAPIReasoningEffort("claude-unknown-future-model", "low")
-	require.ErrorIs(t, err, ErrZTAPIReasoningEffortUnsupported)
+	got, err := NormalizeZTAPIReasoningEffort("claude-unknown-future-model", "low")
+	require.NoError(t, err)
+	require.Empty(t, got)
 }

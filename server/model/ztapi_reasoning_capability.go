@@ -78,6 +78,7 @@ var ztapiReasoningCapabilities = map[string]ZTAPIReasoningCapability{
 		LiveValidationRequired: true,
 	},
 	"gpt-5.6-terra":            pendingTextReasoningCapability("gpt-5.6-terra"),
+	"gpt-6.1-sol":              pendingTextReasoningCapability("gpt-6.1-sol"),
 	"kimi-k2.5":                pendingTextReasoningCapability("kimi-k2.5"),
 	"kimi-k2.6":                pendingTextReasoningCapability("kimi-k2.6"),
 	"kimi-k2.7-code":           pendingTextReasoningCapability("kimi-k2.7-code"),
@@ -90,6 +91,7 @@ var ztapiReasoningCapabilities = map[string]ZTAPIReasoningCapability{
 	"gpt-image-2":              nonReasoningCapability("gpt-image-2", ZTAPIModalityImage),
 	"gemini-2.5-flash-image":   nonReasoningCapability("gemini-2.5-flash-image", ZTAPIModalityImage),
 	"doubao-seedance-2.0":      nonReasoningCapability("doubao-seedance-2.0", ZTAPIModalityVideo),
+	"doubao-seedance-2-5":      nonReasoningCapability("doubao-seedance-2-5", ZTAPIModalityVideo),
 	"doubao-seedance-2-0-fast": nonReasoningCapability("doubao-seedance-2-0-fast", ZTAPIModalityVideo),
 	"doubao-seedance-2-0-mini": nonReasoningCapability("doubao-seedance-2-0-mini", ZTAPIModalityVideo),
 }
@@ -104,35 +106,58 @@ func ZTAPIReasoningCapabilityFor(sourceModel string) (ZTAPIReasoningCapability, 
 }
 
 func NormalizeZTAPIReasoningEffort(sourceModel, requested string) (string, error) {
+	normalized, _ := NormalizeZTAPIReasoningEffortWithReason(sourceModel, requested)
+	return normalized, nil
+}
+
+func IsZTAPIReasoningEffortDropReason(reason string) bool {
+	switch reason {
+	case "unknown_model", "not_in_supported_list", "non_reasoning_model", "unrecognized_value":
+		return true
+	}
+	return false
+}
+
+// Unsupported hints are optional, not grounds to reject the entire request.
+// The reason is bounded vocabulary; never put arbitrary client text in logs.
+func NormalizeZTAPIReasoningEffortWithReason(sourceModel, requested string) (string, string) {
 	requested = strings.ToLower(strings.TrimSpace(requested))
 	if requested == "" {
-		return "", nil
+		return "", ""
 	}
 	capability, ok := ZTAPIReasoningCapabilityFor(sourceModel)
 	if !ok {
-		return "", ErrZTAPIReasoningEffortUnsupported
+		return "", "unknown_model"
+	}
+	if len(capability.ReasoningEfforts) == 0 && !capability.LiveValidationRequired {
+		return "", "non_reasoning_model"
+	}
+	switch requested {
+	case "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra":
+	default:
+		return "", "unrecognized_value"
 	}
 	if requested == "ultra" {
 		requested = "max"
 		for _, supported := range capability.ReasoningEfforts {
 			if requested == supported {
-				return requested, nil
+				return requested, ""
 			}
 		}
-		return "", ErrZTAPIReasoningEffortUnsupported
+		return "", "not_in_supported_list"
 	}
 	if len(capability.ReasoningEfforts) == 0 && capability.LiveValidationRequired {
 		switch requested {
 		case "none", "minimal", "low", "medium", "high", "xhigh", "max":
-			return requested, nil
+			return requested, ""
 		default:
-			return "", ErrZTAPIReasoningEffortUnsupported
+			return "", "unrecognized_value"
 		}
 	}
 	for _, supported := range capability.ReasoningEfforts {
 		if requested == supported {
-			return requested, nil
+			return requested, ""
 		}
 	}
-	return "", ErrZTAPIReasoningEffortUnsupported
+	return "", "not_in_supported_list"
 }

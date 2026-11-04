@@ -18,20 +18,22 @@ type ztapiSettlementLogDimension struct {
 }
 
 type ztapiSettlementLogMetadata struct {
-	BillingSource            string                        `json:"billing_source,omitempty"`
-	BillingStatus            string                        `json:"billing_status,omitempty"`
-	PublicationVersion       uint64                        `json:"publication_version,omitempty"`
-	PriceSourceVersion       uint64                        `json:"price_source_version,omitempty"`
-	UsageSemantic            string                        `json:"usage_semantic,omitempty"`
-	BillingDimensions        []ztapiSettlementLogDimension `json:"billing_dimensions,omitempty"`
-	ModelRatio               *float64                      `json:"model_ratio,omitempty"`
-	ReasoningEffortReceived  string                        `json:"reasoning_effort_received,omitempty"`
-	ReasoningEffortForwarded string                        `json:"reasoning_effort_forwarded,omitempty"`
-	ReasoningEffortSource    string                        `json:"reasoning_effort_source,omitempty"`
-	ReasoningTokensReported  *int                          `json:"reasoning_tokens_reported,omitempty"`
-	RequestPath              string                        `json:"request_path,omitempty"`
-	ClientUserAgent          string                        `json:"client_user_agent,omitempty"`
-	MeteringEvidence         *types.ZTAPIMeteringEvidence  `json:"ztapi_metering_evidence,omitempty"`
+	BillingSource             string                        `json:"billing_source,omitempty"`
+	BillingStatus             string                        `json:"billing_status,omitempty"`
+	PublicationVersion        uint64                        `json:"publication_version,omitempty"`
+	PriceSourceVersion        uint64                        `json:"price_source_version,omitempty"`
+	UsageSemantic             string                        `json:"usage_semantic,omitempty"`
+	BillingDimensions         []ztapiSettlementLogDimension `json:"billing_dimensions,omitempty"`
+	ModelRatio                *float64                      `json:"model_ratio,omitempty"`
+	ReasoningEffortReceived   string                        `json:"reasoning_effort_received,omitempty"`
+	ReasoningEffortForwarded  string                        `json:"reasoning_effort_forwarded,omitempty"`
+	ReasoningEffortSource     string                        `json:"reasoning_effort_source,omitempty"`
+	ReasoningEffortDropped    bool                          `json:"reasoning_effort_dropped,omitempty"`
+	ReasoningEffortDropReason string                        `json:"reasoning_effort_drop_reason,omitempty"`
+	ReasoningTokensReported   *int                          `json:"reasoning_tokens_reported,omitempty"`
+	RequestPath               string                        `json:"request_path,omitempty"`
+	ClientUserAgent           string                        `json:"client_user_agent,omitempty"`
+	MeteringEvidence          *types.ZTAPIMeteringEvidence  `json:"ztapi_metering_evidence,omitempty"`
 }
 
 var ztapiSettlementLogDimensionName = regexp.MustCompile(`^[a-z][a-z0-9_:.-]{0,127}$`)
@@ -72,9 +74,11 @@ func sanitizeZTAPISettlementLogMetadata(log *Log) error {
 		(metadata.BillingStatus != "" && metadata.BillingStatus != "settled") ||
 		(metadata.UsageSemantic != "" && metadata.UsageSemantic != "openai" && metadata.UsageSemantic != "anthropic" && metadata.UsageSemantic != ZTAPIAttemptBillingUsageSemanticImage) ||
 		len(metadata.BillingDimensions) > 128 ||
-		!validZTAPIReasoningEffort(metadata.ReasoningEffortReceived) ||
+		(!validZTAPIReasoningEffort(metadata.ReasoningEffortReceived) && !(metadata.ReasoningEffortDropped && metadata.ReasoningEffortReceived == "unrecognized")) ||
 		!validZTAPIReasoningEffort(metadata.ReasoningEffortForwarded) ||
 		!validZTAPIReasoningSource(metadata.ReasoningEffortSource) ||
+		(metadata.ReasoningEffortDropped && !IsZTAPIReasoningEffortDropReason(metadata.ReasoningEffortDropReason)) ||
+		(!metadata.ReasoningEffortDropped && metadata.ReasoningEffortDropReason != "") ||
 		(metadata.ReasoningTokensReported != nil && *metadata.ReasoningTokensReported < 0) {
 		return ErrZTAPISettlementLogInvalid
 	}

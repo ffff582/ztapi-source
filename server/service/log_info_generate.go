@@ -7,6 +7,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/types"
@@ -95,6 +96,13 @@ func appendReasoningAuditInfo(relayInfo *relaycommon.RelayInfo, other map[string
 	}
 	if relaycommon.IsReasoningEffortSource(relayInfo.ReasoningEffortSource) {
 		other["reasoning_effort_source"] = relayInfo.ReasoningEffortSource
+	}
+	if relayInfo.ReasoningEffortDropped && model.IsZTAPIReasoningEffortDropReason(relayInfo.ReasoningEffortDropReason) {
+		other["reasoning_effort_dropped"] = true
+		other["reasoning_effort_drop_reason"] = relayInfo.ReasoningEffortDropReason
+		if !relaycommon.IsReasoningEffortValue(relayInfo.ReasoningEffortReceived) {
+			other["reasoning_effort_received"] = "unrecognized"
+		}
 	}
 	if relayInfo.ReasoningTokensReported != nil && *relayInfo.ReasoningTokensReported >= 0 {
 		other["reasoning_tokens_reported"] = *relayInfo.ReasoningTokensReported

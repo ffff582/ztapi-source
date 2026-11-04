@@ -54,6 +54,7 @@ func publicErrorCode(value any, status int, local ErrorCode) any {
 func isLocalPublicCode(code ErrorCode) bool {
 	switch code {
 	case ErrorCodeInvalidRequest, ErrorCodeSensitiveWordsDetected, ErrorCodeViolationFeeGrokCSAM,
+		ErrorCode("invalid_reasoning_effort"),
 		ErrorCodeCountTokenFailed, ErrorCodeModelPriceError, ErrorCodeInvalidApiType,
 		ErrorCodeJsonMarshalFailed, ErrorCodeDoRequestFailed, ErrorCodeGetChannelFailed,
 		ErrorCodeGenRelayInfoFailed, ErrorCodeChannelNoAvailableKey,
@@ -165,6 +166,8 @@ func publicLocalErrorMessage(code ErrorCode, status int, internal string) string
 		return "The request is invalid or exceeds the request size limit. Check the format, prompt and attachments."
 	case ErrorCodeConvertRequestFailed, ErrorCodeInvalidApiType:
 		return "This request cannot be represented by the selected model protocol. Check the model's supported inputs and tools."
+	case ErrorCode("invalid_reasoning_effort"), ErrorCodeChannelParamOverrideInvalid, ErrorCodeChannelHeaderOverrideInvalid:
+		return "The request parameters could not be prepared locally. Check the request format and usage-log request ID."
 	case ErrorCodeCountTokenFailed:
 		return "The request token budget could not be validated. Check the model, prompt and output budget."
 	case ErrorCodeInsufficientUserQuota, ErrorCodePreConsumeTokenQuotaFailed:
@@ -176,6 +179,9 @@ func publicLocalErrorMessage(code ErrorCode, status int, internal string) string
 	case ErrorCodeModelNotFound, ErrorCodeGetChannelFailed, ErrorCodeModelPriceError, ErrorCodeChannelNoAvailableKey:
 		return "The selected model is currently unavailable for this request. Check the model ID and request ID in usage logs."
 	default:
+		if status >= 400 && status < 500 {
+			return "The request could not be validated or prepared locally. Check the request parameters and usage-log request ID."
+		}
 		return publicUpstreamMessage(nil, status)
 	}
 }

@@ -82,6 +82,9 @@ func ReasoningEffortFromRequest(req any) string {
 
 func SetReasoningEffortForRequest(req any, effort string) error {
 	effort = normalizedReasoningEffort(effort)
+	if effort == "" {
+		return dropReasoningEffortForRequest(req)
+	}
 	switch request := req.(type) {
 	case *dto.GeneralOpenAIRequest:
 		if request == nil {
@@ -136,6 +139,55 @@ func SetReasoningEffortForRequest(req any, effort string) error {
 	default:
 		return fmt.Errorf("unsupported reasoning request type %T", req)
 	}
+}
+
+func dropEffortObject(body []byte) ([]byte, error) {
+	if !gjson.GetBytes(body, "effort").Exists() {
+		return body, nil
+	}
+	updated, err := sjson.DeleteBytes(body, "effort")
+	if err == nil && len(gjson.ParseBytes(updated).Map()) == 0 {
+		return nil, nil
+	}
+	return updated, err
+}
+
+func dropReasoningEffortForRequest(req any) error {
+	switch request := req.(type) {
+	case *dto.GeneralOpenAIRequest:
+		if request == nil {
+			return nil
+		}
+		request.ReasoningEffort = ""
+		updated, err := dropEffortObject(request.Reasoning)
+		request.Reasoning = updated
+		return err
+	case *dto.OpenAIResponsesRequest:
+		if request != nil && request.Reasoning != nil {
+			request.Reasoning.Effort = ""
+			if request.Reasoning.Summary == "" {
+				request.Reasoning = nil
+			}
+		}
+	case *dto.ClaudeRequest:
+		if request == nil {
+			return nil
+		}
+		updated, err := dropEffortObject(request.OutputConfig)
+		request.OutputConfig = updated
+		return err
+	case *dto.GeminiChatRequest:
+		if request != nil && request.GenerationConfig.ThinkingConfig != nil {
+			config := request.GenerationConfig.ThinkingConfig
+			config.ThinkingLevel = ""
+			if config.ThinkingBudget == nil && !config.IncludeThoughts {
+				request.GenerationConfig.ThinkingConfig = nil
+			}
+		}
+	default:
+		return fmt.Errorf("unsupported reasoning request type %T", req)
+	}
+	return nil
 }
 
 func CaptureReasoningEffortReceived(info *RelayInfo, req any) {
@@ -200,6 +252,28 @@ func SetReasoningEffortInJSON(body []byte, format types.RelayFormat, effort stri
 		}
 	default:
 		return body, fmt.Errorf("unsupported reasoning relay format %q", format)
+	}
+	if normalizedReasoningEffort(effort) == "" {
+		for _, path := range paths {
+			if !gjson.GetBytes(body, path).Exists() {
+				continue
+			}
+			var err error
+			body, err = sjson.DeleteBytes(body, path)
+			if err != nil {
+				return nil, err
+			}
+			if index := strings.LastIndex(path, "."); index >= 0 {
+				parent := path[:index]
+				if value := gjson.GetBytes(body, parent); value.IsObject() && len(value.Map()) == 0 {
+					body, err = sjson.DeleteBytes(body, parent)
+					if err != nil {
+						return nil, err
+					}
+				}
+			}
+		}
+		return body, nil
 	}
 	for _, path := range paths {
 		if result := gjson.GetBytes(body, path); result.Exists() {

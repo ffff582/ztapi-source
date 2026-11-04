@@ -18,6 +18,17 @@ func TestLocalErrorWrapperCannotMakeSupplierDiagnosticsPublic(t *testing.T) {
 	require.Equal(t, string(ErrorCodeBadResponse), public.Code)
 }
 
+func TestLocalParameterFailuresNeverBlameUndispatchedUpstream(t *testing.T) {
+	for _, code := range []ErrorCode{ErrorCode("invalid_reasoning_effort"), ErrorCode("unsupported_model_endpoint"), ErrorCodeChannelParamOverrideInvalid, ErrorCodeChannelHeaderOverrideInvalid} {
+		err := NewErrorWithStatusCode(errors.New("PRIVATE_INTERNAL_DETAIL"), code, 400)
+		for _, message := range []string{err.ToPublicOpenAIError().Message, err.ToPublicClaudeError().Message} {
+			require.NotContains(t, message, "upstream")
+			require.NotContains(t, message, "PRIVATE_INTERNAL_DETAIL")
+			require.Contains(t, message, "locally")
+		}
+	}
+}
+
 func TestPublicLocalValidationKeepsTrustedActionableHints(t *testing.T) {
 	for _, tc := range []struct{ raw, hint string }{
 		{"messages: orphan or duplicate tool result opaque-secret", "tool result"},

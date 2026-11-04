@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/dto"
-	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/stretchr/testify/require"
@@ -23,7 +22,9 @@ func TestZTAPICodexClaude55ReasoningPassesValidationButIsNotForwardedToChat(t *t
 			require.NoError(t, err)
 			require.JSONEq(t, `{"max_tokens":1024}`, string(out))
 			request.Reasoning.Effort = "ultra"
-			require.ErrorIs(t, ValidateAndNormalizeZTAPIReasoningEffort(info, request), model.ErrZTAPIReasoningEffortUnsupported)
+			require.NoError(t, ValidateAndNormalizeZTAPIReasoningEffort(info, request))
+			require.Nil(t, request.Reasoning)
+			require.True(t, info.ReasoningEffortDropped)
 		})
 	}
 }

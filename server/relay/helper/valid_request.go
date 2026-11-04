@@ -30,10 +30,8 @@ func ValidateAndNormalizeZTAPIReasoningEffort(info *relaycommon.RelayInfo, reque
 	if requested == "" {
 		return nil
 	}
-	normalized, err := model.NormalizeZTAPIReasoningEffort(info.ZTAPIPublicationSnapshot.SourceModel, requested)
-	if err != nil {
-		return err
-	}
+	normalized, reason := model.NormalizeZTAPIReasoningEffortWithReason(info.ZTAPIPublicationSnapshot.SourceModel, requested)
+	recordZTAPIReasoningEffortDrop(info, requested, reason)
 	if normalized == requested {
 		return nil
 	}
@@ -56,10 +54,8 @@ func ValidateAndNormalizeZTAPIReasoningJSON(info *relaycommon.RelayInfo, body []
 	if requested == "" {
 		return body, nil
 	}
-	normalized, err := model.NormalizeZTAPIReasoningEffort(info.ZTAPIPublicationSnapshot.SourceModel, requested)
-	if err != nil {
-		return nil, err
-	}
+	normalized, reason := model.NormalizeZTAPIReasoningEffortWithReason(info.ZTAPIPublicationSnapshot.SourceModel, requested)
+	recordZTAPIReasoningEffortDrop(info, requested, reason)
 	if normalized == requested {
 		return body, nil
 	}
@@ -71,6 +67,20 @@ func ValidateAndNormalizeZTAPIReasoningJSON(info *relaycommon.RelayInfo, body []
 		relaycommon.MarkReasoningEffortSource(info, relaycommon.ReasoningEffortSourceCodexAliasMapping)
 	}
 	return updated, nil
+}
+
+func recordZTAPIReasoningEffortDrop(info *relaycommon.RelayInfo, requested, reason string) {
+	if !model.IsZTAPIReasoningEffortDropReason(reason) {
+		return
+	}
+	info.ReasoningEffortDropped = true
+	info.ReasoningEffortDropReason = reason
+	if info.ReasoningEffortReceived == "" {
+		info.ReasoningEffortReceived = requested
+		info.ReasoningEffortSource = relaycommon.ReasoningEffortSourceRequest
+	}
+	info.ReasoningEffortForwarded = ""
+	info.ReasoningEffort = ""
 }
 
 func GetAndValidateRequest(c *gin.Context, format types.RelayFormat) (request dto.Request, err error) {

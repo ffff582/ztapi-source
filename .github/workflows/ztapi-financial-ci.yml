@@ -86,6 +86,13 @@ jobs:
         working-directory: server
         run: go test ./relay/channel/openai -run '^TestZTAPI((Stream|NonStream)Metadata|ClaudeToolPolicy)' -count=1 -timeout=2m
 
+      - name: Run reasoning compatibility, durable log and local error regressions
+        working-directory: server
+        run: >-
+          go test ./model ./relay/helper ./relay/common ./service ./controller ./types
+          -run 'TestZTAPI.*Reasoning|TestLocalParameterFailuresNeverBlameUndispatchedUpstream'
+          -count=1 -timeout=5m
+
       - name: Run streamed long-task shutdown race regression
         working-directory: server
         run: |
