@@ -425,6 +425,9 @@ func newRelayRetryParam(c *gin.Context, info *relaycommon.RelayInfo) *service.Re
 }
 
 func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) bool {
+	if c.GetBool("ztapi_upstream_admission_dispatched") {
+		return false
+	}
 	if c.Writer.Written() || c.Request.Context().Err() != nil {
 		return false
 	}
