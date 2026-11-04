@@ -35,6 +35,8 @@ services:
     build:
       context: ../../server
       dockerfile: Dockerfile.ztapi
+      args:
+        GOPROXY: ${ZTAPI_DOCKER_GOPROXY:-https://proxy.golang.org,direct}
     env_file:
       - path: /etc/ztapi/health.env
         required: false

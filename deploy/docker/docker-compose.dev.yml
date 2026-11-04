@@ -20,6 +20,8 @@ services:
     build:
       context: ../../server
       dockerfile: Dockerfile.ztapi
+      args:
+        GOPROXY: ${ZTAPI_DOCKER_GOPROXY:-https://proxy.golang.org,direct}
     environment:
       ZTAPI_ENV: development
       ZTAPI_PUBLIC_ORIGIN: http://localhost:8080
