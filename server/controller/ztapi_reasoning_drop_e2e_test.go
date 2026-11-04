@@ -2,11 +2,12 @@ package controller
 
 import (
 	"encoding/json"
+	"net/http"
+	"testing"
+
 	"github.com/QuantumNous/new-api/model"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
-	"net/http"
-	"testing"
 )
 
 func TestZTAPIReasoningResponsesDispatchesAndSettlesEveryStandardEffort(t *testing.T) {

@@ -247,6 +247,7 @@ async function installConsoleAPI(
   unexpected: string[],
   options: { onImageEdit?: (request: Request) => Promise<void> } = {},
 ) {
+  const usageTimestamp = Math.floor(Date.now() / 1000) - 60;
   await page.route('**/pg/**', async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname === '/pg/chat/completions') {
@@ -311,7 +312,7 @@ async function installConsoleAPI(
         page_size: 5,
         total: 1,
         items: [{
-          timestamp: 1789100000,
+          timestamp: usageTimestamp,
           request_id: 'req-browser-usage-001',
           model: 'zt-claude-sonnet-5',
           status: 'success',

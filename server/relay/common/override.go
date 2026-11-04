@@ -105,6 +105,7 @@ func NewAPIErrorFromParamOverride(err *ParamOverrideReturnError) *types.NewAPIEr
 			errors.New("param override return error is nil"),
 			types.ErrorCodeChannelParamOverrideInvalid,
 			types.ErrOptionWithSkipRetry(),
+			types.ErrOptionWithLocalOrigin(),
 		)
 	}
 
@@ -128,7 +129,7 @@ func NewAPIErrorFromParamOverride(err *ParamOverrideReturnError) *types.NewAPIEr
 		message = "request blocked by param override"
 	}
 
-	opts := make([]types.NewAPIErrorOptions, 0, 1)
+	opts := []types.NewAPIErrorOptions{types.ErrOptionWithLocalOrigin()}
 	if err.SkipRetry {
 		opts = append(opts, types.ErrOptionWithSkipRetry())
 	}

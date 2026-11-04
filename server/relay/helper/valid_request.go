@@ -26,22 +26,40 @@ func ValidateAndNormalizeZTAPIReasoningEffort(info *relaycommon.RelayInfo, reque
 	if info == nil || info.ZTAPIPublicationSnapshot == nil {
 		return nil
 	}
+	if chat, ok := request.(*dto.GeneralOpenAIRequest); ok && chat != nil {
+		if requested := strings.ToLower(strings.TrimSpace(chat.ReasoningEffort)); requested != "" {
+			chat.ReasoningEffort = normalizeZTAPIReasoningHint(info, requested)
+		}
+		nested := &dto.GeneralOpenAIRequest{Reasoning: chat.Reasoning}
+		if requested := relaycommon.ReasoningEffortFromRequest(nested); requested != "" {
+			if err := relaycommon.SetReasoningEffortForRequest(nested, normalizeZTAPIReasoningHint(info, requested)); err != nil {
+				return err
+			}
+			chat.Reasoning = nested.Reasoning
+		}
+		return nil
+	}
 	requested := relaycommon.ReasoningEffortFromRequest(request)
 	if requested == "" {
 		return nil
 	}
-	normalized, reason := model.NormalizeZTAPIReasoningEffortWithReason(info.ZTAPIPublicationSnapshot.SourceModel, requested)
-	recordZTAPIReasoningEffortDrop(info, requested, reason)
+	normalized := normalizeZTAPIReasoningHint(info, requested)
 	if normalized == requested {
 		return nil
 	}
 	if err := relaycommon.SetReasoningEffortForRequest(request, normalized); err != nil {
 		return err
 	}
+	return nil
+}
+
+func normalizeZTAPIReasoningHint(info *relaycommon.RelayInfo, requested string) string {
+	normalized, reason := model.NormalizeZTAPIReasoningEffortWithReason(info.ZTAPIPublicationSnapshot.SourceModel, requested)
+	recordZTAPIReasoningEffortDrop(info, requested, reason)
 	if requested == "ultra" && normalized == "max" {
 		relaycommon.MarkReasoningEffortSource(info, relaycommon.ReasoningEffortSourceCodexAliasMapping)
 	}
-	return nil
+	return normalized
 }
 
 func ValidateAndNormalizeZTAPIReasoningJSON(info *relaycommon.RelayInfo, body []byte, format types.RelayFormat) ([]byte, error) {
@@ -49,24 +67,13 @@ func ValidateAndNormalizeZTAPIReasoningJSON(info *relaycommon.RelayInfo, body []
 		return body, nil
 	}
 	body = applyZTAPIReasoningOutputFloor(info, body, format)
-	body = stripZTAPIClaudeChatReasoning(info, body, format)
-	requested := relaycommon.ReasoningEffortFromJSON(body, format)
-	if requested == "" {
-		return body, nil
-	}
-	normalized, reason := model.NormalizeZTAPIReasoningEffortWithReason(info.ZTAPIPublicationSnapshot.SourceModel, requested)
-	recordZTAPIReasoningEffortDrop(info, requested, reason)
-	if normalized == requested {
-		return body, nil
-	}
-	updated, err := relaycommon.SetReasoningEffortInJSON(body, format, normalized)
+	updated, err := relaycommon.NormalizeReasoningEffortsInJSON(body, format, func(requested string) string {
+		return normalizeZTAPIReasoningHint(info, requested)
+	})
 	if err != nil {
 		return nil, err
 	}
-	if requested == "ultra" && normalized == "max" {
-		relaycommon.MarkReasoningEffortSource(info, relaycommon.ReasoningEffortSourceCodexAliasMapping)
-	}
-	return updated, nil
+	return stripZTAPIClaudeChatReasoning(info, updated, format), nil
 }
 
 func recordZTAPIReasoningEffortDrop(info *relaycommon.RelayInfo, requested, reason string) {

@@ -94,6 +94,7 @@ type NewAPIError struct {
 	recordErrorLog *bool
 	errorType      ErrorType
 	errorCode      ErrorCode
+	localOrigin    bool
 	StatusCode     int
 	Metadata       json.RawMessage
 }
@@ -381,6 +382,13 @@ func IsSkipRetryError(err *NewAPIError) bool {
 func ErrOptionWithSkipRetry() NewAPIErrorOptions {
 	return func(e *NewAPIError) {
 		e.skipRetry = true
+	}
+}
+
+// ErrOptionWithLocalOrigin preserves the protocol envelope of a locally prepared error.
+func ErrOptionWithLocalOrigin() NewAPIErrorOptions {
+	return func(e *NewAPIError) {
+		e.localOrigin = true
 	}
 }
 

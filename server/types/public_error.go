@@ -132,7 +132,9 @@ func (e *NewAPIError) ToPublicOpenAIError() OpenAIError {
 	result.Param = publicErrorParam(result.Param)
 	result.Type = safePublicErrorType(result.Type, e.StatusCode)
 	result.Code = publicErrorCode(result.Code, e.StatusCode, e.errorCode)
-	if e.errorType != ErrorTypeNewAPIError {
+	if e.localOrigin {
+		result.Message = "The request could not be validated or prepared locally. Check the request parameters and usage-log request ID."
+	} else if e.errorType != ErrorTypeNewAPIError {
 		result.Message = publicUpstreamMessage(result.Code, e.StatusCode)
 	} else {
 		// Adapters also wrap arbitrary supplier messages as local errors.
