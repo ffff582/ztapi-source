@@ -171,6 +171,7 @@ describe('ZTAPI public homepage', () => {
     expect(within(quickstart).getByRole('link', { name: /创建 API Key/ })).toHaveAttribute('href', '/register');
     expect(within(quickstart).getByRole('link', { name: /查看使用日志/ })).toHaveAttribute('href', '/register');
     expect(within(quickstart).getByRole('link', { name: /在线测试/ })).toHaveAttribute('href', '/register');
+    expect(within(quickstart).getByRole('link', { name: /Codex 一键启动脚本/ })).toHaveAttribute('href', '/docs/codex#quick-launch');
     expect(screen.queryByRole('button', { name: '复制代码' })).toBeNull();
     expect(screen.queryByText(/import OpenAI/)).toBeNull();
   });

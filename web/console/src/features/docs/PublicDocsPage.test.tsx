@@ -6,8 +6,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LocaleProvider } from '../../i18n/locale';
 import { PublicDocsPage } from './PublicDocsPage';
 
-function renderDocs(section = 'integration') {
-  return render(<LocaleProvider><MemoryRouter initialEntries={[`/docs/${section}`]}>
+function renderDocs(section = 'integration', hash = '') {
+  return render(<LocaleProvider><MemoryRouter initialEntries={[`/docs/${section}${hash}`]}>
     <Routes><Route path="/docs/:section" element={<PublicDocsPage />} /></Routes>
   </MemoryRouter></LocaleProvider>);
 }
@@ -19,6 +19,31 @@ afterEach(() => {
 });
 
 describe('public documentation', () => {
+  it('puts one-click script downloads in the Codex heading before troubleshooting', () => {
+    renderDocs('codex');
+    const downloads = screen.getByRole('navigation', { name: 'Codex 一键脚本' });
+    expect(downloads.closest('.docs-heading')).not.toBeNull();
+    expect(within(downloads).getByRole('link', { name: '下载 Bash 启动脚本' })).toHaveAttribute('download');
+    expect(within(downloads).getByRole('link', { name: '下载 PowerShell 启动脚本' })).toHaveAttribute('download');
+    expect(within(downloads).getByRole('link', { name: '查看一键启动命令' })).toHaveAttribute('href', '#quick-launch');
+    const launcher = screen.getByRole('heading', { name: '推荐：CLI 安全启动脚本' }).closest('section');
+    expect(launcher).toHaveAttribute('id', 'quick-launch');
+    const warning = screen.getByRole('heading', { name: '先解决 Missing environment variable' });
+    expect(downloads.compareDocumentPosition(warning) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+  it('opens homepage quick-launch deep links at the actual launcher section', () => {
+    const scroll = vi.fn();
+    const prior = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView');
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scroll });
+    try {
+      renderDocs('codex', '#quick-launch');
+      expect(scroll).toHaveBeenCalledWith({ block: 'start' });
+      expect(scroll.mock.instances[0]).toBe(document.getElementById('quick-launch'));
+    } finally {
+      if (prior) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', prior);
+      else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
+    }
+  });
   it('explains the exact missing-variable error before the manual configuration and offers safe launchers', () => {
     renderDocs('codex');
     const text = document.body.textContent ?? '';

@@ -1,4 +1,4 @@
-import { ArrowRight, Boxes, KeyRound, PlayCircle, ScrollText } from 'lucide-react';
+import { ArrowRight, Boxes, KeyRound, PlayCircle, ScrollText, Terminal } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { LucideIcon } from 'lucide-react';
 import { useLocale } from '../../i18n/locale';
@@ -11,6 +11,12 @@ type GettingStartedPath = {
 };
 
 const paths: GettingStartedPath[] = [
+  {
+    label: 'Codex 一键启动脚本',
+    description: '下载脚本或复制启动命令，隐藏输入你的 ZTAPI Key。',
+    to: '/docs/codex#quick-launch',
+    icon: Terminal,
+  },
   {
     label: '查看模型目录',
     description: '按能力、厂商和实时售价找到适合的模型。',

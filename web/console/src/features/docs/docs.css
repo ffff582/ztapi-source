@@ -169,6 +169,44 @@
 
 .docs-section {
   padding-top: 32px;
+  scroll-margin-top: calc(var(--header-h) + 20px);
+}
+
+.docs-launch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.docs-launch-actions a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  max-width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--brand-line);
+  border-radius: 6px;
+  color: var(--brand);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+
+.docs-launch-actions a svg {
+  flex: none;
+}
+
+.docs-launch-actions a:hover {
+  background: var(--brand-soft);
+}
+
+.docs-launch-actions a:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 3px;
 }
 
 .docs-section h2 {
