@@ -325,7 +325,31 @@ async function installConsoleAPI(
       return;
     }
     if (url.pathname === '/api/token/') {
-      await fulfill(route, { page: 1, page_size: 1, total: 1, items: [] });
+      await fulfill(route, {
+        page: 1,
+        page_size: 100,
+        total: 1,
+        items: [{
+          id: 71,
+          user_id: userSession.data.user.id,
+          status: 1,
+          name: 'browser-fixture',
+          created_time: 1789100000,
+          accessed_time: 1789100000,
+          expired_time: -1,
+          remain_quota: 5_000_000,
+          unlimited_quota: false,
+          model_limits_enabled: false,
+          model_limits: '',
+          allow_ips: '',
+          key_prefix: 'sk-zt-browser-fixture...',
+          key_copyable: false,
+        }],
+      });
+      return;
+    }
+    if (url.pathname === '/api/spending/alerts') {
+      await fulfill(route, { items: [], unread_count: 0 });
       return;
     }
     if (url.pathname === '/api/status') {
@@ -474,6 +498,7 @@ test('user media catalog, guide and wallet remain usable without data exposure',
   await expect(page.getByRole('heading', { name: '开始一段对话' })).toBeVisible();
   await expect(page.getByLabel('文本模型')).toHaveValue('zt-claude-sonnet-5');
   await page.getByLabel('输入消息').fill('请介绍你自己。');
+  await expect(page.getByRole('button', { name: '发送' })).toBeEnabled();
   await page.getByRole('button', { name: '发送' }).click();
   await expect(page.getByText('在线测试连接正常。')).toBeVisible();
   await expect(page.getByText('0.004321 U')).toHaveCount(0);
@@ -579,6 +604,7 @@ test('image workbench submits three references in order and renders ten outputs'
   await expect(page.getByText('已选 3 / 15 张')).toBeVisible();
   await page.getByLabel('图片提示词').fill('合成三张参考图');
   await page.getByLabel('图片数量').selectOption('10');
+  await expect(page.getByRole('button', { name: '编辑图片' })).toBeEnabled();
   await page.getByRole('button', { name: '编辑图片' }).click();
 
   await expect(page.getByRole('img', { name: '生成结果 10' })).toBeVisible();
