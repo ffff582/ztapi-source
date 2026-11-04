@@ -156,6 +156,9 @@ func (w *Worker) Step(ctx context.Context) (stepErr error) {
 	if err = w.ingest(ctx, updates); err != nil {
 		return err
 	}
+	if err = w.prepareContextBatches(ctx); err != nil {
+		return err
+	}
 	var rows []inbox
 	if w.db.WithContext(ctx).Where("state IN ?", []string{"queued", "admitted", "dispatched"}).Order("update_id ASC").Limit(20).Find(&rows).Error != nil {
 		return errors.New("Telegram inbox unavailable")
@@ -261,6 +264,17 @@ func (w *Worker) capture(update Update) inbox {
 		}
 	}
 	row.Directed = !row.IsGroup || w.mentioned(text, entities) || (m.ReplyToMessage != nil && m.ReplyToMessage.From != nil && m.ReplyToMessage.From.ID == w.cfg.BotID)
+	row.OtherTarget = m.ReplyToMessage != nil && m.ReplyToMessage.From != nil && m.ReplyToMessage.From.ID != w.cfg.BotID && m.ReplyToMessage.From.ID != m.From.ID
+	for _, entity := range entities {
+		if entity.Type == "text_mention" && entity.User != nil && entity.User.ID != w.cfg.BotID && entity.User.ID != m.From.ID {
+			row.OtherTarget = true
+		}
+	}
+	for _, mention := range contextMentions.FindAllString(text, -1) {
+		if !strings.EqualFold(mention, "@"+w.cfg.BotUsername) {
+			row.OtherTarget = true
+		}
+	}
 	row.Credential = w.hasCredentials(text)
 	row.Sensitive = sensitive(text)
 	row.Invalid = !utf8.ValidString(text) || utf8.RuneCountInString(text) > 4000
@@ -342,8 +356,13 @@ func (w *Worker) process(ctx context.Context, row inbox) error {
 		return w.ignore(ctx, row)
 	}
 	if !row.Directed {
+		if err := w.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error { return w.activateFollowup(tx, &row) }); err != nil {
+			return errors.New("Telegram continuation admission unavailable")
+		}
+	}
+	if !row.Directed {
 		fresh := time.Unix(row.Date, 0)
-		if strings.HasPrefix(strings.TrimSpace(row.Text), "/") || row.FileID != "" || fresh.Before(w.now().Add(-2*time.Minute)) || fresh.Before(w.startedAt.Add(-30*time.Second)) || fresh.After(w.now().Add(30*time.Second)) || !casualSelected(w.cfg.BotID, row.UpdateID, row.ChatID, row.MessageID) {
+		if row.OtherTarget || strings.HasPrefix(strings.TrimSpace(row.Text), "/") || row.FileID != "" || fresh.Before(w.now().Add(-2*time.Minute)) || fresh.Before(w.startedAt.Add(-30*time.Second)) || fresh.After(w.now().Add(30*time.Second)) || !casualSelected(w.cfg.BotID, row.UpdateID, row.ChatID, row.MessageID) {
 			return w.ignore(ctx, row)
 		}
 		claim := w.db.WithContext(ctx).Model(&group{}).Where("chat_id = ? AND enabled = ? AND (last_casual_at IS NULL OR last_casual_at <= ?)", row.ChatID, true, w.now().Add(-30*time.Minute)).Update("last_casual_at", w.now())

@@ -28,6 +28,9 @@ type inbox struct {
 	Text                                  string `gorm:"type:text"`
 	Command                               string
 	Directed, Sensitive, Invalid, IsGroup bool
+	OtherTarget, ContextFollowup          bool
+	ContextPrepared                       bool `gorm:"not null;default:false"`
+	BatchUpdateID                         int64
 	Credential                            bool
 	Username, DisplayName                 string
 	// BindToken contains AES-GCM ciphertext, never the plaintext challenge.

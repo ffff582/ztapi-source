@@ -55,6 +55,28 @@ Do not run multiple workers against the same database; enforce the parent's leas
 
 ## Durable Behavior
 
+### Customer Continuation
+
+In enabled groups, a customer-initiated conversation accepts fresh ordinary
+supplements for two minutes without requiring another mention. The boundary is
+always chat + Telegram sender ID + topic. Replies/mentions directed to another
+person, commands, stale messages, credentials, account operations and handoff
+boundaries are not silently joined into a model question. Account authorization,
+owner-only commands, financial actions and group enablement remain unchanged.
+
+Already-queued followup messages within eight seconds of a directed question
+can join that question (maximum six messages). An explicitly directed new
+question is never coalesced. Text must fit the existing limit without truncation;
+otherwise it remains a separate turn with the actor's history. At most one
+current image joins its adjacent text; historical image bytes are not replayed.
+No artificial waiting or second Telegram receiver is introduced.
+
+Preparation, parent content, child batch IDs and suppressed child fallback
+replies commit atomically before billing admission. Prepared content is frozen
+and never rewritten on a later poll/restart, protecting idempotent admissions.
+One joined request produces one model call and one usage receipt. The existing
+bounded, redacted actor history and explicit forget behavior are preserved.
+
 ### Poll Recovery And Health
 
 The 20-second long poll has a 40-second network deadline. Other Bot API calls
