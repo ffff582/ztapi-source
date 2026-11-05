@@ -41,6 +41,22 @@ func sol61DeclaredReasoningCapability() ZTAPIReasoningCapability {
 	return capability
 }
 
+func verifiedSixLevelChatCapability(sourceModel, requestID string) ZTAPIReasoningCapability {
+	return ZTAPIReasoningCapability{
+		SourceModel:      sourceModel,
+		Modality:         ZTAPIModalityText,
+		ReasoningEfforts: []string{"high", "low", "medium", "minimal", "none", "xhigh"},
+		EvidenceQuote:    "2026-11-05 approved supplier Chat accepted all six listed controls for " + sourceModel + " with complete output and usage. Platform request " + requestID + " rejected max and declared this exact list. Compatibility evidence does not independently establish reasoning-strength semantics.",
+	}
+}
+
+func luna56DeclaredReasoningCapability() ZTAPIReasoningCapability {
+	capability := pendingTextReasoningCapability("gpt-5.6-luna")
+	capability.ReasoningEfforts = []string{"high", "low", "max", "medium", "none", "xhigh"}
+	capability.EvidenceQuote = "2026-11-05 platform request 01af61fa-401c-4bb3-99ea-3820b15d9dea rejected minimal and declared none, low, medium, high, xhigh and max. This is a supplier declaration, not independent verification of reasoning-strength semantics."
+	return capability
+}
+
 // Keys are exact source_model values from the quotation-backed catalog. Empty
 // effort lists mean the provider contract still needs live validation. Standard
 // wire values pass through for compatibility, while local aliases remain closed.
@@ -62,8 +78,8 @@ var ztapiReasoningCapabilities = map[string]ZTAPIReasoningCapability{
 	"gemini-3.1-pro-preview":        pendingTextReasoningCapability("gemini-3.1-pro-preview"),
 	"gemini-3.5-flash":              pendingTextReasoningCapability("gemini-3.5-flash"),
 	"glm-4.7":                       pendingTextReasoningCapability("glm-4.7"),
-	"glm-5":                         pendingTextReasoningCapability("glm-5"),
-	"glm-5.1":                       pendingTextReasoningCapability("glm-5.1"),
+	"glm-5":                         verifiedSixLevelChatCapability("glm-5", "2f4fd60f-8d23-4332-9108-86f259d2713b"),
+	"glm-5.1":                       verifiedSixLevelChatCapability("glm-5.1", "8b57b3b2-0820-4f91-88ad-f728b04e6677"),
 	"glm-5.2":                       pendingTextReasoningCapability("glm-5.2"),
 	"gpt-4.1":                       nonReasoningCapability("gpt-4.1", ZTAPIModalityText),
 	"gpt-4.1-mini":                  nonReasoningCapability("gpt-4.1-mini", ZTAPIModalityText),
@@ -76,7 +92,7 @@ var ztapiReasoningCapabilities = map[string]ZTAPIReasoningCapability{
 	"gpt-5.4-nano":                  pendingTextReasoningCapability("gpt-5.4-nano"),
 	"gpt-5.4-pro":                   pendingTextReasoningCapability("gpt-5.4-pro"),
 	"gpt-5.5":                       pendingTextReasoningCapability("gpt-5.5"),
-	"gpt-5.6-luna":                  pendingTextReasoningCapability("gpt-5.6-luna"),
+	"gpt-5.6-luna":                  luna56DeclaredReasoningCapability(),
 	"gpt-5.6-sol": {
 		SourceModel:            "gpt-5.6-sol",
 		Modality:               ZTAPIModalityText,
@@ -86,9 +102,9 @@ var ztapiReasoningCapabilities = map[string]ZTAPIReasoningCapability{
 	},
 	"gpt-5.6-terra":            pendingTextReasoningCapability("gpt-5.6-terra"),
 	"gpt-6.1-sol":              sol61DeclaredReasoningCapability(),
-	"kimi-k2.5":                pendingTextReasoningCapability("kimi-k2.5"),
-	"kimi-k2.6":                pendingTextReasoningCapability("kimi-k2.6"),
-	"kimi-k2.7-code":           pendingTextReasoningCapability("kimi-k2.7-code"),
+	"kimi-k2.5":                verifiedSixLevelChatCapability("kimi-k2.5", "47f15d4f-7f55-468a-a483-3ccc1808785e"),
+	"kimi-k2.6":                verifiedSixLevelChatCapability("kimi-k2.6", "cdfd16aa-ee44-41bc-b939-d4a7f8ce6990"),
+	"kimi-k2.7-code":           verifiedSixLevelChatCapability("kimi-k2.7-code", "5378f1c2-d2b1-4d56-ad5b-919ddf9d33a4"),
 	"qwen3.5-flash":            pendingTextReasoningCapability("qwen3.5-flash"),
 	"qwen3.7-max":              pendingTextReasoningCapability("qwen3.7-max"),
 	"qwen3.7-plus":             pendingTextReasoningCapability("qwen3.7-plus"),
