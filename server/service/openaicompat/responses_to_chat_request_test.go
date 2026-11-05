@@ -18,6 +18,25 @@ func TestShouldResponsesUseChatCompletionsCoversChatOnlySuppliers(t *testing.T) 
 	}
 }
 
+func TestZTAPIReasoningAcceptanceGLMChatOnlyResponses(t *testing.T) {
+	for _, name := range []string{"glm-5", "glm-5.1", " GLM-5.1 "} {
+		require.True(t, ShouldResponsesUseChatCompletions(name), "supplier Responses fails even without effort: %s", name)
+	}
+	for _, name := range []string{"glm-4.7", "glm-5.2", "glm-5.3", "glm-5.1-other", "gpt-6.1-sol"} {
+		require.False(t, ShouldResponsesUseChatCompletions(name), "do not infer untested supplier contracts: %s", name)
+	}
+}
+
+func TestZTAPIReasoningAcceptanceCodexTitleSchemaIsExplicitToChatModel(t *testing.T) {
+	conversion, err := convertResponsesForTest(t, `{"model":"claude-opus-5","input":"Generate a title. Do not use quotes.","text":{"format":{"type":"json_schema","name":"codex_output_schema","strict":true,"schema":{"type":"object","properties":{"title":{"type":"string","minLength":1,"maxLength":36}},"required":["title"],"additionalProperties":false}}}}`)
+	require.NoError(t, err)
+	require.Len(t, conversion.Request.Messages, 2, "a supplier ignoring response_format still needs the requested encoding contract")
+	require.Equal(t, "system", conversion.Request.Messages[0].Role)
+	require.Contains(t, conversion.Request.Messages[0].Content, `{"title":`)
+	require.Equal(t, "Generate a title. Do not use quotes.", conversion.Request.Messages[1].Content)
+	require.Equal(t, "json_schema", conversion.Request.ResponseFormat.Type)
+}
+
 func convertResponsesForTest(t *testing.T, body string) (*ResponsesChatConversion, error) {
 	t.Helper()
 	var request dto.OpenAIResponsesRequest

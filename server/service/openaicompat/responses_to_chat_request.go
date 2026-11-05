@@ -15,13 +15,17 @@ import (
 // serves Chat Completions only. Codex speaks the Responses API exclusively, so
 // requests for these models are translated instead of failing upstream: in
 // 2026-10 every Responses request for claude-* (78) and kimi-* (12) failed
-// with model_route_unavailable or InvalidParameter.
+// with model_route_unavailable or InvalidParameter. GLM 5/5.1 below were
+// independently verified Chat-only on the approved supplier in 2026-11.
 var responsesViaChatModelPrefixes = []string{"claude-", "kimi-"}
 
 // ShouldResponsesUseChatCompletions reports whether a Responses request for
 // the given upstream model must be served through Chat Completions.
 func ShouldResponsesUseChatCompletions(upstreamModel string) bool {
 	model := strings.ToLower(strings.TrimSpace(upstreamModel))
+	if model == "glm-5" || model == "glm-5.1" {
+		return true
+	}
 	for _, prefix := range responsesViaChatModelPrefixes {
 		if strings.HasPrefix(model, prefix) {
 			return true
@@ -181,6 +185,7 @@ func ResponsesRequestToChatCompletionsRequest(req *dto.OpenAIResponsesRequest) (
 		return nil, err
 	}
 	chat.ResponseFormat = format
+	applyCodexTitleFormatContract(chat)
 	if err := ValidateChatToolHistory(chat.Messages); err != nil {
 		return nil, err
 	}
