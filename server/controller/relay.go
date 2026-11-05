@@ -424,7 +424,29 @@ func newRelayRetryParam(c *gin.Context, info *relaycommon.RelayInfo) *service.Re
 	}
 }
 
+func ztapiTrustedContextBool(c *gin.Context, key constant.ContextKey) bool {
+	if c == nil {
+		return false
+	}
+	if common.GetContextKeyBool(c, key) {
+		return true
+	}
+	if c.Request == nil {
+		return false
+	}
+	accepted, _ := c.Request.Context().Value(key).(bool)
+	return accepted
+}
+
+func isZTAPIInternalAcceptanceRequest(c *gin.Context) bool {
+	return ztapiTrustedContextBool(c, constant.ContextKeyZTAPIInternalAcceptance)
+}
+
 func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) bool {
+	// Private acceptance reserves one supplier attempt, not a paid fallback.
+	if isZTAPIInternalAcceptanceRequest(c) {
+		return false
+	}
 	if c.GetBool("ztapi_upstream_admission_dispatched") {
 		return false
 	}
