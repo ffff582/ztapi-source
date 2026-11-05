@@ -9,10 +9,10 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/hostedsearch"
 	"github.com/gin-gonic/gin"
 )
@@ -79,7 +79,7 @@ func HostedResponsesBridge(router http.Handler, options HostedResponsesOptions) 
 		var hint struct {
 			Model string `json:"model"`
 		}
-		if json.Unmarshal(raw, &hint) != nil || !strings.HasPrefix(hint.Model, "zt-claude-") || (!bytes.Contains(raw, []byte(`"web_search"`)) && !bytes.Contains(raw, []byte(`"web_search_preview"`))) {
+		if json.Unmarshal(raw, &hint) != nil || !hostedsearch.SupportsModel(hint.Model) || (!bytes.Contains(raw, []byte(`"web_search"`)) && !bytes.Contains(raw, []byte(`"web_search_preview"`))) {
 			c.Next()
 			return
 		}
@@ -127,7 +127,16 @@ func HostedResponsesBridge(router http.Handler, options HostedResponsesOptions) 
 		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), common.RequestIdKey, rootID))
 		c.Header("X-Request-ID", rootID)
 		c.Header(common.RequestIdKey, rootID)
-		dispatch := options.Dispatch(c, rootID)
+		internalAcceptance := ztapiTrustedContextBool(c, constant.ContextKeyZTAPIAcceptanceSingleRound)
+		var dispatch hostedsearch.ToolDispatch
+		if internalAcceptance {
+			// Greeting acceptance must not silently buy tools or another model round.
+			dispatch = func(context.Context, hostedsearch.ToolRequest, func(context.Context) (hostedsearch.Result, error)) (hostedsearch.Result, error) {
+				return hostedsearch.Result{}, hostedsearch.ErrLimit
+			}
+		} else {
+			dispatch = options.Dispatch(c, rootID)
+		}
 		if dispatch == nil {
 			hostedHTTPError(c, http.StatusServiceUnavailable, "hosted_search_billing_unavailable")
 			return
@@ -143,6 +152,9 @@ func HostedResponsesBridge(router http.Handler, options HostedResponsesOptions) 
 		config := hostedsearch.Config{Provider: options.Provider, Dispatch: dispatch,
 			Model: func(ctx context.Context, body []byte) ([]byte, error) {
 				round++
+				if internalAcceptance && round > 1 {
+					return nil, hostedsearch.ErrLimit
+				}
 				childContext := context.WithValue(ctx, hostedChildContextKey{}, true)
 				request, err := http.NewRequestWithContext(childContext, http.MethodPost, "/v1/responses", bytes.NewReader(body))
 				if err != nil {
