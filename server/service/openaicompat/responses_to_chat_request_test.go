@@ -18,6 +18,53 @@ func TestShouldResponsesUseChatCompletionsCoversChatOnlySuppliers(t *testing.T) 
 	}
 }
 
+func TestZTAPIReasoningAcceptanceGLMChatOnlyResponses(t *testing.T) {
+	for _, name := range []string{"glm-5", "glm-5.1", " GLM-5.1 "} {
+		require.True(t, ShouldResponsesUseChatCompletions(name), "supplier Responses fails even without effort: %s", name)
+	}
+	for _, name := range []string{"glm-4.7", "glm-5.2", "glm-5.3", "glm-5.1-other", "gpt-6.1-sol"} {
+		require.False(t, ShouldResponsesUseChatCompletions(name), "do not infer untested supplier contracts: %s", name)
+	}
+}
+
+func TestZTAPIReasoningAcceptanceCodexTitleSchemaIsExplicitToChatModel(t *testing.T) {
+	conversion, err := convertResponsesForTest(t, `{"model":"claude-opus-5","input":"Generate a title. Do not use quotes.","text":{"format":{"type":"json_schema","name":"codex_output_schema","strict":true,"schema":{"type":"object","properties":{"title":{"type":"string","minLength":1,"maxLength":36}},"required":["title"],"additionalProperties":false}}}}`)
+	require.NoError(t, err)
+	require.Len(t, conversion.Request.Messages, 2, "a supplier ignoring response_format still needs the requested encoding contract")
+	require.Equal(t, "system", conversion.Request.Messages[0].Role)
+	require.Contains(t, conversion.Request.Messages[0].Content, `{"title":`)
+	require.Equal(t, "Generate a title. Do not use quotes.", conversion.Request.Messages[1].Content)
+	require.Equal(t, "json_schema", conversion.Request.ResponseFormat.Type)
+}
+
+func TestZTAPIReasoningAcceptanceNativeCodexTitleKeepsOriginalContract(t *testing.T) {
+	var request dto.OpenAIResponsesRequest
+	require.NoError(t, common.UnmarshalJsonStr(`{"model":"deepseek-v4-flash","instructions":"Keep the original instructions.","input":"Generate a title. Do not use quotes.","tools":[],"reasoning":{"effort":"high"},"text":{"format":{"type":"json_schema","name":"codex_output_schema","strict":true,"schema":{"type":"object","properties":{"title":{"type":"string","minLength":1,"maxLength":36}},"required":["title"],"additionalProperties":false}}}}`, &request))
+	before := request
+	ApplyResponsesCodexTitleFormatContract(&request)
+	require.NotEqual(t, string(before.Instructions), string(request.Instructions))
+	require.Contains(t, string(request.Instructions), "Keep the original instructions.")
+	var instructions string
+	require.NoError(t, common.Unmarshal(request.Instructions, &instructions))
+	require.Contains(t, instructions, `{"title":`)
+	request.Instructions = before.Instructions
+	require.Equal(t, before, request, "only title encoding instructions may change")
+}
+
+func TestZTAPIReasoningAcceptanceNativeOrdinaryFormatsStayUntouched(t *testing.T) {
+	for _, raw := range []string{
+		`{"model":"deepseek-v4-flash","input":"hi"}`,
+		`{"model":"deepseek-v4-flash","input":"hi","text":{"format":{"type":"json_object"}}}`,
+		`{"model":"deepseek-v4-flash","input":"hi","text":{"format":{"type":"json_schema","name":"not_a_title","strict":true,"schema":{"type":"object"}}}}`,
+	} {
+		var request dto.OpenAIResponsesRequest
+		require.NoError(t, common.UnmarshalJsonStr(raw, &request))
+		before := request
+		ApplyResponsesCodexTitleFormatContract(&request)
+		require.Equal(t, before, request)
+	}
+}
+
 func convertResponsesForTest(t *testing.T, body string) (*ResponsesChatConversion, error) {
 	t.Helper()
 	var request dto.OpenAIResponsesRequest

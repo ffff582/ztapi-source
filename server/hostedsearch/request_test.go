@@ -18,6 +18,24 @@ func requestWithTools(t *testing.T) []byte {
 	return body
 }
 
+func TestZTAPIReasoningAcceptanceChatOnlyModelsKeepDefaultSearch(t *testing.T) {
+	for _, model := range []string{"zt-glm-5", "zt-glm-5.1", "zt-kimi-k2.5", "zt-kimi-k2.6", "zt-kimi-k2.7-code"} {
+		raw := strings.Replace(string(requestWithTools(t)), "zt-claude-opus-5", model, 1)
+		prepared, err := PrepareRequest([]byte(raw), "ztapi_hosted_web_12345678")
+		require.NoError(t, err, model)
+		require.True(t, prepared.Hosted, model)
+		require.Equal(t, model, prepared.Model)
+		require.Contains(t, string(prepared.Body), "ztapi_hosted_web_12345678")
+	}
+}
+
+func TestZTAPIReasoningAcceptanceNativeSearchPolicyUnchanged(t *testing.T) {
+	for _, model := range []string{"zt-gpt-6.1-sol", "zt-deepseek-v4-flash", "zt-gemini-3.5-flash", "zt-glm-5.3", "glm-5", "zt-glm-5.1-other"} {
+		require.False(t, SupportsModel(model), model)
+	}
+	require.True(t, SupportsModel("zt-claude-opus-5"))
+}
+
 func TestPrepareDefaultCodexPreservesAllLocalToolsAndFields(t *testing.T) {
 	raw := requestWithTools(t)
 	p, err := PrepareRequest(raw, "ztapi_hosted_web_12345678")
