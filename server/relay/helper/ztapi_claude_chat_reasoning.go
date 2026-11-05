@@ -30,6 +30,9 @@ func stripZTAPIClaudeChatReasoning(info *relaycommon.RelayInfo, body []byte, for
 		}
 		if updated, err := sjson.DeleteBytes(body, field); err == nil {
 			body = updated
+			if !info.ReasoningEffortDropped {
+				recordZTAPIReasoningEffortDrop(info, info.ReasoningEffortReceived, "not_in_supported_list")
+			}
 		}
 	}
 	return body

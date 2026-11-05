@@ -97,7 +97,7 @@ jobs:
       - name: Run reasoning compatibility, durable log and local error regressions
         working-directory: server
         run: >-
-          go test ./model ./relay/helper ./relay/common ./service ./controller ./types
+          go test ./model ./relay/helper ./relay/common ./service ./service/openaicompat ./controller ./middleware ./types ./hostedsearch ./relay/channel/openai
           -run 'TestZTAPI.*Reasoning|TestZTAPIUpstreamAdmissionUndispatched|TestLocalParameterFailuresNeverBlameUndispatchedUpstream'
           -count=1 -timeout=5m
 
