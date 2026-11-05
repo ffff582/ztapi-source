@@ -18,6 +18,15 @@ func TestShouldResponsesUseChatCompletionsCoversChatOnlySuppliers(t *testing.T) 
 	}
 }
 
+func TestZTAPIReasoningAcceptanceGLMChatOnlyResponses(t *testing.T) {
+	for _, name := range []string{"glm-5", "glm-5.1", " GLM-5.1 "} {
+		require.True(t, ShouldResponsesUseChatCompletions(name), "supplier Responses fails even without effort: %s", name)
+	}
+	for _, name := range []string{"glm-4.7", "glm-5.2", "glm-5.3", "glm-5.1-other", "gpt-6.1-sol"} {
+		require.False(t, ShouldResponsesUseChatCompletions(name), "do not infer untested supplier contracts: %s", name)
+	}
+}
+
 func convertResponsesForTest(t *testing.T, body string) (*ResponsesChatConversion, error) {
 	t.Helper()
 	var request dto.OpenAIResponsesRequest
