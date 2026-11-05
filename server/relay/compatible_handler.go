@@ -77,7 +77,8 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 	passThrough := info.ZTAPIPublicationSnapshot == nil && (passThroughGlobal || info.ChannelSetting.PassThroughBodyEnabled)
 	if info.RelayMode == relayconstant.RelayModeChatCompletions &&
 		!passThrough &&
-		service.ShouldChatCompletionsUseResponsesGlobal(info.ChannelId, info.ChannelType, info.OriginModelName) {
+		(service.ShouldChatCompletionsUseResponsesGlobal(info.ChannelId, info.ChannelType, info.OriginModelName) ||
+			helper.ZTAPIManagedToolsRequireResponses(info, len(request.Tools) > 0)) {
 		applySystemPromptIfNeeded(c, info, request)
 		usage, newApiErr := chatCompletionsViaResponses(c, info, adaptor, request)
 		if newApiErr != nil {

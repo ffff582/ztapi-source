@@ -10,6 +10,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/service/openaicompat"
 )
 
 const MaxRequestBytes = 512 * 1024
@@ -46,6 +47,13 @@ func rawString(raw json.RawMessage) string {
 	return value
 }
 
+// Only managed Chat-only contracts use this bridge; native Responses models
+// keep their existing hosted-tool handling and billing.
+func SupportsModel(model string) bool {
+	return len(model) <= 128 && strings.HasPrefix(model, "zt-") &&
+		openaicompat.ShouldResponsesUseChatCompletions(strings.TrimPrefix(model, "zt-"))
+}
+
 func PrepareRequest(raw []byte, privateName string) (*PreparedRequest, error) {
 	if len(raw) == 0 || len(raw) > MaxRequestBytes || !privateToolName.MatchString(privateName) || common.RejectDuplicateJsonObjectMembers(bytes.NewReader(raw)) != nil {
 		return nil, ErrRequest
@@ -63,7 +71,7 @@ func PrepareRequest(raw []byte, privateName string) (*PreparedRequest, error) {
 		return nil, ErrRequest
 	}
 	model := rawString(body["model"])
-	if !strings.HasPrefix(model, "zt-claude-") || len(model) > 128 {
+	if !SupportsModel(model) {
 		return nil, ErrRequest
 	}
 	p := &PreparedRequest{Body: append([]byte(nil), raw...), Model: model, PrivateTool: privateName, ContextBytes: 4096, OriginalTools: append([]byte(nil), body["tools"]...)}
