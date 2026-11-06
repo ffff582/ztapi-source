@@ -40,7 +40,7 @@ function catalogItem(overrides: Record<string, unknown> = {}) {
 
 function successfulCatalog() {
   const catalog = [
-    catalogItem({ official_usd: {
+    catalogItem({ official_reference: { url: 'https://example.com/pricing', checked_at: '2026-11-07', kind: 'supplier_quoted_official', note: '报价快照，并非当前官网核验。' }, official_usd: {
       input_tokens: '1.5625000000', output_tokens: '6.2500000000',
     } }),
     catalogItem({
@@ -164,7 +164,10 @@ describe('SupportedModelsPage', () => {
     expect(within(row as HTMLElement).getByText('/v1/chat/completions')).toBeVisible();
     expect(within(row as HTMLElement).getByText('1.25 U / 1M tokens')).toBeVisible();
     expect(within(row as HTMLElement).getByText('5 U / 1M tokens')).toBeVisible();
-    expect(screen.getByText('综合优惠约 20%')).toBeVisible();
+    expect(screen.getByText('逐项查看实际售价与官网参考')).toBeVisible();
+    expect(within(row as HTMLElement).getByRole('link', { name: '报价表官网基准' })).toHaveAttribute('href', 'https://example.com/pricing');
+    expect(within(row as HTMLElement).getByText('2026-11-07')).toBeVisible();
+    expect(row).toHaveTextContent('报价快照，并非当前官网核验。');
     expect(within(row as HTMLElement).queryByText('官方价格')).not.toBeInTheDocument();
     expect(within(row as HTMLElement).queryByText(/节省 \d+%/)).not.toBeInTheDocument();
     const claudeRow = screen.getByText('zt-claude-sonnet-4.6').closest('tr');

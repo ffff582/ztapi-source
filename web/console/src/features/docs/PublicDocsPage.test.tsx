@@ -19,6 +19,24 @@ afterEach(() => {
 });
 
 describe('public documentation', () => {
+  it('explains resource boundaries publicly without certifying individual models', () => {
+    renderDocs('resource-disclosure');
+    expect(screen.getByRole('heading', { level: 1, name: '资源来源与价格说明' })).toBeVisible();
+    const article = screen.getByRole('article');
+    expect(article).toHaveTextContent('技术反向代理');
+    expect(article).toHaveTextContent('网页或订阅账号池');
+    expect(article).toHaveTextContent('反代本身既不能证明模型被掺水，也不能证明模型真实');
+    expect(article).toHaveTextContent('ZTAPI 不主动将所选型号替换为其他型号或静默降级');
+    expect(article).toHaveTextContent('逐模型来源未经独立核验，不作来源认证');
+    expect(article).toHaveTextContent('请求编号');
+    expect(article).toHaveTextContent('人工核查');
+    expect(article).toHaveTextContent('高于官网');
+    expect(within(article).getByRole('link', { name: '查看当前模型与价格' })).toHaveAttribute('href', '/models');
+    fireEvent.click(screen.getByRole('button', { name: '切换到英文' }));
+    expect(screen.getByRole('heading', { level: 1, name: 'Resource sources and pricing' })).toBeVisible();
+    expect(article).toHaveTextContent('does not actively replace');
+  });
+
   it('puts one-click script downloads in the Codex heading before troubleshooting', () => {
     renderDocs('codex');
     const downloads = screen.getByRole('navigation', { name: 'Codex 一键脚本' });
@@ -57,12 +75,12 @@ describe('public documentation', () => {
     expect(text).not.toContain('Set-ExecutionPolicy');
   });
   it.each([
-    ['api', 'API 手册'], ['integration', '集成指南'], ['codex', 'Codex 接入'], ['user-guide', '用户指南'], ['faq', '常见问题'],
+    ['api', 'API 手册'], ['integration', '集成指南'], ['codex', 'Codex 接入'], ['user-guide', '用户指南'], ['faq', '常见问题'], ['resource-disclosure', '资源来源与价格说明'],
   ])('keeps section navigation and model links public on %s', (section, title) => {
     renderDocs(section);
     expect(screen.getByRole('heading', { level: 1, name: title })).toBeVisible();
     const nav = screen.getByRole('navigation', { name: '文档分类' });
-    expect(within(nav).getAllByRole('link')).toHaveLength(5);
+    expect(within(nav).getAllByRole('link')).toHaveLength(6);
     expect(within(nav).getByRole('link', { name: title })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('link', { name: '查看模型目录' })).toHaveAttribute('href', '/models');
   });

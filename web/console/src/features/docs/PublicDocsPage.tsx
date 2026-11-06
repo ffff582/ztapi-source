@@ -11,6 +11,7 @@ import {
   Send,
   Terminal,
   UserRound,
+  Info,
 } from 'lucide-react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import type { ReactNode } from 'react';
@@ -21,11 +22,11 @@ import manifest from './docs-manifest.json';
 import { codexConfig, codexWindowsKey, codexPosixKey, codexWindowsDesktopKey, codexMacDesktopKey, codexPosixLauncher, codexWindowsLauncher } from '../guide/codex-setup';
 import './docs.css';
 
-type DocSection = 'api' | 'integration' | 'codex' | 'user-guide' | 'faq';
+type DocSection = 'api' | 'integration' | 'codex' | 'user-guide' | 'faq' | 'resource-disclosure';
 
 const BASE_URL = manifest.baseUrl;
 
-const icons = { api: Code2, integration: Cable, codex: Terminal, 'user-guide': UserRound, faq: CircleHelp };
+const icons = { api: Code2, integration: Cable, codex: Terminal, 'user-guide': UserRound, faq: CircleHelp, 'resource-disclosure': Info };
 const sections = manifest.sections.map((section) => ({
   ...section, id: section.id as DocSection, icon: icons[section.id as DocSection],
 }));
@@ -271,6 +272,38 @@ function FaqPage() {
   );
 }
 
+function ResourceDisclosure() {
+  const { t } = useLocale();
+  return (
+    <>
+      <DocsHeading eyebrow={t('透明披露')} title={t('资源来源与价格说明')}
+        summary={t('部分模型使用上游反代资源，并非全部为原厂 API 直连')} />
+      <DocsSection title={t('反代与账号池不是同一个概念')}>
+        <p>{t('技术反向代理是请求转发方式，可用于转发官方 API，也可用于其他上游服务；它本身不说明上游账户类型、授权关系或模型身份。')}</p>
+        <p>{t('网页或订阅账号池通常指使用网页会话、订阅权益或多个账号组织上游访问，与直接调用原厂 API 不同。此类资源可能受到会话失效、限流、服务条款及可用性变化影响；不能仅凭“反代”一词认定使用了账号池。')}</p>
+      </DocsSection>
+      <DocsSection title={t('模型身份与承诺边界')}>
+        <p>{t('反代本身既不能证明模型被掺水，也不能证明模型真实。ZTAPI 不主动将所选型号替换为其他型号或静默降级。该承诺仅针对 ZTAPI 自身行为，不等于对上游行为、原厂授权或模型身份作保证。')}</p>
+        <p>{t('目前仅披露部分模型使用上游反代资源，不能据此认定某个具体模型的来源。逐模型来源未经独立核验，不作来源认证；厂商分组、模型名称、供应商或渠道标签都不能单独作为来源证明。')}</p>
+      </DocsSection>
+      <DocsSection title={t('实际售价与官网参考')}>
+        <p>{t('实际售价以当前公开模型目录返回的价格为准。输入、输出、缓存读取、不同缓存写入时长、上下文阶梯和媒体规格分别列价，不把不同维度合并成全站折扣。')}</p>
+        <p>{t('仅对同模型、同规格且有基准的维度计算差额：低于官网、高于官网或与官网参考一致。缺少参考时明确标注“暂无官网参考”，不补造基准；任一规格缺少基准或不低于官网时，不展示整个模型的官网折扣。')}</p>
+        <p>{t('官网价格参考附链接、核验日期及适用备注，是特定时间和口径的快照，不保证为官网现价。标为“报价表官网基准”的数据来自供应商报价，不代表当前官网价格已独立核验；相应差额只与报价基准比较。币种折算、峰时或非峰时等限制以备注为准，参考价格不代表来源认证。')}</p>
+        <Link className="docs-model-link" to="/models">{t('查看当前模型与价格')}</Link>
+      </DocsSection>
+      <DocsSection title={t('请求记录与人工核查')}>
+        <p>{t('对模型表现、来源或计费有疑问时，请保留请求编号、公开模型 ID、发生时间、客户端版本和脱敏后的请求参数，通过客服申请人工核查。不要发送 API Key、账号凭据或敏感业务内容。')}</p>
+        <p>{t('请求编号用于关联调用日志与人工核查，不是模型真实性证书。核查应区分可确认事实与尚未验证的上游信息；无法确认的事项应明确说明，模型自述或单次回答不能作为身份鉴定。')}</p>
+        <a className="docs-model-link" href="https://t.me/gan66" target="_blank" rel="noopener noreferrer">{t('联系 Telegram 客服')}</a>
+      </DocsSection>
+      <DocsSection title={t('使用前的风险判断')}>
+        <p>{t('请求可能经过上游中转。对敏感数据、合规或服务稳定性有严格要求时，请先确认适用的数据处理和服务条款，不要仅因价格较低或页面列出厂商名称就推断具备官方授权或数据保障。')}</p>
+      </DocsSection>
+    </>
+  );
+}
+
 function DocsHeading({ eyebrow, title, summary, children }: { eyebrow: string; title: string; summary: string; children?: ReactNode }) {
   return (
     <header className="docs-heading">
@@ -364,6 +397,7 @@ export function PublicDocsPage() {
           {active === 'codex' && <CodexGuide />}
           {active === 'user-guide' && <UserGuide />}
           {active === 'faq' && <FaqPage />}
+          {active === 'resource-disclosure' && <ResourceDisclosure />}
           <a className="docs-source-link" href="https://github.com/ffff582/ztapi-source/tree/production-codex-entry-20261104-r1" target="_blank" rel="noreferrer">{t('前端源码')}</a>
         </article>
       </main>

@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -20,19 +21,46 @@ type ZTAPICashMarginDowngrade20261030 struct {
 // operator must quiesce new admissions and drain in-flight requests before
 // accepting a ready result and replacing the compatible reader.
 func CheckZTAPICashMarginDowngrade20261030() (ZTAPICashMarginDowngrade20261030, error) {
-	result := ZTAPICashMarginDowngrade20261030{ActiveModels: []string{}, UnsettledRequestIDs: []uint{},
-		Requirement: "Quiesce admissions and drain in-flight requests; restore old-policy snapshots; require no new-policy or ambiguous unsettled requests before binary downgrade."}
-	if DB == nil {
-		return result, errors.New("database unavailable for downgrade check")
-	}
-	policies := []string{string(ZTAPIPricePolicyCashEnterprise20261030), string(ZTAPIPricePolicyCashPool20261030)}
+	policies := []string{string(ZTAPIPricePolicyCashEnterprise20261030), string(ZTAPIPricePolicyCashPool20261030), string(ZTAPIPricePolicyReduction20261107)}
 	names := make([]string, 0, len(ztapiCashMarginSources20261030))
 	for _, source := range ztapiCashMarginSources20261030 {
 		contract, err := ztapiCashContractFor20261030(source)
 		if err != nil {
-			return result, err
+			return ZTAPICashMarginDowngrade20261030{}, err
 		}
 		names = append(names, contract.PublicName)
+	}
+	for _, s := range ApprovedZTAPIPriceReductionSelections20261107() {
+		b, _, _, _, err := ztapiReductionApproval20261107(s.ModelID)
+		if err != nil {
+			return ZTAPICashMarginDowngrade20261030{}, err
+		}
+		if !slices.Contains(names, b.PublicName) {
+			names = append(names, b.PublicName)
+		}
+	}
+	return checkZTAPIPolicyDowngrade20261107(policies, names)
+}
+
+// CheckZTAPIPriceReductionDowngrade20261107 checks compatibility with the
+// pre-release reader (which already understands the October cash policies).
+func CheckZTAPIPriceReductionDowngrade20261107() (ZTAPICashMarginDowngrade20261030, error) {
+	names := []string{}
+	for _, s := range ApprovedZTAPIPriceReductionSelections20261107() {
+		b, _, _, _, err := ztapiReductionApproval20261107(s.ModelID)
+		if err != nil {
+			return ZTAPICashMarginDowngrade20261030{}, err
+		}
+		names = append(names, b.PublicName)
+	}
+	return checkZTAPIPolicyDowngrade20261107([]string{string(ZTAPIPricePolicyReduction20261107)}, names)
+}
+
+func checkZTAPIPolicyDowngrade20261107(policies, names []string) (ZTAPICashMarginDowngrade20261030, error) {
+	result := ZTAPICashMarginDowngrade20261030{ActiveModels: []string{}, UnsettledRequestIDs: []uint{},
+		Requirement: "Restore original publications first; quiesce admissions and drain in-flight requests; require no incompatible or ambiguous unsettled snapshots before binary downgrade. This observational check is not an admission fence."}
+	if DB == nil {
+		return result, errors.New("database unavailable for downgrade check")
 	}
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Table("ztapi_model_configs AS c").Select("c.public_name").
@@ -81,7 +109,8 @@ func CheckZTAPICashMarginDowngrade20261030() (ZTAPICashMarginDowngrade20261030, 
 							blocked = true
 						}
 					}
-					if policy == "" || sourceID <= 0 || strings.HasPrefix(strings.ToLower(policy), "cash_") || cashIDs[sourceID] {
+					if policy == "" || sourceID <= 0 || slices.Contains(policies, policy) || cashIDs[sourceID] || strings.HasPrefix(strings.ToLower(policy), "reduction_") ||
+						(slices.Contains(policies, string(ZTAPIPricePolicyCashPool20261030)) && strings.HasPrefix(strings.ToLower(policy), "cash_")) {
 						blocked = true
 					}
 					if blocked {

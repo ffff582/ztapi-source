@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/big"
 	"regexp"
 	"sort"
 	"strconv"
@@ -23,12 +24,16 @@ const (
 )
 
 var ztapiCashMediaSaleCostShare = decimal.RequireFromString("0.80").Div(decimal.RequireFromString("1.05"))
+var ztapiReductionCoreMediaShare = decimal.RequireFromString("0.85").Div(decimal.RequireFromString("1.05"))
+var ztapiReductionOtherMediaShare = decimal.RequireFromString("0.88").Div(decimal.RequireFromString("1.05"))
 
 var ztapiSupportedMediaSaleCostShares = []decimal.Decimal{
 	decimal.RequireFromString("0.60"),
 	decimal.RequireFromString("0.80"),
 	decimal.RequireFromString("0.4125"), // 33% pool cost sold at 80% of official price.
 	ztapiCashMediaSaleCostShare,
+	ztapiReductionCoreMediaShare,
+	ztapiReductionOtherMediaShare,
 }
 
 type ZTAPIMediaPriceContract struct {
@@ -592,6 +597,17 @@ func validateZTAPIMediaConditions(modality string, conditions map[string]string)
 	return keys, nil
 }
 
+func ztapiReductionMediaSale20261107(cost decimal.Decimal, retainedPercent int64) decimal.Decimal {
+	n := new(big.Rat).Mul(cost.Rat(), big.NewRat(105, retainedPercent))
+	n.Mul(n, big.NewRat(10000, 1))
+	q, rem := new(big.Int), new(big.Int)
+	q.QuoRem(n.Num(), n.Denom(), rem)
+	if rem.Sign() > 0 {
+		q.Add(q, big.NewInt(1))
+	}
+	return decimal.NewFromBigInt(q, -4).Round(10)
+}
+
 func validateZTAPIMediaPriceMaps(rule ZTAPIMediaPriceRule, expectedShare *decimal.Decimal) (decimal.Decimal, error) {
 	if len(rule.CostUSD) == 0 || len(rule.CostUSD) != len(rule.SaleUSD) || len(rule.CostUSD) != len(rule.SourceCells) {
 		return decimal.Zero, errors.New("cost, sale, and source-cell dimensions must match")
@@ -620,6 +636,12 @@ func validateZTAPIMediaPriceMaps(rule ZTAPIMediaPriceRule, expectedShare *decima
 			expected := cost.Div(share).Round(10)
 			if share.Equal(ztapiCashMediaSaleCostShare) {
 				expected = cost.Mul(decimal.RequireFromString("1.3125")).RoundCeil(8)
+			}
+			if share.Equal(ztapiReductionCoreMediaShare) {
+				expected = ztapiReductionMediaSale20261107(cost, 85)
+			}
+			if share.Equal(ztapiReductionOtherMediaShare) {
+				expected = ztapiReductionMediaSale20261107(cost, 88)
 			}
 			if sale.Equal(expected) {
 				matched = &share

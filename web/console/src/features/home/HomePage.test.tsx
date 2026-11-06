@@ -71,6 +71,14 @@ afterEach(() => {
 });
 
 describe('ZTAPI public homepage', () => {
+  it('shows the global source disclosure before the hero with a public explanation link', () => {
+    renderHomePage();
+    const notice = screen.getByRole('note', { name: '资源来源说明' });
+    expect(within(notice).getByText('部分模型使用上游反代资源，并非全部为原厂 API 直连')).toBeVisible();
+    expect(within(notice).getByRole('link', { name: '了解资源来源与价格说明' })).toHaveAttribute('href', '/docs/resource-disclosure');
+    expect(notice.compareDocumentPosition(screen.getByRole('region', { name: 'ZTAPI' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('makes the brand the hero and shows the signed-in console as the product proof', async () => {
     renderHomePage();
 

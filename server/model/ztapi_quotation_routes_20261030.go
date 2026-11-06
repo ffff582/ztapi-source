@@ -1,6 +1,9 @@
 package model
 
-import "slices"
+import (
+	"github.com/QuantumNous/new-api/common"
+	"slices"
+)
 
 // Channel IDs below belong to this approved quotation portfolio, not to every
 // legacy/imported procurement contract that happens to share a model name.
@@ -8,7 +11,7 @@ func ztapiQuotationRouteRestrictionApplies20261030(source *ZTAPIModelPriceSource
 	if source == nil || ztapiQuotationPortfolioChannels20261030(source.SourceModel) == nil {
 		return false
 	}
-	if isZTAPICashMarginPolicy20261030(source.PricePolicy) ||
+	if source.PricePolicy == string(ZTAPIPricePolicyReduction20261107) || isZTAPICashMarginPolicy20261030(source.PricePolicy) ||
 		source.PricePolicy == string(ZTAPIPricePolicyXcloudGLM53) ||
 		source.SourceDocumentChecksum == ZTAPISupplierWorkbook20261019SHA256 {
 		return true
@@ -22,6 +25,11 @@ func ztapiQuotationRouteRestrictionApplies20261030(source *ZTAPIModelPriceSource
 }
 
 func ztapiQuotationSourceChannelPermitted20261030(source *ZTAPIModelPriceSource, channel int) bool {
+	if source != nil && source.PricePolicy == string(ZTAPIPricePolicyReduction20261107) {
+		b, _, _, _, err := ztapiReductionApproval20261107(source.ModelConfigID)
+		var channels []int
+		return err == nil && common.UnmarshalJsonStr(b.Channels, &channels) == nil && slices.Contains(channels, channel)
+	}
 	if !ztapiQuotationRouteRestrictionApplies20261030(source) {
 		return true // The ordinary publication gate still validates this contract.
 	}

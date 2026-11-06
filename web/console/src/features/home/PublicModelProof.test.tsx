@@ -83,12 +83,12 @@ afterEach(() => {
 });
 
 describe('public homepage model proof', () => {
-  it('promotes the combined saving and top-up bonus prominently', async () => {
+  it('links actual model prices without an unsupported global saving', async () => {
     renderProof(vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/api/status')
       ? statusResponse() : jsonResponse(managedPublicPricing)));
 
-    expect(await screen.findByText('综合优惠约 20%')).toBeVisible();
-    expect(screen.getByText('模型价格对比官方更优惠，充值再额外赠送 5% 使用额度。')).toBeVisible();
+    expect(await screen.findByText('逐项查看实际售价与官网参考')).toBeVisible();
+    expect(screen.queryByText('综合优惠约 20%')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: '查看价格对比' })).toHaveAttribute('href', '/models');
   });
 

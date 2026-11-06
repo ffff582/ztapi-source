@@ -93,10 +93,10 @@ export function PublicModelProof() {
           ))}
         </div>
 
-        <aside className="model-proof__offer" aria-label={t('综合优惠约 20%')}>
+        <aside className="model-proof__offer" aria-label={t('价格说明')}>
           <div>
-            <strong>{t('综合优惠约 20%')}</strong>
-            <span>{t('模型价格对比官方更优惠，充值再额外赠送 5% 使用额度。')}</span>
+            <strong>{t('逐项查看实际售价与官网参考')}</strong>
+            <span>{t('售价以当前公开目录为准；不同规格、阶梯和缓存分别计价，不承诺全站统一折扣。')}</span>
           </div>
           <Link to="/models">
             {t('查看价格对比')}

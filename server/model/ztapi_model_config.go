@@ -1164,6 +1164,10 @@ func projectZTAPIPublicPricing(publications []ZTAPIRuntimePublication) []Pricing
 		item.OutputPricePerMillion = public.OutputPricePerMillion
 		item.BillingDimensions = append([]string{}, public.BillingDimensions...)
 		item.SaleUSD = copyZTAPIStringMap(public.SaleUSD)
+		if public.OfficialReference != nil {
+			reference := *public.OfficialReference
+			item.OfficialReference = &reference
+		}
 		if len(public.OfficialUSD) > 0 {
 			item.OfficialUSD = copyZTAPIStringMap(public.OfficialUSD)
 		}

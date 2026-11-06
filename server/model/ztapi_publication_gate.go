@@ -607,6 +607,9 @@ func ztapiPublicationPriceBasisPermittedTx(tx *gorm.DB, source *ZTAPIModelPriceS
 	if source == nil {
 		return false
 	}
+	if source.PricePolicy == string(ZTAPIPricePolicyReduction20261107) {
+		return ValidateZTAPIPriceReductionSource20261107(tx, source) == nil
+	}
 	if isZTAPICashMarginPolicy20261030(source.PricePolicy) {
 		return ValidateZTAPICashMarginSource20261030(tx, source) == nil
 	}

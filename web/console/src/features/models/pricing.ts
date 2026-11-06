@@ -21,6 +21,7 @@ export interface ModelPriceDetail {
   officialPrice?: string;
   savingsPercent?: number;
   officialDiscount?: number;
+  officialDifferencePercent?: number;
 }
 
 function rankDimension(dimension: string) {
@@ -56,22 +57,25 @@ function formatSalePrice(value: string | undefined, unit: string) {
 }
 
 function comparisonFields(saleRaw: string | undefined, officialRaw: string | undefined, unit: string) {
-  if (typeof officialRaw !== 'string' || officialRaw === '') return {};
+  if (typeof officialRaw !== 'string' || officialRaw.trim() === '') return {};
   const sale = Number(saleRaw);
   const official = Number(officialRaw);
-  if (!Number.isFinite(sale) || !Number.isFinite(official) || sale <= 0 || official <= 0) return {};
-  const savingsPercent = Number.isFinite(sale) && Number.isFinite(official) && official > sale
-    ? Math.round((1 - sale / official) * 100)
-    : undefined;
+  if (!Number.isFinite(official) || official < 0) return {};
+  const reference = { officialPrice: formatUnitPrice(officialRaw, unit) };
+  if (typeof saleRaw !== 'string' || saleRaw.trim() === '' || !Number.isFinite(sale) || sale < 0 || official === 0) return reference;
+  const difference = ((sale - official) / official) * 100;
+  if (!Number.isFinite(difference)) return reference;
   return {
-    officialPrice: formatUnitPrice(officialRaw, unit),
-    ...(savingsPercent === undefined ? {} : { savingsPercent }),
-    ...(official > sale ? { officialDiscount: Math.ceil((sale / official) * 100 - 1e-8) / 10 } : {}),
+    ...reference,
+    officialDifferencePercent: Number(difference.toPrecision(12)),
+    ...(official > sale ? { savingsPercent: Math.round(-difference) } : {}),
+    ...(official > sale ? { officialDiscount: Math.ceil((sale / official) * 1000 - 1e-8) / 100 } : {}),
   };
 }
 
 export function modelOfficialDiscount(prices: ModelPriceDetail[]) {
-  if (prices.length === 0 || prices.some((price) => price.officialDiscount === undefined)) return null;
+  if (prices.length === 0 || prices.some((price) => !price.officialPrice || price.officialDiscount === undefined ||
+    !Number.isFinite(price.officialDiscount) || price.officialDiscount < 0 || price.officialDiscount >= 10)) return null;
   const discounts = prices.map((price) => price.officialDiscount as number);
   const lowest = Math.min(...discounts);
   const highest = Math.max(...discounts);
@@ -101,7 +105,7 @@ function mediaRuleLabel(conditions: Record<string, string>, fallback: string) {
     .map(([key, value]) => mediaConditionLabels[key]?.[value] ?? value)
     .filter(Boolean)
     .join(' · ');
-  return condition || fallback;
+  return condition ? `${fallback}（${condition}）` : fallback;
 }
 
 export function modelPriceDetails(

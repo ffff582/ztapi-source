@@ -53,6 +53,7 @@ export interface PricingModel {
   billing_dimensions?: string[];
   sale_usd?: Record<string, string>;
   official_usd?: Record<string, string>;
+  official_reference?: OfficialPriceReference;
   billing_rule?: UserModelCatalogItem['billing_rule'];
   supported_endpoint_types?: UserModelEndpointType[];
   supported_options?: UserModelSupportedOptions;
@@ -157,6 +158,13 @@ export interface UserModelTokenPriceRule {
   official_usd?: Record<string, string>;
 }
 
+export interface OfficialPriceReference {
+  url: string;
+  checked_at: string;
+  kind: 'official_snapshot' | 'supplier_quoted_official';
+  note?: string;
+}
+
 export interface UserModelCatalogItem {
   modality: UserModelModality;
   model_name: string;
@@ -170,6 +178,7 @@ export interface UserModelCatalogItem {
   billing_dimensions: string[];
   sale_usd: Record<string, string>;
   official_usd?: Record<string, string>;
+  official_reference?: OfficialPriceReference;
   billing_rule: 'token' | 'multi_dimension' | 'input_only';
   pricing_version: string;
   supported_options?: UserModelSupportedOptions;
@@ -348,6 +357,25 @@ function parseDecimalStringRecord(value: unknown): Record<string, string> {
   return result;
 }
 
+function parseOfficialPriceReference(value: unknown): OfficialPriceReference | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value) || !requiredString(value.url) || !requiredString(value.checked_at) ||
+    !['official_snapshot', 'supplier_quoted_official'].includes(String(value.kind)) ||
+    (value.note !== undefined && typeof value.note !== 'string') ||
+    !/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(value.checked_at) || !Number.isFinite(Date.parse(value.checked_at))) {
+    throw new DataContractError();
+  }
+  let url: URL;
+  try { url = new URL(value.url); } catch { throw new DataContractError(); }
+  if (url.protocol !== 'https:' || url.username || url.password) throw new DataContractError();
+  return {
+    url: value.url,
+    checked_at: value.checked_at,
+    kind: value.kind as OfficialPriceReference['kind'],
+    ...(typeof value.note === 'string' ? { note: value.note } : {}),
+  };
+}
+
 function parseUserModelCatalogItem(value: unknown): UserModelCatalogItem {
   if (!isRecord(value)) {
     throw new DataContractError();
@@ -374,6 +402,7 @@ function parseUserModelCatalogItem(value: unknown): UserModelCatalogItem {
     : parseRequiredStringArray(value.billing_dimensions);
   const saleUSD = parseDecimalStringRecord(value.sale_usd);
   const officialUSD = value.official_usd === undefined ? {} : parseDecimalStringRecord(value.official_usd);
+  const officialReference = parseOfficialPriceReference(value.official_reference);
   const hasTokenTiers = value.token_price_rules !== undefined;
   const inputPrice = value.input_price_per_million;
   const outputPrice = value.output_price_per_million;
@@ -524,6 +553,7 @@ function parseUserModelCatalogItem(value: unknown): UserModelCatalogItem {
       billing_dimensions: billingDimensions,
       sale_usd: saleUSD,
       ...(value.official_usd !== undefined ? { official_usd: officialUSD } : {}),
+      ...(officialReference ? { official_reference: officialReference } : {}),
       billing_rule: billingRule as UserModelCatalogItem['billing_rule'],
       pricing_version: value.pricing_version,
       supported_options: supportedOptions,
@@ -599,6 +629,7 @@ function parseUserModelCatalogItem(value: unknown): UserModelCatalogItem {
     billing_dimensions: billingDimensions,
     sale_usd: saleUSD,
     ...(value.official_usd !== undefined ? { official_usd: officialUSD } : {}),
+    ...(officialReference ? { official_reference: officialReference } : {}),
     billing_rule: billingRule as UserModelCatalogItem['billing_rule'],
     pricing_version: value.pricing_version,
     token_price_rules: tokenPriceRules,
@@ -808,6 +839,7 @@ export function parsePricingModels(value: unknown): PricingModel[] {
         billing_dimensions: catalog.billing_dimensions,
         sale_usd: catalog.sale_usd,
         ...(catalog.official_usd ? { official_usd: catalog.official_usd } : {}),
+        ...(catalog.official_reference ? { official_reference: catalog.official_reference } : {}),
         billing_rule: catalog.billing_rule,
         supported_endpoint_types: catalog.supported_endpoint_types,
         modality: catalog.modality,

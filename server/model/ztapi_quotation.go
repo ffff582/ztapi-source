@@ -582,7 +582,9 @@ func ztapiQuotationChecksumsAllowingStaleABPrice(db *gorm.DB, ids []int64, allow
 	for _, row := range evidence {
 		preview, err := BuildZTAPIModelPricePreview(&row.ZTAPIModelPriceSource)
 		basisPermitted := ztapiEnterprisePriceBasis(row.SourceModel, row.ResourceType)
-		if isZTAPICashMarginPolicy20261030(row.PricePolicy) {
+		if row.PricePolicy == string(ZTAPIPricePolicyReduction20261107) {
+			basisPermitted = ValidateZTAPIPriceReductionSource20261107(db, &row.ZTAPIModelPriceSource) == nil
+		} else if isZTAPICashMarginPolicy20261030(row.PricePolicy) {
 			basisPermitted = ValidateZTAPICashMarginSource20261030(db, &row.ZTAPIModelPriceSource) == nil
 		} else if row.PricePolicy == string(ZTAPIPricePolicyXcloudGLM53) {
 			basisPermitted = validateZTAPIXcloudGLM53Price(&row.ZTAPIModelPriceSource) == nil

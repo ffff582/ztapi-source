@@ -11,6 +11,7 @@ Authentication: Authorization: Bearer YOUR_ZTAPI_API_KEY
 - [Codex setup with search and page reading](https://ztapi.vip/docs/codex)
 - [User guide](https://ztapi.vip/docs/user-guide)
 - [Frequently asked questions](https://ztapi.vip/docs/faq)
+- [Resource sources and pricing](https://ztapi.vip/docs/resource-disclosure)
 - [Live models and pricing](https://ztapi.vip/models)
 
 ## Public endpoints

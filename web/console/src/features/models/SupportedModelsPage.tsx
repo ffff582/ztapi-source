@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { apiClient } from '../../api/client';
 import { sortCatalogByRecency } from './catalog-order';
 import { formatUnitPrice } from './pricing';
+import { OfficialPriceReference } from './OfficialPriceReference';
 import { UsageBillingNote } from '../../components/UsageBillingNote';
 import { useLocale } from '../../i18n/locale';
 import {
@@ -281,9 +282,9 @@ export function SupportedModelsPage() {
           <UsageBillingNote />
         </div>
 
-        <aside className="model-support-offer" aria-label={t('综合优惠约 20%')}>
-          <strong>{t('综合优惠约 20%')}</strong>
-          <span>{t('模型价格对比官方更优惠，充值再额外赠送 5% 使用额度。')}</span>
+        <aside className="model-support-offer" aria-label={t('价格说明')}>
+          <strong>{t('逐项查看实际售价与官网参考')}</strong>
+          <span>{t('售价以当前公开目录为准；不同规格、阶梯和缓存分别计价，不承诺全站统一折扣。')}</span>
         </aside>
 
         {status === 'loading' && (
@@ -428,6 +429,7 @@ export function SupportedModelsPage() {
                                 })}
                               </ul>
                             )}
+                            <OfficialPriceReference reference={item.official_reference} />
                           </td>
                           <td className="model-support-actions" role="cell">
                             <span aria-hidden="true" className="model-cell-label">{t('操作')}</span>

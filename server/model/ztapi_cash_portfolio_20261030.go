@@ -204,7 +204,7 @@ func ztapiCashCoveredCostUSD20261030(base *ZTAPIModelPriceSource) (map[string]st
 }
 
 func validateZTAPICashSnapshotMode20261030(source *ZTAPIModelPriceSource, snapshot *ZTAPIModelPublicationSnapshot) error {
-	if source.SourceModel == "claude-fable-5" && isZTAPICashMarginPolicy20261030(source.PricePolicy) {
+	if source.SourceModel == "claude-fable-5" && (isZTAPICashMarginPolicy20261030(source.PricePolicy) || source.PricePolicy == string(ZTAPIPricePolicyReduction20261107)) {
 		if snapshot.CacheWritePricingMode != ZTAPIFableCashFloorCacheWriteMode {
 			return errors.New("cash-margin Fable requires its frozen uniform cache-write mode")
 		}

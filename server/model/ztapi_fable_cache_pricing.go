@@ -106,7 +106,7 @@ func ztapiFableCashFloorCacheWritePrice(values map[string]string) (string, error
 }
 
 func applyZTAPIFableCashFloorCacheWrite(publication *ZTAPIRuntimePublication) error {
-	if publication.PricePolicy != string(ZTAPIPricePolicyCashPool20261030) {
+	if publication.PricePolicy != string(ZTAPIPricePolicyCashPool20261030) && publication.PricePolicy != string(ZTAPIPricePolicyReduction20261107) {
 		return errors.New("cash-floor cache-write requires cash_pool_30_20261030 price policy")
 	}
 	price, err := ztapiFableCashFloorCacheWritePrice(publication.SaleUSD)

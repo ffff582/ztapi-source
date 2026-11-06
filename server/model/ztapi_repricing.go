@@ -25,6 +25,8 @@ type ZTAPICommercialRepricingResult struct {
 func ztapiLegacyRepricingPreservesSource(tx *gorm.DB, source *ZTAPIModelPriceSource) (bool, error) {
 	var err error
 	switch {
+	case source.PricePolicy == string(ZTAPIPricePolicyReduction20261107):
+		err = ValidateZTAPIPriceReductionSource20261107(tx, source)
 	case source.PricePolicy == string(ZTAPIPricePolicyXcloudGLM53):
 		err = validateZTAPIXcloudGLM53Price(source)
 	case isZTAPICashMarginPolicy20261030(source.PricePolicy):
