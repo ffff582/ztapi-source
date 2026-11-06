@@ -156,6 +156,26 @@
       ]
     },
     {
+      "source_model": "gemini-3.5-flash",
+      "model_code": "zq-g35-f",
+      "grade": "A",
+      "fraction": "0.86",
+      "quotation_cell": "E38",
+      "official_url": "https://cloud.google.com/model-garden/pricing",
+      "currency": "USD",
+      "retail_rule": "preserve",
+      "rules": [
+        {
+          "conditions": ["\u8f93\u5165\u957f\u5ea6\u22641M"],
+          "official": {
+            "input_tokens": "1.5",
+            "cache_read": "0.15",
+            "output_tokens": "9"
+          }
+        }
+      ]
+    },
+    {
       "source_model": "gemini-3-flash-preview",
       "model_code": "zq-g3-f-p",
       "grade": "A",

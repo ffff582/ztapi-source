@@ -108,7 +108,7 @@ jobs:
           go test -race ./relay/helper -run '^TestZTAPIStreamShutdown(Cancellation|Handler|Drains|Ping)' -count=10 -timeout=2m
       - name: Run price reduction and official comparison integrity
         working-directory: server
-        run: go test ./model ./controller ./types -run 'TestZTAPI.*(Pricing|Price|Cash|Official|PublicCatalog|Reduction)|TestPriceReduction20261107' -count=1 -timeout=8m
+        run: go test ./model ./controller ./types -run 'TestZTAPI.*(Pricing|Price|Cash|Official|PublicCatalog|Reduction)|TestPriceReduction20261107|TestSupplierPriceCore20261019' -count=1 -timeout=8m
 
       - name: Run offline UI suites
         run: |

@@ -88,6 +88,9 @@ func applyZTAPIOfficialComparison20261107(sourceModel string, item *ZTAPIPublicC
 		item.PricingRules[i].OfficialUSD = nil
 	}
 	if len(item.TokenPriceRules) > 0 {
+		if len(entry.TokenRules) == 0 && len(item.TokenPriceRules) == 1 && len(item.TokenPriceRules[0].Conditions) == 0 && len(entry.OfficialUSD) > 0 {
+			entry.TokenRules = []ZTAPIPublicTokenPriceRule{{Conditions: []string{}, OfficialUSD: entry.OfficialUSD}}
+		}
 		if len(entry.TokenRules) != len(item.TokenPriceRules) {
 			return
 		}

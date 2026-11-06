@@ -235,7 +235,13 @@ func TestSupplierPriceCore20261019ManifestHasExactAuditedIdentities(t *testing.T
 		Entries []ztapiSupplierPriceEntry20261019 `json:"entries"`
 	}
 	require.NoError(t, common.Unmarshal(ztapiSupplierPrices20261019JSON, &manifest))
-	require.Len(t, manifest.Entries, 15)
+	require.Len(t, manifest.Entries, 16)
+	gemini, err := ztapiSupplierPriceEntryFor20261019("gemini-3.5-flash")
+	require.NoError(t, err)
+	require.Equal(t, "E38", gemini.QuotationCell)
+	require.Equal(t, "zq-g35-f", gemini.ModelCode)
+	require.Equal(t, "A", gemini.Grade)
+	require.Equal(t, "0.86", gemini.Fraction)
 	for _, entry := range manifest.Entries {
 		t.Run(entry.SourceModel, func(t *testing.T) {
 			identity, exists := bySource[entry.SourceModel]
