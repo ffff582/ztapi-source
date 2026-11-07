@@ -369,22 +369,9 @@ func CovertOpenAI2Gemini(c *gin.Context, textRequest dto.GeneralOpenAIRequest, i
 	// openaiContent.FuncToToolCalls()
 	if textRequest.Tools != nil {
 		functions := make([]dto.FunctionRequest, 0, len(textRequest.Tools))
-		googleSearch := false
-		codeExecution := false
-		urlContext := false
+		// Client function names never authorize provider-hosted tools. Explicit
+		// native builtins remain subject to the final-request billing admission.
 		for _, tool := range textRequest.Tools {
-			if tool.Function.Name == "googleSearch" {
-				googleSearch = true
-				continue
-			}
-			if tool.Function.Name == "codeExecution" {
-				codeExecution = true
-				continue
-			}
-			if tool.Function.Name == "urlContext" {
-				urlContext = true
-				continue
-			}
 			if tool.Function.Parameters != nil {
 
 				params, ok := tool.Function.Parameters.(map[string]interface{})
@@ -402,21 +389,6 @@ func CovertOpenAI2Gemini(c *gin.Context, textRequest dto.GeneralOpenAIRequest, i
 			functions = append(functions, tool.Function)
 		}
 		geminiTools := geminiRequest.GetTools()
-		if codeExecution {
-			geminiTools = append(geminiTools, dto.GeminiChatTool{
-				CodeExecution: make(map[string]string),
-			})
-		}
-		if googleSearch {
-			geminiTools = append(geminiTools, dto.GeminiChatTool{
-				GoogleSearch: make(map[string]string),
-			})
-		}
-		if urlContext {
-			geminiTools = append(geminiTools, dto.GeminiChatTool{
-				URLContext: make(map[string]string),
-			})
-		}
 		if len(functions) > 0 {
 			geminiTools = append(geminiTools, dto.GeminiChatTool{
 				FunctionDeclarations: functions,
@@ -1344,12 +1316,17 @@ func handleFinalStream(c *gin.Context, info *relaycommon.RelayInfo, resp *dto.Ch
 
 func geminiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response, callback func(data string, geminiResponse *dto.GeminiChatResponse) bool) (*dto.Usage, *types.NewAPIError) {
 	var usage = &dto.Usage{}
+	var managedMetadata dto.GeminiUsageMetadata
+	var managedMetadataJSON json.RawMessage
 	var imageCount int
 	responseText := strings.Builder{}
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 		var geminiResponse dto.GeminiChatResponse
 		if err := common.UnmarshalJsonStr(data, &geminiResponse); err != nil {
+			if info.ZTAPIPublicationSnapshot != nil {
+				relaycommon.RecordZTAPIUsageIntegrityFailure(c, info, "usage_invalid_json")
+			}
 			sr.Stop(fmt.Errorf("unmarshal: %w", err))
 			return
 		}
@@ -1371,7 +1348,12 @@ func geminiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		}
 
 		// 更新使用量统计
-		if geminiResponse.UsageMetadata.TotalTokenCount != 0 {
+		if info.ZTAPIPublicationSnapshot != nil {
+			if raw := geminiUsageMetadataJSON(info, []byte(data)); len(raw) != 0 {
+				geminiResponseUsage(c, info, geminiResponse.UsageMetadata, raw, "stream", false)
+				managedMetadata, managedMetadataJSON = geminiResponse.UsageMetadata, raw
+			}
+		} else if geminiResponse.UsageMetadata.TotalTokenCount != 0 {
 			mappedUsage := buildUsageFromGeminiMetadata(geminiResponse.UsageMetadata, info.GetEstimatePromptTokens())
 			*usage = mappedUsage
 		}
@@ -1380,6 +1362,11 @@ func geminiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 			sr.Stop(fmt.Errorf("gemini callback stopped"))
 		}
 	})
+
+	if info.ZTAPIPublicationSnapshot != nil {
+		managedUsage := geminiResponseUsage(c, info, managedMetadata, managedMetadataJSON, "stream", true)
+		return &managedUsage, nil
+	}
 
 	if imageCount != 0 {
 		if usage.CompletionTokens == 0 {
@@ -1508,14 +1495,14 @@ func GeminiChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
 	service.CloseResponseBodyGracefully(resp)
-	logger.LogDebug(c, "Gemini response body: %s", responseBody)
+	logger.LogDebug(c, "Gemini response body bytes=%d", len(responseBody))
 	var geminiResponse dto.GeminiChatResponse
 	err = common.Unmarshal(responseBody, &geminiResponse)
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
+	usage := geminiResponseUsage(c, info, geminiResponse.UsageMetadata, geminiUsageMetadataJSON(info, responseBody), "nonstream", true)
 	if len(geminiResponse.Candidates) == 0 {
-		usage := buildUsageFromGeminiMetadata(geminiResponse.UsageMetadata, info.GetEstimatePromptTokens())
 
 		var newAPIError *types.NewAPIError
 		if geminiResponse.PromptFeedback != nil && geminiResponse.PromptFeedback.BlockReason != nil {
@@ -1551,7 +1538,6 @@ func GeminiChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 	}
 	fullTextResponse := responseGeminiChat2OpenAI(c, &geminiResponse)
 	fullTextResponse.Model = info.UpstreamModelName
-	usage := buildUsageFromGeminiMetadata(geminiResponse.UsageMetadata, info.GetEstimatePromptTokens())
 
 	fullTextResponse.Usage = usage
 

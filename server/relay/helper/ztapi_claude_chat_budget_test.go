@@ -24,6 +24,8 @@ func TestClaudeChatOutputFloorReservesTheEffectiveOutputBudget(t *testing.T) {
 		{"sonnet chat tiny cap", "claude-sonnet-5", constant.ChannelTypeOpenAI, 64, 6120},
 		{"opus chat tiny cap", "claude-opus-5", constant.ChannelTypeOpenAI, 64, 6120},
 		{"fable chat tiny cap", "claude-fable-5", constant.ChannelTypeOpenAI, 16, 6120},
+		{"native GPT tiny cap", "gpt-6.1-sol", constant.ChannelTypeOpenAI, 16, 6120},
+		{"Gemini tiny cap", "gemini-3.1-pro-preview", constant.ChannelTypeGemini, 16, 6120},
 		{"native messages unchanged", "claude-sonnet-5", constant.ChannelTypeAnthropic, 64, 1064},
 		{"haiku unchanged", "claude-haiku-4.5", constant.ChannelTypeOpenAI, 64, 1064},
 		{"existing large cap unchanged", "claude-sonnet-5", constant.ChannelTypeOpenAI, 4096, 5096},

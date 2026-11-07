@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -66,7 +67,7 @@ func HostedResponsesBridge(router http.Handler, options HostedResponsesOptions) 
 			return
 		}
 		c.Request.Body = io.NopCloser(storage)
-		if storage.Size() > hostedsearch.MaxRequestBytes {
+		if storage.Size() > hostedsearch.MaxNativeRequestBytes {
 			c.Next()
 			return
 		}
@@ -75,15 +76,16 @@ func HostedResponsesBridge(router http.Handler, options HostedResponsesOptions) 
 			hostedHTTPError(c, http.StatusBadRequest, "hosted_search_invalid_request")
 			return
 		}
-		// Do not change native OpenAI or non-hosted request behavior.
+		// Published native Responses aliases use the same priced search service;
+		// unprefixed legacy models and requests without hosted tools stay unchanged.
 		var hint struct {
 			Model string `json:"model"`
 		}
-		if json.Unmarshal(raw, &hint) != nil || !hostedsearch.SupportsModel(hint.Model) || (!bytes.Contains(raw, []byte(`"web_search"`)) && !bytes.Contains(raw, []byte(`"web_search_preview"`))) {
+		if common.Unmarshal(raw, &hint) != nil || !strings.HasPrefix(hint.Model, "zt-") || (!bytes.Contains(raw, []byte(`"web_search"`)) && !bytes.Contains(raw, []byte(`"web_search_preview"`))) {
 			c.Next()
 			return
 		}
-		prepared, err := hostedsearch.PrepareRequest(raw, privateName)
+		prepared, err := hostedsearch.PrepareAuthorizedRequest(raw, privateName)
 		if err != nil {
 			hostedHTTPError(c, http.StatusBadRequest, "hosted_search_invalid_request")
 			return
@@ -141,7 +143,13 @@ func HostedResponsesBridge(router http.Handler, options HostedResponsesOptions) 
 			hostedHTTPError(c, http.StatusServiceUnavailable, "hosted_search_billing_unavailable")
 			return
 		}
-		ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Minute)
+		timeout := 3 * time.Minute
+		if !hostedsearch.SupportsModel(prepared.Model) {
+			// Native reasoning models can legitimately spend several minutes on a
+			// round. Keep a finite orchestration bound without shortening them to Chat.
+			timeout = 15 * time.Minute
+		}
+		ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
 		defer cancel()
 		clientIP := c.ClientIP()
 		if net.ParseIP(clientIP) == nil {

@@ -198,8 +198,11 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 			return types.NewErrorWithStatusCode(err, types.ErrorCode(helper.ZTAPIInvalidReasoningEffortCode), http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 		}
 		relaycommon.CaptureReasoningEffortForwardedJSON(info, jsonData, info.GetFinalRequestRelayFormat())
+		if apiErr := helper.ValidateZTAPIHostedToolPricing(info, jsonData); apiErr != nil {
+			return apiErr
+		}
 
-		logger.LogDebug(c, "requestBody: %s", jsonData)
+		logger.LogDebug(c, "request body bytes: %d", len(jsonData))
 		body, size, closer, err := relaycommon.NewOutboundJSONBody(jsonData)
 		if err != nil {
 			return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())

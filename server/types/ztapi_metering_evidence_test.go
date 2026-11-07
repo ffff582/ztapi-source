@@ -54,3 +54,22 @@ func TestZTAPIMeteringRevalidatesUnverifiedObservation(t *testing.T) {
 	require.NotContains(t, string(safe), "PRIVATE")
 	require.NotContains(t, string(safe), "forged")
 }
+
+func TestZTAPIMeteringCompletionEvidenceUsesFixedVocabulary(t *testing.T) {
+	for _, terminal := range []string{"response.completed", "response.failed", "response.incomplete", "completed", "failed", "incomplete", "missing"} {
+		var evidence ZTAPIMeteringEvidence
+		raw, err := common.Marshal(map[string]any{"version": 1, "upstream_terminal": terminal, "downstream_write_state": "complete"})
+		require.NoError(t, err)
+		require.NoError(t, common.Unmarshal(raw, &evidence))
+		safe, err := common.Marshal(evidence.Sanitized())
+		require.NoError(t, err)
+		require.Contains(t, string(safe), `"upstream_terminal":"`+terminal+`"`)
+		require.Contains(t, string(safe), `"downstream_write_state":"complete"`)
+	}
+	var forged ZTAPIMeteringEvidence
+	require.NoError(t, common.UnmarshalJsonStr(`{"version":1,"upstream_terminal":"PRIVATE_SECRET","downstream_write_state":"https://private.invalid/key"}`, &forged))
+	safe, err := common.Marshal(forged.Sanitized())
+	require.NoError(t, err)
+	require.NotContains(t, string(safe), "PRIVATE")
+	require.NotContains(t, string(safe), "private.invalid")
+}

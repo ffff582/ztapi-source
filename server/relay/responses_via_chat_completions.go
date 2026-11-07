@@ -67,6 +67,9 @@ func responsesViaChatCompletions(c *gin.Context, info *relaycommon.RelayInfo, ad
 		return nil, types.NewErrorWithStatusCode(err, types.ErrorCode(helper.ZTAPIInvalidReasoningEffortCode), http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 	}
 	relaycommon.CaptureReasoningEffortForwardedJSON(info, jsonData, types.RelayFormatOpenAI)
+	if apiErr := helper.ValidateZTAPIHostedToolPricing(info, jsonData); apiErr != nil {
+		return nil, apiErr
+	}
 
 	body, size, closer, err := relaycommon.NewOutboundJSONBody(jsonData)
 	if err != nil {

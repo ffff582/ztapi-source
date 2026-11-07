@@ -105,7 +105,7 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 		}
 		if common.DebugEnabled {
 			if debugBytes, bErr := storage.Bytes(); bErr == nil {
-				logger.LogDebug(c, "requestBody: %s", debugBytes)
+				logger.LogDebug(c, "request body bytes: %d", len(debugBytes))
 			}
 		}
 		if body, bodyErr := storage.Bytes(); bodyErr == nil {
@@ -184,8 +184,11 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 			return types.NewErrorWithStatusCode(err, types.ErrorCode(helper.ZTAPIInvalidReasoningEffortCode), http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 		}
 		relaycommon.CaptureReasoningEffortForwardedJSON(info, jsonData, info.GetFinalRequestRelayFormat())
+		if apiErr := helper.ValidateZTAPIHostedToolPricing(info, jsonData); apiErr != nil {
+			return apiErr
+		}
 
-		logger.LogDebug(c, "text request body: %s", jsonData)
+		logger.LogDebug(c, "text request body bytes: %d", len(jsonData))
 
 		body, size, closer, err := relaycommon.NewOutboundJSONBody(jsonData)
 		if err != nil {

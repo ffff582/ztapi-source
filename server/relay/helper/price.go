@@ -90,11 +90,12 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 	var ztapiOutputPrice float64
 	publicationSnapshot := info.ZTAPIPublicationSnapshot
 	useZTAPIPricing := publicationSnapshot != nil
-	claudeChatBudgetRaised := useZTAPIPricing && meta != nil && meta.MaxTokens > 0 &&
+	reasoningBudgetRaised := useZTAPIPricing && meta != nil && meta.MaxTokens > 0 &&
 		meta.MaxTokens < ZTAPIReasoningOutputFloor &&
-		ztapiClaudeChatReasonsByDefault(publicationSnapshot.SourceModel) &&
-		common.GetContextKeyInt(c, constant.ContextKeyChannelType) == constant.ChannelTypeOpenAI
-	if claudeChatBudgetRaised {
+		(ztapiModelReasonsByDefault(publicationSnapshot.SourceModel) ||
+			ztapiClaudeChatReasonsByDefault(publicationSnapshot.SourceModel) &&
+				common.GetContextKeyInt(c, constant.ContextKeyChannelType) == constant.ChannelTypeOpenAI)
+	if reasoningBudgetRaised {
 		// Pricing sees the bridge's effective budget without changing the
 		// original request, which a native fallback must still receive intact.
 		copy := *meta
@@ -203,7 +204,7 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 		}
 		ratio := modelRatio * groupRatioInfo.GroupRatio
 		preConsumedQuota = int(float64(preConsumedTokens) * ratio)
-		if claudeChatBudgetRaised {
+		if reasoningBudgetRaised {
 			// Reserve the raised budget at the frozen output rate, not the
 			// ordinary-input approximation. Final charges still use actual usage.
 			var err error

@@ -425,7 +425,7 @@ func RequestOpenAI2ClaudeMessage(c *gin.Context, textRequest dto.GeneralOpenAIRe
 					for _, toolCall := range message.ParseToolCalls() {
 						inputObj := make(map[string]any)
 						if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &inputObj); err != nil {
-							common.SysLog("tool call function arguments is not a map[string]any: " + fmt.Sprintf("%v", toolCall.Function.Arguments))
+							common.SysLog(fmt.Sprintf("tool call function arguments is not a map[string]any: arguments_bytes=%d", len(toolCall.Function.Arguments)))
 							continue
 						}
 						claudeMediaMessages = append(claudeMediaMessages, dto.ClaudeMediaMessage{
@@ -810,7 +810,34 @@ func FormatClaudeResponseInfo(claudeResponse *dto.ClaudeResponse, oaiResponse *d
 	return true
 }
 
+func captureClaudeWebSearchUsage(c *gin.Context, info *relaycommon.RelayInfo, claudeInfo *ClaudeResponseInfo, usage *dto.ClaudeUsage) {
+	if c == nil {
+		return
+	}
+	// Scope cumulative snapshots to this response, including SDK/Bedrock callers.
+	owner, _ := c.Get("claude_web_search_usage_owner")
+	if owner != claudeInfo {
+		c.Set("claude_web_search_usage_owner", claudeInfo)
+		c.Set("claude_web_search_requests", 0)
+	}
+	if usage == nil || usage.ServerToolUse == nil {
+		return
+	}
+	count := usage.ServerToolUse.WebSearchRequests
+	if count < 0 {
+		relaycommon.RecordZTAPIUsageIntegrityFailure(c, info, "usage_invalid_quantity")
+		return
+	}
+	// These are cumulative usage snapshots, never per-frame increments or declarations.
+	if count < c.GetInt("claude_web_search_requests") {
+		relaycommon.RecordZTAPIUsageIntegrityFailure(c, info, "usage_snapshot_conflict")
+		return
+	}
+	c.Set("claude_web_search_requests", count)
+}
+
 func HandleStreamResponseData(c *gin.Context, info *relaycommon.RelayInfo, claudeInfo *ClaudeResponseInfo, data string) *types.NewAPIError {
+	captureClaudeWebSearchUsage(c, info, claudeInfo, nil)
 	var claudeResponse dto.ClaudeResponse
 	err := common.UnmarshalJsonStr(data, &claudeResponse)
 	if err != nil {
@@ -821,6 +848,14 @@ func HandleStreamResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 		return types.WithClaudeError(*claudeError, http.StatusInternalServerError, types.ErrOptionWithSkipRetry())
 	}
 	captureClaudeStreamUsageEvidence(info, data, claudeResponse.Type)
+	switch claudeResponse.Type {
+	case "message_start":
+		if claudeResponse.Message != nil {
+			captureClaudeWebSearchUsage(c, info, claudeInfo, claudeResponse.Message.Usage)
+		}
+	case "message_delta":
+		captureClaudeWebSearchUsage(c, info, claudeInfo, claudeResponse.Usage)
+	}
 	if claudeResponse.StopReason != "" {
 		maybeMarkClaudeRefusal(c, claudeResponse.StopReason)
 	}
@@ -991,6 +1026,7 @@ func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.
 }
 
 func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claudeInfo *ClaudeResponseInfo, httpResp *http.Response, data []byte) *types.NewAPIError {
+	captureClaudeWebSearchUsage(c, info, claudeInfo, nil)
 	var claudeResponse dto.ClaudeResponse
 	err := common.Unmarshal(data, &claudeResponse)
 	if err != nil {
@@ -1013,6 +1049,7 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 		claudeInfo.Usage.ClaudeCacheCreation5mTokens = claudeResponse.Usage.GetCacheCreation5mTokens()
 		claudeInfo.Usage.ClaudeCacheCreation1hTokens = claudeResponse.Usage.GetCacheCreation1hTokens()
 	}
+	captureClaudeWebSearchUsage(c, info, claudeInfo, claudeResponse.Usage)
 	var responseData []byte
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:
@@ -1024,10 +1061,6 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 		}
 	case types.RelayFormatClaude:
 		responseData = data
-	}
-
-	if claudeResponse.Usage != nil && claudeResponse.Usage.ServerToolUse != nil && claudeResponse.Usage.ServerToolUse.WebSearchRequests > 0 {
-		c.Set("claude_web_search_requests", claudeResponse.Usage.ServerToolUse.WebSearchRequests)
 	}
 
 	service.IOCopyBytesGracefully(c, httpResp, responseData)
@@ -1048,7 +1081,7 @@ func ClaudeHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayI
 	if err != nil {
 		return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 	}
-	logger.LogDebug(c, "responseBody: %s", responseBody)
+	logger.LogDebug(c, "claude response_body_bytes=%d", len(responseBody))
 	handleErr := HandleClaudeResponseData(c, info, claudeInfo, resp, responseBody)
 	if handleErr != nil {
 		return nil, handleErr

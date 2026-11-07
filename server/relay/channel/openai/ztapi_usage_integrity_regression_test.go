@@ -22,7 +22,7 @@ func runUsageIntegrityFixture(t *testing.T, route string, stream bool, usages []
 	c, _, info := usageRegressionContext(types.RelayFormatOpenAI, true)
 	info.IsStream = stream
 	var frames []string
-	for _, usage := range usages {
+	for index, usage := range usages {
 		frame := `{"choices":[{"index":0,"delta":{},"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}]`
 		if route == "responses_to_chat" {
 			frame = `{"status":"completed","output":[]`
@@ -32,7 +32,11 @@ func runUsageIntegrityFixture(t *testing.T, route string, stream bool, usages []
 		}
 		frame += `}`
 		if stream && route == "responses_to_chat" {
-			frame = `{"type":"response.completed","response":` + frame + `}`
+			kind := "response.in_progress"
+			if index == len(usages)-1 {
+				kind = "response.completed"
+			}
+			frame = `{"type":"` + kind + `","response":` + frame + `}`
 		}
 		frames = append(frames, frame)
 	}
@@ -63,7 +67,12 @@ func runUsageIntegrityFixture(t *testing.T, route string, stream bool, usages []
 			usage, apiErr = OaiResponsesToChatHandler(c, info, resp)
 		}
 	}
-	require.Nil(t, apiErr)
+	if route == "responses_to_chat" && strings.Contains(body, `"input_tokens":"`) {
+		require.NotNil(t, apiErr, "malformed typed receipts must fail, not be silently accepted")
+		require.True(t, relaycommon.ValidateZTAPIUsageDimensions(c, info, usage).Pending)
+	} else {
+		require.Nil(t, apiErr)
+	}
 	return usage, c, info
 }
 

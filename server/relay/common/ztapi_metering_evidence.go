@@ -1,6 +1,7 @@
 package common
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -44,6 +45,33 @@ func CaptureZTAPIRequestMetering(c *gin.Context, info *RelayInfo, meta *types.To
 	case *dto.GeneralOpenAIRequest:
 		evidence.Messages = len(request.Messages)
 		evidence.Tools, tools = len(request.Tools), request.Tools
+	case *dto.OpenAIResponsesRequest:
+		var declarations []json.RawMessage
+		_ = basecommon.Unmarshal(request.Tools, &declarations)
+		input := bytes.TrimSpace(request.Input)
+		if len(input) > 0 && input[0] == '"' {
+			evidence.Messages = 1
+		} else {
+			var items []struct {
+				Type  string          `json:"type"`
+				Role  string          `json:"role"`
+				Tools json.RawMessage `json:"tools"`
+			}
+			if basecommon.Unmarshal(input, &items) == nil {
+				for _, item := range items {
+					if item.Role != "" || item.Type == "message" {
+						evidence.Messages++
+					}
+					if item.Type == "additional_tools" {
+						var extra []json.RawMessage
+						if basecommon.Unmarshal(item.Tools, &extra) == nil {
+							declarations = append(declarations, extra...)
+						}
+					}
+				}
+			}
+		}
+		evidence.Tools, tools = len(declarations), declarations
 	}
 	if evidence.Tools > 0 {
 		if encoded, err := basecommon.Marshal(tools); err == nil {
@@ -75,7 +103,14 @@ func CaptureZTAPIOutboundRequestMetering(info *RelayInfo, size int64) {
 	evidence.UsageSource, evidence.UsageLocation = "", ""
 	evidence.UsageObservations = 0
 	evidence.UsageIntegrityComplete = false
+	evidence.UpstreamTerminal, evidence.DownstreamWriteState = "", ""
 	info.ZTAPIUsageLastSnapshot = nil
+}
+
+func CaptureZTAPIResponseCompletion(info *RelayInfo, terminal, writeState string) {
+	if evidence := ensureZTAPIMetering(info); evidence != nil {
+		evidence.UpstreamTerminal, evidence.DownstreamWriteState = terminal, writeState
+	}
 }
 
 func CaptureZTAPIUpstreamUsageEvidence(info *RelayInfo, raw []byte, location string) {
