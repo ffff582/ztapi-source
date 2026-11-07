@@ -9,6 +9,7 @@ export interface AuthSessionData {
   access_token: string;
   expires_in: number;
   user: AuthUser;
+  referral_bound?: boolean;
 }
 
 export interface AuthCredentials {
@@ -18,7 +19,10 @@ export interface AuthCredentials {
   verification_code?: string;
   captcha_id?: string;
   captcha_code?: string;
+  invite_code?: string;
 }
+
+export * from './referral-contracts';
 
 export interface RegistrationCaptcha {
   captcha_id: string;

@@ -1,0 +1,17 @@
+.console-header__referrals {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 36px;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.5;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+.console-header__referrals svg { flex: 0 0 16px; }
+.console-header__referrals:hover { color: var(--text); }
+.console-header__referrals:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
+.console-referral-registration-note { margin: 0 0 18px; padding: 8px 12px; border-left: 3px solid var(--warning); background: var(--surface-2); color: var(--text-2); font-size: 13px; line-height: 1.6; letter-spacing: 0; overflow-wrap: anywhere; }

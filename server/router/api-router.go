@@ -86,6 +86,18 @@ func SetApiRouter(router *gin.Engine) {
 		}
 
 		// Universal secure verification routes
+		apiRouter.GET("/referrals/status", controller.GetZTAPIReferralPublicStatus)
+		referralRoute := apiRouter.Group("/referrals/self")
+		referralRoute.Use(middleware.ZTAPIUserAuth())
+		{
+			referralRoute.GET("", controller.GetZTAPIReferralSelf)
+			referralRoute.GET("/commissions", controller.GetZTAPIReferralCommissions)
+			referralRoute.GET("/withdrawals", controller.GetZTAPIReferralWithdrawals)
+			referralRoute.POST("/withdrawals", middleware.CriticalRateLimit(), controller.RequestZTAPIReferralWithdrawal)
+			referralRoute.POST("/withdrawals/:id/confirm", middleware.CriticalRateLimit(), controller.ConfirmZTAPIReferralWithdrawal)
+			referralRoute.POST("/withdrawals/:id/cancel", middleware.CriticalRateLimit(), controller.CancelZTAPIReferralWithdrawal)
+		}
+
 		apiRouter.POST("/verify", middleware.UserAuth(), middleware.CriticalRateLimit(), controller.UniversalVerify)
 
 		userRoute := apiRouter.Group("/user")
@@ -187,6 +199,11 @@ func SetApiRouter(router *gin.Engine) {
 
 		adminBalanceRoute := apiRouter.Group("/admin")
 		{
+			adminBalanceRoute.GET("/referrals", middleware.AdminPermissionAuth(common.PermissionReferralRead), controller.GetAdminZTAPIReferrals)
+			adminBalanceRoute.GET("/referrals/readiness", middleware.AdminPermissionAuth(common.PermissionReferralRead), controller.GetAdminZTAPIReferralReadiness)
+			adminBalanceRoute.GET("/referrals/downgrade-status", middleware.AdminPermissionAuth(common.PermissionReferralRead), controller.GetZTAPIReferralDowngradeStatus)
+			adminBalanceRoute.POST("/referrals/campaign", middleware.ZTAPIUserAuth(), middleware.RootAuth(), middleware.AdminPermissionAuth(common.PermissionReferralWrite), middleware.CriticalRateLimit(), controller.UpdateZTAPIReferralCampaign)
+			adminBalanceRoute.POST("/referrals/withdrawals/:id/:action", middleware.ZTAPIUserAuth(), middleware.AdminPermissionAuth(common.PermissionReferralWrite), middleware.CriticalRateLimit(), controller.AdminZTAPIReferralWithdrawalAction)
 			adminBalanceRoute.GET("/overview", middleware.AdminPermissionAuth(common.PermissionOverviewRead), controller.GetAdminOverview)
 			adminBalanceRoute.GET("/topups", middleware.AdminPermissionAuth(common.PermissionFinanceRead), controller.GetAdminTopUps)
 			adminBalanceRoute.GET("/payment/watched-addresses", middleware.AdminPermissionAuth(common.PermissionFinanceRead), controller.GetZTAPIWatchedReceivingAddresses)

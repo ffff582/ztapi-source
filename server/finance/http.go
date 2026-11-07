@@ -53,7 +53,13 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if r.Method == "GET" && r.URL.Path == "/healthz" {
-		sendJSON(w, 200, map[string]bool{"ok": true})
+		referralV1 := false
+		if source, ok := h.source.(ReferralCapabilitySource); ok {
+			ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+			referralV1 = source.SupportsReferralV1(ctx) && ctx.Err() == nil
+			cancel()
+		}
+		sendJSON(w, 200, map[string]any{"ok": true, "capabilities": map[string]bool{"referral_v1": referralV1}})
 		return
 	}
 	if !strings.HasPrefix(r.URL.Path, prefix) {
@@ -284,6 +290,17 @@ func exportReport(w http.ResponseWriter, r Report) {
 	}
 	row("month", "currency", "receipts", "earned_revenue", "actual_upstream_cost", "gross_profit", "confirmed", "as_of")
 	row(r.Month, r.Currency, r.ReceiptsTotal, val(r.Revenue), val(r.ActualCost), val(r.GrossProfit), strconv.FormatBool(r.Confirmed), r.AsOf.Format(time.RFC3339))
+	row()
+	row("referral_supported", "referral_status", "referral_reason", "currency", "accrued", "refund_reversal", "manual_loss", "net_commission_expense", "frozen_payable", "withdrawal_reserved", "paid", "platform_net_fee", "network_fee_status", "payables_as_of")
+	if f := r.Referral; f != nil {
+		asOf := ""
+		if !f.AsOf.IsZero() {
+			asOf = f.AsOf.Format(time.RFC3339)
+		}
+		row(strconv.FormatBool(f.Supported), f.Status, f.Reason, f.Currency, val(f.Accrued), val(f.RefundReversal), val(f.ManualLoss), val(f.NetCommissionExpense), val(f.FrozenPayable), val(f.WithdrawalReserved), val(f.Paid), val(f.PlatformNetFee), f.NetworkFeeStatus, asOf)
+	} else {
+		row("false", "unsupported", "referral_source_missing", "USDT", "PENDING", "PENDING", "PENDING", "PENDING", "PENDING", "PENDING", "PENDING", "PENDING", "unknown", "")
+	}
 	row()
 	row("receipt_ref", "user_id", "username", "amount", "currency", "USDT_per_currency", "amount_USDT", "received_at", "evidence")
 	for _, p := range r.Receipts {

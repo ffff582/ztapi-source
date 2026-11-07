@@ -26,9 +26,10 @@ describe('ConsoleShell navigation', () => {
     const spending = within(accountGroup).getByRole('link', { name: '消费预警' });
     expect(spending).toHaveAttribute('href', '/console/spending');
     expect(within(accountGroup).getAllByRole('link').map((link) => link.getAttribute('href'))).toEqual([
-      '/console/keys', '/console/logs', '/console/spending', '/console/wallet', '/console/account', '/console/support',
+      '/console/keys', '/console/logs', '/console/spending', '/console/wallet', '/console/referrals', '/console/account', '/console/support',
     ]);
     expect(within(accountGroup).getByRole('link', { name: '账单充值' })).toHaveAttribute('href', '/console/wallet');
+    expect(within(accountGroup).getByRole('link', { name: '推广返利' })).toHaveAttribute('href', '/console/referrals');
     expect(within(accountGroup).getByRole('link', { name: '账号设置' })).toHaveAttribute('href', '/console/account');
     expect(within(accountGroup).getByRole('link', { name: '平台客服' })).toHaveAttribute('href', '/console/support');
     const productMode = screen.getByRole('group', { name: '产品模式' });

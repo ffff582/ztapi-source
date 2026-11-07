@@ -59,6 +59,7 @@ type Channel struct {
 	BaseURL string
 }
 type Snapshot struct {
+	Referral            *ReferralSnapshot
 	SupportUsages       []support.FinancialUsage `json:"support_usages"`
 	SupportSourceStatus string                   `json:"support_source_status"`
 	SourceCommit        string
@@ -228,6 +229,7 @@ type SupplierEstimateRow struct {
 	Complete        bool             `json:"complete"`
 }
 type Report struct {
+	Referral                         *ReferralReport       `json:"referral,omitempty"`
 	SupportSourceStatus              string                `json:"support_source_status"`
 	SourceCommit                     string                `json:"source_commit,omitempty"`
 	Month                            string                `json:"month"`
