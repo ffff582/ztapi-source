@@ -13,6 +13,8 @@ import { adminRequest, adminDownload } from '../../auth/admin-session.js';
 import './overview.css';
 import DirectCostDialog from './DirectCostDialog.jsx';
 import CustomerServiceCosts from './CustomerServiceCosts.jsx';
+import ReferralCommissions from './ReferralCommissions.jsx';
+import './referrals.css';
 
 const API = '/api/admin/finance-reporting/';
 const monthNow = () =>
@@ -987,6 +989,7 @@ export default function OverviewPage({ canWrite = false }) {
             ))}
           </dl>
           <HostedToolCosts rows={report.hosted_tools} />
+          <ReferralCommissions referral={report.referral} />
           <CustomerServiceCosts report={report} />
           <section aria-label='测试费用'>
             <header className='finance-toolbar'>

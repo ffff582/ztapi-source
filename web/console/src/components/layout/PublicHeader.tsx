@@ -9,6 +9,7 @@ import './public-header.css';
 const links: Array<{ label: string; to: string; external?: boolean; icon?: LucideIcon }> = [
   { label: '模型市场', to: '/models' },
   { label: 'API 文档', to: '/docs/integration' },
+  { label: '推广返利', to: '/console/referrals' },
   { label: '快速接入', to: '/#quickstart' },
   { label: '支持', to: 'https://t.me/gan66', external: true },
   { label: '用户交流群', to: 'https://t.me/ztapivip', external: true, icon: Users },

@@ -1,10 +1,11 @@
-import { LogOut } from 'lucide-react';
+import { LogOut, Users } from 'lucide-react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../auth/session';
 import { LanguageToggle } from '../../i18n/LanguageToggle';
 import { useLocale } from '../../i18n/locale';
 import { ThemeToggle } from '../../theme/ThemeToggle';
 import { SpendingBell } from '../../features/spending/SpendingBell';
+import './console-referral-entry.css';
 
 export function ConsoleHeader() {
   const navigate = useNavigate();
@@ -35,6 +36,9 @@ export function ConsoleHeader() {
       </div>
       <Link className="console-header__market" to="/models">
         {t('查看公开模型市场')} <span aria-hidden="true">↗</span>
+      </Link>
+      <Link className="console-header__referrals" to="/console/referrals" title={t('推广返利')}>
+        <Users size={16} aria-hidden="true" /><span>{t('推广返利')}</span>
       </Link>
       <LanguageToggle />
       <ThemeToggle />

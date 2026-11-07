@@ -12,6 +12,8 @@ export type AuthErrorKind =
   | 'username_unavailable'
   | 'invalid_registration'
   | 'invalid_captcha'
+  | 'invalid_invitation'
+  | 'invitation_unavailable'
   | 'unauthorized'
   | 'unknown';
 
@@ -93,6 +95,14 @@ function classifyServerError(message: unknown, status: number): AuthErrorKind {
 
   if (status === 400 && normalized === 'invalid captcha') {
     return 'invalid_captcha';
+  }
+
+  if (status === 400 && normalized === 'invalid invitation code') {
+    return 'invalid_invitation';
+  }
+
+  if (status === 409 && normalized === 'invitation temporarily unavailable') {
+    return 'invitation_unavailable';
   }
 
   if (
@@ -476,6 +486,10 @@ export function authErrorMessage(error: unknown) {
         return '账号格式或密码不符合要求';
       case 'invalid_captcha':
         return '验证码错误或已过期，请输入新的验证码';
+      case 'invalid_invitation':
+        return '邀请码无效，请核对或清除邀请码后普通注册。';
+      case 'invitation_unavailable':
+        return '推广活动暂不可用，可移除邀请码后继续注册';
       case 'unauthorized':
       case 'unknown':
         break;

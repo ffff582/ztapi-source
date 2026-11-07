@@ -42,7 +42,7 @@ func hostedToolSnapshot(tool string) string {
 }
 
 func hostedToolFixture(tool string) (Snapshot, []Fact) {
-	s := Snapshot{QuotaPerUnit: 500000, Users: []User{{ID: 1, Username: "customer"}},
+	s := Snapshot{Referral: referralFixture(), QuotaPerUnit: 500000, Users: []User{{ID: 1, Username: "customer"}},
 		Channels: []Channel{{ID: 2, Name: "official tools"}},
 		Ledgers:  []Ledger{ledger(1, 10000, 0, "admin_adjustment", "", "fund"), ledger(2, -1000, 10000, "usage_reservation", "tool-r1", "ztapi:tool-op1:begin")},
 		Settlements: []Settlement{{ID: 1, UserID: 1, RequestID: "tool-r1", OperationID: "tool-op1", PublicModel: "ztapi-tool-" + tool,

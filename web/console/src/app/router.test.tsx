@@ -179,14 +179,14 @@ it('switches the public site to English and persists the language without changi
   expect(document.documentElement.lang).toBe('en');
 });
 
-it('selects English from navigator.language for a first-time visitor', async () => {
+it('defaults to Chinese for a first-time visitor without a saved preference', async () => {
   vi.spyOn(window.navigator, 'language', 'get').mockReturnValue('fr-FR');
 
   renderWithProviders('/register', false);
 
-  expect(await screen.findByRole('heading', { name: 'Create a ZTAPI account' })).toBeVisible();
-  expect(screen.getByRole('navigation', { name: 'Public navigation' })).toBeVisible();
-  expect(document.documentElement.lang).toBe('en');
+  expect(await screen.findByRole('heading', { name: '创建 ZTAPI 账号' })).toBeVisible();
+  expect(screen.getByRole('navigation', { name: '公共导航' })).toBeVisible();
+  expect(document.documentElement.lang).toBe('zh-CN');
   expect(localStorage.getItem('ztapi.locale')).toBeNull();
 });
 

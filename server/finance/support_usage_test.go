@@ -81,7 +81,7 @@ func TestSupportUsageProvenNonDispatchIsKnownZeroNotUnknownSupplierCost(t *testi
 }
 
 func TestSupportUsageQuoteIsAddedToEstimatedProfitOnce(t *testing.T) {
-	s := Snapshot{QuotaPerUnit: 500000}
+	s := Snapshot{Referral: referralFixture(), QuotaPerUnit: 500000}
 	u := supportUsageFixture()
 	s = snapshotWithSupport(t, s, "available", u, u)
 	r := calculate(t, s, nil)
@@ -221,7 +221,7 @@ func TestSupportUsageAccumulatesTwelveDecimalQuotesBeforeRounding(t *testing.T) 
 		u.CallID, u.QuoteCostU = id, &quote
 		usages = append(usages, u)
 	}
-	r := calculate(t, snapshotWithSupport(t, Snapshot{QuotaPerUnit: 500000}, "available", usages...), nil)
+	r := calculate(t, snapshotWithSupport(t, Snapshot{Referral: referralFixture(), QuotaPerUnit: 500000}, "available", usages...), nil)
 	require.Equal(t, "0.000001", r.CustomerServiceEstimateTotal)
 	require.Equal(t, "0.000001", *r.EstimatedCost)
 	require.Equal(t, "-0.000001", *r.EstimatedGrossProfit)

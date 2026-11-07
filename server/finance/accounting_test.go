@@ -42,7 +42,7 @@ func ledger(id int, delta, before int64, source, req, key string) Ledger {
 	return Ledger{ID: id, UserID: 1, Delta: delta, BalanceBefore: before, BalanceAfter: before + delta, SourceType: source, RequestID: req, IdempotencyKey: key, CreatedAt: moment("2026-09-16T01:00:00Z").Add(time.Duration(id) * time.Second)}
 }
 func fixture() Snapshot {
-	return Snapshot{QuotaPerUnit: 500000, Users: []User{{ID: 1, Username: "customer"}}, Ledgers: []Ledger{
+	return Snapshot{Referral: referralFixture(), QuotaPerUnit: 500000, Users: []User{{ID: 1, Username: "customer"}}, Ledgers: []Ledger{
 		ledger(1, 52500000, 0, "admin_adjustment", "", "fund"),
 		ledger(2, -10500000, 52500000, "usage_reservation", "r1", "ztapi:op1:begin"),
 	}, Settlements: []Settlement{{ID: 1, UserID: 1, RequestID: "r1", OperationID: "op1", Status: "settled", ReservedQuota: 10500000, ChargedQuota: 10500000, CompletedAt: moment("2026-09-16T01:01:00Z").Unix(), FinalAttempt: 1}}, Attempts: []Attempt{{SettlementID: 1, Attempt: 1, ChannelID: 2, CreatedAt: moment("2026-09-16T01:00:02Z")}}}

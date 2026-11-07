@@ -57,7 +57,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Verify financial CI isolation and hosted routing contracts
-        run: node --test tests/contracts/financial-ci-workflow.test.mjs tests/contracts/media-commercial-gate.test.mjs tests/contracts/commercial-finance-ci.test.mjs tests/contracts/health-deployment.test.mjs tests/contracts/usdt-replay-ci.test.mjs tests/contracts/hosted-financial-ci.test.mjs
+        run: node --test tests/contracts/financial-ci-workflow.test.mjs tests/contracts/media-commercial-gate.test.mjs tests/contracts/commercial-finance-ci.test.mjs tests/contracts/health-deployment.test.mjs tests/contracts/usdt-replay-ci.test.mjs tests/contracts/hosted-financial-ci.test.mjs tests/contracts/referral-financial-ci.test.mjs
 
       - name: Install classic administration dependencies
         working-directory: server/web
@@ -123,6 +123,10 @@ jobs:
           pnpm --dir server/web/classic test:ztapi:run
           pnpm lint:web
 
+      - name: Run referral financial lifecycle
+        working-directory: server
+        run: go test ./common ./model ./service ./controller ./finance ./cmd/ztapi-referral-migrate -run 'TestZTAPIReferral|TestReferral' -count=1 -timeout=5m
+
       - name: Run production runtime configuration tests
         run: npm run test:runtime
 
@@ -137,6 +141,11 @@ jobs:
 
       - name: Run responsive media browser acceptance
         run: pnpm exec playwright test tests/e2e/media-models-and-guide.spec.ts
+
+      - name: Run referral user and finance browser acceptance
+        run: |
+          node web/console/src/features/referrals/ReferralPage.browser.mjs
+          node server/web/classic/src/ztapi/features/finance/ReferralWithdrawalsPage.browser.test.mjs
 
       - name: Run CNY and source-offer browser acceptance
         run: node web/console/src/features/models/PriceCurrency.browser.mjs web/console/dist web/console/output/playwright/rmb-legal
