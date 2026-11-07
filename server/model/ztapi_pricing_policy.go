@@ -77,7 +77,7 @@ func CalculateZTAPIPoolSalePrice(officialPrice decimal.Decimal) (decimal.Decimal
 func ValidateZTAPIPricePolicy(resourceType string, policy ZTAPIPricePolicy) error {
 	resourceType = strings.TrimSpace(resourceType)
 	switch policy {
-	case ZTAPIPricePolicyReduction20261107:
+	case ZTAPIPricePolicyReduction20261107, ZTAPIPricePolicyReferralFloor20261107:
 		if resourceType == "enterprise" || resourceType == "pool" || resourceType == "official" || resourceType == "original_resource" {
 			return nil
 		}

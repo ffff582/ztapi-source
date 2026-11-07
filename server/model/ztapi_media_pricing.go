@@ -36,7 +36,7 @@ func validateZTAPIMediaPriceContractPolicy(source *ZTAPIModelPriceSource) error 
 		return nil
 	}
 	policy := ZTAPIPricePolicy(source.PricePolicy)
-	if policy == ZTAPIPricePolicyReduction20261107 {
+	if isZTAPIDatedRetailPolicy20261107(string(policy)) {
 		_, _, err := ztapiReductionRules20261107(source)
 		return err
 	}

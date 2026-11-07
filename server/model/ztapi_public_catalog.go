@@ -645,7 +645,7 @@ func loadZTAPIActivePublications(db *gorm.DB) ([]ZTAPIRuntimePublication, error)
 			(ValidateZTAPICashMarginSource20261030(db, &source) != nil || validateZTAPICashMarginRoute20261030(&source, snapshot.PublicName, channels) != nil) {
 			continue
 		}
-		if source.PricePolicy == string(ZTAPIPricePolicyReduction20261107) &&
+		if isZTAPIDatedRetailPolicy20261107(source.PricePolicy) &&
 			(ValidateZTAPIPriceReductionSource20261107(db, &source) != nil || ValidateZTAPIPriceReductionRoute20261107(&source, snapshot.PublicName, channels) != nil) {
 			continue
 		}

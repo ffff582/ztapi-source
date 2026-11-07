@@ -11,7 +11,7 @@ func ztapiQuotationRouteRestrictionApplies20261030(source *ZTAPIModelPriceSource
 	if source == nil || ztapiQuotationPortfolioChannels20261030(source.SourceModel) == nil {
 		return false
 	}
-	if source.PricePolicy == string(ZTAPIPricePolicyReduction20261107) || isZTAPICashMarginPolicy20261030(source.PricePolicy) ||
+	if isZTAPIDatedRetailPolicy20261107(source.PricePolicy) || isZTAPICashMarginPolicy20261030(source.PricePolicy) ||
 		source.PricePolicy == string(ZTAPIPricePolicyXcloudGLM53) ||
 		source.SourceDocumentChecksum == ZTAPISupplierWorkbook20261019SHA256 {
 		return true
@@ -25,7 +25,7 @@ func ztapiQuotationRouteRestrictionApplies20261030(source *ZTAPIModelPriceSource
 }
 
 func ztapiQuotationSourceChannelPermitted20261030(source *ZTAPIModelPriceSource, channel int) bool {
-	if source != nil && source.PricePolicy == string(ZTAPIPricePolicyReduction20261107) {
+	if source != nil && isZTAPIDatedRetailPolicy20261107(source.PricePolicy) {
 		b, _, _, _, err := ztapiReductionApproval20261107(source.ModelConfigID)
 		var channels []int
 		return err == nil && common.UnmarshalJsonStr(b.Channels, &channels) == nil && slices.Contains(channels, channel)
