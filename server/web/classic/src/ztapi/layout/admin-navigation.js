@@ -62,6 +62,18 @@ export const adminNavigation = [
     permission: AdminPermission.financeRead,
   },
   {
+    label: '推广返利',
+    icon: Users,
+    route: '/finance/referrals',
+    permission: AdminPermission.referralsRead,
+  },
+  {
+    label: '提现审核',
+    icon: ClipboardCheck,
+    route: '/finance/referrals/withdrawals',
+    permission: AdminPermission.referralsRead,
+  },
+  {
     label: '余额账本',
     icon: WalletCards,
     route: '/finance/ledger',

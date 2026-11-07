@@ -1055,13 +1055,23 @@ func Calculate(s Snapshot, facts []Fact, month string, now time.Time) (Report, e
 		return out.CustomerServiceCosts[i].SourceRef < out.CustomerServiceCosts[j].SourceRef
 	})
 	r.buildHostedToolReport(s)
+	referralExpense, referralKnown := r.buildReferral(s.Referral)
+	if out.EstimatedGrossProfit != nil {
+		if referralKnown {
+			profit, _ := decimal.NewFromString(*out.EstimatedGrossProfit)
+			out.EstimatedGrossProfit = stringPtr(fixed(profit.Sub(referralExpense)))
+		} else {
+			out.EstimatedGrossProfit = nil
+			out.EstimateComplete = false
+		}
+	}
 	out.RecordedCost = fixed(totalCost)
 	if complete {
 		out.ActualCost = stringPtr(out.RecordedCost)
 	}
 	if out.Revenue != nil && out.ActualCost != nil && out.PeriodClosed && out.IssueCount == 0 {
 		out.Confirmed = true
-		profit := r.known.Sub(totalCost)
+		profit := r.known.Sub(totalCost).Sub(referralExpense)
 		out.GrossProfit = stringPtr(fixed(profit))
 		if r.known.IsPositive() {
 			out.Margin = stringPtr(profit.Div(r.known).Mul(decimal.NewFromInt(100)).StringFixed(2))

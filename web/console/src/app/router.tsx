@@ -23,6 +23,7 @@ import { WalletPage } from '../features/wallet/WalletPage';
 import { AccountPage } from '../features/account/AccountPage';
 import { SupportPage } from '../features/support/SupportPage';
 import { SpendingPage } from '../features/spending/SpendingPage';
+import { ReferralPage } from '../features/referrals/ReferralPage';
 
 const routes: RouteObject[] = [
   {
@@ -129,6 +130,10 @@ const routes: RouteObject[] = [
       {
         path: 'wallet',
         element: <WalletPage />,
+      },
+      {
+        path: 'referrals',
+        element: <ReferralPage />,
       },
       {
         path: 'account',

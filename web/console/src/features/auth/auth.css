@@ -516,3 +516,19 @@
     padding-top: 80px;
   }
 }
+.auth-invitation-remove {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--brand);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}

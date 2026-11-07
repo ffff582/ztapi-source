@@ -6,10 +6,13 @@ import {
   LayoutDashboard,
   LifeBuoy,
   ScrollText,
+  Users,
   UserRound,
   WalletCards,
 } from 'lucide-react';
 import { Link, NavLink, Outlet } from 'react-router-dom';
+import { useSyncExternalStore } from 'react';
+import { getAuthSession, subscribeAuthSession } from '../../api/client';
 import { ConsoleHeader } from './ConsoleHeader';
 import { useLocale } from '../../i18n/locale';
 
@@ -29,6 +32,7 @@ const consoleNavigation = [
       { to: '/console/logs', label: '用量日志', icon: ScrollText, end: false },
       { to: '/console/spending', label: '消费预警', icon: BellRing, end: false },
       { to: '/console/wallet', label: '账单充值', icon: WalletCards, end: false },
+      { to: '/console/referrals', label: '推广返利', icon: Users, end: false },
       { to: '/console/account', label: '账号设置', icon: UserRound, end: false },
       { to: '/console/support', label: '平台客服', icon: LifeBuoy, end: false },
     ],
@@ -37,6 +41,7 @@ const consoleNavigation = [
 
 export function ConsoleShell() {
   const { t } = useLocale();
+  const session = useSyncExternalStore(subscribeAuthSession, getAuthSession);
 
   return (
     <div className="console-shell">
@@ -72,6 +77,7 @@ export function ConsoleShell() {
         <ConsoleHeader />
 
         <main className="console-content">
+          {session?.referral_bound === false && <p className="console-referral-registration-note" role="status">{t('注册成功，但本次未建立推广返佣关系，请勿将本次邀请视为已生效。')}</p>}
           <Outlet />
         </main>
       </div>

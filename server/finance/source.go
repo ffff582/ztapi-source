@@ -82,6 +82,7 @@ func (r *Reader) Load(ctx context.Context, before time.Time) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
+	s.Referral = r.loadReferrals(ctx, before)
 	r.cached = s
 	r.cachedAt = time.Now()
 	r.before = before

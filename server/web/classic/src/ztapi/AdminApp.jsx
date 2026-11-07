@@ -43,6 +43,7 @@ import { QuotaPerUnitProvider } from './quota.jsx';
 import StaffRolesPage from './features/users/StaffRolesPage.jsx';
 import OrdersPage from './features/finance/OrdersPage.jsx';
 import FinanceOverviewPage from './features/finance/OverviewPage.jsx';
+import ReferralWithdrawalsPage from './features/finance/ReferralWithdrawalsPage.jsx';
 import LedgerPage from './features/finance/LedgerPage.jsx';
 import ReconciliationPage from './features/finance/ReconciliationPage.jsx';
 import WatchedAddressesPage from './features/finance/WatchedAddressesPage.jsx';
@@ -247,6 +248,22 @@ function AdminRoutes() {
             title='财务管理'
           >
             <OrdersPage canWrite={financeCanWrite} />
+          </ProtectedPage>
+        }
+      />
+      <Route
+        path='/finance/referrals'
+        element={
+          <ProtectedPage permission={AdminPermission.referralsRead} title='推广返利'>
+            <ReferralWithdrawalsPage view='commissions' />
+          </ProtectedPage>
+        }
+      />
+      <Route
+        path='/finance/referrals/withdrawals'
+        element={
+          <ProtectedPage permission={AdminPermission.referralsRead} title='提现审核'>
+            <ReferralWithdrawalsPage canWrite={hasAdminPermission(auth.session?.user?.role, AdminPermission.referralsWrite)} />
           </ProtectedPage>
         }
       />

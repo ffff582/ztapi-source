@@ -14,6 +14,12 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); clearAuthSession(); vi.clearAllMocks(); });
 
+it('keeps a direct referral entry in the shared user header', async () => {
+  render(<MemoryRouter><ConsoleHeader /></MemoryRouter>);
+  await screen.findByRole('button', { name: '消费通知' });
+  expect(screen.getByRole('link', { name: '推广返利' })).toHaveAttribute('href', '/console/referrals');
+});
+
 it.each(['/console', '/console/workbench/text'])('offers the shared bell in %s with keyboard close and focus restoration', async (path) => {
   render(<MemoryRouter initialEntries={[path]}><ConsoleHeader /></MemoryRouter>);
   const bell = screen.getByRole('button', { name: '消费通知' });

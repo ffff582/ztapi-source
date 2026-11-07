@@ -192,6 +192,10 @@ func InitDB() (err error) {
 		if err := registerBalanceLedgerImmutability(DB); err != nil {
 			return err
 		}
+		if err := RegisterZTAPIReferralImmutability(DB); err != nil {
+			return err
+		}
+		RegisterZTAPIReferralProductionAdmissionGuard()
 		if err := registerZTAPIMediaTaskMutationGuard(DB); err != nil {
 			return err
 		}
@@ -385,6 +389,9 @@ func migrateDB() error {
 	if err := MigrateZTAPISupplierReconciliation(DB); err != nil {
 		return err
 	}
+	if err := MigrateZTAPIReferral(DB); err != nil {
+		return err
+	}
 	if err := ensureZTAPICatalogLockRow(); err != nil {
 		return err
 	}
@@ -545,6 +552,9 @@ func migrateDBFast() error {
 		return err
 	}
 	if err := MigrateZTAPISupplierReconciliation(DB); err != nil {
+		return err
+	}
+	if err := MigrateZTAPIReferral(DB); err != nil {
 		return err
 	}
 	if err := ensureZTAPICatalogLockRow(); err != nil {

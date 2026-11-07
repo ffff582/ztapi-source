@@ -20,6 +20,11 @@ function renderPublicHeader() {
 }
 
 describe('PublicHeader shared controls', () => {
+  it('exposes a real referral destination without claiming the campaign is open', () => {
+    renderPublicHeader();
+    expect(screen.getByRole('link', { name: '推广返利' })).toHaveAttribute('href', '/console/referrals');
+    expect(screen.queryByText(/活动已开放|保证.*利润/)).toBeNull();
+  });
   it('exposes the authorized community link without an authenticated session', () => {
     renderPublicHeader();
     const community = screen.getByRole('link', { name: '用户交流群' });
