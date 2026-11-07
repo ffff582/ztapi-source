@@ -15,6 +15,11 @@ import (
 )
 
 const ZTAPIPricePolicyReduction20261107 ZTAPIPricePolicy = "reduction_15_12_20261107"
+const ZTAPIPricePolicyReferralFloor20261107 ZTAPIPricePolicy = "referral_floor_10_20261107"
+
+func isZTAPIDatedRetailPolicy20261107(policy string) bool {
+	return policy == string(ZTAPIPricePolicyReduction20261107) || policy == string(ZTAPIPricePolicyReferralFloor20261107)
+}
 
 // The manifest is release approval evidence, not runtime configuration.
 //
@@ -224,6 +229,14 @@ func ztapiReductionSale20261107(cost *big.Rat, margin string) (string, error) {
 }
 
 func deriveZTAPIPriceReduction20261107(base *ZTAPIModelPriceSource, operator int) (ZTAPIModelPriceSource, error) {
+	return deriveZTAPIDatedRetail20261107(base, operator, string(ZTAPIPricePolicyReduction20261107))
+}
+
+func deriveZTAPIDatedRetail20261107(base *ZTAPIModelPriceSource, operator int, policy string) (ZTAPIModelPriceSource, error) {
+	referral := policy == string(ZTAPIPricePolicyReferralFloor20261107)
+	if !isZTAPIDatedRetailPolicy20261107(policy) || (referral && (base == nil || !ztapiReferralFloorModel20261107(base.SourceModel))) {
+		return ZTAPIModelPriceSource{}, errors.New("model is outside the approved referral price floor")
+	}
 	if err := ztapiReductionBase20261107(base); err != nil {
 		return ZTAPIModelPriceSource{}, err
 	}
@@ -233,7 +246,7 @@ func deriveZTAPIPriceReduction20261107(base *ZTAPIModelPriceSource, operator int
 	}
 	target := *base
 	target.ID, target.Version, target.CreatedAt = 0, 0, 0
-	target.PricePolicy, target.SaleMultiplier = string(ZTAPIPricePolicyReduction20261107), "1.0000000000"
+	target.PricePolicy, target.SaleMultiplier = policy, "1.0000000000"
 	target.CashMarginBaseSourceID, target.OperatorID = base.ID, operator
 	var rules []ztapiABFrozenSaleRule
 	if base.TokenPriceRulesJSON != "" {
@@ -304,11 +317,14 @@ func deriveZTAPIPriceReduction20261107(base *ZTAPIModelPriceSource, operator int
 				return target, err
 			}
 		}
+		if referral {
+			margin = "0.15" // 5% recharge commission leaves the approved 10% quoted margin.
+		}
 		sale, err := ztapiReductionSale20261107(cost, margin)
 		if err != nil {
 			return target, err
 		}
-		if !ztapiSameDecimal(sale, row.ProposedSale) {
+		if (!referral && !ztapiSameDecimal(sale, row.ProposedSale)) || (referral && decimal.RequireFromString(sale).LessThan(decimal.RequireFromString(row.ProposedSale))) {
 			return target, fmt.Errorf("%s %s proposal differs from exact bonus-adjusted floor", b.PublicName, key)
 		}
 		if len(media.Rules) > 0 {
@@ -366,7 +382,7 @@ func deriveZTAPIPriceReduction20261107(base *ZTAPIModelPriceSource, operator int
 }
 
 func ztapiReductionRules20261107(source *ZTAPIModelPriceSource) ([]ztapiABFrozenSaleRule, map[string]decimal.Decimal, error) {
-	if source == nil || source.PricePolicy != string(ZTAPIPricePolicyReduction20261107) || source.OperatorID <= 0 {
+	if source == nil || !isZTAPIDatedRetailPolicy20261107(source.PricePolicy) || source.OperatorID <= 0 {
 		return nil, nil, errors.New("invalid dated reduction source")
 	}
 	_, _, base, _, err := ztapiReductionApproval20261107(source.ModelConfigID)
@@ -375,7 +391,7 @@ func ztapiReductionRules20261107(source *ZTAPIModelPriceSource) ([]ztapiABFrozen
 	}
 	base.SpendTier = source.SpendTier
 	base.SaleMultiplier = "1"
-	expected, err := deriveZTAPIPriceReduction20261107(&base, source.OperatorID)
+	expected, err := deriveZTAPIDatedRetail20261107(&base, source.OperatorID, source.PricePolicy)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -435,7 +451,7 @@ func ValidateZTAPIPriceReductionSource20261107(db *gorm.DB, source *ZTAPIModelPr
 	if !ztapiPublicationPriceBasisPermittedTx(db, &base) {
 		return errors.New("original source fails existing financial evidence validation")
 	}
-	expected, err := deriveZTAPIPriceReduction20261107(&base, source.OperatorID)
+	expected, err := deriveZTAPIDatedRetail20261107(&base, source.OperatorID, source.PricePolicy)
 	if err != nil {
 		return err
 	}
@@ -446,7 +462,7 @@ func ValidateZTAPIPriceReductionSource20261107(db *gorm.DB, source *ZTAPIModelPr
 }
 
 func ValidateZTAPIPriceReductionRoute20261107(source *ZTAPIModelPriceSource, publicName string, channels []int) error {
-	if source == nil || source.PricePolicy != string(ZTAPIPricePolicyReduction20261107) {
+	if source == nil || !isZTAPIDatedRetailPolicy20261107(source.PricePolicy) {
 		return errors.New("missing dated reduction source")
 	}
 	b, _, _, _, err := ztapiReductionApproval20261107(source.ModelConfigID)

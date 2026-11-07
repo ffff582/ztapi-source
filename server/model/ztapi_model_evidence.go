@@ -219,7 +219,7 @@ func ValidateZTAPIModelPriceSource(source *ZTAPIModelPriceSource) error {
 	if source == nil {
 		return errors.New("price source is nil")
 	}
-	if source.CashMarginBaseSourceID != 0 && !isZTAPICashMarginPolicy20261030(source.PricePolicy) && source.PricePolicy != string(ZTAPIPricePolicyReduction20261107) {
+	if source.CashMarginBaseSourceID != 0 && !isZTAPICashMarginPolicy20261030(source.PricePolicy) && !isZTAPIDatedRetailPolicy20261107(source.PricePolicy) {
 		return errors.New("only cash margin sources may reference a cash margin parent")
 	}
 	if source.ModelConfigID <= 0 || strings.TrimSpace(source.SourceModel) == "" {
@@ -329,7 +329,7 @@ func ValidateZTAPIModelPriceSource(source *ZTAPIModelPriceSource) error {
 			return err
 		}
 	}
-	if source.PricePolicy == string(ZTAPIPricePolicyReduction20261107) {
+	if isZTAPIDatedRetailPolicy20261107(source.PricePolicy) {
 		if _, _, err := ztapiReductionRules20261107(source); err != nil {
 			return err
 		}
@@ -356,7 +356,7 @@ func BuildZTAPIModelPricePreview(source *ZTAPIModelPriceSource) (*ZTAPIModelPric
 	poolOfficial, _, poolOfficialOK := ztapiPoolOfficialPriceContractFromManifest(ztapiQuotation, source.SourceModel)
 	var firstParty78 map[string]decimal.Decimal
 	var frozenRetail map[string]decimal.Decimal
-	if source.PricePolicy == string(ZTAPIPricePolicyReduction20261107) {
+	if isZTAPIDatedRetailPolicy20261107(source.PricePolicy) {
 		_, frozenRetail, _ = ztapiReductionRules20261107(source)
 	}
 	if isZTAPICashMarginPolicy20261030(source.PricePolicy) {
@@ -398,7 +398,7 @@ func BuildZTAPIModelPricePreview(source *ZTAPIModelPriceSource) (*ZTAPIModelPric
 		}
 		preview.CostUSD[dimension] = cost.StringFixed(10)
 		var sale decimal.Decimal
-		if source.PricePolicy == string(ZTAPIPricePolicyReduction20261107) || isZTAPICashMarginPolicy20261030(source.PricePolicy) || ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicyQuoteFrozenRetail20261019 ||
+		if isZTAPIDatedRetailPolicy20261107(source.PricePolicy) || isZTAPICashMarginPolicy20261030(source.PricePolicy) || ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicyQuoteFrozenRetail20261019 ||
 			ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicySupplierAdmission20261019 {
 			sale = frozenRetail[dimension]
 		} else if ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicyPoolOfficial78Sep2026 {
@@ -589,7 +589,7 @@ func UpdateZTAPIModelIdentity(update ZTAPIModelIdentityUpdate) (*ZTAPIModelConfi
 }
 
 func ImportZTAPIModelPriceSource(input ZTAPIModelPriceSourceImport) (*ZTAPIModelConfig, *ZTAPIModelPriceSource, *ZTAPIModelPricePreview, error) {
-	if input.Source.PricePolicy == string(ZTAPIPricePolicyReduction20261107) {
+	if isZTAPIDatedRetailPolicy20261107(input.Source.PricePolicy) {
 		return nil, nil, nil, errors.New("dated reduction sources require the controlled dated publisher")
 	}
 	input.Source.SourceModel = strings.TrimSpace(input.Source.SourceModel)
@@ -935,7 +935,7 @@ func (snapshot *ZTAPIModelPublicationSnapshot) BeforeCreate(tx *gorm.DB) error {
 	if err := validateZTAPICashSnapshotMode20261030(&source, snapshot); err != nil {
 		return err
 	}
-	if source.PricePolicy == string(ZTAPIPricePolicyReduction20261107) {
+	if isZTAPIDatedRetailPolicy20261107(source.PricePolicy) {
 		if err := tx.First(&source, snapshot.PriceSourceID).Error; err != nil {
 			return err
 		}

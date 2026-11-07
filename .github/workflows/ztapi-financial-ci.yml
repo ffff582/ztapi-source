@@ -115,7 +115,7 @@ jobs:
 
       - name: Run price reduction and official comparison integrity
         working-directory: server
-        run: go test ./model ./controller ./types -run 'TestZTAPI.*(Pricing|Price|Cash|Official|PublicCatalog|Reduction)|TestPriceReduction20261107|TestSupplierPriceCore20261019' -count=1 -timeout=8m
+        run: go test ./model ./controller ./types -run 'TestZTAPI.*(Pricing|Price|Cash|Official|PublicCatalog|Reduction)|TestPriceReduction20261107|TestReferralFloor20261107|TestSupplierPriceCore20261019' -count=1 -timeout=8m
 
       - name: Run offline UI suites
         run: |

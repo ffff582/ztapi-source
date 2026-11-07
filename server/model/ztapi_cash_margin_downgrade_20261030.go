@@ -21,7 +21,7 @@ type ZTAPICashMarginDowngrade20261030 struct {
 // operator must quiesce new admissions and drain in-flight requests before
 // accepting a ready result and replacing the compatible reader.
 func CheckZTAPICashMarginDowngrade20261030() (ZTAPICashMarginDowngrade20261030, error) {
-	policies := []string{string(ZTAPIPricePolicyCashEnterprise20261030), string(ZTAPIPricePolicyCashPool20261030), string(ZTAPIPricePolicyReduction20261107)}
+	policies := []string{string(ZTAPIPricePolicyCashEnterprise20261030), string(ZTAPIPricePolicyCashPool20261030), string(ZTAPIPricePolicyReduction20261107), string(ZTAPIPricePolicyReferralFloor20261107)}
 	names := make([]string, 0, len(ztapiCashMarginSources20261030))
 	for _, source := range ztapiCashMarginSources20261030 {
 		contract, err := ztapiCashContractFor20261030(source)
@@ -53,7 +53,7 @@ func CheckZTAPIPriceReductionDowngrade20261107() (ZTAPICashMarginDowngrade202610
 		}
 		names = append(names, b.PublicName)
 	}
-	return checkZTAPIPolicyDowngrade20261107([]string{string(ZTAPIPricePolicyReduction20261107)}, names)
+	return checkZTAPIPolicyDowngrade20261107([]string{string(ZTAPIPricePolicyReduction20261107), string(ZTAPIPricePolicyReferralFloor20261107)}, names)
 }
 
 func checkZTAPIPolicyDowngrade20261107(policies, names []string) (ZTAPICashMarginDowngrade20261030, error) {
@@ -109,7 +109,8 @@ func checkZTAPIPolicyDowngrade20261107(policies, names []string) (ZTAPICashMargi
 							blocked = true
 						}
 					}
-					if policy == "" || sourceID <= 0 || slices.Contains(policies, policy) || cashIDs[sourceID] || strings.HasPrefix(strings.ToLower(policy), "reduction_") ||
+					unknownReduction := strings.HasPrefix(strings.ToLower(policy), "reduction_") && (policy != string(ZTAPIPricePolicyReduction20261107) || slices.Contains(policies, policy))
+					if policy == "" || sourceID <= 0 || slices.Contains(policies, policy) || cashIDs[sourceID] || unknownReduction || strings.HasPrefix(strings.ToLower(policy), "referral_floor_") ||
 						(slices.Contains(policies, string(ZTAPIPricePolicyCashPool20261030)) && strings.HasPrefix(strings.ToLower(policy), "cash_")) {
 						blocked = true
 					}
