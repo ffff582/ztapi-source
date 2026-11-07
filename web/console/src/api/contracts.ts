@@ -86,6 +86,7 @@ export interface PricingEnvelope {
 
 export interface RuntimeStatus {
   quota_per_unit: number;
+  usd_exchange_rate?: number;
 }
 
 export interface UserTopUp {
@@ -163,6 +164,8 @@ export interface OfficialPriceReference {
   checked_at: string;
   kind: 'official_snapshot' | 'supplier_quoted_official';
   note?: string;
+  original_currency?: 'USD' | 'CNY';
+  original_units_per_usd?: string;
 }
 
 export interface UserModelCatalogItem {
@@ -190,6 +193,7 @@ export interface UserModelCatalogItem {
 export interface UserModelCatalogEnvelope {
   models: string[];
   catalog: UserModelCatalogItem[];
+  display_cny_per_unit?: number;
 }
 
 export interface UserLogItem {
@@ -368,11 +372,19 @@ function parseOfficialPriceReference(value: unknown): OfficialPriceReference | u
   let url: URL;
   try { url = new URL(value.url); } catch { throw new DataContractError(); }
   if (url.protocol !== 'https:' || url.username || url.password) throw new DataContractError();
+  const hasOriginalCurrency = value.original_currency !== undefined || value.original_units_per_usd !== undefined;
+  const validOriginalCurrency = hasOriginalCurrency &&
+    ['USD', 'CNY'].includes(String(value.original_currency)) && positiveDecimalString(value.original_units_per_usd) &&
+    (value.original_currency !== 'USD' || Number(value.original_units_per_usd) === 1);
   return {
     url: value.url,
     checked_at: value.checked_at,
     kind: value.kind as OfficialPriceReference['kind'],
     ...(typeof value.note === 'string' ? { note: value.note } : {}),
+    ...(validOriginalCurrency ? {
+      original_currency: value.original_currency as 'USD' | 'CNY',
+      original_units_per_usd: value.original_units_per_usd as string,
+    } : {}),
   };
 }
 
@@ -662,7 +674,10 @@ export function parseUserModelCatalog(value: unknown): UserModelCatalogEnvelope 
     throw new DataContractError();
   }
 
-  return { models, catalog };
+  return { models, catalog,
+    ...(finiteNumber(value.display_cny_per_unit) && value.display_cny_per_unit >= 0.000001 && value.display_cny_per_unit <= 1_000_000
+      ? { display_cny_per_unit: value.display_cny_per_unit } : {}),
+  };
 }
 
 export function parseAuthUser(value: unknown): AuthUser {
@@ -950,7 +965,11 @@ export function parseRuntimeStatus(value: unknown): RuntimeStatus {
     throw new DataContractError();
   }
 
-  return { quota_per_unit: value.quota_per_unit };
+  return {
+    quota_per_unit: value.quota_per_unit,
+    ...(finiteNumber(value.usd_exchange_rate) && value.usd_exchange_rate > 0
+      ? { usd_exchange_rate: value.usd_exchange_rate } : {}),
+  };
 }
 
 export function parseAccountQuota(value: unknown): number {

@@ -14,6 +14,7 @@ import { useLocale } from '../../i18n/locale';
 import { providerFamilyRank, sortVendorModelsByRecency } from './catalog-order';
 import { modelOfficialDiscount, modelPriceDetails, type ModelPriceDetail } from './pricing';
 import { OfficialPriceComparison, OfficialPriceReference } from './OfficialPriceReference';
+import { PriceCurrencyControl, usePriceDisplay } from './PriceCurrencyControl';
 
 type ModelCategory = 'all' | 'text' | 'image' | 'video' | 'embedding';
 
@@ -43,6 +44,8 @@ export function ModelsPage() {
   const { t } = useLocale();
   const [pricing, setPricing] = useState<PricingEnvelope | null>(null);
   const [quotaPerUnit, setQuotaPerUnit] = useState<number | null>(null);
+  const [displayRate, setDisplayRate] = useState<number | undefined>();
+  const { display, setCurrency } = usePriceDisplay(displayRate);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState<ModelCategory>('all');
@@ -57,6 +60,7 @@ export function ModelsPage() {
         if (active) {
           setPricing(pricingValue);
           setQuotaPerUnit(statusValue.quota_per_unit);
+          setDisplayRate(statusValue.usd_exchange_rate);
           setStatus('ready');
         }
       })
@@ -121,6 +125,7 @@ export function ModelsPage() {
             <strong>{t('逐项查看实际售价与官网参考')}</strong>
             <span>{t('售价以当前公开目录为准；不同规格、阶梯和缓存分别计价，不承诺全站统一折扣。')}</span>
           </aside>
+          <PriceCurrencyControl display={display} onChange={setCurrency} />
 
           <div className="catalog-tools">
             <div className="catalog-tools__heading">
@@ -170,7 +175,7 @@ export function ModelsPage() {
               </div>
               <div className="catalog-models">
                 {group.models.map((model) => {
-                  const prices = modelPriceDetails(model, pricing, quotaPerUnit);
+                  const prices = modelPriceDetails(model, pricing, quotaPerUnit, display);
                   const headlinePrices = primaryPrices(prices);
                   const quoted = model.official_reference?.kind === 'supplier_quoted_official';
                   const discount = quoted ? null : modelOfficialDiscount(prices);

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -591,12 +592,16 @@ func GetUserModels(c *gin.Context) {
 		return
 	}
 	catalog = model.FilterZTAPIPublicCatalogByGroups(catalog, groups)
-	c.JSON(http.StatusOK, gin.H{
+	response := gin.H{
 		"success": true,
 		"message": "",
 		"data":    model.ZTAPIPublicCatalogNames(catalog),
 		"catalog": catalog,
-	})
+	}
+	if rate := operation_setting.USDExchangeRate; !math.IsNaN(rate) && !math.IsInf(rate, 0) && rate >= 0.000001 && rate <= 1000000 {
+		response["display_cny_per_unit"] = rate
+	}
+	c.JSON(http.StatusOK, response)
 	return
 }
 

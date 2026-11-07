@@ -7,7 +7,8 @@
     { "id": "codex", "label": "Codex 接入", "english": "Codex setup with search and page reading", "path": "/docs/codex" },
     { "id": "user-guide", "label": "用户指南", "english": "User guide", "path": "/docs/user-guide" },
     { "id": "faq", "label": "常见问题", "english": "Frequently asked questions", "path": "/docs/faq" },
-    { "id": "resource-disclosure", "label": "资源来源与价格说明", "english": "Resource sources and pricing", "path": "/docs/resource-disclosure" }
+    { "id": "resource-disclosure", "label": "资源来源与价格说明", "english": "Resource sources and pricing", "path": "/docs/resource-disclosure" },
+    { "id": "license", "label": "开源许可", "english": "Open-source license", "path": "/docs/license" }
   ],
   "endpoints": [
     ["GET", "/v1/models", "获取当前可用模型"],

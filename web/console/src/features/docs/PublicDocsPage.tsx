@@ -12,6 +12,7 @@ import {
   Terminal,
   UserRound,
   Info,
+  Scale,
 } from 'lucide-react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import type { ReactNode } from 'react';
@@ -19,14 +20,15 @@ import { useEffect, useRef, useState } from 'react';
 import { PublicHeader } from '../../components/layout/PublicHeader';
 import { useLocale } from '../../i18n/locale';
 import manifest from './docs-manifest.json';
+import { SourceOffer } from './SourceOffer';
 import { codexConfig, codexWindowsKey, codexPosixKey, codexWindowsDesktopKey, codexMacDesktopKey, codexPosixLauncher, codexWindowsLauncher } from '../guide/codex-setup';
 import './docs.css';
 
-type DocSection = 'api' | 'integration' | 'codex' | 'user-guide' | 'faq' | 'resource-disclosure';
+type DocSection = 'api' | 'integration' | 'codex' | 'user-guide' | 'faq' | 'resource-disclosure' | 'license';
 
 const BASE_URL = manifest.baseUrl;
 
-const icons = { api: Code2, integration: Cable, codex: Terminal, 'user-guide': UserRound, faq: CircleHelp, 'resource-disclosure': Info };
+const icons = { api: Code2, integration: Cable, codex: Terminal, 'user-guide': UserRound, faq: CircleHelp, 'resource-disclosure': Info, license: Scale };
 const sections = manifest.sections.map((section) => ({
   ...section, id: section.id as DocSection, icon: icons[section.id as DocSection],
 }));
@@ -304,6 +306,28 @@ function ResourceDisclosure() {
   );
 }
 
+function LicensePage() {
+  const { t } = useLocale();
+  return (
+    <>
+      <DocsHeading eyebrow={t('法律声明')} title={t('开源许可')}
+        summary={t('本服务基于 New API 修改，保留原项目署名，并提供当前运行版本的对应源码。')} />
+      <DocsSection title={t('原始项目与署名')}>
+        <p>Copyright (c) QuantumNous and contributors.</p>
+        <p>Frontend design and development by New API contributors.</p>
+        <a className="docs-legal-link" href="https://github.com/QuantumNous/new-api" target="_blank" rel="noopener noreferrer">{t('New API 原始项目')}</a>
+      </DocsSection>
+      <DocsSection title={t('软件许可')}>
+        <a className="docs-legal-link" href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noopener noreferrer">GNU Affero General Public License v3.0 (AGPL-3.0-or-later)</a>
+        <p>{t('ZTAPI 为修改版本，与原始 New API 项目不同；具体修改记录随对应源码提供。')}</p>
+      </DocsSection>
+      <DocsSection title={t('当前版本对应源码')}>
+        <SourceOffer />
+      </DocsSection>
+    </>
+  );
+}
+
 function DocsHeading({ eyebrow, title, summary, children }: { eyebrow: string; title: string; summary: string; children?: ReactNode }) {
   return (
     <header className="docs-heading">
@@ -398,9 +422,12 @@ export function PublicDocsPage() {
           {active === 'user-guide' && <UserGuide />}
           {active === 'faq' && <FaqPage />}
           {active === 'resource-disclosure' && <ResourceDisclosure />}
-          <a className="docs-source-link" href="https://github.com/ffff582/ztapi-source/tree/production-codex-entry-20261104-r1" target="_blank" rel="noreferrer">{t('前端源码')}</a>
+          {active === 'license' && <LicensePage />}
         </article>
       </main>
+      <footer className="docs-footer public-shell" aria-label={t('法律信息')}>
+        <Link to="/docs/license"><Scale aria-hidden="true" size={16} />{t('开源许可')}</Link>
+      </footer>
     </div>
   );
 }
