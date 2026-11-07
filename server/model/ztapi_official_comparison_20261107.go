@@ -2,7 +2,9 @@ package model
 
 import (
 	_ "embed"
+	"encoding/json"
 	"maps"
+	"regexp"
 	"slices"
 
 	"github.com/QuantumNous/new-api/common"
@@ -15,10 +17,40 @@ import (
 var ztapiOfficialComparisonJSON20261107 []byte
 
 type ZTAPIPublicOfficialReference struct {
-	URL       string `json:"url"`
-	CheckedAt string `json:"checked_at"`
-	Kind      string `json:"kind"`
-	Note      string `json:"note"`
+	URL                 string `json:"url"`
+	CheckedAt           string `json:"checked_at"`
+	Kind                string `json:"kind"`
+	Note                string `json:"note"`
+	OriginalCurrency    string `json:"original_currency,omitempty"`
+	OriginalUnitsPerUSD string `json:"original_units_per_usd,omitempty"`
+}
+
+var ztapiOfficialOriginalUnitsPattern20261107 = regexp.MustCompile(`^[0-9]+(?:\.[0-9]+)?$`)
+
+// Invalid optional display metadata must not discard existing benchmarks.
+func (reference *ZTAPIPublicOfficialReference) UnmarshalJSON(raw []byte) error {
+	type plainReference ZTAPIPublicOfficialReference
+	var value ZTAPIPublicOfficialReference
+	decoded := struct {
+		*plainReference
+		OriginalCurrency    json.RawMessage `json:"original_currency"`
+		OriginalUnitsPerUSD json.RawMessage `json:"original_units_per_usd"`
+	}{plainReference: (*plainReference)(&value)}
+	if err := common.Unmarshal(raw, &decoded); err != nil {
+		return err
+	}
+	if common.Unmarshal(decoded.OriginalCurrency, &value.OriginalCurrency) == nil &&
+		common.Unmarshal(decoded.OriginalUnitsPerUSD, &value.OriginalUnitsPerUSD) == nil {
+		rate, err := decimal.NewFromString(value.OriginalUnitsPerUSD)
+		if err == nil && ztapiOfficialOriginalUnitsPattern20261107.MatchString(value.OriginalUnitsPerUSD) && rate.IsPositive() &&
+			(value.OriginalCurrency == "CNY" || (value.OriginalCurrency == "USD" && rate.Equal(decimal.NewFromInt(1)))) {
+			*reference = value
+			return nil
+		}
+	}
+	value.OriginalCurrency, value.OriginalUnitsPerUSD = "", ""
+	*reference = value
+	return nil
 }
 
 type ztapiOfficialComparison20261107 struct {

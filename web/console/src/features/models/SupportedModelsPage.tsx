@@ -2,7 +2,8 @@ import { Copy, Search, TriangleAlert } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { apiClient } from '../../api/client';
 import { sortCatalogByRecency } from './catalog-order';
-import { formatUnitPrice } from './pricing';
+import { formatUnitPrice, type PriceDisplay } from './pricing';
+import { PriceCurrencyControl, usePriceDisplay } from './PriceCurrencyControl';
 import { OfficialPriceReference } from './OfficialPriceReference';
 import { UsageBillingNote } from '../../components/UsageBillingNote';
 import { useLocale } from '../../i18n/locale';
@@ -134,8 +135,8 @@ function billingDimensionDetail(dimension: string) {
   );
 }
 
-function formatPrice(value: string, unit: string) {
-  return formatUnitPrice(value, unit);
+function formatPrice(value: string, unit: string, display?: PriceDisplay) {
+  return formatUnitPrice(value, unit, display);
 }
 
 const conditionLabels: Record<string, Record<string, string>> = {
@@ -188,6 +189,8 @@ function matchesSearch(item: UserModelCatalogItem, query: string, t: (key: strin
 export function SupportedModelsPage() {
   const { t } = useLocale();
   const [catalog, setCatalog] = useState<UserModelCatalogItem[]>([]);
+  const [displayRate, setDisplayRate] = useState<number | undefined>();
+  const { display, setCurrency } = usePriceDisplay(displayRate);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState<ModelCategory>('all');
@@ -205,6 +208,7 @@ export function SupportedModelsPage() {
       .then((response) => {
         if (active) {
           setCatalog(sortCatalogByRecency(response.catalog));
+          setDisplayRate(response.display_cny_per_unit);
           setStatus('ready');
         }
       })
@@ -286,6 +290,7 @@ export function SupportedModelsPage() {
           <strong>{t('逐项查看实际售价与官网参考')}</strong>
           <span>{t('售价以当前公开目录为准；不同规格、阶梯和缓存分别计价，不承诺全站统一折扣。')}</span>
         </aside>
+        <PriceCurrencyControl display={display} onChange={setCurrency} />
 
         {status === 'loading' && (
           <div className="console-state" aria-live="polite" aria-busy="true">
@@ -390,7 +395,7 @@ export function SupportedModelsPage() {
                                       <span>{pricingRuleLabel(rule.conditions, t)}</span>
                                       <strong>
                                         {Object.values(rule.sale_usd).map((value) =>
-                                          formatPrice(value, mediaBillingUnit(rule.billing_unit)),
+                                          formatPrice(value, mediaBillingUnit(rule.billing_unit), display),
                                         ).join(' / ')}
                                       </strong>
                                     </li>
@@ -409,7 +414,7 @@ export function SupportedModelsPage() {
                                       return (
                                         <div className="model-token-tier-price" key={dimension}>
                                           <span>{t(price.label)}</span>
-                                          <strong>{formatPrice(rule.sale_usd[dimension], t(price.unit))}</strong>
+                                          <strong>{formatPrice(rule.sale_usd[dimension], t(price.unit), display)}</strong>
                                         </div>
                                       );
                                     })}
@@ -423,7 +428,7 @@ export function SupportedModelsPage() {
                                   return (
                                     <li key={dimension}>
                                       <span>{t(price.label)}</span>
-                                      <strong>{formatPrice(item.sale_usd[dimension], t(price.unit))}</strong>
+                                      <strong>{formatPrice(item.sale_usd[dimension], t(price.unit), display)}</strong>
                                     </li>
                                   );
                                 })}

@@ -1,0 +1,1302 @@
+{
+  "auto_groups": [
+    "default"
+  ],
+  "data": [
+    {
+      "model_name": "zt-claude-fable-5",
+      "quota_type": 0,
+      "model_ratio": 4.06545,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 5,
+      "cache_ratio": 0.10000123,
+      "create_cache_ratio": 2,
+      "image_ratio": 1,
+      "audio_ratio": 1,
+      "audio_completion_ratio": 5,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "openai",
+        "anthropic"
+      ],
+      "billing_mode": "ratio",
+      "pricing_version": "ztapi-snapshot-1613",
+      "provider_family": "anthropic",
+      "vendor_name": "Claude",
+      "input_price_per_million": "",
+      "output_price_per_million": "",
+      "billing_dimensions": [
+        "cache_read",
+        "input_tokens",
+        "output_tokens",
+        "cache_write"
+      ],
+      "sale_usd": {},
+      "official_reference": {
+        "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+        "checked_at": "2026-11-07",
+        "kind": "official_snapshot",
+        "note": "同型号官网价快照；统一缓存写入没有已确认的 TTL，不展示该项官网折扣。输入、输出和缓存读取分别比较。"
+      },
+      "token_price_rules": [
+        {
+          "conditions": [],
+          "sale_usd": {
+            "cache_read": "0.8131000000",
+            "cache_write": "16.2618000000",
+            "input_tokens": "8.1309000000",
+            "output_tokens": "40.6545000000"
+          },
+          "official_usd": {
+            "cache_read": "1",
+            "input_tokens": "10",
+            "output_tokens": "50"
+          }
+        }
+      ],
+      "billing_rule": "multi_dimension"
+    },
+    {
+      "model_name": "zt-claude-opus-5",
+      "quota_type": 0,
+      "model_ratio": 1.25225,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 4.999880215611898,
+      "cache_ratio": 0.10001996,
+      "create_cache_ratio": 1.24999002,
+      "image_ratio": 1,
+      "audio_ratio": 1,
+      "audio_completion_ratio": 5,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "openai",
+        "anthropic"
+      ],
+      "billing_mode": "ratio",
+      "pricing_version": "ztapi-snapshot-1614",
+      "provider_family": "anthropic",
+      "vendor_name": "Claude",
+      "input_price_per_million": "",
+      "output_price_per_million": "",
+      "billing_dimensions": [
+        "cache_read",
+        "cache_write_1h",
+        "cache_write_5m",
+        "input_tokens",
+        "output_tokens"
+      ],
+      "sale_usd": {},
+      "official_reference": {
+        "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+        "checked_at": "2026-11-07",
+        "kind": "official_snapshot",
+        "note": "同型号、同规格官网价格快照；不含充值赠额，非原厂直连承诺。"
+      },
+      "token_price_rules": [
+        {
+          "conditions": [],
+          "sale_usd": {
+            "cache_read": "0.2505000000",
+            "cache_write_1h": "5.0089000000",
+            "cache_write_5m": "3.1306000000",
+            "input_tokens": "2.5045000000",
+            "output_tokens": "12.5222000000"
+          },
+          "official_usd": {
+            "cache_read": "0.5",
+            "cache_write_1h": "10",
+            "cache_write_5m": "6.25",
+            "input_tokens": "5",
+            "output_tokens": "25"
+          }
+        }
+      ],
+      "billing_rule": "multi_dimension"
+    },
+    {
+      "model_name": "zt-claude-sonnet-5",
+      "quota_type": 0,
+      "model_ratio": 0.5009,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 6.473647434617687,
+      "cache_ratio": 0.13875025,
+      "create_cache_ratio": 1.75713715,
+      "image_ratio": 1,
+      "audio_ratio": 1,
+      "audio_completion_ratio": 5,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "openai",
+        "anthropic"
+      ],
+      "billing_mode": "ratio",
+      "pricing_version": "ztapi-snapshot-1615",
+      "provider_family": "anthropic",
+      "vendor_name": "Claude",
+      "input_price_per_million": "",
+      "output_price_per_million": "",
+      "billing_dimensions": [
+        "cache_read",
+        "cache_write_1h",
+        "cache_write_5m",
+        "input_tokens",
+        "output_tokens"
+      ],
+      "sale_usd": {},
+      "official_reference": {
+        "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+        "checked_at": "2026-11-07",
+        "kind": "official_snapshot",
+        "note": "同型号、同规格官网价格快照；不含充值赠额，非原厂直连承诺。"
+      },
+      "token_price_rules": [
+        {
+          "conditions": [],
+          "sale_usd": {
+            "cache_read": "0.1390000000",
+            "cache_write_1h": "2.5015000000",
+            "cache_write_5m": "1.7603000000",
+            "input_tokens": "1.0018000000",
+            "output_tokens": "6.4853000000"
+          },
+          "official_usd": {
+            "cache_read": "0.2",
+            "cache_write_1h": "4",
+            "cache_write_5m": "2.5",
+            "input_tokens": "2",
+            "output_tokens": "10"
+          }
+        }
+      ],
+      "billing_rule": "multi_dimension"
+    },
+    {
+      "model_name": "zt-deepseek-v4-flash",
+      "quota_type": 0,
+      "model_ratio": 0.28280543,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 2.9999999999999996,
+      "cache_ratio": 0.03333333,
+      "create_cache_ratio": 1,
+      "image_ratio": 1,
+      "audio_ratio": 1,
+      "audio_completion_ratio": 3,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "openai",
+        "anthropic"
+      ],
+      "billing_mode": "ratio",
+      "pricing_version": "ztapi-snapshot-1580",
+      "provider_family": "deepseek",
+      "vendor_name": "DeepSeek",
+      "input_price_per_million": "0.5656108598",
+      "output_price_per_million": "1.6968325791",
+      "billing_dimensions": [
+        "cache_read",
+        "input_tokens",
+        "output_tokens"
+      ],
+      "sale_usd": {
+        "cache_read": "0.0188536954",
+        "input_tokens": "0.5656108598",
+        "output_tokens": "1.6968325791"
+      },
+      "billing_rule": "multi_dimension"
+    },
+    {
+      "model_name": "zt-deepseek-v4-pro",
+      "quota_type": 0,
+      "model_ratio": 0.8099,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 2.999876527966416,
+      "cache_ratio": 0.03333745,
+      "create_cache_ratio": 1,
+      "image_ratio": 1,
+      "audio_ratio": 1,
+      "audio_completion_ratio": 3,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "openai",
+        "anthropic"
+      ],
+      "billing_mode": "ratio",
+      "pricing_version": "ztapi-snapshot-1607",
+      "provider_family": "deepseek",
+      "vendor_name": "DeepSeek",
+      "input_price_per_million": "",
+      "output_price_per_million": "",
+      "billing_dimensions": [
+        "cache_read",
+        "input_tokens",
+        "output_tokens"
+      ],
+      "sale_usd": {},
+      "official_reference": {
+        "url": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+        "checked_at": "2026-11-07",
+        "kind": "official_snapshot",
+        "note": "原厂峰时价基准；谷时官网价减半，本平台维持公示固定价。人民币按 1U=6.63元换算。"
+      },
+      "token_price_rules": [
+        {
+          "conditions": [],
+          "sale_usd": {
+            "cache_read": "0.0540000000",
+            "input_tokens": "1.6198000000",
+            "output_tokens": "4.8592000000"
+          },
+          "official_usd": {
+            "cache_read": "0.04524886877828054298642533936651583710407",
+            "input_tokens": "1.357466063348416289592760180995475113122",
+            "output_tokens": "4.072398190045248868778280542986425339367"
+          }
+        }
+      ],
+      "billing_rule": "multi_dimension"
+    },
+    {
+      "model_name": "zt-glm-5",
+      "quota_type": 0,
+      "model_ratio": 0.37795,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 3.6664902764915994,
+      "cache_ratio": 0.25003307,
+      "create_cache_ratio": 1,
+      "image_ratio": 1,
+      "audio_ratio": 1,
+      "audio_completion_ratio": 3.6667,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "openai",
+        "anthropic"
+      ],
+      "billing_mode": "ratio",
+      "pricing_version": "ztapi-snapshot-1608",
+      "provider_family": "glm",
+      "vendor_name": "GLM",
+      "input_price_per_million": "",
+      "output_price_per_million": "",
+      "billing_dimensions": [
+        "cache_read",
+        "input_tokens",
+        "output_tokens"
+      ],
+      "sale_usd": {},
+      "official_reference": {
+        "url": "https://docs.bigmodel.cn/cn/guide/start/pricing",
+        "checked_at": "2026-11-07",
+        "kind": "official_snapshot",
+        "note": "同型号、同规格官网价；人民币按 1U=6.63元换算。"
+      },
+      "token_price_rules": [
+        {
+          "conditions": [
+            "输入长度=<32K"
+          ],
+          "sale_usd": {
+            "cache_read": "0.1260000000",
+            "input_tokens": "0.5040000000",
+            "output_tokens": "2.2676000000"
+          },
+          "official_usd": {
+            "cache_read": "0.1508295625942684766214177978883861236802",
+            "input_tokens": "0.603318250377073906485671191553544494721",
+            "output_tokens": "2.714932126696832579185520361990950226244"
+          }
+        },
+        {
+          "conditions": [
+            "输入长度=≥32K"
+          ],
+          "sale_usd": {
+            "cache_read": "0.1890000000",
+            "input_tokens": "0.7559000000",
+            "output_tokens": "2.7715000000"
+          },
+          "official_usd": {
+            "cache_read": "0.2262443438914027149321266968325791855204",
+            "input_tokens": "0.9049773755656108597285067873303167420814",
+            "output_tokens": "3.318250377073906485671191553544494720965"
+          }
+        }
+      ],
+      "billing_rule": "multi_dimension"
+    },
+    {
+      "model_name": "zt-glm-5.1",
+      "quota_type": 0,
+      "model_ratio": 0.50395,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 3.4997519595197937,
+      "cache_ratio": 0.2500248,
+      "create_cache_ratio": 1,
+      "image_ratio": 1,
+      "audio_ratio": 1,
+      "audio_completion_ratio": 3.5,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "openai",
+        "anthropic"
+      ],
+      "billing_mode": "ratio",
+      "pricing_version": "ztapi-snapshot-1609",
+      "provider_family": "glm",
+      "vendor_name": "GLM",
+      "input_price_per_million": "",
+      "output_price_per_million": "",
+      "billing_dimensions": [
+        "cache_read",
+        "input_tokens",
+        "output_tokens"
+      ],
+      "sale_usd": {},
+      "official_reference": {
+        "url": "https://docs.bigmodel.cn/cn/guide/start/pricing",
+        "checked_at": "2026-11-07",
+        "kind": "official_snapshot",
+        "note": "同型号、同规格官网价；人民币按 1U=6.63元换算。"
+      },
+      "token_price_rules": [
+        {
+          "conditions": [
+            "输入长度=<32K"
+          ],
+          "sale_usd": {
+            "cache_read": "0.1638000000",
+            "input_tokens": "0.7559000000",
+            "output_tokens": "3.0235000000"
+          },
+          "official_usd": {
+            "cache_read": "0.1960784313725490196078431372549019607843",
+            "input_tokens": "0.9049773755656108597285067873303167420814",
+            "output_tokens": "3.619909502262443438914027149321266968326"
+          }
+        },
+        {
+          "conditions": [
+            "输入长度=≥32K"
+          ],
+          "sale_usd": {
+            "cache_read": "0.2520000000",
+            "input_tokens": "1.0079000000",
+            "output_tokens": "3.5274000000"
+          },
+          "official_usd": {
+            "cache_read": "0.3016591251885369532428355957767722473605",
+            "input_tokens": "1.206636500754147812971342383107088989442",
+            "output_tokens": "4.223227752639517345399698340874811463047"
+          }
+        }
+      ],
+      "billing_rule": "multi_dimension"
+    },
+    {
+      "model_name": "zt-gemini-3-flash-preview",
+      "quota_type": 0,
+      "model_ratio": 0.5385,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 2.9998142989786443,
+      "cache_ratio": 0.1,
+      "create_cache_ratio": 1,
+      "image_ratio": 1,
+      "audio_ratio": 2,
+      "audio_completion_ratio": 6,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "openai",
+        "anthropic"
+      ],
+      "billing_mode": "ratio",
+      "pricing_version": "ztapi-snapshot-1616",
+      "provider_family": "google",
+      "vendor_name": "Gemini",
+      "input_price_per_million": "",
+      "output_price_per_million": "",
+      "billing_dimensions": [
+        "cache_read",
+        "input_tokens",
+        "output_tokens"
+      ],
+      "sale_usd": {},
+      "official_reference": {
+        "url": "https://ai.google.dev/gemini-api/docs/pricing",
+        "checked_at": "2026-11-07",
+        "kind": "official_snapshot",
+        "note": "同型号、同规格官网价格快照；不含充值赠额，非原厂直连承诺。"
+      },
+      "token_price_rules": [
+        {
+          "conditions": [
+            "输入类型=文本/图像/视频"
+          ],
+          "sale_usd": {
+            "cache_read": "0.0539000000",
+            "input_tokens": "0.5385000000",
+            "output_tokens": "3.2308000000"
+          },
+          "official_usd": {
+            "cache_read": "0.05",
+            "input_tokens": "0.5",
+            "output_tokens": "3"
+          }
+        },
+        {
+          "conditions": [
+            "输入类型=音频"
+          ],
+          "sale_usd": {
+            "cache_read": "0.1077000000",
+            "input_tokens": "1.0770000000",
+            "output_tokens": "3.2308000000"
+          },
+          "official_usd": {
+            "cache_read": "0.1",
+            "input_tokens": "1",
+            "output_tokens": "3"
+          }
+        }
+      ],
+      "billing_rule": "multi_dimension"
+    },
+    {
+      "model_name": "zt-gemini-3.5-flash",
+      "quota_type": 0,
+      "model_ratio": 0.817389965,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 5.9999999694148425,
+      "cache_ratio": 0.1,
+      "create_cache_ratio": 1,
+      "image_ratio": 1,
+      "audio_ratio": 1,
+      "audio_completion_ratio": 6,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "openai",
+        "anthropic"
+      ],
+      "billing_mode": "ratio",
+      "pricing_version": "ztapi-snapshot-1622",
+      "provider_family": "google",
+      "vendor_name": "Gemini",
+      "input_price_per_million": "",
+      "output_price_per_million": "",
+      "billing_dimensions": [
+        "cache_read",
+        "input_tokens",
+        "output_tokens"
+      ],
+      "sale_usd": {},
+      "official_reference": {
+        "url": "https://cloud.google.com/model-garden/pricing",
+        "checked_at": "2026-11-07",
+        "kind": "official_snapshot",
+        "note": "同型号、同规格官网价格快照；不含充值赠额，非原厂直连承诺。"
+      },
+      "token_price_rules": [
+        {
+          "conditions": [
+            "输入长度≤1M"
+          ],
+          "sale_usd": {
+            "cache_read": "0.1634780000",
+            "input_tokens": "1.6347799300",
+            "output_tokens": "9.8086795300"
+          },
+          "official_usd": {
+            "cache_read": "0.15",
+            "input_tokens": "1.5",
+            "output_tokens": "9"
+          }
+        }
+      ],
+      "billing_rule": "multi_dimension"
+    },
+    {
+      "model_name": "zt-kimi-k2.5",
+      "quota_type": 0,
+      "model_ratio": 0.2628,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 5.249048706240488,
+      "cache_ratio": 0.17503805,
+      "create_cache_ratio": 1,
+      "image_ratio": 1,
+      "audio_ratio": 1,
+      "audio_completion_ratio": 5.25,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "openai",
+        "anthropic"
+      ],
+      "billing_mode": "ratio",
+      "pricing_version": "ztapi-snapshot-1610",
+      "provider_family": "moonshot",
+      "vendor_name": "Kimi",
+      "input_price_per_million": "",
+      "output_price_per_million": "",
+      "billing_dimensions": [
+        "cache_read",
+        "input_tokens",
+        "output_tokens"
+      ],
+      "sale_usd": {},
+      "official_reference": {
+        "url": "https://platform.kimi.com/docs/pricing/chat",
+        "checked_at": "2026-11-07",
+        "kind": "supplier_quoted_official",
+        "note": "报价表列示的官网基准，非实时官网价格；人民币按 1U=6.63元换算。"
+      },
+      "token_price_rules": [
+        {
+          "conditions": [
+            "输入长度≤262K"
+          ],
+          "sale_usd": {
+            "cache_read": "0.0920000000",
+            "input_tokens": "0.5256000000",
+            "output_tokens": "2.7589000000"
+          },
+          "official_usd": {
+            "cache_read": "0.1055806938159879336349924585218702865762",
+            "input_tokens": "0.603318250377073906485671191553544494721",
+            "output_tokens": "3.167420814479638009049773755656108597285"
+          }
+        }
+      ],
+      "billing_rule": "multi_dimension"
+    },
+    {
+      "model_name": "zt-kimi-k2.6",
+      "quota_type": 0,
+      "model_ratio": 0.427,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 4.153629976580796,
+      "cache_ratio": 0.16932084,
+      "create_cache_ratio": 1,
+      "image_ratio": 1,
+      "audio_ratio": 1,
+      "audio_completion_ratio": 4.1538,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "openai",
+        "anthropic"
+      ],
+      "billing_mode": "ratio",
+      "pricing_version": "ztapi-snapshot-1611",
+      "provider_family": "moonshot",
+      "vendor_name": "Kimi",
+      "input_price_per_million": "",
+      "output_price_per_million": "",
+      "billing_dimensions": [
+        "cache_read",
+        "input_tokens",
+        "output_tokens"
+      ],
+      "sale_usd": {},
+      "official_reference": {
+        "url": "https://platform.kimi.com/docs/pricing/chat",
+        "checked_at": "2026-11-07",
+        "kind": "supplier_quoted_official",
+        "note": "报价表列示的官网基准，非实时官网价格；人民币按 1U=6.63元换算。"
+      },
+      "token_price_rules": [
+        {
+          "conditions": [
+            "输入长度≤262K"
+          ],
+          "sale_usd": {
+            "cache_read": "0.1446000000",
+            "input_tokens": "0.8540000000",
+            "output_tokens": "3.5472000000"
+          },
+          "official_usd": {
+            "cache_read": "0.1659125188536953242835595776772247360483",
+            "input_tokens": "0.9803921568627450980392156862745098039216",
+            "output_tokens": "4.072398190045248868778280542986425339367"
+          }
+        }
+      ],
+      "billing_rule": "multi_dimension"
+    },
+    {
+      "model_name": "zt-kimi-k2.7-code",
+      "quota_type": 0,
+      "model_ratio": 0.427,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 4.153629976580796,
+      "cache_ratio": 0.2,
+      "create_cache_ratio": 1,
+      "image_ratio": 1,
+      "audio_ratio": 1,
+      "audio_completion_ratio": 4.1538,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "openai",
+        "anthropic"
+      ],
+      "billing_mode": "ratio",
+      "pricing_version": "ztapi-snapshot-1620",
+      "provider_family": "moonshot",
+      "vendor_name": "Kimi",
+      "input_price_per_million": "",
+      "output_price_per_million": "",
+      "billing_dimensions": [
+        "cache_read",
+        "input_tokens",
+        "output_tokens"
+      ],
+      "sale_usd": {},
+      "official_reference": {
+        "url": "https://platform.kimi.com/docs/pricing/chat",
+        "checked_at": "2026-11-07",
+        "kind": "supplier_quoted_official",
+        "note": "报价表列示的官网基准，非实时官网价格；人民币按 1U=6.63元换算。"
+      },
+      "token_price_rules": [
+        {
+          "conditions": [
+            "输入长度≤262K"
+          ],
+          "sale_usd": {
+            "cache_read": "0.1708000000",
+            "input_tokens": "0.8540000000",
+            "output_tokens": "3.5472000000"
+          },
+          "official_usd": {
+            "cache_read": "0.1960784313725490196078431372549019607843",
+            "input_tokens": "0.9803921568627450980392156862745098039216",
+            "output_tokens": "4.072398190045248868778280542986425339367"
+          }
+        }
+      ],
+      "billing_rule": "multi_dimension"
+    },
+    {
+      "modality": "image",
+      "model_name": "zt-gp-image-2",
+      "quota_type": 0,
+      "model_ratio": 0,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 0,
+      "cache_ratio": 0.1,
+      "create_cache_ratio": 1.25,
+      "image_ratio": 1,
+      "audio_ratio": 1,
+      "audio_completion_ratio": 1,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "images"
+      ],
+      "billing_mode": "ratio",
+      "pricing_version": "ztapi-snapshot-1619",
+      "provider_family": "openai",
+      "vendor_name": "OpenAI",
+      "input_price_per_million": "",
+      "output_price_per_million": "",
+      "billing_dimensions": [],
+      "sale_usd": {},
+      "official_reference": {
+        "url": "https://developers.openai.com/api/docs/pricing",
+        "checked_at": "2026-11-07",
+        "kind": "official_snapshot",
+        "note": "Standard 标准价；图像、文字及各自缓存分桶比较，不使用 Batch 批量价。"
+      },
+      "billing_rule": "multi_dimension",
+      "supported_options": {
+        "sizes": [
+          "1024x1024",
+          "1024x576",
+          "1024x768",
+          "1152x2048",
+          "1152x768",
+          "1536x2048",
+          "1536x2304",
+          "2048x1152",
+          "2048x1536",
+          "2048x2048",
+          "2160x3840",
+          "2304x1536",
+          "2304x3072",
+          "2304x3456",
+          "3072x2304",
+          "3456x2304",
+          "3840x2160",
+          "576x1024",
+          "768x1024",
+          "768x1152"
+        ],
+        "qualities": [
+          "low"
+        ],
+        "render_options": [
+          {
+            "aspect_ratio": "16:9",
+            "resolution": "1K",
+            "size": "1024x576",
+            "quality": "low"
+          },
+          {
+            "aspect_ratio": "16:9",
+            "resolution": "2K",
+            "size": "2048x1152",
+            "quality": "low"
+          },
+          {
+            "aspect_ratio": "16:9",
+            "resolution": "4K",
+            "size": "3840x2160",
+            "quality": "low"
+          },
+          {
+            "aspect_ratio": "1:1",
+            "resolution": "1K",
+            "size": "1024x1024",
+            "quality": "low"
+          },
+          {
+            "aspect_ratio": "1:1",
+            "resolution": "2K",
+            "size": "2048x2048",
+            "quality": "low"
+          },
+          {
+            "aspect_ratio": "2:3",
+            "resolution": "1K",
+            "size": "768x1152",
+            "quality": "low"
+          },
+          {
+            "aspect_ratio": "2:3",
+            "resolution": "2K",
+            "size": "1536x2304",
+            "quality": "low"
+          },
+          {
+            "aspect_ratio": "2:3",
+            "resolution": "4K",
+            "size": "2304x3456",
+            "quality": "low"
+          },
+          {
+            "aspect_ratio": "3:2",
+            "resolution": "1K",
+            "size": "1152x768",
+            "quality": "low"
+          },
+          {
+            "aspect_ratio": "3:2",
+            "resolution": "2K",
+            "size": "2304x1536",
+            "quality": "low"
+          },
+          {
+            "aspect_ratio": "3:2",
+            "resolution": "4K",
+            "size": "3456x2304",
+            "quality": "low"
+          },
+          {
+            "aspect_ratio": "3:4",
+            "resolution": "1K",
+            "size": "768x1024",
+            "quality": "low"
+          },
+          {
+            "aspect_ratio": "3:4",
+            "resolution": "2K",
+            "size": "1536x2048",
+            "quality": "low"
+          },
+          {
+            "aspect_ratio": "3:4",
+            "resolution": "4K",
+            "size": "2304x3072",
+            "quality": "low"
+          },
+          {
+            "aspect_ratio": "4:3",
+            "resolution": "1K",
+            "size": "1024x768",
+            "quality": "low"
+          },
+          {
+            "aspect_ratio": "4:3",
+            "resolution": "2K",
+            "size": "2048x1536",
+            "quality": "low"
+          },
+          {
+            "aspect_ratio": "4:3",
+            "resolution": "4K",
+            "size": "3072x2304",
+            "quality": "low"
+          },
+          {
+            "aspect_ratio": "9:16",
+            "resolution": "1K",
+            "size": "576x1024",
+            "quality": "low"
+          },
+          {
+            "aspect_ratio": "9:16",
+            "resolution": "2K",
+            "size": "1152x2048",
+            "quality": "low"
+          },
+          {
+            "aspect_ratio": "9:16",
+            "resolution": "4K",
+            "size": "2160x3840",
+            "quality": "low"
+          }
+        ],
+        "response_formats": [
+          "b64_json"
+        ],
+        "min_count": 1,
+        "max_count": 10,
+        "supports_edits": true,
+        "edit_input": {
+          "max_files": 15,
+          "max_bytes": 20971520,
+          "max_total_bytes": 268435456,
+          "mime_types": [
+            "image/jpeg",
+            "image/png",
+            "image/webp"
+          ]
+        }
+      },
+      "pricing_rules": [
+        {
+          "id": "edit_image_input",
+          "conditions": {
+            "image_operation": "edit",
+            "token_bucket": "image_input"
+          },
+          "billing_unit": "usd_per_million_tokens",
+          "sale_usd": {
+            "image_input": "7.8057000000"
+          },
+          "official_usd": {
+            "image_input": "8"
+          }
+        },
+        {
+          "id": "edit_image_output",
+          "conditions": {
+            "image_operation": "edit",
+            "token_bucket": "image_output"
+          },
+          "billing_unit": "usd_per_million_tokens",
+          "sale_usd": {
+            "image_output": "29.2713000000"
+          },
+          "official_usd": {
+            "image_output": "30"
+          }
+        },
+        {
+          "id": "edit_text_input",
+          "conditions": {
+            "image_operation": "edit",
+            "token_bucket": "text_input"
+          },
+          "billing_unit": "usd_per_million_tokens",
+          "sale_usd": {
+            "text_input": "4.8786000000"
+          },
+          "official_usd": {
+            "text_input": "5"
+          }
+        },
+        {
+          "id": "generation_image_input",
+          "conditions": {
+            "image_operation": "generation",
+            "token_bucket": "image_input"
+          },
+          "billing_unit": "usd_per_million_tokens",
+          "sale_usd": {
+            "image_input": "7.8057000000"
+          },
+          "official_usd": {
+            "image_input": "8"
+          }
+        },
+        {
+          "id": "generation_image_output",
+          "conditions": {
+            "image_operation": "generation",
+            "token_bucket": "image_output"
+          },
+          "billing_unit": "usd_per_million_tokens",
+          "sale_usd": {
+            "image_output": "29.2713000000"
+          },
+          "official_usd": {
+            "image_output": "30"
+          }
+        },
+        {
+          "id": "generation_text_input",
+          "conditions": {
+            "image_operation": "generation",
+            "token_bucket": "text_input"
+          },
+          "billing_unit": "usd_per_million_tokens",
+          "sale_usd": {
+            "text_input": "4.8786000000"
+          },
+          "official_usd": {
+            "text_input": "5"
+          }
+        }
+      ],
+      "billing_unit": "usd_per_million_tokens"
+    },
+    {
+      "model_name": "zt-gpt-5.6-luna",
+      "quota_type": 0,
+      "model_ratio": 0.07015,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 4.498930862437633,
+      "cache_ratio": 0.10049893,
+      "create_cache_ratio": 1.25017819,
+      "image_ratio": 1,
+      "audio_ratio": 1,
+      "audio_completion_ratio": 4.5,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "openai",
+        "anthropic"
+      ],
+      "billing_mode": "ratio",
+      "pricing_version": "ztapi-snapshot-1618",
+      "provider_family": "openai",
+      "vendor_name": "OpenAI",
+      "input_price_per_million": "",
+      "output_price_per_million": "",
+      "billing_dimensions": [
+        "cache_read",
+        "cache_write",
+        "input_tokens",
+        "output_tokens"
+      ],
+      "sale_usd": {},
+      "official_reference": {
+        "url": "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
+        "checked_at": "2026-11-07",
+        "kind": "official_snapshot",
+        "note": "同型号、同规格官网价格快照；不含充值赠额，非原厂直连承诺。"
+      },
+      "token_price_rules": [
+        {
+          "conditions": [
+            "输入长度≤272K"
+          ],
+          "sale_usd": {
+            "cache_read": "0.0071000000",
+            "cache_write": "0.0877000000",
+            "input_tokens": "0.0702000000",
+            "output_tokens": "0.4208000000"
+          },
+          "official_usd": {
+            "cache_read": "0.02",
+            "cache_write": "0.25",
+            "input_tokens": "0.2",
+            "output_tokens": "1.2"
+          }
+        },
+        {
+          "conditions": [
+            "输入长度>272K"
+          ],
+          "sale_usd": {
+            "cache_read": "0.0141000000",
+            "cache_write": "0.1754000000",
+            "input_tokens": "0.1403000000",
+            "output_tokens": "0.6312000000"
+          },
+          "official_usd": {
+            "cache_read": "0.04",
+            "cache_write": "0.5",
+            "input_tokens": "0.4",
+            "output_tokens": "1.8"
+          }
+        }
+      ],
+      "billing_rule": "multi_dimension"
+    },
+    {
+      "model_name": "zt-gpt-6.1-sol",
+      "quota_type": 0,
+      "model_ratio": 0.70125,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 3.7499465240641707,
+      "cache_ratio": 0.05005348,
+      "create_cache_ratio": 1.24998217,
+      "image_ratio": 1,
+      "audio_ratio": 1,
+      "audio_completion_ratio": 1,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "openai",
+        "anthropic"
+      ],
+      "billing_mode": "ratio",
+      "pricing_version": "ztapi-snapshot-1621",
+      "provider_family": "openai",
+      "vendor_name": "OpenAI",
+      "input_price_per_million": "",
+      "output_price_per_million": "",
+      "billing_dimensions": [
+        "cache_read",
+        "cache_write",
+        "input_tokens",
+        "output_tokens"
+      ],
+      "sale_usd": {},
+      "official_reference": {
+        "url": "https://developers.openai.com/api/docs/models/gpt-6.1-sol",
+        "checked_at": "2026-11-07",
+        "kind": "official_snapshot",
+        "note": "同型号、同规格官网价格快照；不含充值赠额，非原厂直连承诺。"
+      },
+      "token_price_rules": [
+        {
+          "conditions": [
+            "输入长度≤272K"
+          ],
+          "sale_usd": {
+            "cache_read": "0.0351000000",
+            "cache_write": "0.8766000000",
+            "input_tokens": "0.7013000000",
+            "output_tokens": "3.5062000000"
+          },
+          "official_usd": {
+            "cache_read": "0.1",
+            "cache_write": "2.5",
+            "input_tokens": "2",
+            "output_tokens": "10"
+          }
+        },
+        {
+          "conditions": [
+            "输入长度>272K"
+          ],
+          "sale_usd": {
+            "cache_read": "0.0702000000",
+            "cache_write": "1.7531000000",
+            "input_tokens": "1.4025000000",
+            "output_tokens": "5.2593000000"
+          },
+          "official_usd": {
+            "cache_read": "0.2",
+            "cache_write": "5",
+            "input_tokens": "4",
+            "output_tokens": "15"
+          }
+        }
+      ],
+      "billing_rule": "multi_dimension"
+    },
+    {
+      "modality": "video",
+      "model_name": "zt-seedance-2.5",
+      "quota_type": 0,
+      "model_ratio": 0,
+      "model_price": 0,
+      "owner_by": "",
+      "completion_ratio": 0,
+      "cache_ratio": 0.1,
+      "create_cache_ratio": 1.25,
+      "image_ratio": 1,
+      "audio_ratio": 1,
+      "audio_completion_ratio": 1,
+      "enable_groups": [
+        "default"
+      ],
+      "supported_endpoint_types": [
+        "video-tasks"
+      ],
+      "billing_mode": "ratio",
+      "pricing_version": "ztapi-snapshot-1612",
+      "provider_family": "seedance",
+      "vendor_name": "Seedance",
+      "input_price_per_million": "",
+      "output_price_per_million": "",
+      "billing_dimensions": [],
+      "sale_usd": {},
+      "official_reference": {
+        "url": "https://docs.volcengine.com/docs/ark/model-pricing?lang=zh&redirect=1",
+        "checked_at": "2026-11-07",
+        "kind": "official_snapshot",
+        "note": "同型号、同规格官网价；人民币按 1U=6.63元换算。"
+      },
+      "billing_rule": "multi_dimension",
+      "supported_options": {
+        "resolutions": [
+          "720p"
+        ],
+        "duration_seconds": [
+          5
+        ],
+        "supports_video_input": false
+      },
+      "pricing_rules": [
+        {
+          "id": "1080p_video_false",
+          "conditions": {
+            "contains_video_input": "false",
+            "resolution": "1080p"
+          },
+          "billing_unit": "usd_per_million_tokens",
+          "sale_usd": {
+            "input_tokens": "13.1646000000"
+          },
+          "official_usd": {
+            "input_tokens": "11.61387631975867269984917043740573152338"
+          }
+        },
+        {
+          "id": "1080p_video_true",
+          "conditions": {
+            "contains_video_input": "true",
+            "resolution": "1080p"
+          },
+          "billing_unit": "usd_per_million_tokens",
+          "sale_usd": {
+            "input_tokens": "7.8646000000"
+          },
+          "official_usd": {
+            "input_tokens": "6.938159879336349924585218702865761689291"
+          }
+        },
+        {
+          "id": "480p_video_false",
+          "conditions": {
+            "contains_video_input": "false",
+            "resolution": "480p"
+          },
+          "billing_unit": "usd_per_million_tokens",
+          "sale_usd": {
+            "input_tokens": "11.9679000000"
+          },
+          "official_usd": {
+            "input_tokens": "10.55806938159879336349924585218702865762"
+          }
+        },
+        {
+          "id": "480p_video_true",
+          "conditions": {
+            "contains_video_input": "true",
+            "resolution": "480p"
+          },
+          "billing_unit": "usd_per_million_tokens",
+          "sale_usd": {
+            "input_tokens": "7.1807000000"
+          },
+          "official_usd": {
+            "input_tokens": "6.33484162895927601809954751131221719457"
+          }
+        },
+        {
+          "id": "720p_video_false",
+          "conditions": {
+            "contains_video_input": "false",
+            "resolution": "720p"
+          },
+          "billing_unit": "usd_per_million_tokens",
+          "sale_usd": {
+            "input_tokens": "11.9679000000"
+          },
+          "official_usd": {
+            "input_tokens": "10.55806938159879336349924585218702865762"
+          }
+        },
+        {
+          "id": "720p_video_true",
+          "conditions": {
+            "contains_video_input": "true",
+            "resolution": "720p"
+          },
+          "billing_unit": "usd_per_million_tokens",
+          "sale_usd": {
+            "input_tokens": "7.1807000000"
+          },
+          "official_usd": {
+            "input_tokens": "6.33484162895927601809954751131221719457"
+          }
+        }
+      ],
+      "billing_unit": "usd_per_million_tokens"
+    }
+  ],
+  "group_ratio": {
+    "default": 1,
+    "vip": 1
+  },
+  "pricing_version": "a42d372ccf0b5dd13ecf71203521f9d2",
+  "success": true,
+  "supported_endpoint": {
+    "anthropic": {
+      "path": "/v1/messages",
+      "method": "POST"
+    },
+    "openai": {
+      "path": "/v1/chat/completions",
+      "method": "POST"
+    }
+  },
+  "usable_group": {
+    "default": "默认分组",
+    "vip": "vip分组"
+  },
+  "vendors": []
+}

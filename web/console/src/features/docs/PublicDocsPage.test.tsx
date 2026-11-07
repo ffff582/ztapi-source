@@ -2,7 +2,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LocaleProvider } from '../../i18n/locale';
 import { PublicDocsPage } from './PublicDocsPage';
 
@@ -12,13 +12,40 @@ function renderDocs(section = 'integration', hash = '') {
   </MemoryRouter></LocaleProvider>);
 }
 
+beforeEach(() => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ success: false }), { status: 503 })));
+});
+
 afterEach(() => {
   cleanup();
   Reflect.deleteProperty(navigator, 'clipboard');
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe('public documentation', () => {
+  it('replaces the stale frontend source link with a public internal license footer', () => {
+    renderDocs();
+    const footer = screen.getByRole('contentinfo', { name: '法律信息' });
+    expect(within(footer).getByRole('link', { name: '开源许可' })).toHaveAttribute('href', '/docs/license');
+    expect(screen.queryByRole('link', { name: '前端源码' })).not.toBeInTheDocument();
+    expect([...document.querySelectorAll('a')].some((link) => link.href.includes('production-codex-entry-20261104-r1'))).toBe(false);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('preserves the exact NOTICE attribution, GNU license and original upstream project on the public license page', async () => {
+    renderDocs('license');
+    expect(screen.getByRole('heading', { level: 1, name: '开源许可' })).toBeVisible();
+    expect(screen.getByText('Frontend design and development by New API contributors.', { exact: true })).toBeVisible();
+    expect(screen.getByText('Copyright (c) QuantumNous and contributors.', { exact: true })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'New API 原始项目' })).toHaveAttribute('href', 'https://github.com/QuantumNous/new-api');
+    expect(screen.getByRole('link', { name: 'GNU Affero General Public License v3.0 (AGPL-3.0-or-later)' }))
+      .toHaveAttribute('href', 'https://www.gnu.org/licenses/agpl-3.0.html');
+    expect(screen.getByRole('article')).toHaveTextContent('ZTAPI 为修改版本');
+    await screen.findByRole('alert');
+    expect(screen.getByText('Frontend design and development by New API contributors.', { exact: true })).toBeVisible();
+  });
+
   it('explains resource boundaries publicly without certifying individual models', () => {
     renderDocs('resource-disclosure');
     expect(screen.getByRole('heading', { level: 1, name: '资源来源与价格说明' })).toBeVisible();
@@ -75,14 +102,15 @@ describe('public documentation', () => {
     expect(text).not.toContain('Set-ExecutionPolicy');
   });
   it.each([
-    ['api', 'API 手册'], ['integration', '集成指南'], ['codex', 'Codex 接入'], ['user-guide', '用户指南'], ['faq', '常见问题'], ['resource-disclosure', '资源来源与价格说明'],
-  ])('keeps section navigation and model links public on %s', (section, title) => {
+    ['api', 'API 手册'], ['integration', '集成指南'], ['codex', 'Codex 接入'], ['user-guide', '用户指南'], ['faq', '常见问题'], ['resource-disclosure', '资源来源与价格说明'], ['license', '开源许可'],
+  ])('keeps section navigation and model links public on %s', async (section, title) => {
     renderDocs(section);
     expect(screen.getByRole('heading', { level: 1, name: title })).toBeVisible();
     const nav = screen.getByRole('navigation', { name: '文档分类' });
-    expect(within(nav).getAllByRole('link')).toHaveLength(6);
+    expect(within(nav).getAllByRole('link')).toHaveLength(7);
     expect(within(nav).getByRole('link', { name: title })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('link', { name: '查看模型目录' })).toHaveAttribute('href', '/models');
+    if (section === 'license') await screen.findByRole('alert');
   });
 
   it('copies the displayed example and confirms success', async () => {

@@ -229,11 +229,80 @@
   overflow-wrap: anywhere;
 }
 
-.docs-source-link {
-  display: inline-block;
-  margin-top: 36px;
+.docs-footer {
+  padding-block: 24px;
+  border-top: 1px solid var(--border);
   color: var(--text-3);
-  font-size: var(--fs-xs);
+  font-size: var(--fs-sm);
+}
+
+.docs-footer a,
+.docs-legal-link,
+.docs-source-offer a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  overflow-wrap: anywhere;
+}
+
+.docs-footer a svg,
+.docs-source-offer svg {
+  flex: none;
+}
+
+.docs-source-offer {
+  min-width: 0;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.docs-source-offer p {
+  margin: 0 0 12px;
+}
+
+.docs-source-offer dl {
+  margin: 16px 0 0;
+}
+
+.docs-source-offer dt {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+.docs-source-offer dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.docs-source-offer button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  max-width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.docs-source-offer button:hover {
+  background: var(--surface-2);
+}
+
+.docs-footer a:focus-visible,
+.docs-legal-link:focus-visible,
+.docs-source-offer a:focus-visible,
+.docs-source-offer button:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 3px;
 }
 
 .docs-facts {
