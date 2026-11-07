@@ -19,6 +19,8 @@ import (
 
 func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
 	defer service.CloseResponseBodyGracefully(resp)
+	terminal, writeState := "missing", "not_completed"
+	defer func() { relaycommon.CaptureZTAPIResponseCompletion(info, terminal, writeState) }()
 
 	// read response body
 	var responsesResponse dto.OpenAIResponsesResponse
@@ -34,6 +36,13 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	err = common.Unmarshal(responseBody, &responsesResponse)
 	if err != nil {
 		return usage, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError, types.ErrOptionWithSkipRetry())
+	}
+	var status string
+	if common.Unmarshal(responsesResponse.Status, &status) == nil {
+		switch status {
+		case "completed", "failed", "incomplete":
+			terminal = status
+		}
 	}
 	if (info == nil || info.ZTAPIPublicationSnapshot == nil) && responsesResponse.Usage != nil {
 		usage.PromptTokens = responsesResponse.Usage.InputTokens
@@ -81,8 +90,10 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 			err = helper.FlushWriter(c)
 		}
 		if err != nil {
+			writeState = "failed"
 			return usage, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
 		}
+		writeState = "complete"
 	}
 	return usage, nil
 }
@@ -116,25 +127,45 @@ func captureNativeHostedCalls(info *relaycommon.RelayInfo, output []dto.Response
 			name = "responses_hosted_usage_unconfirmed"
 		}
 		identity, state := "state\x00"+item.ID, item.Type+"\x00"+item.Status
+		marker := "unconfirmed\x00" + item.ID
+		known := name != "responses_hosted_usage_unconfirmed"
+		progress := item.Status == "in_progress" || item.Status == "searching"
 		if prior, ok := seen[identity]; item.ID != "" && ok {
 			if prior == state {
 				continue
 			}
-			name = "responses_hosted_usage_unconfirmed"
+			priorProgress := prior == item.Type+"\x00in_progress" || prior == item.Type+"\x00searching"
+			if !known || !priorProgress || (!progress && item.Status != "completed") || seen[marker] != "progress" {
+				name = "responses_hosted_usage_unconfirmed"
+				seen[marker] = "invalid"
+			} else if item.Status == "completed" {
+				// Replace this call's provisional unknown marker, not another call's.
+				if unresolved := info.ResponsesUsageInfo.BuiltInTools["responses_hosted_usage_unconfirmed"]; unresolved != nil && unresolved.CallCount > 0 {
+					unresolved.CallCount--
+				}
+				delete(seen, marker)
+				delete(seen, "counted\x00"+item.ID)
+			}
 		}
 		if item.ID == "" || item.Status != "completed" {
 			name = "responses_hosted_usage_unconfirmed"
 		}
 		if name == "responses_hosted_usage_unconfirmed" {
-			marker := "unconfirmed\x00" + item.ID
-			if _, exists := seen[marker]; exists {
+			if prior, exists := seen[marker]; exists && prior != "invalid" {
+				seen[identity] = state
 				continue
 			}
-			seen[marker] = "1"
+			if seen["counted\x00"+item.ID] == "1" {
+				continue
+			}
+			if item.ID != "" && known && progress && seen[marker] != "invalid" {
+				seen[marker] = "progress"
+			} else {
+				seen[marker] = "invalid"
+			}
+			seen["counted\x00"+item.ID] = "1"
 		}
-		if _, exists := seen[identity]; !exists {
-			seen[identity] = state
-		}
+		seen[identity] = state
 		tool := info.ResponsesUsageInfo.BuiltInTools[name]
 		if tool == nil {
 			tool = &relaycommon.BuildInToolInfo{ToolName: name}
@@ -172,6 +203,16 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	var streamErr, downstreamErr *types.NewAPIError
 	var reportedUsage, completed bool
 	seenHosted := make(map[string]string)
+	terminal := "missing"
+	defer func() {
+		writeState := "not_completed"
+		if downstreamErr != nil {
+			writeState = "failed"
+		} else if completed && streamErr == nil && (info.StreamStatus == nil || info.StreamStatus.IsNormalEnd() && !info.StreamStatus.HasErrors()) {
+			writeState = "complete"
+		}
+		relaycommon.CaptureZTAPIResponseCompletion(info, terminal, writeState)
+	}()
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 		var event struct {
@@ -219,19 +260,23 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 				}
 			}
 			if apiErr := nativeResponsesFailure(streamResponse.Response); apiErr != nil {
+				terminal = "invalid"
 				streamErr = apiErr
 				sr.Stop(apiErr)
 				return
 			}
 			var status string
 			if streamResponse.Response == nil || (len(streamResponse.Response.Status) > 0 && (common.Unmarshal(streamResponse.Response.Status, &status) != nil || status != "completed")) {
+				terminal = "invalid"
 				streamErr = types.NewOpenAIError(fmt.Errorf("invalid responses completion"), types.ErrorCodeBadResponse, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
 				sr.Stop(streamErr)
 				return
 			}
 			completed = true
+			terminal = "response.completed"
 			sr.Done()
 		case "error", "response.error", "response.failed", "response.incomplete":
+			terminal = streamResponse.Type
 			streamErr = nativeResponsesFailure(streamResponse.Response)
 			if streamErr == nil {
 				var failure struct {

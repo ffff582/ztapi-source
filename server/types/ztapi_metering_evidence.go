@@ -37,6 +37,8 @@ type ZTAPIMeteringEvidence struct {
 	RawUsageOmitted        bool                             `json:"raw_numeric_usage_omitted,omitempty"`
 	UsageIntegrityComplete bool                             `json:"usage_integrity_complete,omitempty"`
 	UsageIntegrityReasons  []string                         `json:"usage_integrity_reasons,omitempty"`
+	UpstreamTerminal       string                           `json:"upstream_terminal,omitempty"`
+	DownstreamWriteState   string                           `json:"downstream_write_state,omitempty"`
 	UnverifiedUsage        *ZTAPIUnverifiedUsageObservation `json:"unverified_usage_observation,omitempty"`
 	KimiCacheWriteHeaders  *ZTAPIKimiCacheWriteHeaders      `json:"kimi_cache_write_headers,omitempty"`
 }
@@ -86,6 +88,18 @@ func (e ZTAPIMeteringEvidence) Sanitized() *ZTAPIMeteringEvidence {
 	e.EntryProtocol = safeZTAPIMeteringProtocol(e.EntryProtocol)
 	e.UpstreamProtocol = safeZTAPIMeteringProtocol(e.UpstreamProtocol)
 	e.UsageIntegrityReasons = SanitizeZTAPIUsageIntegrityReasons(e.UsageIntegrityReasons)
+	switch e.UpstreamTerminal {
+	case "", "completed", "failed", "incomplete", "missing", "invalid", "error",
+		"response.completed", "response.failed", "response.incomplete", "response.error":
+	default:
+		e.UpstreamTerminal = ""
+	}
+	// A complete write is a server-side observation, not a client receipt ACK.
+	switch e.DownstreamWriteState {
+	case "", "complete", "failed", "not_completed":
+	default:
+		e.DownstreamWriteState = ""
+	}
 	e.UnverifiedUsage = e.UnverifiedUsage.Sanitized()
 	filtered := FilterZTAPINumericUsage(e.RawUsage)
 	e.RawUsage, e.RawUsageSHA256 = nil, ""

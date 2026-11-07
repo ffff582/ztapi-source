@@ -11,6 +11,9 @@ test('public financial CI uses standard hosted runners without paid artifact sto
   for (const job of Object.values(workflow.jobs)) assert.equal(job['runs-on'], selector);
   assert.equal(workflow.env.ZTAPI_CI_ALLOW_IMAGE_PULL, '${{ github.repository == \'ffff582/ztapi-source\' }}');
   const media = workflow.jobs['media-commercial-gates'];
+	const tools = media.steps.find((step) => step.name === 'Run hosted tool billing and receipt regressions');
+	assert.ok(tools && !tools.if);
+	assert.match(tools.run, /go test \.\/relay\/\.\.\. \.\/controller \.\/service \.\/types \.\/hostedsearch/);
   const upload = media.steps.find((step) => step.uses?.startsWith('actions/upload-artifact@'));
   assert.equal(upload.if, "failure() && github.repository != 'ffff582/ztapi-source'");
   for (const key of ['Run production runtime configuration tests', 'Run responsive media browser acceptance']) {

@@ -28,9 +28,11 @@ func TestReasoningOutputFloorRaisesTinyCapsOfReasoningModels(t *testing.T) {
 		{"gemini-3.1-pro-preview", `{"generationConfig":{"maxOutputTokens":8}}`, "generationConfig.maxOutputTokens", types.RelayFormatGemini},
 	} {
 		t.Run(tc.model, func(t *testing.T) {
-			out, err := ValidateAndNormalizeZTAPIReasoningJSON(managedInfo(tc.model), []byte(tc.body), tc.format)
+			info := managedInfo(tc.model)
+			out, err := ValidateAndNormalizeZTAPIReasoningJSON(info, []byte(tc.body), tc.format)
 			require.NoError(t, err)
 			require.EqualValues(t, ZTAPIReasoningOutputFloor, gjson.GetBytes(out, tc.path).Int())
+			require.Equal(t, ZTAPIReasoningOutputFloor, info.ZTAPIReasoningOutputBudget, "every raised outbound budget must be reserved before dispatch")
 		})
 	}
 }

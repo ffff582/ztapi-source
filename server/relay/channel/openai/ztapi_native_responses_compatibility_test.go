@@ -118,7 +118,7 @@ func TestZTAPINativeResponsesHostedCountersDeduplicateAndFailClosed(t *testing.T
 }
 
 func TestZTAPINativeResponsesHostedStateChangesRemainUnconfirmedOnce(t *testing.T) {
-	for _, statuses := range [][]string{{"completed", "failed"}, {"failed", "failed"}, {"in_progress", "completed"}} {
+	for _, statuses := range [][]string{{"completed", "failed"}, {"failed", "failed"}, {"in_progress", "completed", "failed"}, {"in_progress", "failed", "completed"}} {
 		_, _, info := nativeResponsesContext(true, true)
 		seen := make(map[string]string)
 		for _, status := range statuses {
@@ -128,6 +128,22 @@ func TestZTAPINativeResponsesHostedStateChangesRemainUnconfirmedOnce(t *testing.
 		require.NotNil(t, tool, statuses)
 		require.Equal(t, 1, tool.CallCount, statuses)
 	}
+}
+
+func TestZTAPINativeResponsesHostedProgressSettlesOneTerminalCall(t *testing.T) {
+	_, _, info := nativeResponsesContext(true, true)
+	info.ZTAPIPublicationSnapshot.BillingDimensions = append(info.ZTAPIPublicationSnapshot.BillingDimensions, "file_search")
+	info.ZTAPIPublicationSnapshot.SaleUSD["file_search"] = "0.002"
+	seen := make(map[string]string)
+	for _, status := range []string{"in_progress", "in_progress", "completed", "completed"} {
+		captureNativeHostedCalls(info, []dto.ResponsesOutput{{ID: "fs_progress", Type: "file_search_call", Status: status}}, seen)
+	}
+	require.Equal(t, 1, info.ResponsesUsageInfo.BuiltInTools["file_search"].CallCount)
+	if unresolved := info.ResponsesUsageInfo.BuiltInTools["responses_hosted_usage_unconfirmed"]; unresolved != nil {
+		require.Zero(t, unresolved.CallCount)
+	}
+	check := relaycommon.ValidateZTAPIUsageDimensions(nil, info, &dto.Usage{PromptTokens: 20, CompletionTokens: 2, TotalTokens: 22})
+	require.False(t, check.Pending)
 }
 
 func runNativeResponses(t *testing.T, stream, managed bool, body string) (*dto.Usage, *types.NewAPIError, *gin.Context, *relaycommon.RelayInfo, string) {
@@ -426,6 +442,35 @@ func TestZTAPINativeResponsesNonstreamDownstreamFailureRetainsUsage(t *testing.T
 	require.NotNil(t, apiErr)
 	require.True(t, types.IsSkipRetryError(apiErr))
 	assertNativeReceipt(t, c, info, usage, "nonstream", 1)
+}
+
+func TestZTAPINativeResponsesPersistCompletionAndWriteEvidence(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		body, terminal := nativeResponseBody("completed", nativeReceipt), "completed"
+		if stream {
+			body, terminal = nativeSSE(nativeResponseEvent("response.completed", nativeReceipt)), "response.completed"
+		}
+		_, apiErr, _, info, _ := runNativeResponses(t, stream, true, body)
+		require.Nil(t, apiErr)
+		safe, err := common.Marshal(info.ZTAPIMetering.Sanitized())
+		require.NoError(t, err)
+		require.Contains(t, string(safe), `"upstream_terminal":"`+terminal+`"`)
+		require.Contains(t, string(safe), `"downstream_write_state":"complete"`)
+	}
+	c, _, info := nativeResponsesContext(true, true)
+	c.Writer = &nativeFailingGinWriter{ResponseWriter: c.Writer}
+	_, apiErr := OaiResponsesStreamHandler(c, info, nativeHTTPResponse(nativeSSE(nativeResponseEvent("response.completed", nativeReceipt))))
+	require.NotNil(t, apiErr)
+	safe, err := common.Marshal(info.ZTAPIMetering.Sanitized())
+	require.NoError(t, err)
+	require.Contains(t, string(safe), `"upstream_terminal":"response.completed"`)
+	require.Contains(t, string(safe), `"downstream_write_state":"failed"`)
+	_, apiErr, _, info, _ = runNativeResponses(t, true, true, nativeSSE(nativeResponseEvent("response.in_progress", nativeReceipt)))
+	require.NotNil(t, apiErr)
+	safe, err = common.Marshal(info.ZTAPIMetering.Sanitized())
+	require.NoError(t, err)
+	require.Contains(t, string(safe), `"upstream_terminal":"missing"`)
+	require.NotContains(t, string(safe), `"downstream_write_state":"complete"`)
 }
 
 type nativeErrorReader struct{}

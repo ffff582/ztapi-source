@@ -12,7 +12,7 @@ import (
 
 // ZTAPIReasoningOutputFloor protects tiny caps from being exhausted by hidden
 // reasoning before visible output. A larger budget can increase actual usage;
-// managed Claude chat reservations must cover the effective output budget.
+// managed reservations must cover the effective output budget in every protocol.
 const ZTAPIReasoningOutputFloor = 1024
 
 // ztapiReasoningFamilyPrefixes covers reasoning models not yet listed in the
@@ -76,9 +76,7 @@ func applyZTAPIReasoningOutputFloor(info *relaycommon.RelayInfo, body []byte, fo
 		}
 		if updated, err := sjson.SetBytes(body, path, ZTAPIReasoningOutputFloor); err == nil {
 			body = updated
-			if format == types.RelayFormatOpenAI && ztapiClaudeChatReasonsByDefault(sourceModel) {
-				info.ZTAPIReasoningOutputBudget = ZTAPIReasoningOutputFloor
-			}
+			info.ZTAPIReasoningOutputBudget = ZTAPIReasoningOutputFloor
 		}
 	}
 	return body

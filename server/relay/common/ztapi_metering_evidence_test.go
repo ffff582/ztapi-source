@@ -87,3 +87,23 @@ func TestZTAPIMeteringSkipsUnmanagedAndNonNumericPayloads(t *testing.T) {
 	CaptureZTAPIUpstreamUsageEvidence(info, []byte(`{"usage":{"prompt_tokens":"PRIVATE_KEY","prompt_tokens_details":{"cached_tokens":"PRIVATE_CODE"}}}`), "stream")
 	require.Nil(t, info.ZTAPIMetering)
 }
+
+func TestZTAPIMeteringCapturesResponsesDeclarationsWithoutContent(t *testing.T) {
+	body := `{"model":"zt-gpt-6.1-sol","input":[{"role":"user","content":"PRIVATE_CUSTOMER_TEXT"},{"type":"additional_tools","tools":[{"type":"function","name":"PRIVATE_DYNAMIC_TOOL","parameters":{"type":"object"}}]},{"role":"assistant","content":"PRIVATE_REPLY"}],"tools":[{"type":"web_search"}],"max_output_tokens":64}`
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest("POST", "/v1/responses", strings.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	var request dto.OpenAIResponsesRequest
+	require.NoError(t, basecommon.UnmarshalJsonStr(body, &request))
+	info := meteringTestInfo()
+	info.RelayFormat = types.RelayFormatOpenAIResponses
+	info.Request = &request
+	CaptureZTAPIRequestMetering(c, info, request.GetTokenCountMeta())
+	defer basecommon.CleanupBodyStorage(c)
+	require.Equal(t, 2, info.ZTAPIMetering.Messages)
+	require.Equal(t, 2, info.ZTAPIMetering.Tools)
+	require.Positive(t, info.ZTAPIMetering.ToolDefinitionBytes)
+	encoded, err := basecommon.Marshal(info.ZTAPIMetering.Sanitized())
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "PRIVATE_")
+}

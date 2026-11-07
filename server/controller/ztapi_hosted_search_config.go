@@ -72,7 +72,7 @@ func HostedResponsesOptionsFromEnvironment() (HostedResponsesOptions, bool, erro
 			return false
 		}
 		for _, entry := range catalog {
-			if entry.ModelName == requested {
+			if entry.ModelName == requested && entry.Modality == model.ZTAPIModalityText {
 				return true
 			}
 		}

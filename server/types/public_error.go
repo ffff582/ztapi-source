@@ -55,6 +55,7 @@ func isLocalPublicCode(code ErrorCode) bool {
 	switch code {
 	case ErrorCodeInvalidRequest, ErrorCodeSensitiveWordsDetected, ErrorCodeViolationFeeGrokCSAM,
 		ErrorCode("invalid_reasoning_effort"),
+		ErrorCodeHostedToolBillingUnavailable,
 		ErrorCodeCountTokenFailed, ErrorCodeModelPriceError, ErrorCodeInvalidApiType,
 		ErrorCodeJsonMarshalFailed, ErrorCodeDoRequestFailed, ErrorCodeGetChannelFailed,
 		ErrorCodeRequestQueueUnavailable,
@@ -133,7 +134,9 @@ func (e *NewAPIError) ToPublicOpenAIError() OpenAIError {
 	result.Param = publicErrorParam(result.Param)
 	result.Type = safePublicErrorType(result.Type, e.StatusCode)
 	result.Code = publicErrorCode(result.Code, e.StatusCode, e.errorCode)
-	if e.errorCode == ErrorCodeRequestQueueUnavailable && e.localOrigin {
+	if e.errorCode == ErrorCodeHostedToolBillingUnavailable && e.localOrigin {
+		result.Message = "The requested tool or cache policy has no approved billing contract. This request was not sent upstream. Use a supported platform tool or cache policy."
+	} else if e.errorCode == ErrorCodeRequestQueueUnavailable && e.localOrigin {
 		result.Message = "The model request queue is busy or temporarily unavailable. This request was not sent upstream; please retry later."
 	} else if e.localOrigin {
 		result.Message = "The request could not be validated or prepared locally. Check the request parameters and usage-log request ID."

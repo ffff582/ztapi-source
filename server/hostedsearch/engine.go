@@ -21,6 +21,14 @@ var (
 	ErrTool  = errors.New("hosted_search_tool_failed")
 )
 
+const maxNativeBufferedEvents = 4096
+const maxNativeBufferedEventBytes = 16 * 1024 * 1024
+
+type nativeBufferedEvent struct {
+	kind string
+	data []byte
+}
+
 type ToolRequest struct {
 	ID      string
 	Action  string `json:"action"`
@@ -72,13 +80,23 @@ type engine struct {
 	seen                                   map[string]bool
 	rounds, calls, contentBytes            int
 	input, outputTokens, cached, reasoning int64
+	bufferedEvents                         []nativeBufferedEvent
+	bufferedEventBytes                     int
+	nativeEmittedEvents                    int
 }
 
-func Run(ctx context.Context, p *PreparedRequest, cfg Config, emit func(Event) error) (*RunResult, error) {
+func Run(ctx context.Context, p *PreparedRequest, cfg Config, emit func(Event) error) (result *RunResult, runErr error) {
 	if p == nil || !p.Hosted || cfg.Model == nil || cfg.Provider == nil || cfg.Dispatch == nil {
 		return nil, ErrRequest
 	}
 	e := &engine{p: p, cfg: cfg, emit: emit, id: NewID("resp_"), created: time.Now().Unix(), output: []map[string]any{}, pages: map[string]Result{}, sources: map[string]Source{}, seen: map[string]bool{}}
+	if p.NativeResponses {
+		defer func() {
+			if runErr != nil {
+				e.emitNativeFailure()
+			}
+		}()
+	}
 	if cfg.Pages != nil {
 		for _, source := range cfg.Pages.Sources() {
 			if ValidatePublicURL(source.URL) == nil {
@@ -97,20 +115,35 @@ func Run(ctx context.Context, p *PreparedRequest, cfg Config, emit func(Event) e
 	}
 	result, err := e.run(ctx)
 	if err != nil {
+		if p.NativeResponses {
+			return nil, err
+		}
 		failure := e.envelope("failed", nil)
 		failure["error"] = map[string]string{"code": "hosted_search_failed", "message": "Search could not be completed. Model usage already incurred remains recorded; uncertain tool outcomes are held for reconciliation."}
 		_ = e.event("response.failed", map[string]any{"response": failure})
+	}
+	if err == nil && p.NativeResponses {
+		if err := e.flushNativeEvents(ctx); err != nil {
+			return nil, err
+		}
 	}
 	return result, err
 }
 
 func (e *engine) run(ctx context.Context) (*RunResult, error) {
+	limit := MaxRequestBytes
+	if e.p.NativeResponses {
+		limit = MaxNativeRoundBytes
+	}
+	if len(e.p.Body) > limit {
+		return nil, ErrLimit
+	}
 	request := append([]byte(nil), e.p.Body...)
 	for e.rounds < 4 {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if len(request) > MaxRequestBytes {
+		if len(request) > limit {
 			return nil, ErrLimit
 		}
 		raw, err := e.cfg.Model(ctx, request)
@@ -124,6 +157,11 @@ func (e *engine) run(ctx context.Context) (*RunResult, error) {
 		}
 		if err := e.addUsage(response["usage"]); err != nil {
 			return nil, err
+		}
+		if e.p.NativeResponses {
+			if id, ok := response["id"].(string); !ok || !validNativeResponseID(id) {
+				return nil, ErrModel
+			}
 		}
 		var private []map[string]any
 		var public []map[string]any
@@ -153,6 +191,11 @@ func (e *engine) run(ctx context.Context) (*RunResult, error) {
 			return e.finish(response, public)
 		}
 		if status != "completed" {
+			return nil, ErrModel
+		}
+		// Native stored history cannot hide an unresolved private result beside
+		// a client call. Never return that provider ID as a resumable success.
+		if e.p.NativeResponses && localCalls && !e.p.Stateless {
 			return nil, ErrModel
 		}
 		if !localCalls && e.rounds >= 4 {
@@ -291,7 +334,10 @@ func parseTool(item map[string]any) (ToolRequest, error) {
 	}
 	switch tool.Action {
 	case "search":
-		if strings.TrimSpace(tool.Query) == "" || utf8.RuneCountInString(tool.Query) > 128 || tool.URL != "" || tool.Pattern != "" {
+		// The shared schema declares all action fields; only dispatch fields for
+		// the selected action. Models may populate another action's optional fields.
+		tool.URL, tool.Pattern = "", ""
+		if strings.TrimSpace(tool.Query) == "" || utf8.RuneCountInString(tool.Query) > 128 {
 			return tool, ErrRequest
 		}
 		if _, exists := fields["count"]; !exists {
@@ -301,14 +347,15 @@ func parseTool(item map[string]any) (ToolRequest, error) {
 			return tool, ErrRequest
 		}
 	case "open_page", "find_in_page":
-		if ValidatePublicURL(tool.URL) != nil || tool.Query != "" || tool.Count != 0 {
+		tool.Query, tool.Count = "", 0
+		if ValidatePublicURL(tool.URL) != nil {
 			return tool, ErrRequest
 		}
 		if tool.Action == "find_in_page" && (strings.TrimSpace(tool.Pattern) == "" || utf8.RuneCountInString(tool.Pattern) > 256) {
 			return tool, ErrRequest
 		}
-		if tool.Action == "open_page" && tool.Pattern != "" {
-			return tool, ErrRequest
+		if tool.Action == "open_page" {
+			tool.Pattern = ""
 		}
 	default:
 		return tool, ErrRequest
@@ -524,6 +571,9 @@ func (e *engine) envelope(status string, incomplete any) map[string]any {
 }
 
 func (e *engine) finish(response map[string]any, output []map[string]any) (*RunResult, error) {
+	if e.p.NativeResponses {
+		e.id = response["id"].(string)
+	}
 	for _, item := range output {
 		if err := e.publishItem(item); err != nil {
 			return nil, err
@@ -547,5 +597,70 @@ func (e *engine) event(kind string, data map[string]any) error {
 	}
 	data["type"], data["sequence_number"] = kind, e.seq
 	e.seq++
+	if e.p.NativeResponses {
+		raw, err := common.Marshal(data)
+		if err != nil {
+			return ErrModel
+		}
+		if len(e.bufferedEvents) >= maxNativeBufferedEvents || len(raw) > maxNativeBufferedEventBytes-e.bufferedEventBytes {
+			return ErrLimit
+		}
+		// Serialize now: tool status and output slices are mutated in later rounds.
+		e.bufferedEvents = append(e.bufferedEvents, nativeBufferedEvent{kind: kind, data: raw})
+		e.bufferedEventBytes += len(raw)
+		return nil
+	}
 	return e.emit(Event{Type: kind, Data: data})
+}
+
+func validNativeResponseID(id string) bool {
+	if len(id) == 0 || len(id) > 256 || strings.HasPrefix(id, "hs_failed_") {
+		return false
+	}
+	for _, c := range id {
+		if c < '!' || c > '~' {
+			return false
+		}
+	}
+	return true
+}
+
+func (e *engine) flushNativeEvents(ctx context.Context) error {
+	defer func() { e.bufferedEvents = nil; e.bufferedEventBytes = 0 }()
+	for _, event := range e.bufferedEvents {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		var data map[string]any
+		if common.Unmarshal(event.data, &data) != nil {
+			return ErrModel
+		}
+		if response, ok := data["response"].(map[string]any); ok {
+			response["id"] = e.id
+		}
+		if err := e.emit(Event{Type: event.kind, Data: data}); err != nil {
+			return err
+		}
+		e.nativeEmittedEvents++
+	}
+	return nil
+}
+
+func (e *engine) emitNativeFailure() {
+	e.bufferedEvents, e.bufferedEventBytes = nil, 0
+	if e.emit == nil {
+		return
+	}
+	id := NewID("hs_failed_")
+	if e.nativeEmittedEvents > 0 {
+		id = e.id
+	}
+	// Even buffer exhaustion must yield a bounded terminal, not a fake provider ID.
+	failure := map[string]any{
+		"id": id, "object": "response", "created_at": e.created,
+		"status": "failed", "model": e.p.Model, "output": []any{},
+		"error": map[string]string{"code": "hosted_search_failed", "message": "Search could not be completed. Model usage already incurred remains recorded; uncertain tool outcomes are held for reconciliation."},
+		"usage": map[string]any{"input_tokens": e.input, "output_tokens": e.outputTokens, "total_tokens": e.input + e.outputTokens},
+	}
+	_ = e.emit(Event{Type: "response.failed", Data: map[string]any{"type": "response.failed", "sequence_number": e.nativeEmittedEvents, "response": failure}})
 }
