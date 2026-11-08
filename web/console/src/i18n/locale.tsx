@@ -13,6 +13,14 @@ const STORAGE_KEY = 'ztapi.locale';
 const COMPATIBLE_STORAGE_KEYS = ['i18nextLng'] as const;
 
 const english: Record<string, string> = {
+  '张': 'image',
+  '每张输出图': 'output image',
+  '{{name}} 按张售价': '{{name}} per-image prices',
+  '基础包含 {{tokens}} 个本地估算 Token 和 {{references}} 份标准参考图档。': 'Base price includes {{tokens}} locally estimated tokens and {{references}} standard reference unit(s).',
+  '额外参考图档 +{{price}}。': 'Each additional reference unit: +{{price}}.',
+  '提示词每多不足或满 {{tokens}} Token，+{{price}}。': 'Each additional started block of {{tokens}} prompt tokens: +{{price}}.',
+  '标准参考图档按 {{side}}x{{side}} 像素面积（{{pixels}} 像素）计，超出按面积向上取整分档。': 'A standard reference unit is {{side}}x{{side}} pixels ({{pixels}} pixels of area); excess area is rounded up to whole units.',
+  '实际费用在派发前确定。': 'The actual charge is determined before dispatch.',
   '推广返利': 'Referral Rewards',
   '邀请推广': 'Invitations',
   '刷新推广数据': 'Refresh referral data',

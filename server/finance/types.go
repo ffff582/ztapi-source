@@ -26,6 +26,7 @@ type Settlement struct {
 	RequestID, OperationID, Status              string
 	PublicModel, PriceSnapshotJSON              string
 	ChargeDimensionsJSON, MissingDimensionsJSON string
+	UsageJSON                                   string
 	ReservedQuota, ChargedQuota, CompletedAt    int64
 	CreatedAt                                   time.Time
 }

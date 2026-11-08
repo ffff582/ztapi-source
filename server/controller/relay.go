@@ -197,6 +197,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	// common.SetContextKey(c, constant.ContextKeyTokenCountMeta, meta)
 
 	newAPIError = preConsumeAfterZTAPIImageAdmission(c, relayInfo, func() *types.NewAPIError {
+		if quoteErr := service.PrepareZTAPIImageSaleQuote(c, relayInfo); quoteErr != nil {
+			return types.NewErrorWithStatusCode(quoteErr, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		}
 		if priceData.FreeModel {
 			logger.LogInfo(c, fmt.Sprintf("模型 %s 免费，跳过预扣费", relayInfo.OriginModelName))
 			return nil

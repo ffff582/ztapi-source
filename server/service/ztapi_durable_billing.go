@@ -41,6 +41,7 @@ func newZTAPIDurableBilling(info *relaycommon.RelayInfo, amount int) (*ztapiDura
 	var row *model.ZTAPIRequestSettlement
 	var err error
 	if info.ZTAPIPublicationSnapshot.Modality == "image" {
+		imageSaleQuote, imageSaleInputSHA256 := info.GetZTAPIImageSaleQuote()
 		selectorJSON, selectorErr := ztapiImageReservationSelector(info.Request, info)
 		if selectorErr != nil {
 			return nil, types.NewErrorWithStatusCode(selectorErr, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
@@ -64,6 +65,9 @@ func newZTAPIDurableBilling(info *relaycommon.RelayInfo, amount int) (*ztapiDura
 		maximumDimensions, maximumQuota, deriveErr := deriveZTAPIImageMaximumReservation(
 			info.ZTAPIPublicationSnapshot.MediaPriceContractJSON, protocol, selector, quotaPerUnitDecimal,
 		)
+		if info.ZTAPIPublicationSnapshot.ImageSaleContractJSON != "" && deriveErr == nil {
+			maximumDimensions, maximumQuota, deriveErr = deriveZTAPIImageSaleReservation(info.ZTAPIPublicationSnapshot.ImageSaleContractJSON, protocol, selector, imageSaleQuote, quotaPerUnitDecimal)
+		}
 		if deriveErr != nil {
 			return nil, types.NewErrorWithStatusCode(deriveErr, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 		}
@@ -76,6 +80,8 @@ func newZTAPIDurableBilling(info *relaycommon.RelayInfo, amount int) (*ztapiDura
 			PublicModel: info.OriginModelName, PriceSnapshotJSON: string(snapshot), SelectorJSON: canonicalSelector,
 			ProtocolContractJSON: protocolJSON, ProtocolEvidenceHash: protocol.EvidenceHash, QuotaPerUnit: quotaPerUnit,
 			MaximumDimensions: maximumDimensions, MaximumQuota: maximumQuota,
+			ImageSaleQuote:       imageSaleQuote,
+			ImageSaleInputSHA256: imageSaleInputSHA256,
 		})
 	} else {
 		snapshot, marshalErr := common.Marshal(info.ZTAPIPublicationSnapshot)

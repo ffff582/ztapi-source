@@ -1,4 +1,4 @@
-import type { OfficialPriceReference, PricingEnvelope, PricingModel } from '../../api/contracts';
+import type { ImageSale, OfficialPriceReference, PricingEnvelope, PricingModel } from '../../api/contracts';
 
 export interface PriceDisplay {
   currency: 'CNY' | 'U';
@@ -66,6 +66,20 @@ export function formatUnitPrice(value: string, unit: string, display?: PriceDisp
   const amount = Number(value) * priceDisplayFactor(display);
   if (!Number.isFinite(amount)) return `${value} U / ${unit}`;
   return `${unitPriceFormatter.format(amount)} ${isCNYDisplay(display) ? display?.cnyLabel ?? '元' : 'U'} / ${unit}`;
+}
+
+const imagePriceFormatter = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 });
+
+export function formatImageUnitPrice(value: string, display?: PriceDisplay, unit = display?.cnyLabel === 'CNY' ? 'image' : '张') {
+  const amount = Number(value) * priceDisplayFactor(display);
+  return `${imagePriceFormatter.format(amount)} ${isCNYDisplay(display) ? display?.cnyLabel ?? '元' : 'U'} / ${unit}`;
+}
+
+export function imageSalePriceDetails(sale: ImageSale, display?: PriceDisplay): ModelPriceDetail[] {
+  return (['1K', '2K', '4K'] as const).map((resolution) => ({
+    key: `image-${resolution}`, dimension: 'images', label: resolution,
+    price: formatImageUnitPrice(sale.base_prices[resolution], display),
+  }));
 }
 
 function formatSalePrice(value: string | undefined, unit: string, display?: PriceDisplay) {
@@ -137,6 +151,8 @@ export function modelPriceDetails(
   quotaPerUnit: number,
   display?: PriceDisplay,
 ): ModelPriceDetail[] {
+  if (model.image_sale) return imageSalePriceDetails(model.image_sale, display);
+
   if (model.pricing_rules && model.pricing_rules.length > 0) {
     return model.pricing_rules.flatMap((rule) =>
       orderedDimensions(Object.keys(rule.sale_usd)).flatMap((dimension) => {

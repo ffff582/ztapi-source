@@ -220,11 +220,17 @@ func testRequestsForReport(s Snapshot, latest map[string]Fact, cutoff, now time.
 
 func settlementSourceModel(s Settlement) string {
 	var snapshot struct {
-		SourceModel string `json:"source_model"`
+		SourceModel       string `json:"source_model"`
+		FrozenSourceModel string `json:"SourceModel"`
 	}
 	if strings.TrimSpace(s.PriceSnapshotJSON) != "" {
-		if err := json.Unmarshal([]byte(s.PriceSnapshotJSON), &snapshot); err == nil && strings.TrimSpace(snapshot.SourceModel) != "" {
-			return strings.TrimSpace(snapshot.SourceModel)
+		if err := common.UnmarshalJsonStr(s.PriceSnapshotJSON, &snapshot); err == nil {
+			if strings.TrimSpace(snapshot.SourceModel) != "" {
+				return strings.TrimSpace(snapshot.SourceModel)
+			}
+			if strings.TrimSpace(snapshot.FrozenSourceModel) != "" {
+				return strings.TrimSpace(snapshot.FrozenSourceModel)
+			}
 		}
 	}
 	public := strings.TrimPrefix(strings.TrimSpace(s.PublicModel), "zt-")
@@ -318,15 +324,13 @@ func (r *replay) buildXcloudEstimates(s Snapshot, names, baseURLs map[int]string
 			xcloudChannels[channel.ID] = channel.Name
 		}
 	}
-	if len(xcloudChannels) == 0 {
-		return
-	}
 	type estimateKey struct {
 		channel int
 		model   string
 	}
 	rows := map[estimateKey]*SupplierEstimateRow{}
 	costs := map[estimateKey]decimal.Decimal{}
+	imageSales := map[estimateKey]bool{}
 	complete := true
 	for _, settlement := range r.settlements {
 		if hostedToolName(settlement) != "" {
@@ -336,39 +340,58 @@ func (r *replay) buildXcloudEstimates(s Snapshot, names, baseURLs map[int]string
 			continue
 		}
 		channelID := r.channelFor(settlement)
+		imageSale := isImageSaleSettlement(settlement)
+		estimatePrefix := "xcloud"
 		supplier, ok := xcloudChannels[channelID]
-		if !ok {
+		if !ok && !imageSale {
 			continue
+		}
+		if imageSale {
+			supplier = names[channelID]
+			estimatePrefix = "image_sale"
 		}
 		sourceModel := settlementSourceModel(settlement)
 		key := estimateKey{channel: channelID, model: sourceModel}
+		imageSales[key] = imageSales[key] || imageSale
 		row := rows[key]
 		if row == nil {
 			row = &SupplierEstimateRow{ChannelID: channelID, Supplier: supplier, SourceModel: sourceModel, Dimensions: map[string]int64{}, Complete: true}
 			rows[key] = row
 		}
 		row.Requests++
+		row.IsEstimate = row.IsEstimate || imageSale
 		if settlement.MissingDimensionsJSON != "" && settlement.MissingDimensionsJSON != "[]" {
 			row.Complete = false
 			complete = false
-			r.estimateIssue("xcloud_usage_incomplete", settlement.RequestID, settlement.UserID)
+			r.estimateIssue(estimatePrefix+"_usage_incomplete", settlement.RequestID, settlement.UserID)
 			continue
 		}
-		dimensions, err := parseSettlementUsageDimensions(settlement.ChargeDimensionsJSON)
+		var dimensions []UsageDimension
+		var err error
+		if imageSale {
+			dimensions, err = imageSaleNativeUsage(settlement.UsageJSON)
+		} else {
+			dimensions, err = parseSettlementUsageDimensions(settlement.ChargeDimensionsJSON)
+		}
 		if err != nil {
 			row.Complete = false
 			complete = false
-			r.estimateIssue("xcloud_usage_missing", settlement.RequestID, settlement.UserID)
+			r.estimateIssue(estimatePrefix+"_usage_missing", settlement.RequestID, settlement.UserID)
 			continue
 		}
 		for _, dimension := range dimensions {
 			row.Dimensions[dimension.Dimension] += dimension.Quantity
 		}
-		estimate, err := EstimateXcloudUsage(sourceModel, dimensions)
+		var estimate XcloudUsageEstimate
+		if imageSale {
+			estimate, err = estimateImageSaleUsage(settlement, dimensions)
+		} else {
+			estimate, err = EstimateXcloudUsage(sourceModel, dimensions)
+		}
 		if err != nil {
 			row.Complete = false
 			complete = false
-			r.estimateIssue("xcloud_quote_missing", settlement.RequestID, settlement.UserID)
+			r.estimateIssue(estimatePrefix+"_quote_missing", settlement.RequestID, settlement.UserID)
 			continue
 		}
 		row.SourceURL = estimate.SourceURL
@@ -384,6 +407,9 @@ func (r *replay) buildXcloudEstimates(s Snapshot, names, baseURLs map[int]string
 	for key, row := range rows {
 		rowCost := costs[key]
 		row.CostUSDT = fixed(rowCost)
+		if imageSales[key] && !row.Complete {
+			row.CostUSDT = ""
+		}
 		revenue := r.revenueByChannelModel[key.channel][key.model]
 		row.RevenueUSDT = fixed(revenue)
 		if row.Complete && !r.unknownRevenue {

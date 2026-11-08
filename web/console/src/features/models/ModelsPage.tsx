@@ -16,6 +16,7 @@ import { providerFamilyRank, sortVendorModelsByRecency } from './catalog-order';
 import { modelOfficialDiscount, modelPriceDetails, type ModelPriceDetail } from './pricing';
 import { OfficialPriceComparison, OfficialPriceReference } from './OfficialPriceReference';
 import { PriceCurrencyControl, usePriceDisplay } from './PriceCurrencyControl';
+import { ImageSalePricing } from './ImageSalePricing';
 
 type ModelCategory = 'all' | 'text' | 'image' | 'video' | 'embedding';
 
@@ -179,12 +180,12 @@ export function ModelsPage() {
               <div className="catalog-models">
                 {group.models.map((model) => {
                   const prices = modelPriceDetails(model, pricing, quotaPerUnit, display);
-                  const headlinePrices = primaryPrices(prices);
+                  const headlinePrices = model.image_sale ? [prices[0], prices[2]] : primaryPrices(prices);
                   const quoted = model.official_reference?.kind === 'supplier_quoted_official';
                   const discount = quoted ? null : modelOfficialDiscount(prices);
                   const referenceLabel = quoted ? '报价表官网基准' : '官网参考价';
                   return (
-                    <article className="catalog-model" key={model.model_name} aria-label={model.model_name}>
+                    <article className={`catalog-model${model.image_sale ? ' catalog-model--image-sale' : ''}`} key={model.model_name} aria-label={model.model_name}>
                       <details>
                         <summary>
                           <span className="catalog-model__identity">
@@ -205,6 +206,9 @@ export function ModelsPage() {
                         </summary>
                         <div className="catalog-model__detail">
                           {model.description && <p>{model.description}</p>}
+                          {model.image_sale ? (
+                            <ImageSalePricing name={model.model_name} sale={model.image_sale} display={display} />
+                          ) : <>
                           <div className="catalog-model__price-head"><span>{t('规格')}</span><span>{t('我们的价格')}</span><span>{t(referenceLabel)}</span></div>
                           <ul className="catalog-model__price-list" aria-label={t('{{name}} 售价', { name: model.model_name })}>
                             {prices.map((price) => (
@@ -220,6 +224,7 @@ export function ModelsPage() {
                           </ul>
                           <OfficialPriceReference reference={model.official_reference} />
                           <small>{t('仅比较同模型、同规格的已提供参考价；参考价不是来源认证，也不保证为官网现价。')}</small>
+                          </>}
                         </div>
                       </details>
                     </article>
