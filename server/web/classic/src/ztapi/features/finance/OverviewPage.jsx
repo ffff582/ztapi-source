@@ -1108,13 +1108,13 @@ export default function OverviewPage({ canWrite = false }) {
             </div>
           </dl>
           {Array.isArray(report.estimates) && report.estimates.length > 0 && (
-            <section className='finance-estimate' aria-label='Xcloud报价估算'>
+            <section className='finance-estimate' aria-label='采购报价估算'>
               <header>
                 <div>
-                  <h2>Xcloud 渠道报价估算</h2>
+                  <h2>采购报价估算</h2>
                   <p className='finance-muted'>
-                    按已结算请求的独立 token 维度重算，使用 Xcloud 公开报价 ×
-                    约定 5 折；公开报价不是上游实际扣费。
+                    估算遵循对应渠道的采购报价；按张售卖图片的采购成本使用冻结采购单价与原生 Token 分桶，
+                    不按对客图片张数计算。缓存 Token 不重复计入，不重复应用折扣；估算不代表上游实际扣费。
                   </p>
                 </div>
                 <span
@@ -1142,7 +1142,7 @@ export default function OverviewPage({ canWrite = false }) {
                       <th>模型</th>
                       <th>请求数</th>
                       <th>用户收入</th>
-                      <th>Xcloud 报价成本</th>
+                      <th>采购报价成本</th>
                       <th>估算毛利</th>
                       <th>状态</th>
                     </tr>
@@ -1165,7 +1165,7 @@ export default function OverviewPage({ canWrite = false }) {
                           {row.complete ? `${row.gross_profit_usdt} USDT` : '—'}
                         </td>
                         <td>
-                          {row.complete ? '公开报价可计算' : '用量或报价缺失'}
+                          {row.complete ? '采购报价可计算' : '用量或报价缺失'}
                         </td>
                       </tr>
                     ))}
@@ -1173,8 +1173,7 @@ export default function OverviewPage({ canWrite = false }) {
                 </table>
               </div>
               <p className='finance-footnote'>
-                真实上游成本仍需录入 Xcloud
-                账单凭证；录入后才会进入“上游实际消耗”和“已确认毛利”。
+                真实上游成本仍需录入对应上游账单凭证；录入后才会进入“上游实际消耗”和“已确认毛利”。
               </p>
             </section>
           )}

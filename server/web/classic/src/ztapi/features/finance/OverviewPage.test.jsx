@@ -137,6 +137,72 @@ it('shows unknown profit as pending rather than zero', async () => {
   expect(screen.getByText('100.000000')).toBeVisible();
   expect(screen.queryByRole('button', { name: /录入.*成本/ })).toBeNull();
 });
+
+it.each([false, true])('shows supplier-neutral Yunxin image estimates with Xcloud rows: %s', async (includeXcloud) => {
+  const data = {
+    ...report,
+    estimate_complete: true,
+    estimated_cost: includeXcloud ? '0.173456' : '0.123456',
+    estimated_gross_profit: includeXcloud ? '0.326544' : '0.176544',
+    estimates: [{
+      channel_id: 1,
+      supplier: 'Yunxin enterprise',
+      source_model: 'gpt-image-2',
+      requests: 1,
+      dimensions: { text_input: 100, image_input: 200, image_output: 300 },
+      revenue_usdt: '0.300000',
+      cost_usdt: '0.123456',
+      gross_profit_usdt: '0.176544',
+      quote_discount: '',
+      is_estimate: true,
+      complete: true,
+    }, ...(includeXcloud ? [{
+      channel_id: 2,
+      supplier: 'Xcloud text channel',
+      source_model: 'gpt-5.4',
+      requests: 2,
+      dimensions: { text_input: 1000, text_output: 200 },
+      revenue_usdt: '0.200000',
+      cost_usdt: '0.050000',
+      gross_profit_usdt: '0.150000',
+      quote_discount: '0.5',
+      is_estimate: true,
+      complete: true,
+    }] : [])],
+  };
+  const before = JSON.stringify(data);
+  adminRequest.mockResolvedValue(data);
+  render(<OverviewPage canWrite={false} />);
+  const region = await screen.findByRole('region', { name: '采购报价估算' });
+  expect(within(region).getByRole('heading', { name: '采购报价估算' })).toBeVisible();
+  expect(within(region).getByRole('columnheader', { name: '采购报价成本' })).toBeVisible();
+  expect(region).toHaveTextContent('对应渠道的采购报价');
+  expect(region).toHaveTextContent('冻结采购单价与原生 Token 分桶');
+  expect(region).toHaveTextContent('不按对客图片张数');
+  expect(region).toHaveTextContent('缓存 Token 不重复计入');
+  expect(region).toHaveTextContent('不重复应用折扣');
+  expect(region).toHaveTextContent('对应上游账单凭证');
+  expect(region).toHaveTextContent('估算不代表上游实际扣费');
+  expect(region).not.toHaveTextContent(/Xcloud\s*(公开报价|渠道报价估算|报价成本|账单凭证)|公开报价\s*[×*]|约定\s*5\s*折|0\.5/);
+  const image = within(region).getByRole('row', { name: /gpt-image-2/ });
+  expect(within(image).getByText('Yunxin enterprise')).toBeVisible();
+  expect(within(image).getAllByRole('cell')[1]).toHaveTextContent(/^1$/);
+  for (const amount of ['0.300000 USDT', '0.123456 USDT', '0.176544 USDT']) {
+    expect(within(image).getByText(amount)).toBeVisible();
+  }
+  expect(within(image).getByText('采购报价可计算')).toBeVisible();
+  if (includeXcloud) {
+    const text = within(region).getByRole('row', { name: /gpt-5.4/ });
+    expect(within(text).getByText('Xcloud text channel')).toBeVisible();
+    expect(within(text).getByText('0.050000 USDT')).toBeVisible();
+    expect(within(text).getByText('0.150000 USDT')).toBeVisible();
+  }
+  expect(within(region).getByText(data.estimated_cost)).toBeVisible();
+  expect(within(region).getByText(data.estimated_gross_profit)).toBeVisible();
+  expect(screen.getByText('毛利待核对')).toBeVisible();
+  expect(JSON.stringify(data)).toBe(before);
+});
+
 it('shows confirmed gross profit and loads another month', async () => {
   adminRequest.mockResolvedValue({
     ...report,

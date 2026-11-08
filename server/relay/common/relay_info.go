@@ -173,6 +173,9 @@ type RelayInfo struct {
 
 	PriceData                   types.PriceData
 	ZTAPIPublicationSnapshot    *ZTAPIPublicationSnapshot
+	ztapiImageSaleQuote         *types.ZTAPIImageSaleQuote
+	ztapiImageSaleInputSHA256   string
+	ztapiImageDeliveryFailed    bool
 	ZTAPIReasoningOutputBudget  int
 	ztapiValidatedImageResponse *ZTAPIValidatedImageResponse
 	ztapiMediaUsageEvidence     *ZTAPIMediaUsageEvidence
@@ -275,6 +278,7 @@ func (info *RelayInfo) BeginZTAPIImageResponseAttempt() uint64 {
 	}
 	info.ztapiImageResponseMu.Lock()
 	defer info.ztapiImageResponseMu.Unlock()
+	info.ztapiImageDeliveryFailed = false
 	info.ztapiImageAttemptSequence++
 	if info.ztapiImageAttemptSequence == 0 {
 		info.ztapiImageAttemptSequence++

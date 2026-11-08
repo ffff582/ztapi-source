@@ -34,6 +34,8 @@ type ztapiSettlementLogMetadata struct {
 	RequestPath               string                        `json:"request_path,omitempty"`
 	ClientUserAgent           string                        `json:"client_user_agent,omitempty"`
 	MeteringEvidence          *types.ZTAPIMeteringEvidence  `json:"ztapi_metering_evidence,omitempty"`
+	ImageSaleQuote            *types.ZTAPIImageSaleQuote    `json:"image_sale_quote,omitempty"`
+	SupplierCostStatus        string                        `json:"supplier_cost_status,omitempty"`
 }
 
 var ztapiSettlementLogDimensionName = regexp.MustCompile(`^[a-z][a-z0-9_:.-]{0,127}$`)
@@ -83,6 +85,14 @@ func sanitizeZTAPISettlementLogMetadata(log *Log) error {
 		return ErrZTAPISettlementLogInvalid
 	}
 	if metadata.ModelRatio != nil && (math.IsNaN(*metadata.ModelRatio) || math.IsInf(*metadata.ModelRatio, 0) || *metadata.ModelRatio < 0) {
+		return ErrZTAPISettlementLogInvalid
+	}
+	if metadata.ImageSaleQuote != nil {
+		if types.ValidateZTAPIImageSaleQuote(types.ZTAPIImageSaleContract20261109JSON(), *metadata.ImageSaleQuote) != nil ||
+			(metadata.SupplierCostStatus != "usage_pending" && metadata.SupplierCostStatus != "quoted_tokens") {
+			return ErrZTAPISettlementLogInvalid
+		}
+	} else if metadata.SupplierCostStatus != "" {
 		return ErrZTAPISettlementLogInvalid
 	}
 	// Diagnostic fields are optional; a malformed one is dropped, not fatal.

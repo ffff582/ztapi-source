@@ -147,6 +147,10 @@ jobs:
       - name: Run responsive media browser acceptance
         run: pnpm exec playwright test tests/e2e/media-models-and-guide.spec.ts
 
+      - name: Run per-image retail browser acceptance
+        working-directory: web/console
+        run: node node_modules/vitest/vitest.mjs run --config src/features/models/image-sale.browser.config.ts
+
       - name: Run referral user and finance browser acceptance
         run: |
           node web/console/src/features/referrals/ReferralPage.browser.mjs

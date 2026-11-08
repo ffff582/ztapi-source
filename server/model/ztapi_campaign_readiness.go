@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/types"
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
 
@@ -113,6 +115,20 @@ func ZTAPIReferralCatalogIdentity(ctx context.Context, db *gorm.DB) (string, []s
 		channels := snap.ChannelIDs()
 		if len(channels) == 0 {
 			return "", nil, ErrZTAPIReferralNotReady
+		}
+		if snap.ImageSaleContractJSON != "" {
+			quoted, err := ztapiImageSaleReferralItems(config, snap, item.Sources[0])
+			if err != nil {
+				return "", nil, err
+			}
+			for _, channel := range channels {
+				channelIDs[channel] = true
+			}
+			for _, item := range quoted {
+				required = append(required, item.Key)
+			}
+			lines = append(lines, item)
+			continue
 		}
 		dimensions := []string{}
 		if snap.TokenPriceRulesJSON != "" {
@@ -244,11 +260,181 @@ func ProductionZTAPIReferralReadiness(ctx context.Context, db *gorm.DB, at time.
 	if proof.CatalogSHA256 != fingerprint || !reflect.DeepEqual(proof.PriceGate.RequiredKeys, required) {
 		return input, []string{"catalog_prices_or_routes_changed_since_cost_review"}, nil
 	}
+	for _, key := range required {
+		if strings.Contains(key, "/spec:image_sale_") {
+			expected, err := ZTAPIReferralImageSaleQuoteItems(ctx, db)
+			if err != nil {
+				return input, []string{"image_sale_quote_source_unavailable"}, err
+			}
+			if !ztapiImageSaleAttestationMatches(expected, proof.PriceGate.Items) {
+				return input, []string{"image_sale_quoted_evidence_missing_or_changed"}, nil
+			}
+			break
+		}
+	}
 	input.PriceGate = proof.PriceGate
 	input.FinanceReady = proof.FinanceCapability == "referral-v1" && ZTAPIReferralFinanceCapabilityCheck != nil && ZTAPIReferralFinanceCapabilityCheck(ctx)
 	input.PlatformFeeKnown = proof.PlatformFeeKnown
 	input.PlatformFeeEvidence = strings.TrimSpace(proof.PlatformFeeEvidence)
 	return input, nil, nil
+}
+
+// Produces quoted financial fields, not an authorization or a fee waiver.
+// The release operator must attest model mapping and platform fees explicitly.
+func ZTAPIReferralImageSaleQuoteItems(ctx context.Context, db *gorm.DB) ([]ZTAPIReferralPriceGateItem, error) {
+	if ctx == nil || db == nil {
+		return nil, ErrZTAPIReferralNotReady
+	}
+	db = db.WithContext(ctx)
+	var configs []ZTAPIModelConfig
+	if err := db.Where("published = ?", true).Order("id").Limit(1001).Find(&configs).Error; err != nil {
+		return nil, err
+	}
+	if len(configs) > 1000 {
+		return nil, ErrZTAPIReferralNotReady
+	}
+	items := []ZTAPIReferralPriceGateItem{}
+	for _, config := range configs {
+		var snap ZTAPIModelPublicationSnapshot
+		if config.PublicationSnapshotID <= 0 {
+			return nil, ErrZTAPIReferralNotReady
+		}
+		if err := db.First(&snap, config.PublicationSnapshotID).Error; err != nil {
+			return nil, err
+		}
+		if snap.ImageSaleContractJSON == "" {
+			continue
+		}
+		var source ZTAPIModelPriceSource
+		if err := db.First(&source, snap.PriceSourceID).Error; err != nil {
+			return nil, err
+		}
+		quoted, err := ztapiImageSaleReferralItems(config, snap, source)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, quoted...)
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].Key < items[j].Key })
+	return items, nil
+}
+
+func ztapiImageSaleReferralItems(config ZTAPIModelConfig, snap ZTAPIModelPublicationSnapshot, source ZTAPIModelPriceSource) ([]ZTAPIReferralPriceGateItem, error) {
+	if config.ID != snap.ModelConfigID || config.Version != snap.ModelVersion || config.SourceModel != snap.SourceModel || source.ID != snap.PriceSourceID || source.ModelConfigID != config.ID || source.SourceModel != config.SourceModel {
+		return nil, ErrZTAPIReferralNotReady
+	}
+	protocol, canonical, err := types.ParseZTAPIImageProtocolContract(snap.ImageProtocolContractJSON)
+	if err != nil || canonical != snap.ImageProtocolContractJSON || protocol.ProviderModel != config.SourceModel {
+		return nil, ErrZTAPIReferralNotReady
+	}
+	operations := []string{"generation"}
+	if protocol.Capabilities.SupportsEdits && protocol.Edit != nil {
+		operations = append(operations, "edit")
+	}
+	channels := snap.ChannelIDs()
+	if len(channels) == 0 {
+		return nil, ErrZTAPIReferralNotReady
+	}
+	seen := map[int]bool{}
+	for _, channel := range channels {
+		if channel <= 0 || seen[channel] {
+			return nil, ErrZTAPIReferralNotReady
+		}
+		seen[channel] = true
+	}
+	items := []ZTAPIReferralPriceGateItem{}
+	for _, operation := range operations {
+		quote, err := types.QuoteImageSaleReferralCosts(snap.ImageSaleContractJSON, source.MediaPriceContractJSON, operation)
+		if err != nil {
+			return nil, err
+		}
+		frozen, err := types.QuoteImageSaleReferralCosts(snap.ImageSaleContractJSON, snap.MediaPriceContractJSON, operation)
+		if err != nil || !reflect.DeepEqual(quote.Items, frozen.Items) {
+			return nil, ErrZTAPIReferralNotReady
+		}
+		for _, quoted := range quote.Items {
+			evidence, err := types.BuildZTAPIImageSaleReferralEvidence(quote, operation, quoted.Key)
+			if err != nil {
+				return nil, err
+			}
+			raw, err := common.Marshal(evidence)
+			if err != nil {
+				return nil, err
+			}
+			dimension, err := types.ZTAPIImageSaleReferralDimension(operation, quoted.Key)
+			if err != nil {
+				return nil, err
+			}
+			for _, channel := range channels {
+				items = append(items, ZTAPIReferralPriceGateItem{Key: config.SourceModel + "/" + snap.Protocol + "/channel:" + strconv.Itoa(channel) + "/" + dimension,
+					CustomerRevenue: quoted.CustomerRevenueUSD, BonusRate: "0.05", GroupMultiplier: "1", CashMultiplier: "1", Evidence: string(raw), CostKnown: true, UsageKnown: true})
+			}
+		}
+	}
+	return items, nil
+}
+
+func ztapiImageSaleAttestationMatches(expected, supplied []ZTAPIReferralPriceGateItem) bool {
+	byKey := map[string]ZTAPIReferralPriceGateItem{}
+	for _, item := range expected {
+		byKey[item.Key] = item
+	}
+	seen := map[string]bool{}
+	for _, item := range supplied {
+		want, ok := byKey[item.Key]
+		if !ok {
+			continue
+		}
+		if seen[item.Key] || item.SupplierCostUpperBound != "" || item.UsageUpperBound != "" {
+			return false
+		}
+		seen[item.Key] = true
+		evidence, err := types.ParseZTAPIImageSaleReferralEvidence(item.Evidence)
+		if err != nil {
+			return false
+		}
+		quoted, err := types.ParseZTAPIImageSaleReferralEvidence(want.Evidence)
+		if err != nil || !reflect.DeepEqual(evidence, quoted) {
+			return false
+		}
+	}
+	return len(seen) == len(expected)
+}
+
+func evaluateZTAPIImageSaleQuotedGateItem(item ZTAPIReferralPriceGateItem) string {
+	evidence, err := types.ParseZTAPIImageSaleReferralEvidence(item.Evidence)
+	if err != nil {
+		return "image_sale_quote_evidence_invalid"
+	}
+	dimension, err := types.ZTAPIImageSaleReferralDimension(evidence.Operation, evidence.Item.Key)
+	if err != nil || !strings.HasSuffix(item.Key, "/"+dimension) || item.SupplierCostUpperBound != "" || item.UsageUpperBound != "" {
+		return "image_sale_quote_units_invalid"
+	}
+	values := []string{item.CustomerRevenue, item.BonusRate, item.GroupMultiplier, item.CashMultiplier, item.PlatformFee}
+	numbers := make([]decimal.Decimal, len(values))
+	for i, raw := range values {
+		if len(raw) == 0 || len(raw) > 40 || strings.Count(raw, ".") > 1 {
+			return "amount_or_multiplier_unknown"
+		}
+		for _, ch := range raw {
+			if (ch < '0' || ch > '9') && ch != '.' {
+				return "amount_or_multiplier_unknown"
+			}
+		}
+		numbers[i], err = decimal.NewFromString(raw)
+		if err != nil || numbers[i].IsNegative() {
+			return "amount_or_multiplier_unknown"
+		}
+	}
+	price := decimal.RequireFromString(evidence.Item.CustomerRevenueUSD)
+	if !numbers[0].Equal(price) || !numbers[1].Equal(decimal.RequireFromString("0.05")) || !numbers[2].Equal(decimal.NewFromInt(1)) || !numbers[3].Equal(decimal.NewFromInt(1)) {
+		return "image_sale_quote_units_or_policy_changed"
+	}
+	cost := decimal.RequireFromString(evidence.Item.QuotedSupplierCostUSD).Add(numbers[4])
+	if price.Mul(decimal.RequireFromString("0.85")).LessThan(cost.Mul(decimal.RequireFromString("1.05"))) {
+		return "post_referral_quote_margin_below_10pct"
+	}
+	return ""
 }
 
 func RegisterZTAPIReferralProductionAdmissionGuard() {

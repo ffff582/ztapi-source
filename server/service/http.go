@@ -222,12 +222,20 @@ func CopyUpstreamResponseHeaders(c *gin.Context, header http.Header) {
 	}
 }
 
-func IOCopyBytesGracefully(c *gin.Context, src *http.Response, data []byte) {
+// IOCopyBytesGracefully reports local delivery errors, not supplier execution
+// failures. Callers must not retry or append an API error after a partial write.
+func IOCopyBytesGracefully(c *gin.Context, src *http.Response, data []byte) (err error) {
+	defer func() {
+		if err != nil {
+			logger.LogError(c, "failed to deliver response body: "+err.Error())
+		}
+	}()
 	if c.Writer == nil {
-		return
+		return fmt.Errorf("response writer unavailable: %w", io.ErrClosedPipe)
 	}
-
-	body := io.NopCloser(bytes.NewBuffer(data))
+	if c.Request != nil && c.Request.Context().Err() != nil {
+		return fmt.Errorf("response delivery canceled before write: %w", c.Request.Context().Err())
+	}
 
 	// We shouldn't set the header before we parse the response body, because the parse part may fail.
 	// And then we will have to send an error response, but in this case, the header has already been set.
@@ -240,16 +248,49 @@ func IOCopyBytesGracefully(c *gin.Context, src *http.Response, data []byte) {
 	// set Content-Length header manually BEFORE calling WriteHeader
 	c.Writer.Header().Set("Content-Length", fmt.Sprintf("%d", len(data)))
 
-	// Write header with status code (this sends the headers)
+	// Gin commits this status on the first write or flush.
 	if src != nil {
 		c.Writer.WriteHeader(src.StatusCode)
 	} else {
 		c.Writer.WriteHeader(http.StatusOK)
 	}
 
-	_, err := io.Copy(c.Writer, body)
-	if err != nil {
-		logger.LogError(c, fmt.Sprintf("failed to copy response body: %s", err.Error()))
+	written, err := io.Copy(c.Writer, bytes.NewReader(data))
+	if err == nil && written != int64(len(data)) {
+		err = io.ErrShortWrite
 	}
-	c.Writer.Flush()
+	if err != nil {
+		return fmt.Errorf("response body write failed after %d of %d bytes: %w", written, len(data), err)
+	}
+	if c.Request != nil && c.Request.Context().Err() != nil {
+		return fmt.Errorf("response delivery canceled after %d bytes: %w", written, c.Request.Context().Err())
+	}
+	if err := flushResponseBody(c.Writer); err != nil {
+		return fmt.Errorf("flush response body after %d bytes: %w", written, err)
+	}
+	return nil
+}
+
+func flushResponseBody(writer gin.ResponseWriter) (err error) {
+	defer func() {
+		if recover() != nil {
+			err = fmt.Errorf("response body flush panicked")
+		}
+	}()
+	writer.WriteHeaderNow()
+	rawWriter := http.ResponseWriter(writer)
+	// Both health monitoring and Gin wrap the network writer. Gin's Flush
+	// discards FlushError, so follow transparent facades until an error-aware
+	// implementation or the terminal writer is reached.
+	for depth := 0; depth < 16; depth++ {
+		if _, ok := rawWriter.(interface{ FlushError() error }); ok {
+			return http.NewResponseController(rawWriter).Flush()
+		}
+		if unwrapper, ok := rawWriter.(interface{ Unwrap() http.ResponseWriter }); ok {
+			rawWriter = unwrapper.Unwrap()
+			continue
+		}
+		return http.NewResponseController(rawWriter).Flush()
+	}
+	return fmt.Errorf("response writer wrapper chain exceeds the delivery limit")
 }

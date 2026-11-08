@@ -896,6 +896,7 @@ type ZTAPIModelPublicationSnapshot struct {
 	TokenPriceRulesJSON       string  `json:"token_price_rules,omitempty" gorm:"column:token_price_rules_json;type:text"`
 	CacheWritePricingMode     string  `json:"cache_write_pricing_mode,omitempty" gorm:"size:32;not null;default:''"`
 	MediaPriceContractJSON    string  `json:"media_price_contract,omitempty" gorm:"column:media_price_contract_json;type:text"`
+	ImageSaleContractJSON     string  `json:"image_sale_contract,omitempty" gorm:"column:image_sale_contract_json;type:text"`
 	ImageProtocolContractJSON string  `json:"image_protocol_contract,omitempty" gorm:"column:image_protocol_contract_json;type:mediumtext"`
 	VideoProtocolContractJSON string  `json:"video_protocol_contract,omitempty" gorm:"column:video_protocol_contract_json;type:text"`
 	InputPricePerMillion      float64 `json:"input_price_per_million" gorm:"type:decimal(20,8);not null;default:0"`
@@ -917,6 +918,9 @@ func (snapshot *ZTAPIModelPublicationSnapshot) BeforeCreate(tx *gorm.DB) error {
 		return nil
 	}
 	if err := validateZTAPICacheWritePricingMode(snapshot); err != nil {
+		return err
+	}
+	if err := validateZTAPIImageSaleSnapshot(snapshot); err != nil {
 		return err
 	}
 	modality := ZTAPIModelModality(snapshot.SourceModel)

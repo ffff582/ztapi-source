@@ -480,6 +480,7 @@ func SetApiRouter(router *gin.Engine) {
 			modelsRoute.POST("/ztapi/:id/price-preview", middleware.AdminPermissionAuth(common.PermissionModelRead), controller.PreviewZTAPIModelPriceSource)
 			modelsRoute.POST("/ztapi/reprice-commercial-v2", middleware.AdminPermissionAuth(common.PermissionModelWrite), controller.RepriceZTAPICommercialCatalog)
 			modelsRoute.POST("/ztapi/fable-uniform-cache-write", middleware.RootAuth(), middleware.AdminPermissionAuth(common.PermissionModelWrite), controller.PublishZTAPIFableUniformCacheWrite)
+			modelsRoute.POST("/ztapi/image-sale/publish", middleware.RootAuth(), middleware.AdminPermissionAuth(common.PermissionModelWrite), controller.PublishZTAPIImageSale)
 			modelsRoute.POST("/ztapi/fable-xcloud-only", middleware.RootAuth(), middleware.AdminPermissionAuth(common.PermissionModelWrite), controller.PublishZTAPIFableXcloudOnly)
 			modelsRoute.POST("/ztapi/reprice-sale-multiplier", middleware.AdminPermissionAuth(common.PermissionModelWrite), controller.RepriceZTAPISaleMultiplier)
 			modelsRoute.POST("/ztapi/cash-margin-20261030/preview", middleware.AdminPermissionAuth(common.PermissionModelRead), controller.PreviewZTAPICashMargin20261030)
