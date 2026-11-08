@@ -1,0 +1,20 @@
+FROM alpine@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+
+RUN apk add --no-cache ca-certificates tzdata \
+    && addgroup -S -g 101 ztapi \
+    && adduser -S -u 100 -G ztapi -h /data ztapi \
+    && mkdir -p /data /licenses \
+    && chown ztapi:ztapi /data
+
+COPY LICENSE NOTICE THIRD-PARTY-LICENSES.md /licenses/
+COPY ztapi-linux-amd64 /usr/local/bin/ztapi
+COPY ztapi-finance ztapi-referral-migrate /usr/local/bin/
+
+ARG SOURCE_COMMIT
+LABEL org.opencontainers.image.source="https://github.com/ffff582/ztapi-source" \
+      org.opencontainers.image.revision="${SOURCE_COMMIT}"
+ENV GIN_MODE=release PORT=3000
+EXPOSE 3000
+WORKDIR /data
+USER ztapi
+ENTRYPOINT ["/usr/local/bin/ztapi"]

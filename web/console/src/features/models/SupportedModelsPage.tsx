@@ -11,6 +11,7 @@ import {
   parseUserModelCatalog,
   type UserModelCatalogItem,
   type UserModelEndpointType,
+  type DisplayFXReference,
 } from '../../api/contracts';
 
 const endpointDetails: Record<
@@ -190,7 +191,8 @@ export function SupportedModelsPage() {
   const { t } = useLocale();
   const [catalog, setCatalog] = useState<UserModelCatalogItem[]>([]);
   const [displayRate, setDisplayRate] = useState<number | undefined>();
-  const { display, setCurrency } = usePriceDisplay(displayRate);
+  const [displayReference, setDisplayReference] = useState<DisplayFXReference>();
+  const { display, setCurrency } = usePriceDisplay(displayRate, displayReference);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState<ModelCategory>('all');
@@ -209,6 +211,7 @@ export function SupportedModelsPage() {
         if (active) {
           setCatalog(sortCatalogByRecency(response.catalog));
           setDisplayRate(response.display_cny_per_unit);
+          setDisplayReference(response.display_fx);
           setStatus('ready');
         }
       })

@@ -115,7 +115,12 @@ jobs:
 
       - name: Run price reduction and official comparison integrity
         working-directory: server
-        run: go test ./model ./controller ./types -run 'TestZTAPI.*(Pricing|Price|Cash|Official|PublicCatalog|Reduction)|TestPriceReduction20261107|TestReferralFloor20261107|TestSupplierPriceCore20261019' -count=1 -timeout=8m
+        run: go test ./model ./controller ./types -run 'TestZTAPI.*(Pricing|Price|Cash|Official|PublicCatalog|Reduction)|TestZTAPIFableXcloudOnly|TestPriceReduction20261107|TestReferralFloor20261107|TestSupplierPriceCore20261019' -count=1 -timeout=8m
+
+      - name: Run bounded operational retention and disk alert regressions
+        run: |
+          python3 -m unittest discover -s deploy/maintenance -p 'test_ztapi*.py'
+          python3 -m unittest discover -s deploy/health -p 'test_ztapi*.py'
 
       - name: Run offline UI suites
         run: |

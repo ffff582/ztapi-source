@@ -20,6 +20,9 @@ WEBHOOK = "https://alerts.invalid/PRIVATE_WEBHOOK_SECRET"
 
 class TelegramTests(unittest.TestCase):
     def setUp(self):
+        disk = patch.object(watchdog, "disk_condition", return_value="ok")
+        disk.start()
+        self.addCleanup(disk.stop)
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)

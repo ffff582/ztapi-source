@@ -593,10 +593,11 @@ func GetUserModels(c *gin.Context) {
 	}
 	catalog = model.FilterZTAPIPublicCatalogByGroups(catalog, groups)
 	response := gin.H{
-		"success": true,
-		"message": "",
-		"data":    model.ZTAPIPublicCatalogNames(catalog),
-		"catalog": catalog,
+		"success":    true,
+		"message":    "",
+		"data":       model.ZTAPIPublicCatalogNames(catalog),
+		"catalog":    catalog,
+		"display_fx": service.CurrentZTAPIDisplayFX(),
 	}
 	if rate := operation_setting.USDExchangeRate; !math.IsNaN(rate) && !math.IsInf(rate, 0) && rate >= 0.000001 && rate <= 1000000 {
 		response["display_cny_per_unit"] = rate

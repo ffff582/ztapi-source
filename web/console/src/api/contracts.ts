@@ -91,6 +91,21 @@ export interface PricingEnvelope {
 export interface RuntimeStatus {
   quota_per_unit: number;
   usd_exchange_rate?: number;
+  display_fx?: DisplayFXReference;
+}
+
+export interface DisplayFXReference {
+  cny_per_unit: string;
+  rate_date: string;
+  stale: boolean;
+}
+
+function displayFXReference(value: unknown): DisplayFXReference | undefined {
+  if (!isRecord(value) || value.available !== true || value.source !== 'ecb_usd_cny_reference' ||
+    typeof value.cny_per_unit !== 'string' || !/^\d+(?:\.\d+)?$/.test(value.cny_per_unit) ||
+    !finiteNumber(Number(value.cny_per_unit)) || Number(value.cny_per_unit) < 1 || Number(value.cny_per_unit) > 20 ||
+    typeof value.rate_date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value.rate_date)) return undefined;
+  return { cny_per_unit: value.cny_per_unit, rate_date: value.rate_date, stale: value.stale === true };
 }
 
 export interface UserTopUp {
@@ -198,6 +213,7 @@ export interface UserModelCatalogEnvelope {
   models: string[];
   catalog: UserModelCatalogItem[];
   display_cny_per_unit?: number;
+  display_fx?: DisplayFXReference;
 }
 
 export interface UserLogItem {
@@ -679,6 +695,7 @@ export function parseUserModelCatalog(value: unknown): UserModelCatalogEnvelope 
   }
 
   return { models, catalog,
+    ...(displayFXReference(value.display_fx) ? { display_fx: displayFXReference(value.display_fx) } : {}),
     ...(finiteNumber(value.display_cny_per_unit) && value.display_cny_per_unit >= 0.000001 && value.display_cny_per_unit <= 1_000_000
       ? { display_cny_per_unit: value.display_cny_per_unit } : {}),
   };
@@ -971,6 +988,7 @@ export function parseRuntimeStatus(value: unknown): RuntimeStatus {
 
   return {
     quota_per_unit: value.quota_per_unit,
+    ...(displayFXReference(value.display_fx) ? { display_fx: displayFXReference(value.display_fx) } : {}),
     ...(finiteNumber(value.usd_exchange_rate) && value.usd_exchange_rate > 0
       ? { usd_exchange_rate: value.usd_exchange_rate } : {}),
   };

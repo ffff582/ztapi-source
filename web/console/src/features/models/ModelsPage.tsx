@@ -7,6 +7,7 @@ import {
   parseRuntimeStatus,
   type PricingEnvelope,
   type PricingModel,
+  type DisplayFXReference,
 } from '../../api/contracts';
 import { PublicHeader } from '../../components/layout/PublicHeader';
 import { ResourceDisclosureNotice } from '../../components/ResourceDisclosureNotice';
@@ -45,7 +46,8 @@ export function ModelsPage() {
   const [pricing, setPricing] = useState<PricingEnvelope | null>(null);
   const [quotaPerUnit, setQuotaPerUnit] = useState<number | null>(null);
   const [displayRate, setDisplayRate] = useState<number | undefined>();
-  const { display, setCurrency } = usePriceDisplay(displayRate);
+  const [displayReference, setDisplayReference] = useState<DisplayFXReference>();
+  const { display, setCurrency } = usePriceDisplay(displayRate, displayReference);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState<ModelCategory>('all');
@@ -61,6 +63,7 @@ export function ModelsPage() {
           setPricing(pricingValue);
           setQuotaPerUnit(statusValue.quota_per_unit);
           setDisplayRate(statusValue.usd_exchange_rate);
+          setDisplayReference(statusValue.display_fx);
           setStatus('ready');
         }
       })
