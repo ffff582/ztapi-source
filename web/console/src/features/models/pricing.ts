@@ -4,6 +4,8 @@ export interface PriceDisplay {
   currency: 'CNY' | 'U';
   cnyPerUnit?: number | null;
   cnyLabel?: '元' | 'CNY';
+  referenceDate?: string;
+  referenceStale?: boolean;
 }
 
 export function isValidDisplayRate(rate: unknown): rate is number {

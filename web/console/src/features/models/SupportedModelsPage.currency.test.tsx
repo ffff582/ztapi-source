@@ -20,5 +20,6 @@ it('uses authenticated catalog FX without a second request or any financial muta
   expect(within(row).getByText('7.3 元 / 1M tokens')).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: 'U' }));
   expect(within(row).getByText('1 U / 1M tokens')).toBeVisible();
-  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/api/display-fx'))).toBe(true);
 });
