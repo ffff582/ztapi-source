@@ -15,6 +15,8 @@ import { useLocale } from '../../i18n/locale';
 import { markModelSelected } from '../onboarding/onboarding';
 import { useWorkbenchKeys } from './useWorkbenchKeys';
 import { useVideoTask } from './useVideoTask';
+import { approvedImageRequests, estimateImagePromptTokens, referenceImagePixels, validatePartialImageRequest } from './image-sale-policy';
+import './image-sale-workbench.css';
 
 type PlaygroundMode = 'text' | 'image' | 'video';
 
@@ -23,6 +25,7 @@ const imageDefaultPrompt = '';
 const videoDefaultPrompt = '';
 type ReferenceImage = {
   file: File;
+  pixels?: number;
   previewUrl: string;
   objectUrl?: string;
 };
@@ -387,8 +390,16 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
     () => modeModels.find((item) => item.model_name === model) ?? null,
     [model, modeModels],
   );
-  const selectedOptions = selectedCatalog?.supported_options;
-  const imageRenderOptions = useMemo(() => getImageRenderOptions(selectedOptions), [selectedOptions]);
+  const partialSale = selectedCatalog?.image_sale?.version === 2 ? selectedCatalog.image_sale : undefined;
+  const selectedOptions = useMemo(() => {
+    const options = selectedCatalog?.supported_options;
+    return partialSale && options ? { ...options, min_count: 1, max_count: 1 } : options;
+  }, [selectedCatalog, partialSale]);
+  const imageRenderOptions = useMemo(() => {
+    const options = getImageRenderOptions(selectedOptions);
+    return partialSale ? options.filter((option) => approvedImageRequests(partialSale, referenceImages.length > 0)
+      .some((r) => r.size === option.size && r.quality === option.quality)) : options;
+  }, [selectedOptions, partialSale, referenceImages.length]);
   const selectedImageRenderOption = useMemo(
     () => imageRenderOptions.find((option) => option.size === imageSize && option.quality === imageQuality) ?? imageRenderOptions[0],
     [imageQuality, imageRenderOptions, imageSize],
@@ -401,7 +412,8 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
     () => [...new Set(imageRenderOptions.map((option) => option.resolution))],
     [imageRenderOptions],
   );
-  const editInput = imageEditCapability(selectedCatalog);
+  const rawEditInput = imageEditCapability(selectedCatalog);
+  const editInput = partialSale && rawEditInput ? { ...rawEditInput, max_files: 1 } : rawEditInput;
   const example = useMemo(() => selectedCatalog === null || catalogStatus !== 'ready' ? '' : codeExample(
     mode, model,
     mode === 'image' ? imageSize || firstOption(selectedOptions, 'sizes') : videoSize || firstOption(selectedOptions, 'resolutions'),
@@ -441,6 +453,12 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
       ?? imageRenderOptions.find((candidate) => candidate.resolution === nextResolution);
     setImageRenderOption(option);
   }
+
+  useEffect(() => {
+    if (partialSale && !imageRenderOptions.some((r) => r.size === imageSize && r.quality === imageQuality)) {
+      setImageRenderOption(imageRenderOptions[0]);
+    }
+  }, [partialSale, imageRenderOptions, imageSize, imageQuality]);
 
   useEffect(() => {
     referenceImagesRef.current = referenceImages;
@@ -621,7 +639,9 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
     setImageCount(Math.max(1, selectedOptions?.min_count ?? 1));
   }
 
-  function addReferenceImages(files: File[]) {
+  async function addReferenceImages(files: File[]) {
+    const owner = getAuthSession();
+    const sequence = requestSequence.current;
     if (files.length === 0) return;
     if (editInput === null) {
       setReferenceError('当前模型不支持参考图。');
@@ -632,8 +652,23 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
       setReferenceError(validationError);
       return;
     }
+    let pixels: number[] = [];
+    if (partialSale) {
+      try {
+        pixels = await Promise.all(files.map(referenceImagePixels));
+        if (owner !== getAuthSession() || sequence !== requestSequence.current) return;
+        if (pixels.some((area) => area <= 0 || area > 4194304)) {
+          setReferenceError('参考图最多 4194304 像素。');
+          return;
+        }
+      } catch {
+        if (owner !== getAuthSession() || sequence !== requestSequence.current) return;
+        setReferenceError('无法读取参考图像素，未添加文件。');
+        return;
+      }
+    }
     setReferenceError('');
-    setReferenceImages((current) => [...current, ...files.map(createReferencePreview)]);
+    setReferenceImages((current) => partialSale && current.length + files.length > 1 ? current : [...current, ...files.map((file, index) => ({ ...createReferencePreview(file), ...(partialSale ? { pixels: pixels[index] } : {}) }))]);
   }
 
   function handleReferenceImages(event: ChangeEvent<HTMLInputElement>) {
@@ -661,6 +696,14 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
     if (requestStatus === 'sending' || !canRun || prompt.trim() === '') return;
     if (userID === undefined || userID !== getAuthSession()?.user.id) return;
     if (workbench && mode === 'text' && !textHistoryIsCurrent) return;
+
+    if (mode === 'image' && partialSale) {
+      const validation = validatePartialImageRequest(partialSale, { size: imageSize, quality: imageQuality,
+          count: imageCount, prompt: normalizedPrompt,
+          references: referenceImages.map((r) => r.pixels ?? 0) });
+      if (validation) { setErrorMessage(validation); setRequestStatus('error'); return; }
+      if (userID !== getAuthSession()?.user.id) return;
+    }
 
     const chatInput = {
       model,
@@ -887,7 +930,7 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
             <p>最多 {editInput.max_files} 张，单张不超过 {formatBytes(editInput.max_bytes)}，总大小不超过 {formatBytes(editInput.max_total_bytes)}。</p>
             <span className="zt-workbench__reference-summary">已选 {referenceImages.length} / {editInput.max_files} 张 · {formatBytes(referenceBytes)} / {formatBytes(editInput.max_total_bytes)}</span>
           </div>
-          <button className="console-button console-button--secondary" type="button" onClick={() => referenceInput.current?.click()}>
+          <button className="console-button console-button--secondary" disabled={!!partialSale && referenceImages.length >= 1} type="button" onClick={() => referenceInput.current?.click()}>
             <Plus aria-hidden="true" size={15} />添加参考图
           </button>
         </div>
@@ -897,7 +940,7 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
           aria-label="上传参考图"
           accept={editInput.mime_types.join(',')}
           hidden
-          multiple
+          multiple={!partialSale}
           type="file"
           onChange={handleReferenceImages}
         />
@@ -905,7 +948,7 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
           <button className="zt-workbench__reference-dropzone" type="button" onDragOver={(event) => event.preventDefault()} onDrop={handleReferenceDrop} onClick={() => referenceInput.current?.click()}>
             <Images aria-hidden="true" size={20} />
             <span>拖入参考图，或点击上传</span>
-            <small>支持 JPG、PNG、WebP，可一次选择多张</small>
+            <small>{partialSale ? '支持 JPG、PNG、WebP，仅限 1 张，最多 4194304 像素' : '支持 JPG、PNG、WebP，可一次选择多张'}</small>
           </button>
         ) : (
           <div className="zt-workbench__reference-list" aria-label="已选参考图">
@@ -916,7 +959,7 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
                 <button aria-label={`删除参考图 ${index + 1}`} className="zt-workbench__reference-remove" type="button" onClick={() => removeReferenceImage(index)}>移除</button>
               </div>
             ))}
-            <button className="zt-workbench__reference-add" type="button" onClick={() => referenceInput.current?.click()}>
+            <button className="zt-workbench__reference-add" disabled={!!partialSale && referenceImages.length >= 1} type="button" onClick={() => referenceInput.current?.click()}>
               <Plus aria-hidden="true" size={16} />继续添加参考图
             </button>
           </div>
@@ -1062,7 +1105,8 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
             <div className="console-field"><label htmlFor="workbench-image-model">图片模型</label><select id="workbench-image-model" value={model} onChange={(event) => handleModelChange(event.target.value)}>{renderModelOptions()}</select></div>
             <div className="zt-workbench__model-caption"><span>模型 ID</span><code>{model || '—'}</code></div>
             {renderImageReferenceField()}
-            <div className="console-field"><label htmlFor="workbench-image-prompt">图片提示词</label><textarea id="workbench-image-prompt" maxLength={4_000} rows={7} value={prompt} onChange={(event) => setPrompt(event.target.value)} /><p className="console-field__help">{prompt.length} / 4000 字符</p></div>
+            {partialSale && <p className="console-field__help">0.30 U / 张；每次 1 张。提示词 {estimateImagePromptTokens(prompt)} / 2000 本地估算 Token（非精确分词计数）。编辑限 1 张参考图、4194304 像素。其他规格及额外档位尚未开放，待验收。</p>}
+            <div className="console-field"><label htmlFor="workbench-image-prompt">图片提示词</label><textarea id="workbench-image-prompt" maxLength={partialSale ? 8_000 : 4_000} rows={7} value={prompt} onChange={(event) => setPrompt(event.target.value)} /><p className="console-field__help">{prompt.length} / {partialSale ? 8000 : 4000} 字符</p></div>
             <div className="playground-option-grid">{renderImageRenderControls('workbench')}<div className="console-field"><label htmlFor="workbench-image-count">图片数量</label><select id="workbench-image-count" value={imageCount} onChange={(event) => setImageCount(Number(event.target.value))}>{Array.from({ length: Math.max(1, (selectedOptions?.max_count ?? 1) - (selectedOptions?.min_count ?? 1) + 1) }, (_, index) => (selectedOptions?.min_count ?? 1) + index).map((count) => <option key={count} value={count}>{count}</option>)}</select></div>{!isEditing && <div className="console-field"><label htmlFor="workbench-image-format">返回格式</label><select id="workbench-image-format" value={imageResponseFormat} onChange={(event) => setImageResponseFormat(event.target.value)}>{selectedOptions?.response_formats?.map((option) => <option key={option} value={option}>{option}</option>)}</select></div>}</div>
             <div className="zt-workbench__action-row">
               <button aria-label="重置图像参数" className="zt-workbench__reset" title="重置图像参数" type="button" onClick={resetImageForm}><RotateCcw aria-hidden="true" size={17} /></button>
@@ -1199,7 +1243,7 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
                   </div>
                   <div className="console-field">
                     <label htmlFor={mode === 'text' ? 'playground-prompt' : `playground-${mode}-prompt`}>{mode === 'text' ? t('测试问题') : `${mode === 'image' ? '图片' : '视频'}提示词`}</label>
-                    <textarea id={mode === 'text' ? 'playground-prompt' : `playground-${mode}-prompt`} maxLength={mode === 'text' ? undefined : 4_000} rows={mode === 'text' ? 7 : 5} value={prompt} wrap={mode === 'text' ? prompt.length > LONG_TEXT_INLINE_LENGTH ? 'off' : 'soft' : undefined} onChange={(event) => setPrompt(event.target.value)} />
+                    <textarea id={mode === 'text' ? 'playground-prompt' : `playground-${mode}-prompt`} maxLength={mode === 'text' ? undefined : partialSale ? 8_000 : 4_000} rows={mode === 'text' ? 7 : 5} value={prompt} wrap={mode === 'text' ? prompt.length > LONG_TEXT_INLINE_LENGTH ? 'off' : 'soft' : undefined} onChange={(event) => setPrompt(event.target.value)} />
                     {mode !== 'text' && <p className="console-field__help">{t('{{count}} / 4000 字符', { count: prompt.length })}</p>}
                   </div>
                   {mode === 'image' && renderImageReferenceField()}

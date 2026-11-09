@@ -26,11 +26,11 @@ func OpenaiImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 	defer service.CloseResponseBodyGracefully(resp)
 	managedImage := info != nil && info.ZTAPIPublicationSnapshot != nil && info.ZTAPIPublicationSnapshot.Modality == "image"
 	attemptID := uint64(0)
-	adaptorSucceeded := false
+	upstreamEvidenceAccepted := false
 	if managedImage {
 		attemptID = info.CurrentZTAPIImageResponseAttemptID()
 		defer func() {
-			if !adaptorSucceeded {
+			if !upstreamEvidenceAccepted {
 				info.AbortZTAPIImageResponseAttempt(attemptID)
 			}
 		}()
@@ -71,8 +71,14 @@ func OpenaiImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 		if !info.PromoteZTAPIValidatedImageResponse(responseBody, evidence) {
 			return nil, types.NewErrorWithStatusCode(fmt.Errorf("managed image adaptor could not accept the current validated attempt"), types.ErrorCodeBadResponseBody, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
 		}
-		adaptorSucceeded = true
-		service.IOCopyBytesGracefully(c, resp, responseBody)
+		upstreamEvidenceAccepted = true
+		if err := service.IOCopyBytesGracefully(c, resp, responseBody); err != nil {
+			info.MarkZTAPIImageDeliveryFailed()
+			// Supplier evidence survives client failure. Returning an API error
+			// here would enter retry/refund handling after output may be committed.
+			c.Error(fmt.Errorf("image response delivery failed: %w", err)).SetType(gin.ErrorTypePrivate)
+			c.Abort()
+		}
 		return &dto.Usage{}, nil
 	}
 

@@ -700,6 +700,10 @@ func UpdateZTAPIModelConfigAndBilling(next *ZTAPIModelConfig, expectedVersion ui
 			return err
 		}
 		publicationSnapshotID := int64(0)
+		// Preserve only GPT Image 2's explicit retail authority while unpublished.
+		if current.ID == 85 && current.SourceModel == "gpt-image-2" && next.SourceModel == current.SourceModel && next.PublicNameValue() == current.PublicNameValue() {
+			publicationSnapshotID = current.PublicationSnapshotID
+		}
 		if next.Published {
 			blockers, evidence, err := ztapiPublicationBlockersTx(tx, next)
 			if err != nil {
@@ -708,6 +712,7 @@ func UpdateZTAPIModelConfigAndBilling(next *ZTAPIModelConfig, expectedVersion ui
 			if len(blockers) > 0 {
 				return &ZTAPIPublicationBlockedError{Blockers: blockers}
 			}
+			evidence.PreviousPublicationSnapshotID = current.PublicationSnapshotID
 			snapshot, err := createZTAPIModelPublicationSnapshotTx(tx, next, expectedVersion+1, evidence)
 			if err != nil {
 				return err
@@ -802,6 +807,7 @@ type ztapiPublishedModel struct {
 	MediaOfficialUSD       map[string]map[string]string
 	TokenPriceRulesJSON    string
 	MediaPriceContractJSON string
+	ImageSaleContractJSON  string
 	InputPriceDisplay      string
 	OutputPriceDisplay     string
 	ImageProtocolContract  *types.ZTAPIImageProtocolContract
@@ -896,6 +902,7 @@ func refreshZTAPIAliasCache() error {
 			MediaOfficialUSD:       copyZTAPINestedStringMap(publications[i].MediaOfficialUSD),
 			TokenPriceRulesJSON:    publications[i].TokenPriceRulesJSON,
 			MediaPriceContractJSON: publications[i].MediaPriceContractJSON,
+			ImageSaleContractJSON:  publications[i].ImageSaleContractJSON,
 			InputPriceDisplay:      publications[i].InputPriceDisplay, OutputPriceDisplay: publications[i].OutputPriceDisplay,
 			ImageProtocolContract: cloneZTAPIImageProtocolContract(publications[i].ImageProtocolContract),
 			VideoProtocolContract: cloneZTAPIVideoProtocolContract(publications[i].VideoProtocolContract),
@@ -1194,6 +1201,11 @@ func projectZTAPIPublicPricing(publications []ZTAPIRuntimePublication) []Pricing
 		}
 		item.PricingRules = append([]ZTAPIPublicPricingRule(nil), public.PricingRules...)
 		item.BillingUnit = public.BillingUnit
+		if public.ImageSale != nil {
+			contract := *public.ImageSale
+			contract.BasePrices = copyZTAPIStringMap(public.ImageSale.BasePrices)
+			item.ImageSale = &contract
+		}
 		result = append(result, item)
 	}
 	return result

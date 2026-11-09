@@ -64,6 +64,7 @@ export interface PricingModel {
   pricing_rules?: UserModelPricingRule[];
   token_price_rules?: UserModelTokenPriceRule[];
   billing_unit?: string;
+  image_sale?: ImageSale;
   model_name: string;
   description: string;
   quota_type: 0 | 1;
@@ -187,6 +188,22 @@ export interface OfficialPriceReference {
   original_units_per_usd?: string;
 }
 
+export interface ImageSale {
+  version: 1 | 2;
+  billing_unit: 'usd_per_image';
+  base_prices: Record<'1K' | '2K', string> & Partial<Record<'4K', string>>;
+  allowed_requests?: readonly { image_operation: 'generation' | 'edit'; size: string; quality: string; resolution: string }[];
+  max_prompt_tokens?: number;
+  max_reference_images?: number;
+  max_images?: number;
+  included_prompt_tokens: number;
+  prompt_block_tokens: number;
+  prompt_block_price: string;
+  included_reference_units: number;
+  reference_unit_pixels: number;
+  reference_unit_price: string;
+}
+
 export interface UserModelCatalogItem {
   modality: UserModelModality;
   model_name: string;
@@ -201,12 +218,13 @@ export interface UserModelCatalogItem {
   sale_usd: Record<string, string>;
   official_usd?: Record<string, string>;
   official_reference?: OfficialPriceReference;
-  billing_rule: 'token' | 'multi_dimension' | 'input_only';
+  billing_rule: 'token' | 'multi_dimension' | 'input_only' | 'per_image';
   pricing_version: string;
   supported_options?: UserModelSupportedOptions;
   pricing_rules?: UserModelPricingRule[];
   token_price_rules?: UserModelTokenPriceRule[];
   billing_unit?: string;
+  image_sale?: ImageSale;
 }
 
 export interface UserModelCatalogEnvelope {
@@ -408,6 +426,52 @@ function parseOfficialPriceReference(value: unknown): OfficialPriceReference | u
   };
 }
 
+function parseImageSale(value: unknown): ImageSale | undefined {
+  if (value === undefined) return undefined;
+  if (isRecord(value) && value.version === 2) {
+    const { allowed_requests: requests, max_prompt_tokens, max_reference_images, max_images, ...base } = value;
+    if (!isRecord(base.base_prices) || Object.keys(base.base_prices).length !== 2 ||
+      !['1K', '2K'].every((key) => positiveDecimalString((base.base_prices as Record<string, unknown>)[key]) && canonicalDecimalString((base.base_prices as Record<string, string>)[key]) === '0.3') ||
+      max_prompt_tokens !== 2000 || max_reference_images !== 1 || max_images !== 1 ||
+      !Array.isArray(requests) || requests.length === 0 || requests.some((r) => !isRecord(r) ||
+        Object.keys(r).length !== 4 || r.quality !== 'low' ||
+        !((r.size === '1024x1024' && r.resolution === '1K' && ['generation', 'edit'].includes(String(r.image_operation))) ||
+          (r.size === '1152x2048' && r.resolution === '2K' && r.image_operation === 'generation'))) ||
+      new Set(requests.map((r) => `${r.image_operation}/${r.size}/${r.quality}/${r.resolution}`)).size !== requests.length) throw new DataContractError();
+    const legacy = parseImageSale({ ...base, version: 1, base_prices: { ...base.base_prices, '4K': '0.60' } })!;
+    if (legacy.included_prompt_tokens !== 2000 || legacy.included_reference_units !== 1 || legacy.reference_unit_pixels !== 4194304) throw new DataContractError();
+    return { ...legacy, version: 2, base_prices: { '1K': '0.30', '2K': '0.30' },
+      allowed_requests: requests, max_prompt_tokens, max_reference_images, max_images };
+  }
+  const fields = ['version', 'billing_unit', 'base_prices', 'included_prompt_tokens',
+    'prompt_block_tokens', 'prompt_block_price', 'included_reference_units',
+    'reference_unit_pixels', 'reference_unit_price'];
+  const basePrices = isRecord(value) ? value.base_prices : undefined;
+  if (!isRecord(value) || Object.keys(value).length !== fields.length ||
+    Object.keys(value).some((key) => !fields.includes(key)) || value.version !== 1 ||
+    value.billing_unit !== 'usd_per_image' || !isRecord(basePrices) ||
+    Object.keys(basePrices).length !== 3 ||
+    !['1K', '2K', '4K'].every((resolution) => positiveDecimalString(basePrices[resolution])) ||
+    !integer(value.included_prompt_tokens) || value.included_prompt_tokens <= 0 ||
+    !integer(value.prompt_block_tokens) || value.prompt_block_tokens <= 0 ||
+    !positiveDecimalString(value.prompt_block_price) ||
+    !integer(value.included_reference_units) || value.included_reference_units < 0 ||
+    !integer(value.reference_unit_pixels) || value.reference_unit_pixels <= 0 ||
+    !positiveDecimalString(value.reference_unit_price)) {
+    throw new DataContractError();
+  }
+  return {
+    version: 1, billing_unit: 'usd_per_image',
+    base_prices: { '1K': basePrices['1K'] as string, '2K': basePrices['2K'] as string, '4K': basePrices['4K'] as string },
+    included_prompt_tokens: value.included_prompt_tokens,
+    prompt_block_tokens: value.prompt_block_tokens,
+    prompt_block_price: value.prompt_block_price,
+    included_reference_units: value.included_reference_units,
+    reference_unit_pixels: value.reference_unit_pixels,
+    reference_unit_price: value.reference_unit_price,
+  };
+}
+
 function parseUserModelCatalogItem(value: unknown): UserModelCatalogItem {
   if (!isRecord(value)) {
     throw new DataContractError();
@@ -439,6 +503,7 @@ function parseUserModelCatalogItem(value: unknown): UserModelCatalogItem {
   const inputPrice = value.input_price_per_million;
   const outputPrice = value.output_price_per_million;
   const billingRule = value.billing_rule;
+  const imageSale = parseImageSale(value.image_sale);
   const isEmbedding = modality === 'embedding';
   const allowedEndpoints: Record<UserModelProtocol, UserModelEndpointType[]> = {
     openai_compatible: ['openai', 'openai-response', 'embeddings', 'images', 'video-tasks'],
@@ -466,7 +531,8 @@ function parseUserModelCatalogItem(value: unknown): UserModelCatalogItem {
     (media || hasTokenTiers ? inputPrice !== '' : !positiveDecimalString(inputPrice)) ||
     typeof outputPrice !== 'string' ||
     (media || hasTokenTiers ? outputPrice !== '' : isEmbedding ? !/^0(?:\.0+)?$/.test(outputPrice) : !positiveDecimalString(outputPrice)) ||
-    !['token', 'multi_dimension', 'input_only'].includes(String(billingRule)) ||
+    (imageSale && modality !== 'image') ||
+    !(imageSale ? billingRule === 'per_image' : ['token', 'multi_dimension', 'input_only'].includes(String(billingRule))) ||
     !requiredString(value.pricing_version)
   ) {
     throw new DataContractError();
@@ -475,9 +541,12 @@ function parseUserModelCatalogItem(value: unknown): UserModelCatalogItem {
   if (media) {
     if (
       hasTokenTiers ||
-      billingDimensions.length !== 0 ||
-      Object.keys(saleUSD).length !== 0 ||
-      billingRule !== 'multi_dimension' ||
+      (imageSale
+        ? billingDimensions.length !== 1 || billingDimensions[0] !== 'images' ||
+          Object.keys(saleUSD).length !== 1 || !saleUSD.images ||
+          canonicalDecimalString(saleUSD.images) !== canonicalDecimalString(imageSale.base_prices['1K']) ||
+          value.billing_unit !== imageSale.billing_unit
+        : billingDimensions.length !== 0 || Object.keys(saleUSD).length !== 0 || billingRule !== 'multi_dimension') ||
       !requiredString(value.billing_unit) ||
       !isRecord(value.supported_options) ||
       !Array.isArray(value.pricing_rules) ||
@@ -554,6 +623,18 @@ function parseUserModelCatalogItem(value: unknown): UserModelCatalogItem {
       supportedOptions.duration_seconds = [...options.duration_seconds];
       supportedOptions.supports_video_input = options.supports_video_input;
     }
+    if (imageSale?.version === 2) {
+      const approved = imageSale.allowed_requests!;
+      supportedOptions.sizes = supportedOptions.sizes?.filter((size) => approved.some((r) => r.size === size));
+      supportedOptions.qualities = supportedOptions.qualities?.filter((quality) => approved.some((r) => r.quality === quality));
+      supportedOptions.render_options = supportedOptions.render_options?.filter((o) => approved.some((r) => r.size === o.size && r.quality === o.quality && r.resolution === o.resolution));
+      supportedOptions.min_count = supportedOptions.max_count = 1;
+      if (supportedOptions.edit_input) supportedOptions.edit_input.max_files = 1;
+      if (!approved.some((r) => r.image_operation === 'edit')) {
+        supportedOptions.supports_edits = false;
+        delete supportedOptions.edit_input;
+      }
+    }
     const pricingRules = value.pricing_rules.map((rule): UserModelPricingRule => {
       if (!isRecord(rule) || !requiredString(rule.id) || !requiredString(rule.billing_unit)) {
         throw new DataContractError();
@@ -572,6 +653,24 @@ function parseUserModelCatalogItem(value: unknown): UserModelCatalogItem {
       return { id: rule.id, conditions, billing_unit: rule.billing_unit, sale_usd: ruleSaleUSD,
         ...(rule.official_usd !== undefined ? { official_usd: ruleOfficialUSD } : {}) };
     });
+    if (imageSale) {
+      const expectedConditions: Record<string, string>[] = imageSale.version === 2
+        ? imageSale.allowed_requests!.map((allowed) => ({ ...allowed }))
+        : Object.keys(imageSale.base_prices).map((resolution) => ({ resolution }));
+      const conditionKey = (conditions: Record<string, string>) => JSON.stringify(Object.entries(conditions).sort(([a], [b]) => a.localeCompare(b)));
+      const approvedConditions = new Set(expectedConditions.map(conditionKey));
+      if (pricingRules.length !== approvedConditions.size ||
+      new Set(pricingRules.map((rule) => conditionKey(rule.conditions))).size !== approvedConditions.size ||
+      pricingRules.some((rule) => {
+        const resolution = rule.conditions.resolution;
+        return !approvedConditions.has(conditionKey(rule.conditions)) ||
+          !Object.prototype.hasOwnProperty.call(imageSale.base_prices, resolution) ||
+          Object.keys(rule.sale_usd).length !== 1 || !rule.sale_usd.images ||
+          canonicalDecimalString(rule.sale_usd.images) !== canonicalDecimalString(imageSale.base_prices[resolution as keyof ImageSale['base_prices']]!);
+      })) {
+        throw new DataContractError();
+      }
+    }
     return {
       modality: modality as UserModelModality,
       model_name: value.model_name,
@@ -591,6 +690,7 @@ function parseUserModelCatalogItem(value: unknown): UserModelCatalogItem {
       supported_options: supportedOptions,
       pricing_rules: pricingRules,
       billing_unit: value.billing_unit,
+      ...(imageSale ? { image_sale: imageSale } : {}),
     };
   }
 
@@ -858,7 +958,7 @@ export function parsePricingModels(value: unknown): PricingModel[] {
     }
 
     let managed: Partial<PricingModel> = {};
-    if (['provider_family', 'vendor_name', 'sale_usd', 'billing_dimensions'].some((key) => key in item)) {
+    if (['provider_family', 'vendor_name', 'sale_usd', 'billing_dimensions', 'image_sale'].some((key) => key in item)) {
       const endpoints = parseRequiredStringArray(item.supported_endpoint_types);
       // Anonymous pricing uses the same managed prices, but omits protocol and modality.
       const catalog = parseUserModelCatalogItem({
@@ -883,6 +983,7 @@ export function parsePricingModels(value: unknown): PricingModel[] {
         pricing_rules: catalog.pricing_rules,
         token_price_rules: catalog.token_price_rules,
         billing_unit: catalog.billing_unit,
+        ...(catalog.image_sale ? { image_sale: catalog.image_sale } : {}),
       };
     }
 

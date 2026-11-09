@@ -42,6 +42,7 @@ type ZTAPIPublicationSnapshot struct {
 	SaleUSD                map[string]string
 	TokenPriceRulesJSON    string
 	MediaPriceContractJSON string
+	ImageSaleContractJSON  string
 	AllowedGroups          []string
 	AllowedChannelIDs      []int
 	AuthorizedGroup        string

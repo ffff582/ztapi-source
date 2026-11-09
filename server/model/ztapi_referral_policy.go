@@ -104,6 +104,12 @@ func EvaluateZTAPIReferralPriceGate(in ZTAPIReferralPriceGateInput) (ZTAPIReferr
 			block(item.Key + ":evidence_unknown")
 			continue
 		}
+		if strings.Contains(item.Key, "/spec:image_sale_") {
+			if reason := evaluateZTAPIImageSaleQuotedGateItem(item); reason != "" {
+				block(item.Key + ":" + reason)
+			}
+			continue
+		}
 		values := []string{item.CustomerRevenue, item.SupplierCostUpperBound, item.UsageUpperBound, item.BonusRate, item.GroupMultiplier, item.CashMultiplier, item.PlatformFee}
 		d := make([]decimal.Decimal, len(values))
 		valid := true

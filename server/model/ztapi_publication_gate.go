@@ -55,13 +55,14 @@ func ztapiStoredPriceMatchesPreview(stored float64, rawPreview string) bool {
 var ztapiPublicationEvidenceMaxAge = 24 * time.Hour
 
 type ztapiPublicationEvidence struct {
-	AllowedChannelIDs         []int
-	VerificationIDs           []int64
-	PriceSourceID             int64
-	IdentityUpdatedAt         int64
-	ImageProtocolContractJSON string
-	VideoProtocolContractJSON string
-	CacheWritePricingMode     string
+	AllowedChannelIDs             []int
+	VerificationIDs               []int64
+	PriceSourceID                 int64
+	IdentityUpdatedAt             int64
+	ImageProtocolContractJSON     string
+	VideoProtocolContractJSON     string
+	CacheWritePricingMode         string
+	PreviousPublicationSnapshotID int64
 }
 
 type ZTAPIPublicationBlockedError struct {
@@ -691,6 +692,10 @@ func createZTAPIModelPublicationSnapshotTx(
 	nextVersion uint64,
 	evidence ztapiPublicationEvidence,
 ) (*ZTAPIModelPublicationSnapshot, error) {
+	imageSaleContract, err := inheritZTAPIImageSaleContractTx(tx, config, evidence.PreviousPublicationSnapshotID)
+	if err != nil {
+		return nil, err
+	}
 	if evidence.CacheWritePricingMode == "" {
 		var previous ZTAPIModelPublicationSnapshot
 		// Ordinary PUTs omit the pointer, and unpublishing clears it. Recover
@@ -711,6 +716,7 @@ func createZTAPIModelPublicationSnapshotTx(
 		EnabledGroups: config.EnabledGroups, AllowedChannelIDs: string(channels),
 		PriceSourceID: evidence.PriceSourceID, VerificationIDs: string(verifications),
 		CacheWritePricingMode:     evidence.CacheWritePricingMode,
+		ImageSaleContractJSON:     imageSaleContract,
 		ImageProtocolContractJSON: evidence.ImageProtocolContractJSON,
 		VideoProtocolContractJSON: evidence.VideoProtocolContractJSON,
 		InputPricePerMillion:      config.InputPricePerMillion, OutputPricePerMillion: config.OutputPricePerMillion,

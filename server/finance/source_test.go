@@ -2,6 +2,7 @@ package finance
 
 import (
 	"context"
+	"github.com/QuantumNous/new-api/common"
 	"github.com/stretchr/testify/require"
 	"testing"
 )
@@ -44,4 +45,18 @@ func TestReaderUsesPostingTimeAndOnlySelectsFinancialColumns(t *testing.T) {
 	u, e := reader.Identity(context.Background(), 1)
 	require.NoError(t, e)
 	require.Equal(t, 100, u.Role)
+	t.Run("native usage financial projection", func(t *testing.T) {
+		require.NoError(t, db.Exec("ALTER TABLE ztapi_request_settlements ADD COLUMN usage_json TEXT").Error)
+		usage := imageSaleUsage(t)
+		require.NoError(t, db.Table("ztapi_request_settlements").Where("id = ?", 1).Update("usage_json", usage).Error)
+		fresh := &Reader{DB: db, QuotaPerUnit: 500000}
+		current, err := fresh.Load(context.Background(), moment("2026-10-26T00:00:00Z"))
+		require.NoError(t, err)
+		require.Len(t, current.Settlements, 1)
+		encoded, err := common.Marshal(current.Settlements[0])
+		require.NoError(t, err)
+		var projection map[string]any
+		require.NoError(t, common.Unmarshal(encoded, &projection))
+		require.Equal(t, usage, projection["UsageJSON"])
+	})
 }

@@ -122,6 +122,15 @@ jobs:
           python3 -m unittest discover -s deploy/maintenance -p 'test_ztapi*.py'
           python3 -m unittest discover -s deploy/health -p 'test_ztapi*.py'
 
+      - name: Verify partial image release scope and unchanged budget
+        run: |
+          python3 -B tools/release/test_image_partial_release.py
+          python3 -B tools/release/test_image_partial_finance.py
+
+      - name: Verify partial image HTTP admission and quote evidence
+        working-directory: server
+        run: go test ./router ./cmd/ztapi-image-sale-review -run 'TestZTAPIImageSalePartialHTTP|TestReviewPartialImageSale' -count=1 -timeout=5m
+
       - name: Run offline UI suites
         run: |
           pnpm --filter @ztapi/console test -- --run
@@ -146,6 +155,10 @@ jobs:
 
       - name: Run responsive media browser acceptance
         run: pnpm exec playwright test tests/e2e/media-models-and-guide.spec.ts
+
+      - name: Run per-image retail browser acceptance
+        working-directory: web/console
+        run: node node_modules/vitest/vitest.mjs run --config src/features/models/image-sale.browser.config.ts
 
       - name: Run referral user and finance browser acceptance
         run: |

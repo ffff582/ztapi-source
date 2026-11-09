@@ -7,6 +7,7 @@ import { PriceCurrencyControl, usePriceDisplay } from './PriceCurrencyControl';
 import { OfficialPriceReference } from './OfficialPriceReference';
 import { UsageBillingNote } from '../../components/UsageBillingNote';
 import { useLocale } from '../../i18n/locale';
+import { ImageSalePricing } from './ImageSalePricing';
 import {
   parseUserModelCatalog,
   type UserModelCatalogItem,
@@ -389,7 +390,9 @@ export function SupportedModelsPage() {
                           </td>
                           <td className="model-price-cell" role="cell">
                             <span aria-hidden="true" className="model-cell-label">{t('售价明细')}</span>
-                            {media ? (
+                            {item.image_sale ? (
+                              <ImageSalePricing name={item.model_name} sale={item.image_sale} display={display} />
+                            ) : media ? (
                               <div className="model-media-pricing">
                                 <small>{supportedOptionsLabel(item, t)}</small>
                                 <ul aria-label={t('{{name}} 条件售价', { name: item.model_name })} className="model-price-list">
@@ -437,7 +440,7 @@ export function SupportedModelsPage() {
                                 })}
                               </ul>
                             )}
-                            <OfficialPriceReference reference={item.official_reference} />
+                            {!item.image_sale && <OfficialPriceReference reference={item.official_reference} />}
                           </td>
                           <td className="model-support-actions" role="cell">
                             <span aria-hidden="true" className="model-cell-label">{t('操作')}</span>
