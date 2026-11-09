@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import sqlite3
 import time
 from urllib import request
@@ -35,16 +36,25 @@ def finance_clients(raw):
     return count
 
 
-def run_finance(r, root, build, access):
+def finance_revision(build, artifact):
+    if artifact is None:
+        return build["commit"]
+    require(re.fullmatch("[a-f0-9]{40}", artifact["commit"]) is not None, "invalid_finance_commit")
+    require(artifact["parent"] == build["commit"] and artifact["ci_passed"] and artifact["ci_commit"] == artifact["commit"], "finance_hotfix_exact_commit_ci_required")
+    return artifact["commit"]
+
+
+def run_finance(r, root, build, access, finance_build=None):
     require(root == Path("/opt/ztapi/releases/image-partial-20261109-r3"), "unexpected_finance_stage")
     before = json.loads((root / "baseline-before-migration.json").read_bytes())
     old = r.inspect(CANONICAL)
     require(old["Id"] == before["containers"][CANONICAL]["id"], "finance_baseline_changed")
     main = r.inspect(r.MAIN)
     require(r.envmap(main).get("ZTAPI_SOURCE_COMMIT") == build["commit"], "new_main_must_be_healthy_before_finance_handoff")
+    source_commit = finance_revision(build, finance_build)
     old_config = r.docker("exec", r.NGINX, "cat", r.CONF)
     candidate_config = finance_target(old_config, TEMPORARY)
-    r.save("original-finance.private.json", old)
+    r.save("original-finance-hotfix.private.json" if finance_build else "original-finance.private.json", old)
     data = next(item["Source"] for item in old["Mounts"] if item["Destination"] == "/data")
     store = Path(data) / "finance.db"
 
@@ -57,10 +67,10 @@ def run_finance(r, root, build, access):
 
     facts = identity()
     with sqlite3.connect("file:" + str(store) + "?mode=ro", uri=True) as source:
-        with sqlite3.connect(root / "finance-before.db") as target:
+        with sqlite3.connect(root / ("finance-before-hotfix.db" if finance_build else "finance-before.db")) as target:
             source.backup(target)
             require(target.execute("PRAGMA integrity_check").fetchone() == ("ok",), "finance_backup_integrity_failed")
-    os.chmod(root / "finance-before.db", 0o600)
+    os.chmod(root / ("finance-before-hotfix.db" if finance_build else "finance-before.db"), 0o600)
     opener = request.build_opener(request.ProxyHandler({}))
 
     def call(cid, path, authenticated=True):
@@ -83,12 +93,13 @@ def run_finance(r, root, build, access):
         return result
 
     previous_tests = expected_tests(report(old["Id"]))
-    image = json.loads((root / "published.json").read_bytes())["image"]
+    image = finance_build["image"] if finance_build else json.loads((root / "published.json").read_bytes())["image"]
+    require(r.inspect(image)["Config"].get("Labels", {}).get("org.opencontainers.image.revision") == source_commit, "finance_runtime_revision_mismatch")
 
     def configuration(temporary):
         value = r.clone(old, image, build["commit"], temporary)
         env = dict(item.split("=", 1) for item in value["Env"])
-        env["FINANCE_SOURCE_COMMIT"] = build["commit"]
+        env["FINANCE_SOURCE_COMMIT"] = source_commit
         value["Env"] = [key + "=" + item for key, item in env.items()]
         value["Entrypoint"], value["Cmd"] = ["/usr/local/bin/ztapi-finance"], None
         value["User"], value["WorkingDir"] = old["Config"]["User"], "/data"
@@ -101,7 +112,7 @@ def run_finance(r, root, build, access):
             try:
                 health = call(cid, "/healthz", False)
                 current = report(cid)
-                if health.get("ok") and current["source_commit"] == build["commit"]:
+                if health.get("ok") and current["source_commit"] == source_commit:
                     require(expected_tests(current) == previous_tests, "finance_test_facts_readback_changed")
                     return
             except (OSError, ValueError):
@@ -140,9 +151,9 @@ def run_finance(r, root, build, access):
     r.docker("stop", "--time=-1", temporary, timeout=25)
     require(identity(facts["maximum_id"]) == facts, "private_finance_facts_changed_during_handoff")
     require(r.inspect(r.MAIN)["Id"] == main["Id"], "finance_handoff_restarted_main")
-    result = {"passed": True, "source_commit": build["commit"], "container": current, "previous": old["Id"],
+    result = {"passed": True, "source_commit": source_commit, "main_source_commit": build["commit"], "container": current, "previous": old["Id"],
               "first_drain": first_drain, "second_drain": second_drain, "existing_facts_unchanged": True,
               "facts_identity": facts, "test_fact_ids": [412, 413, 414, 415], "main_unchanged": True,
-              "minimum_compatible_reader": build["commit"], "rollback_requires_v2_reader": True, "paid_calls": 0}
+              "minimum_compatible_reader": source_commit, "rollback_requires_v2_reader": True, "paid_calls": 0}
     r.save("finance-compatibility.json", result)
     return result

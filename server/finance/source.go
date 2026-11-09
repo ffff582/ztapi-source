@@ -62,7 +62,7 @@ func (r *Reader) Load(ctx context.Context, before time.Time) (Snapshot, error) {
 		settlementColumns := "s.id,s.user_id,s.request_id,s.operation_id,s.status,s.public_model,s.price_snapshot_json,s.charge_dimensions_json,s.missing_dimensions_json,s.reserved_quota,s.charged_quota,s.final_attempt,s.created_at,COALESCE(o.created_at,0) AS completed_at"
 		// Historical databases can still be reported without inventing native
 		// usage; per-image settlements lacking it remain explicitly unknown.
-		if tx.Migrator().HasColumn("ztapi_request_settlements", "usage_json") {
+		if tx.Table("ztapi_request_settlements").Migrator().HasColumn(&Settlement{}, "usage_json") {
 			settlementColumns += ",s.usage_json"
 		}
 		if e := bounded(tx, "ztapi_request_settlements s LEFT JOIN ztapi_settlement_log_outboxes o ON o.operation_id = s.operation_id", settlementColumns, &s.Settlements, "s.created_at < ?", before); e != nil {

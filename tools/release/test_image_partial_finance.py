@@ -8,6 +8,17 @@ spec.loader.exec_module(m)
 
 
 class FinanceReleaseTests(unittest.TestCase):
+    def test_finance_uses_same_revision_by_default(self):
+        self.assertEqual(m.finance_revision({"commit": "a" * 40}, None), "a" * 40)
+
+    def test_finance_hotfix_requires_its_own_exact_commit_ci(self):
+        build = {"commit": "a" * 40}
+        artifact = {"commit": "b" * 40, "parent": "a" * 40, "ci_passed": True, "ci_commit": "b" * 40}
+        self.assertEqual(m.finance_revision(build, artifact), "b" * 40)
+        for key, value in [("commit", "not-a-sha"), ("parent", "c" * 40), ("ci_passed", False), ("ci_commit", "c" * 40)]:
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                m.finance_revision(build, {**artifact, key: value})
+
     def test_finance_target_switch_is_exact_and_compareable(self):
         raw = b"set $ztapi_finance http://ztapi-finance-support-20261102-live:3011;\nset $model http://server:3000;\n"
         updated = m.finance_target(raw, "ztapi-image-finance-candidate-20261109-r3")
