@@ -72,7 +72,21 @@ func OpenaiImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 			return nil, types.NewErrorWithStatusCode(fmt.Errorf("managed image adaptor could not accept the current validated attempt"), types.ErrorCodeBadResponseBody, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
 		}
 		upstreamEvidenceAccepted = true
-		if err := service.IOCopyBytesGracefully(c, resp, responseBody); err != nil {
+		// This body has already been validated as plain JSON, not encoded bytes.
+		// Preserve provider headers for evidence, but do not make clients decode it again.
+		delivery := *resp
+		delivery.Header = resp.Header.Clone()
+		removedEncoding := false
+		for name := range delivery.Header {
+			if strings.EqualFold(name, "Content-Encoding") {
+				delete(delivery.Header, name)
+				removedEncoding = true
+			}
+		}
+		if removedEncoding {
+			logger.LogInfo(c, "managed image delivery removed content encoding after plain JSON validation")
+		}
+		if err := service.IOCopyBytesGracefully(c, &delivery, responseBody); err != nil {
 			info.MarkZTAPIImageDeliveryFailed()
 			// Supplier evidence survives client failure. Returning an API error
 			// here would enter retry/refund handling after output may be committed.
