@@ -131,6 +131,10 @@ jobs:
         working-directory: server
         run: go test ./router ./cmd/ztapi-image-sale-review -run 'TestZTAPIImageSalePartialHTTP|TestReviewPartialImageSale' -count=1 -timeout=5m
 
+      - name: Verify image finance native usage schema compatibility
+        working-directory: server
+        run: go test ./finance ./cmd/ztapi-finance -run '^TestReader|^TestFinanceMySQL' -count=1 -timeout=3m
+
       - name: Run offline UI suites
         run: |
           pnpm --filter @ztapi/console test -- --run

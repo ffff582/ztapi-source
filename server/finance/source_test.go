@@ -4,10 +4,12 @@ import (
 	"context"
 	"github.com/QuantumNous/new-api/common"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 	"testing"
 )
 
-func TestReaderUsesPostingTimeAndOnlySelectsFinancialColumns(t *testing.T) {
+func readerSnapshotFixture(t *testing.T) *gorm.DB {
+	t.Helper()
 	store := newStore(t)
 	db := store.db
 	for _, sql := range []string{
@@ -29,6 +31,11 @@ func TestReaderUsesPostingTimeAndOnlySelectsFinancialColumns(t *testing.T) {
 	} {
 		require.NoError(t, db.Exec(sql).Error)
 	}
+	return db
+}
+
+func TestReaderUsesPostingTimeAndOnlySelectsFinancialColumns(t *testing.T) {
+	db := readerSnapshotFixture(t)
 	reader := &Reader{DB: db, QuotaPerUnit: 500000}
 	s, e := reader.Load(context.Background(), moment("2026-10-26T00:00:00Z"))
 	require.NoError(t, e)
@@ -59,4 +66,36 @@ func TestReaderUsesPostingTimeAndOnlySelectsFinancialColumns(t *testing.T) {
 		require.NoError(t, common.Unmarshal(encoded, &projection))
 		require.Equal(t, usage, projection["UsageJSON"])
 	})
+}
+
+func TestReaderNativeUsageGenericMigratorDoesNotPanic(t *testing.T) {
+	for _, present := range []bool{false, true} {
+		name := "legacy_without_usage"
+		if present {
+			name = "native_usage_present"
+		}
+		t.Run(name, func(t *testing.T) {
+			db := readerSnapshotFixture(t)
+			usage := ""
+			if present {
+				require.NoError(t, db.Exec("ALTER TABLE ztapi_request_settlements ADD COLUMN usage_json TEXT").Error)
+				usage = imageSaleUsage(t)
+				require.NoError(t, db.Table("ztapi_request_settlements").Where("id = ?", 1).Update("usage_json", usage).Error)
+			}
+			db = referralGenericSchemaDB(t, db, "")
+			if present {
+				require.NoError(t, db.Exec("PRAGMA query_only = OFF").Error)
+				require.NoError(t, db.Exec("INSERT INTO INFORMATION_SCHEMA.columns VALUES(?,?,?)", "finance_generic_stub", "ztapi_request_settlements", "usage_json").Error)
+				require.NoError(t, db.Exec("PRAGMA query_only = ON").Error)
+			}
+			var snapshot Snapshot
+			var err error
+			require.NotPanics(t, func() {
+				snapshot, err = (&Reader{DB: db, QuotaPerUnit: 500000}).Load(context.Background(), moment("2026-11-09T00:00:00Z"))
+			})
+			require.NoError(t, err)
+			require.Len(t, snapshot.Settlements, 1)
+			require.Equal(t, usage, snapshot.Settlements[0].UsageJSON)
+		})
+	}
 }
