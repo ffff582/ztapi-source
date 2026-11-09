@@ -10,7 +10,10 @@ afterEach(() => { cleanup(); clearAuthSession(); vi.unstubAllGlobals(); });
 it('limits v2 controls, rejects long prompts and pixels, switches edit back to 1K without paid calls', async () => {
   setAuthSession({ access_token: 'offline', expires_in: 900, user: { id: 7, username: 'test', role: 1, group: 'default' } });
   const calls: string[] = [];
-  const item = partialImageItem();
+  const native = partialImageItem();
+  const item: Record<string, unknown> = { ...native, supported_options: { ...native.supported_options, response_formats: ['b64_json'] } };
+  delete item.input_price_per_million;
+  delete item.output_price_per_million;
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input); calls.push(url);
     const data = url === '/api/user/models' ? { success: true, data: [item.model_name], catalog: [item] }
@@ -27,6 +30,10 @@ it('limits v2 controls, rejects long prompts and pixels, switches edit back to 1
   expect(within(screen.getByLabelText('图片数量')).getAllByRole('option')).toHaveLength(1);
   expect(within(screen.getByLabelText('图片分辨率')).queryByText('4K')).toBeNull();
   expect(screen.getByText(/0.30 U/)).toBeVisible();
+  const example = within(screen.getByRole('region', { name: '把相同模型接入你的程序' })).getByText(/curl https:\/\/ztapi.vip\/v1\/images\/generations/);
+  await waitFor(() => expect(example).toHaveTextContent('"quality": "low"'));
+  expect(example).toHaveTextContent('"response_format": "b64_json"');
+  expect(example).toHaveTextContent('"n": 1');
   fireEvent.change(screen.getByLabelText('图片提示词'), { target: { value: '中'.repeat(2001) } });
   await waitFor(() => expect(screen.getByRole('button', { name: '生成图片' })).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: '生成图片' }));

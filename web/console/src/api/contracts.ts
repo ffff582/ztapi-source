@@ -500,10 +500,10 @@ function parseUserModelCatalogItem(value: unknown): UserModelCatalogItem {
   const officialUSD = value.official_usd === undefined ? {} : parseDecimalStringRecord(value.official_usd);
   const officialReference = parseOfficialPriceReference(value.official_reference);
   const hasTokenTiers = value.token_price_rules !== undefined;
-  const inputPrice = value.input_price_per_million;
-  const outputPrice = value.output_price_per_million;
-  const billingRule = value.billing_rule;
   const imageSale = parseImageSale(value.image_sale);
+  const inputPrice = value.input_price_per_million === undefined && imageSale ? '' : value.input_price_per_million;
+  const outputPrice = value.output_price_per_million === undefined && imageSale ? '' : value.output_price_per_million;
+  const billingRule = value.billing_rule;
   const isEmbedding = modality === 'embedding';
   const allowedEndpoints: Record<UserModelProtocol, UserModelEndpointType[]> = {
     openai_compatible: ['openai', 'openai-response', 'embeddings', 'images', 'video-tasks'],

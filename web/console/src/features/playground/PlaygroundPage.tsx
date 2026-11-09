@@ -70,7 +70,7 @@ function testErrorMessage(error: unknown) {
   return '测试请求失败，请稍后重试。';
 }
 
-function codeExample(mode: PlaygroundMode, model: string, size: string, duration: number) {
+function codeExample(mode: PlaygroundMode, model: string, size: string, duration: number, imageOptions?: { quality: string; responseFormat: string }) {
   const selectedModel = model || 'YOUR_MODEL_ID';
   if (mode === 'image') {
     return `export ZTAPI_API_KEY="YOUR_ZTAPI_API_KEY"
@@ -81,7 +81,10 @@ curl https://ztapi.vip/v1/images/generations \\
   -d '{
     "model": "${selectedModel}",
     "prompt": "一只在雨中的橘猫",
-    "size": "${size}"
+    "size": "${size}",
+    "quality": "${imageOptions?.quality || 'low'}",
+    "response_format": "${imageOptions?.responseFormat || 'b64_json'}",
+    "n": 1
   }'`;
   }
   if (mode === 'video') {
@@ -418,7 +421,8 @@ export function PlaygroundPage({ initialMode = 'text', workbench = false }: Play
     mode, model,
     mode === 'image' ? imageSize || firstOption(selectedOptions, 'sizes') : videoSize || firstOption(selectedOptions, 'resolutions'),
     selectedOptions?.duration_seconds?.includes(videoDuration) ? videoDuration : selectedOptions?.duration_seconds?.[0] ?? 0,
-  ), [catalogStatus, imageSize, mode, model, selectedCatalog, selectedOptions, videoDuration, videoSize]);
+    { quality: selectedImageRenderOption?.quality || firstOption(selectedOptions, 'qualities'), responseFormat: selectedOptions?.response_formats?.includes(imageResponseFormat) ? imageResponseFormat : firstOption(selectedOptions, 'response_formats') },
+  ), [catalogStatus, imageSize, selectedImageRenderOption, imageResponseFormat, mode, model, selectedCatalog, selectedOptions, videoDuration, videoSize]);
   const prompt = promptByMode[mode];
   const userID = useSyncExternalStore(subscribeAuthSession, getAuthSession, getAuthSession)?.user.id;
   const keys = useWorkbenchKeys(userID);

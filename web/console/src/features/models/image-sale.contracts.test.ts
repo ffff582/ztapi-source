@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DataContractError, parsePricingModels, parseUserModelCatalog } from '../../api/contracts';
-import { imageCatalogItem, imageSale, publicImageItem } from './image-sale.fixture';
+import { imageCatalogItem, imageSale, partialImageItem, publicImageItem } from './image-sale.fixture';
 
 function parsePrivate(overrides: Record<string, unknown> = {}) {
   const item = imageCatalogItem(overrides);
@@ -8,6 +8,16 @@ function parsePrivate(overrides: Record<string, unknown> = {}) {
 }
 
 describe('per-image catalog contracts', () => {
+  it.each([imageCatalogItem, partialImageItem])('accepts native per-image catalog rows without legacy token price placeholders', (fixture) => {
+    const item: Record<string, unknown> = fixture();
+    delete item.input_price_per_million;
+    delete item.output_price_per_million;
+    const row = parseUserModelCatalog({ success: true, data: [item.model_name], catalog: [item] }).catalog[0];
+    expect(row.input_price_per_million).toBe('');
+    expect(row.output_price_per_million).toBe('');
+    expect(row.billing_rule).toBe('per_image');
+  });
+
   it('preserves the complete image sale in the authenticated catalog', () => {
     expect(parsePrivate()).toMatchObject({
       image_sale: imageSale, billing_rule: 'per_image', billing_dimensions: ['images'],
@@ -46,6 +56,10 @@ describe('per-image catalog contracts', () => {
     ['token billing', { billing_rule: 'multi_dimension' }],
     ['wrong dimension', { billing_dimensions: ['input_tokens'] }],
     ['wrong base price', { sale_usd: { images: '0.60' } }],
+    ['null legacy input', { input_price_per_million: null }],
+    ['null legacy output', { output_price_per_million: null }],
+    ['token input on image billing', { input_price_per_million: '1' }],
+    ['token output on image billing', { output_price_per_million: '1' }],
     ['missing resolution', { pricing_rules: imageCatalogItem().pricing_rules.slice(1) }],
     ['duplicate resolution', { pricing_rules: Array(3).fill(imageCatalogItem().pricing_rules[0]) }],
     ['wrong tier price', { pricing_rules: imageCatalogItem().pricing_rules.map((rule) => ({ ...rule, sale_usd: { images: '1' } })) }],
