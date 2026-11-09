@@ -30,7 +30,7 @@ input_price_per_million、output_price_per_million、sale_usd、token_price_rule
 
 余额和最终消费以账户结算记录为准；上游用量、输入/输出及缓存维度需要独立核实，不能仅凭 HTTP 200、完成状态或预估 Token 断言费用正确。公开价通常带 USD/U 或每百万 Token 等单位，不能无依据转换人民币、给出折扣、承诺最低价或固定汇率。
 
-来源：[模型目录](https://ztapi.vip/models)、[账户模型](https://ztapi.vip/console/models)、[常见问题](https://ztapi.vip/docs/faq)。仓库依据：docs-manifest.json、UsageGuidePage.tsx、公开 /api/pricing 投影。
+来源：[模型目录](https://ztapi.vip/models)、[账户模型](https://ztapi.vip/console/models)、[常见问题](https://ztapi.vip/docs/faq)、[资源来源与价格说明](https://ztapi.vip/docs/resource-disclosure)、[许可说明](https://ztapi.vip/docs/license)。仓库依据：docs-manifest.json、UsageGuidePage.tsx、公开 /api/pricing 投影。
 
 ## API 入口与协议
 
