@@ -33,7 +33,11 @@ func cnyTestOrder(t *testing.T) (*gorm.DB, User, CNYTopUpOrder, CNYPaymentEviden
 	saved, fresh, err := CreateCNYTopUpOrder(context.Background(), order)
 	require.NoError(t, err)
 	require.True(t, fresh)
-	evidence := CNYPaymentEvidence{OrderNo: order.OrderNo, MerchantNo: order.MerchantNo, AppID: order.AppID, TradeNo: "trade-fixture-1", OrderFen: order.PayFen, PaidFen: order.PayFen}
+	evidence := CNYPaymentEvidence{OrderNo: order.OrderNo, MerchantNo: order.MerchantNo, AppID: order.AppID, TradeNo: "trade-fixture-1", Method: order.Method, OrderFen: order.PayFen, PaidFen: order.PayFen}
+	_, err = SettleCNYTopUp(context.Background(), evidence, now)
+	require.ErrorIs(t, err, ErrCNYTopUpEvidence)
+	saved, err = RecordCNYTopUpCheckout(context.Background(), saved.OrderNo, evidence.TradeNo, "https://checkout.example.test/pay/1", "")
+	require.NoError(t, err)
 	return db, user, saved, evidence, now
 }
 
@@ -77,7 +81,9 @@ func TestCNYTopUpCommitFailureLeavesNoCreditOrPaidOrder(t *testing.T) {
 	require.Zero(t, user.Quota)
 	require.NoError(t, db.First(&order, order.ID).Error)
 	require.Equal(t, CNYTopUpPending, order.State)
-	require.Nil(t, order.ProviderTradeNo)
+	require.NotNil(t, order.ProviderTradeNo)
+	require.Equal(t, proof.TradeNo, *order.ProviderTradeNo)
+	require.Zero(t, order.PaidAt)
 }
 
 func TestCNYTopUpRefundHoldAndVerifiedCompletionAreIdempotent(t *testing.T) {

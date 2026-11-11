@@ -64,7 +64,7 @@ func SetApiRouter(router *gin.Engine) {
 		// Standard OAuth providers (GitHub, Discord, OIDC, LinuxDO) - unified route
 		apiRouter.GET("/oauth/:provider", middleware.CriticalRateLimit(), controller.HandleOAuth)
 		apiRouter.GET("/ratio_config", middleware.CriticalRateLimit(), controller.GetRatioConfig)
-		apiRouter.POST("/payment/cny/notify", controller.CNYTopUpNotify)
+		apiRouter.GET("/payment/cny/notify", controller.CNYTopUpNotify)
 		cnyRefund := apiRouter.Group("/admin/payments/cny/:order_no/refund")
 		cnyRefund.Use(middleware.RootAuth(), middleware.AdminPermissionAuth(common.PermissionFinanceWrite), middleware.CriticalRateLimit(), middleware.SecureVerificationRequired())
 		cnyRefund.POST("/hold", controller.HoldCNYTopUpRefund)
@@ -217,6 +217,7 @@ func SetApiRouter(router *gin.Engine) {
 			adminBalanceRoute.POST("/referrals/withdrawals/:id/:action", middleware.ZTAPIUserAuth(), middleware.AdminPermissionAuth(common.PermissionReferralWrite), middleware.CriticalRateLimit(), controller.AdminZTAPIReferralWithdrawalAction)
 			adminBalanceRoute.GET("/overview", middleware.AdminPermissionAuth(common.PermissionOverviewRead), controller.GetAdminOverview)
 			adminBalanceRoute.GET("/topups", middleware.AdminPermissionAuth(common.PermissionFinanceRead), controller.GetAdminTopUps)
+			adminBalanceRoute.GET("/payments/cny/orders", middleware.AdminPermissionAuth(common.PermissionFinanceRead), controller.GetAdminCNYTopUpOrders)
 			adminBalanceRoute.GET("/payment/watched-addresses", middleware.AdminPermissionAuth(common.PermissionFinanceRead), controller.GetZTAPIWatchedReceivingAddresses)
 			adminBalanceRoute.POST("/payment/watched-addresses", middleware.AdminPermissionAuth(common.PermissionPaymentAddressWrite), controller.CreateZTAPIWatchedReceivingAddress)
 			adminBalanceRoute.PUT("/payment/watched-addresses/:id", middleware.AdminPermissionAuth(common.PermissionPaymentAddressWrite), controller.UpdateZTAPIWatchedReceivingAddress)

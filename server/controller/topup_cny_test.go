@@ -3,14 +3,17 @@ package controller
 import (
 	"context"
 	"crypto/md5"
+	"errors"
 	"fmt"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
@@ -41,17 +44,29 @@ func TestCNYNoticeAcknowledgesOnlyDurableMatchingPayment(t *testing.T) {
 	})
 	require.NoError(t, err)
 	router := gin.New()
-	router.POST("/notify", CNYTopUpNotify)
+	gateway, ok := service.LoadCNYGateway()
+	require.True(t, ok)
+	verified, checks := false, 0
+	router.GET("/notify", func(c *gin.Context) {
+		handleCNYTopUpNotify(c, gateway, func(_ context.Context, evidence model.CNYPaymentEvidence) error {
+			checks++
+			require.Equal(t, "fixture-trade", evidence.TradeNo)
+			if !verified {
+				return errors.New("fixture upstream did not verify")
+			}
+			return nil
+		})
+	})
 	router.GET("/info", func(c *gin.Context) { c.Set("id", user.Id); GetCNYTopUpInfo(c) })
-	notify := func(status, paid string, correctSig bool) *httptest.ResponseRecorder {
-		canonical := "appId=app-fixture&mchNo=merchant-fixture&mchOrderNo=CNY-fixture&orderAmount=10.00&param=CNY-fixture&payAmount=" + paid + "&payStatus=" + status + "&tradeNo=fixture-trade"
+	notify := func(status, paid, method string, correctSig bool) *httptest.ResponseRecorder {
+		canonical := "money=" + paid + "&out_trade_no=CNY-fixture&param=CNY-fixture&pid=app-fixture&trade_no=fixture-trade&trade_status=" + status + "&type=" + method
 		sign := fmt.Sprintf("%x", md5.Sum([]byte(canonical+key)))
 		if !correctSig {
 			sign = strings.Repeat("a", 32)
 		}
-		body := fmt.Sprintf(`{"appId":"app-fixture","mchNo":"merchant-fixture","mchOrderNo":"CNY-fixture","orderAmount":"10.00","param":"CNY-fixture","payAmount":%q,"payStatus":%q,"tradeNo":"fixture-trade","sign":%q,"sign_type":"MD5"}`, paid, status, sign)
-		request := httptest.NewRequest("POST", "/notify", strings.NewReader(body))
-		request.Header.Set("Content-Type", "application/json; charset=utf-8")
+		query := url.Values{"pid": {"app-fixture"}, "out_trade_no": {"CNY-fixture"}, "param": {"CNY-fixture"},
+			"money": {paid}, "trade_status": {status}, "trade_no": {"fixture-trade"}, "type": {method}, "sign": {sign}, "sign_type": {"MD5"}}
+		request := httptest.NewRequest("GET", "/notify?"+query.Encode(), nil)
 		response := httptest.NewRecorder()
 		router.ServeHTTP(response, request)
 		return response
@@ -59,19 +74,31 @@ func TestCNYNoticeAcknowledgesOnlyDurableMatchingPayment(t *testing.T) {
 	info := httptest.NewRecorder()
 	router.ServeHTTP(info, httptest.NewRequest("GET", "/info", nil))
 	require.Contains(t, info.Body.String(), `"enabled":false`)
-	require.Equal(t, "fail", notify("2", "10.00", false).Body.String())
-	require.Equal(t, "fail", notify("2", "9.99", true).Body.String())
+	require.Equal(t, "fail", notify(service.CNYTradeSuccess, "10.00", "alipay", true).Body.String())
+	require.Zero(t, checks)
+	_, err = model.RecordCNYTopUpCheckout(context.Background(), order.OrderNo, "fixture-trade", "", "https://checkout.example.test/qr/1")
+	require.NoError(t, err)
+	require.Equal(t, "fail", notify(service.CNYTradeSuccess, "10.00", "alipay", false).Body.String())
+	require.Equal(t, "fail", notify(service.CNYTradeSuccess, "9.99", "alipay", true).Body.String())
+	require.Equal(t, "fail", notify(service.CNYTradeSuccess, "10.00", "wxpay", true).Body.String())
+	require.Equal(t, "success", notify("TRADE_PENDING", "10.00", "alipay", true).Body.String())
+	require.Zero(t, checks)
+	require.Equal(t, "fail", notify(service.CNYTradeSuccess, "10.00", "alipay", true).Body.String())
+	require.Equal(t, 1, checks)
+	verified = true
 	require.NoError(t, db.Exec(`CREATE TRIGGER reject_credit BEFORE INSERT ON balance_ledgers BEGIN SELECT RAISE(ABORT, 'forced ledger failure'); END`).Error)
-	require.Equal(t, "fail", notify("2", "10.00", true).Body.String())
+	require.Equal(t, "fail", notify(service.CNYTradeSuccess, "10.00", "alipay", true).Body.String())
 	require.NoError(t, db.First(&user, user.Id).Error)
 	require.Zero(t, user.Quota)
 	require.NoError(t, db.Exec(`DROP TRIGGER reject_credit`).Error)
-	require.Equal(t, "success", notify("2", "10.00", true).Body.String())
-	require.Equal(t, "success", notify("2", "10.00", true).Body.String())
-	require.Equal(t, "success", notify("3", "10.00", true).Body.String())
+	require.Equal(t, "success", notify(service.CNYTradeSuccess, "10.00", "alipay", true).Body.String())
+	require.Equal(t, "success", notify(service.CNYTradeSuccess, "10.00", "alipay", true).Body.String())
+	require.Equal(t, "success", notify(service.CNYTradeRefund, "10.00", "alipay", true).Body.String())
+	require.Equal(t, 3, checks)
 	require.NoError(t, db.First(&user, user.Id).Error)
 	require.Equal(t, int(order.Quota), user.Quota)
 	require.NoError(t, db.First(&order, order.ID).Error)
 	require.Equal(t, model.CNYTopUpPaid, order.State)
+	require.Empty(t, order.CheckoutQR)
 	require.Positive(t, order.RefundNoticeAt)
 }

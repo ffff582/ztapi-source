@@ -43,6 +43,7 @@ type CNYTopUpOrder struct {
 	State           string  `gorm:"type:varchar(24);not null"`
 	ProviderTradeNo *string `gorm:"type:varchar(64);uniqueIndex"`
 	CheckoutURL     string  `gorm:"type:text"`
+	CheckoutQR      string  `gorm:"type:text"`
 	CreatedAt       int64   `gorm:"not null"`
 	PaidAt          int64
 	RefundHeldAt    int64
@@ -53,8 +54,8 @@ type CNYTopUpOrder struct {
 }
 
 type CNYPaymentEvidence struct {
-	OrderNo, MerchantNo, AppID, TradeNo string
-	OrderFen, PaidFen                   int64
+	OrderNo, MerchantNo, AppID, TradeNo, Method string
+	OrderFen, PaidFen                           int64
 }
 
 func ValidCNYPaymentID(s string) bool { return cnyIDPattern.MatchString(s) }
@@ -119,7 +120,22 @@ func ListCNYTopUpOrders(ctx context.Context, userID int) ([]CNYTopUpOrder, error
 	return orders, err
 }
 
-func RecordCNYTopUpCheckout(ctx context.Context, orderNo, providerTrade, checkoutURL string) (CNYTopUpOrder, error) {
+func ListAdminCNYTopUpOrders(ctx context.Context, number string, offset, limit int) ([]CNYTopUpOrder, int64, error) {
+	query := DB.WithContext(ctx).Model(&CNYTopUpOrder{})
+	if number != "" {
+		query = query.Where("order_no = ? OR provider_trade_no = ?", number, number)
+	}
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var rows []CNYTopUpOrder
+	err := query.Select("order_no", "provider_trade_no", "method", "pay_fen", "state", "created_at", "paid_at").
+		Order("id DESC").Offset(offset).Limit(limit).Find(&rows).Error
+	return rows, total, err
+}
+
+func RecordCNYTopUpCheckout(ctx context.Context, orderNo, providerTrade, checkoutURL, checkoutQR string) (CNYTopUpOrder, error) {
 	return mutateCNYTopUp(ctx, orderNo, func(tx *gorm.DB, order *CNYTopUpOrder) error {
 		if !ValidCNYPaymentID(providerTrade) || (order.ProviderTradeNo != nil && *order.ProviderTradeNo != providerTrade) {
 			return ErrCNYTopUpEvidence
@@ -127,21 +143,34 @@ func RecordCNYTopUpCheckout(ctx context.Context, orderNo, providerTrade, checkou
 		if order.State != CNYTopUpPending {
 			return nil
 		}
-		order.ProviderTradeNo, order.CheckoutURL = &providerTrade, checkoutURL
-		return tx.Model(order).Updates(map[string]any{"provider_trade_no": providerTrade, "checkout_url": checkoutURL}).Error
+		order.ProviderTradeNo, order.CheckoutURL, order.CheckoutQR = &providerTrade, checkoutURL, checkoutQR
+		return tx.Model(order).Updates(map[string]any{"provider_trade_no": providerTrade, "checkout_url": checkoutURL, "checkout_qr": checkoutQR}).Error
 	})
+}
+
+func (order CNYTopUpOrder) matchesPayment(evidence CNYPaymentEvidence) bool {
+	return order.ProviderTradeNo != nil && *order.ProviderTradeNo == evidence.TradeNo && ValidCNYPaymentID(evidence.TradeNo) &&
+		order.MerchantNo == evidence.MerchantNo && order.AppID == evidence.AppID && order.Method == evidence.Method &&
+		order.PayFen == evidence.OrderFen && order.PayFen == evidence.PaidFen
+}
+
+func ReadCNYTopUpPaymentOrder(ctx context.Context, evidence CNYPaymentEvidence) (CNYTopUpOrder, error) {
+	var order CNYTopUpOrder
+	if err := DB.WithContext(ctx).Where("order_no = ?", evidence.OrderNo).First(&order).Error; err != nil {
+		return CNYTopUpOrder{}, err
+	}
+	if !order.matchesPayment(evidence) {
+		return CNYTopUpOrder{}, ErrCNYTopUpEvidence
+	}
+	return order, nil
 }
 
 func SettleCNYTopUp(ctx context.Context, evidence CNYPaymentEvidence, now time.Time) (CNYTopUpOrder, error) {
 	order, err := mutateCNYTopUp(ctx, evidence.OrderNo, func(tx *gorm.DB, order *CNYTopUpOrder) error {
-		if !ValidCNYPaymentID(evidence.TradeNo) || order.MerchantNo != evidence.MerchantNo || order.AppID != evidence.AppID ||
-			order.PayFen != evidence.OrderFen || order.PayFen != evidence.PaidFen || (order.ProviderTradeNo != nil && *order.ProviderTradeNo != evidence.TradeNo) {
+		if !order.matchesPayment(evidence) {
 			return ErrCNYTopUpEvidence
 		}
 		if order.State == CNYTopUpPaid || order.State == CNYTopUpRefundHold || order.State == CNYTopUpRefunded {
-			if order.ProviderTradeNo == nil {
-				return ErrCNYTopUpConflict
-			}
 			return nil
 		}
 		if order.State != CNYTopUpPending || order.Quota <= 0 || now.Unix() < order.CreatedAt {
@@ -150,8 +179,9 @@ func SettleCNYTopUp(ctx context.Context, evidence CNYPaymentEvidence, now time.T
 		if err := writeCNYTopUpLedger(tx, order, order.Quota, 0, CNYCreditSource, now); err != nil {
 			return err
 		}
-		order.State, order.ProviderTradeNo, order.PaidAt, order.CheckoutURL = CNYTopUpPaid, &evidence.TradeNo, now.Unix(), ""
-		return tx.Model(order).Updates(map[string]any{"state": order.State, "provider_trade_no": evidence.TradeNo, "paid_at": order.PaidAt, "checkout_url": ""}).Error
+		order.State, order.ProviderTradeNo, order.PaidAt = CNYTopUpPaid, &evidence.TradeNo, now.Unix()
+		order.CheckoutURL, order.CheckoutQR = "", ""
+		return tx.Model(order).Updates(map[string]any{"state": order.State, "provider_trade_no": evidence.TradeNo, "paid_at": order.PaidAt, "checkout_url": "", "checkout_qr": ""}).Error
 	})
 	return syncCNYTopUpCache(order, err)
 }
@@ -177,7 +207,7 @@ func HoldCNYTopUpRefund(ctx context.Context, orderNo string, operator int, now t
 }
 
 // Confirm is called only after a trusted operator verifies the full original-
-// route refund. The provider's status-3 notification alone is not that proof.
+// route refund. The provider's TRADE_REFUND notification alone is not that proof.
 func ConfirmCNYTopUpRefund(ctx context.Context, orderNo, trade, refund string, refundFen int64, operator int, now time.Time) (CNYTopUpOrder, error) {
 	return mutateCNYTopUp(ctx, orderNo, func(tx *gorm.DB, order *CNYTopUpOrder) error {
 		if operator <= 0 || !ValidCNYPaymentID(refund) || order.ProviderTradeNo == nil || *order.ProviderTradeNo != trade || order.PayFen != refundFen {
@@ -196,8 +226,7 @@ func ConfirmCNYTopUpRefund(ctx context.Context, orderNo, trade, refund string, r
 
 func RecordCNYRefundNotice(ctx context.Context, evidence CNYPaymentEvidence, now time.Time) error {
 	_, err := mutateCNYTopUp(ctx, evidence.OrderNo, func(tx *gorm.DB, order *CNYTopUpOrder) error {
-		if order.ProviderTradeNo == nil || *order.ProviderTradeNo != evidence.TradeNo || order.MerchantNo != evidence.MerchantNo ||
-			order.AppID != evidence.AppID || order.PayFen != evidence.OrderFen || order.PayFen != evidence.PaidFen || order.PaidAt <= 0 {
+		if !order.matchesPayment(evidence) || order.PaidAt <= 0 {
 			return ErrCNYTopUpEvidence
 		}
 		if order.RefundNoticeAt != 0 {

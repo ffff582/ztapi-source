@@ -6,6 +6,7 @@ import (
 	"crypto/md5"
 	"crypto/subtle"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
 	"net"
@@ -21,7 +22,13 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-const cnyCreateEndpoint = "https://ttzf8.com/api/pay/v1/create"
+const (
+	cnyCreateEndpoint = "https://ttzf8.com/api/epay/mapi.php"
+	cnyQueryEndpoint  = "https://ttzf8.com/api/epay/api.php"
+	CNYTradeSuccess   = "TRADE_SUCCESS"
+	CNYTradeRefund    = "TRADE_REFUND"
+)
+const cnyClientUserAgent = "ZTAPI-Payments/1.0 (+https://ztapi.vip)"
 
 var errCNYGateway = errors.New("CNY payment gateway response is not verifiable")
 
@@ -37,6 +44,10 @@ type CNYGateway struct {
 	client                            *http.Client
 }
 
+type CNYCheckout struct {
+	TradeNo, URL, QRCode string
+}
+
 func LoadCNYGateway() (CNYGateway, bool) {
 	g := CNYGateway{MerchantNo: os.Getenv("ZTAPI_CNY_TOPUP_MERCHANT"), AppID: os.Getenv("ZTAPI_CNY_TOPUP_APP"),
 		key: os.Getenv("ZTAPI_CNY_TOPUP_KEY"), checkoutHost: os.Getenv("ZTAPI_CNY_TOPUP_CHECKOUT_HOST"),
@@ -50,64 +61,117 @@ func LoadCNYGateway() (CNYGateway, bool) {
 	return g, true
 }
 
-func (g CNYGateway) CreateCheckout(ctx context.Context, order model.CNYTopUpOrder, clientIP string) (string, string, error) {
+func (g CNYGateway) CreateCheckout(ctx context.Context, order model.CNYTopUpOrder, clientIP string) (CNYCheckout, error) {
 	if g.client == nil || order.MerchantNo != g.MerchantNo || order.AppID != g.AppID || !model.ValidCNYPaymentID(order.OrderNo) ||
 		order.PayFen <= 0 || (order.Method != "alipay" && order.Method != "wxpay") || net.ParseIP(clientIP) == nil {
-		return "", "", errCNYGateway
+		return CNYCheckout{}, errCNYGateway
 	}
 	fields := map[string]string{
-		"mchNo": g.MerchantNo, "appId": g.AppID, "amount": decimal.New(order.PayFen, -2).StringFixed(2),
-		"subject": "ZTAPI service credit", "clientIp": clientIP, "device": "pc", "currency": "CNY",
-		"mchOrderNo": order.OrderNo, "type": order.Method, "param": order.OrderNo, "sign_type": "MD5",
-		"notifyUrl": g.callbackOrigin + "/api/payment/cny/notify", "returnUrl": g.callbackOrigin + "/console/wallet",
+		"pid": g.AppID, "money": decimal.New(order.PayFen, -2).StringFixed(2),
+		"name": "ZTAPI service credit", "clientip": clientIP, "device": "pc",
+		"out_trade_no": order.OrderNo, "type": order.Method, "param": order.OrderNo, "sign_type": "MD5",
+		"notify_url": g.callbackOrigin + "/api/payment/cny/notify",
 	}
 	fields["sign"] = signCNYFields(fields, g.key)
-	body, err := common.Marshal(fields)
-	if err != nil {
-		return "", "", errCNYGateway
+	form := url.Values{}
+	for name, value := range fields {
+		form.Set(name, value)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cnyCreateEndpoint, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cnyCreateEndpoint, strings.NewReader(form.Encode()))
 	if err != nil {
-		return "", "", errCNYGateway
+		return CNYCheckout{}, errCNYGateway
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	reply, err := g.readReply(req)
+	if err != nil {
+		return CNYCheckout{}, errCNYGateway
+	}
+	checkout := CNYCheckout{TradeNo: cnyReplyString(reply["trade_no"])}
+	if paymentURL := cnyReplyString(reply["payurl"]); g.validCheckoutURL(paymentURL) {
+		checkout.URL = paymentURL
+	}
+	if qr := cnyReplyString(reply["qrcode"]); g.validCheckoutQR(qr, order.Method) {
+		checkout.QRCode = qr
+	}
+	if !model.ValidCNYPaymentID(checkout.TradeNo) || (checkout.URL == "" && checkout.QRCode == "") {
+		return CNYCheckout{}, errCNYGateway
+	}
+	for name, expected := range map[string]string{"pid": g.AppID, "out_trade_no": order.OrderNo, "type": order.Method, "param": order.OrderNo} {
+		if value, present := reply[name]; present && cnyReplyIdentity(value) != expected {
+			return CNYCheckout{}, errCNYGateway
+		}
+	}
+	if money, present := reply["money"]; present {
+		if fen, err := model.ParseCNYAmountFen(cnyReplyString(money)); err != nil || fen != order.PayFen {
+			return CNYCheckout{}, errCNYGateway
+		}
+	}
+	return checkout, nil
+}
+
+func (g CNYGateway) readReply(req *http.Request) (map[string]json.RawMessage, error) {
+	req.Header.Set("User-Agent", cnyClientUserAgent)
 	resp, err := g.client.Do(req)
 	if err != nil {
-		return "", "", errCNYGateway
+		return nil, errCNYGateway
 	}
 	defer resp.Body.Close()
 	const limit = 32 << 10
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil || resp.StatusCode != http.StatusOK || len(raw) > limit || common.RejectDuplicateJsonObjectMembers(bytes.NewReader(raw)) != nil {
-		return "", "", errCNYGateway
+		return nil, errCNYGateway
 	}
-	var reply struct {
-		Code int `json:"code"`
-		Data struct {
-			Merchant string `json:"mchNo"`
-			App      string `json:"appId"`
-			Order    string `json:"mchOrderNo"`
-			Trade    string `json:"tradeNo"`
-			OrderAmt string `json:"orderAmount"`
-			PaidAmt  string `json:"payAmount"`
-			Param    string `json:"param"`
-			PayURL   string `json:"payUrl"`
-			Currency string `json:"currency"`
-			Type     string `json:"type"`
-		} `json:"data"`
+	var reply map[string]json.RawMessage
+	if common.Unmarshal(raw, &reply) != nil || string(reply["code"]) != "1" {
+		return nil, errCNYGateway
 	}
-	if common.Unmarshal(raw, &reply) != nil || reply.Code != 200 {
-		return "", "", errCNYGateway
+	return reply, nil
+}
+
+func cnyReplyString(raw json.RawMessage) string {
+	var value string
+	_ = common.Unmarshal(raw, &value)
+	return value
+}
+
+func cnyReplyIdentity(raw json.RawMessage) string {
+	if value := cnyReplyString(raw); value != "" {
+		return value
 	}
-	d := reply.Data
-	ordered, first := model.ParseCNYAmountFen(d.OrderAmt)
-	paid, second := model.ParseCNYAmountFen(d.PaidAmt)
-	if first != nil || second != nil || ordered != order.PayFen || paid != order.PayFen || d.Merchant != g.MerchantNo ||
-		d.App != g.AppID || d.Order != order.OrderNo || d.Param != order.OrderNo || !model.ValidCNYPaymentID(d.Trade) ||
-		(d.Currency != "" && d.Currency != "CNY") || (d.Type != "" && d.Type != order.Method) || !g.validCheckoutURL(d.PayURL) {
-		return "", "", errCNYGateway
+	// pid is documented as an integer; compare its exact decimal text.
+	if value := string(raw); value != "" && strings.Trim(value, "0123456789") == "" {
+		return value
 	}
-	return d.Trade, d.PayURL, nil
+	return ""
+}
+
+func (g CNYGateway) VerifyPaid(ctx context.Context, evidence model.CNYPaymentEvidence) error {
+	if g.client == nil || g.key == "" || evidence.MerchantNo != g.MerchantNo || evidence.AppID != g.AppID ||
+		!model.ValidCNYPaymentID(evidence.OrderNo) || !model.ValidCNYPaymentID(evidence.TradeNo) {
+		return errCNYGateway
+	}
+	fields := map[string]string{"act": "order", "pid": g.AppID, "out_trade_no": evidence.OrderNo}
+	query := url.Values{}
+	for name, value := range fields {
+		query.Set(name, value)
+	}
+	// The order endpoint takes a derived signature, never the merchant secret.
+	query.Set("key", signCNYFields(fields, g.key))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cnyQueryEndpoint+"?"+query.Encode(), nil)
+	if err != nil {
+		return errCNYGateway
+	}
+	reply, err := g.readReply(req)
+	if err != nil {
+		return err
+	}
+	fen, err := model.ParseCNYAmountFen(cnyReplyString(reply["money"]))
+	if err != nil || fen != evidence.PaidFen || fen != evidence.OrderFen || string(reply["status"]) != "1" ||
+		cnyReplyIdentity(reply["pid"]) != g.AppID || cnyReplyString(reply["out_trade_no"]) != evidence.OrderNo ||
+		cnyReplyString(reply["trade_no"]) != evidence.TradeNo || cnyReplyString(reply["type"]) != evidence.Method {
+		return errCNYGateway
+	}
+	return nil
 }
 
 func (g CNYGateway) validCheckoutURL(s string) bool {
@@ -118,38 +182,57 @@ func (g CNYGateway) validCheckoutURL(s string) bool {
 	return err == nil && u.Scheme == "https" && u.User == nil && u.Opaque == "" && strings.EqualFold(u.Host, g.checkoutHost) && u.Fragment == ""
 }
 
+func (g CNYGateway) validCheckoutQR(s, method string) bool {
+	if g.validCheckoutURL(s) {
+		return true
+	}
+	if method != "wxpay" || len(s) > 512 || strings.ContainsAny(s, "\\\r\n\t") {
+		return false
+	}
+	u, err := url.Parse(s)
+	if err != nil || u.Scheme != "weixin" || u.User != nil || u.Fragment != "" ||
+		(u.Host != "wxpay" && u.Host != "pay.weixin.qq.com") {
+		return false
+	}
+	// Native WeChat payment URIs are QR content, never navigation targets.
+	path := u.EscapedPath()
+	query, err := url.ParseQuery(u.RawQuery)
+	return err == nil && (path == "/bizpayurl" || path == "/bizpayurl/up") && len(query["pr"]) == 1 && query.Get("pr") != ""
+}
+
 func (g CNYGateway) DecodeNotice(raw []byte) (model.CNYPaymentEvidence, string, error) {
-	if len(raw) > 8192 || common.RejectDuplicateJsonObjectMembers(bytes.NewReader(raw)) != nil {
+	if len(raw) > 8192 || g.key == "" {
 		return model.CNYPaymentEvidence{}, "", errCNYGateway
 	}
-	var fields map[string]string
-	if common.Unmarshal(raw, &fields) != nil || len(fields) > 12 || fields["sign_type"] != "MD5" || g.key == "" {
+	query, err := url.ParseQuery(string(raw))
+	if err != nil || len(query) > 10 {
 		return model.CNYPaymentEvidence{}, "", errCNYGateway
 	}
-	for name, value := range fields {
+	fields := make(map[string]string, len(query))
+	for name, values := range query {
 		switch name {
-		case "mchNo", "appId", "tradeNo", "mchOrderNo", "orderAmount", "payAmount", "payStatus", "param", "sign_type", "sign", "currency":
+		case "pid", "trade_no", "out_trade_no", "type", "name", "money", "trade_status", "param", "sign_type", "sign":
 		default:
 			return model.CNYPaymentEvidence{}, "", errCNYGateway
 		}
-		if len(value) > 128 || strings.ContainsAny(value, "&=\r\n\x00") {
+		if len(values) != 1 || len(values[0]) > 512 || strings.ContainsAny(values[0], "&=\r\n\x00") {
 			return model.CNYPaymentEvidence{}, "", errCNYGateway
 		}
+		fields[name] = values[0]
 	}
-	if subtle.ConstantTimeCompare([]byte(fields["sign"]), []byte(signCNYFields(fields, g.key))) != 1 {
+	if fields["sign_type"] != "MD5" || subtle.ConstantTimeCompare([]byte(fields["sign"]), []byte(signCNYFields(fields, g.key))) != 1 {
 		return model.CNYPaymentEvidence{}, "", errCNYGateway
 	}
-	status := fields["payStatus"]
-	ordered, first := model.ParseCNYAmountFen(fields["orderAmount"])
-	paid, second := model.ParseCNYAmountFen(fields["payAmount"])
-	if first != nil || second != nil || ordered != paid || !model.ValidCNYPaymentID(fields["tradeNo"]) ||
-		!model.ValidCNYPaymentID(fields["mchOrderNo"]) || fields["mchNo"] != g.MerchantNo || fields["appId"] != g.AppID ||
-		fields["param"] != fields["mchOrderNo"] || (fields["currency"] != "" && fields["currency"] != "CNY") ||
-		(status != "1" && status != "2" && status != "3") {
+	status, method := fields["trade_status"], fields["type"]
+	fen, err := model.ParseCNYAmountFen(fields["money"])
+	if err != nil || !model.ValidCNYPaymentID(fields["trade_no"]) || !model.ValidCNYPaymentID(fields["out_trade_no"]) ||
+		fields["pid"] != g.AppID || (fields["param"] != "" && fields["param"] != fields["out_trade_no"]) ||
+		(method != "wxpay" && method != "alipay") ||
+		(status != "TRADE_PENDING" && status != CNYTradeSuccess && status != CNYTradeRefund && status != "TRADE_ERROR") {
 		return model.CNYPaymentEvidence{}, "", errCNYGateway
 	}
-	return model.CNYPaymentEvidence{MerchantNo: g.MerchantNo, AppID: g.AppID, TradeNo: fields["tradeNo"],
-		OrderNo: fields["mchOrderNo"], OrderFen: ordered, PaidFen: paid}, status, nil
+	return model.CNYPaymentEvidence{MerchantNo: g.MerchantNo, AppID: g.AppID, TradeNo: fields["trade_no"], Method: method,
+		OrderNo: fields["out_trade_no"], OrderFen: fen, PaidFen: fen}, status, nil
 }
 
 func signCNYFields(fields map[string]string, key string) string {

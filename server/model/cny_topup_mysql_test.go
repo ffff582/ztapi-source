@@ -71,7 +71,9 @@ func TestCNYTopUpConcurrentSettlementMySQL(t *testing.T) {
 	var order CNYTopUpOrder
 	require.NoError(t, db.Where("request_key = ?", input.RequestKey).First(&order).Error)
 	proof := CNYPaymentEvidence{OrderNo: order.OrderNo, MerchantNo: input.MerchantNo, AppID: input.AppID, TradeNo: "trade-" + suffix,
-		OrderFen: order.PayFen, PaidFen: order.PayFen}
+		Method: order.Method, OrderFen: order.PayFen, PaidFen: order.PayFen}
+	_, err = RecordCNYTopUpCheckout(ctx, order.OrderNo, proof.TradeNo, "https://checkout.example.test/pay/1", "")
+	require.NoError(t, err)
 	parallel(func(int) error { _, err := SettleCNYTopUp(ctx, proof, now); return err })
 	require.NoError(t, db.First(&user, user.Id).Error)
 	require.EqualValues(t, order.Quota, user.Quota)

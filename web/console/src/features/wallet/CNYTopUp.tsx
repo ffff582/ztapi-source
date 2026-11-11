@@ -1,4 +1,5 @@
 import { CreditCard, ExternalLink, RefreshCw } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { apiClient } from '../../api/client';
 import { useLocale } from '../../i18n/locale';
@@ -13,6 +14,7 @@ type Order = {
   credit_u: string;
   cny_per_u: string;
   checkout_url: string;
+  checkout_qr?: string;
   method: Method;
   created_at: number;
 };
@@ -143,7 +145,9 @@ export function CNYTopUp({ onBalanceChange }: { onBalanceChange: () => void }) {
       </button>}
       {orders.length > 0 && <ul className="cny-topup__orders" aria-live="polite">
         {orders.map((order) => {
-          const checkout = config?.enabled && order.status === 'pending' ? safeCheckout(order.checkout_url) : null;
+          const canPay = config?.enabled && order.status === 'pending';
+          const checkout = canPay ? safeCheckout(order.checkout_url) : null;
+          const qr = canPay ? order.checkout_qr : undefined;
           return <li key={order.order_no}>
             <div><strong>{t(statusLabels[order.status] ?? '状态待核验')}</strong><span className="cny-topup__id">{order.order_no}</span></div>
             <dl><div><dt>{t('应付金额')}</dt><dd>¥{order.amount_cny}</dd></div>
@@ -151,7 +155,11 @@ export function CNYTopUp({ onBalanceChange }: { onBalanceChange: () => void }) {
             {checkout && <a className="console-button" href={checkout} target="_blank" rel="noopener noreferrer">
               {t('前往付款')}<ExternalLink aria-hidden="true" size={16} />
             </a>}
-            {order.status === 'pending' && !checkout && <p className="console-field__help">{t('付款状态待确认，请勿重复支付。')}</p>}
+            {qr && <div className="cny-topup__qr">
+              <QRCodeSVG value={qr} size={160} marginSize={4} role="img" aria-label={t('付款二维码')} />
+              <span>{t(order.method === 'wxpay' ? '微信扫码付款' : '支付宝扫码付款')}</span>
+            </div>}
+            {order.status === 'pending' && !checkout && !qr && <p className="console-field__help">{t('付款状态待确认，请勿重复支付。')}</p>}
           </li>;
         })}
       </ul>}

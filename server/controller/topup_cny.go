@@ -2,14 +2,15 @@ package controller
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"io"
-	"mime"
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -109,9 +110,9 @@ func CreateCNYTopUpOrder(c *gin.Context) {
 		return
 	}
 	if fresh {
-		trade, checkout, gatewayErr := config.gateway.CreateCheckout(ctx, order, c.ClientIP())
+		checkout, gatewayErr := config.gateway.CreateCheckout(ctx, order, c.ClientIP())
 		if gatewayErr == nil {
-			order, gatewayErr = model.RecordCNYTopUpCheckout(ctx, order.OrderNo, trade, checkout)
+			order, gatewayErr = model.RecordCNYTopUpCheckout(ctx, order.OrderNo, checkout.TradeNo, checkout.URL, checkout.QRCode)
 		}
 		if gatewayErr != nil {
 			// The provider may have accepted the order despite a timeout. Preserve
@@ -140,31 +141,68 @@ func ListCNYTopUpOrders(c *gin.Context) {
 	common.ApiSuccess(c, out)
 }
 
+func GetAdminCNYTopUpOrders(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	number := strings.TrimSpace(c.Query("order_no"))
+	page, err := strconv.Atoi(c.DefaultQuery("p", "1"))
+	if err != nil || page < 1 || page > 10000 || (number != "" && !model.ValidCNYPaymentID(number)) {
+		writeUSDTTopUpError(c, http.StatusBadRequest, "invalid_cny_order_filter")
+		return
+	}
+	const pageSize = 20
+	rows, total, err := model.ListAdminCNYTopUpOrders(c.Request.Context(), number, (page-1)*pageSize, pageSize)
+	if err != nil {
+		writeUSDTTopUpError(c, http.StatusServiceUnavailable, "cny_orders_unavailable")
+		return
+	}
+	items := make([]gin.H, 0, len(rows))
+	for _, row := range rows {
+		amount := formatCNYFen(row.PayFen)
+		var paid any
+		if row.PaidAt > 0 && row.ProviderTradeNo != nil &&
+			(row.State == model.CNYTopUpPaid || row.State == model.CNYTopUpRefundHold || row.State == model.CNYTopUpRefunded) {
+			paid = amount
+		}
+		items = append(items, gin.H{"order_no": row.OrderNo, "provider_trade_no": row.ProviderTradeNo, "method": row.Method,
+			"amount_cny": amount, "paid_amount_cny": paid, "status": row.State, "created_at": row.CreatedAt})
+	}
+	common.ApiSuccess(c, gin.H{"items": items, "total": total, "page": page, "page_size": pageSize})
+}
+
 func CNYTopUpNotify(c *gin.Context) {
 	c.Header("Cache-Control", "no-store")
 	g, ok := service.LoadCNYGateway()
-	mediaType, _, _ := mime.ParseMediaType(c.ContentType())
-	if !ok || mediaType != "application/json" || c.Request.URL.RawQuery != "" {
+	if !ok {
 		c.String(http.StatusBadRequest, "fail")
 		return
 	}
-	raw, err := io.ReadAll(http.MaxBytesReader(c.Writer, c.Request.Body, 8192))
-	if err != nil {
+	handleCNYTopUpNotify(c, g, g.VerifyPaid)
+}
+
+func handleCNYTopUpNotify(c *gin.Context, g service.CNYGateway, verifyPaid func(context.Context, model.CNYPaymentEvidence) error) {
+	if c.Request.Method != http.MethodGet || c.Request.ContentLength != 0 || len(c.Request.TransferEncoding) != 0 || len(c.Request.URL.RawQuery) > 8192 {
 		c.String(http.StatusBadRequest, "fail")
 		return
 	}
-	evidence, status, err := g.DecodeNotice(raw)
+	evidence, status, err := g.DecodeNotice([]byte(c.Request.URL.RawQuery))
 	if err != nil {
 		c.String(http.StatusBadRequest, "fail")
 		return
 	}
 	ctx := c.Request.Context()
-	now := time.Now().UTC()
-	switch status {
-	case "2":
-		_, err = model.SettleCNYTopUp(ctx, evidence, now)
-	case "3":
-		err = model.RecordCNYRefundNotice(ctx, evidence, now)
+	order, err := model.ReadCNYTopUpPaymentOrder(ctx, evidence)
+	if err == nil {
+		switch status {
+		case service.CNYTradeSuccess:
+			if order.State == model.CNYTopUpPending {
+				err = verifyPaid(ctx, evidence)
+			}
+			if err == nil {
+				_, err = model.SettleCNYTopUp(ctx, evidence, time.Now().UTC())
+			}
+		case service.CNYTradeRefund:
+			err = model.RecordCNYRefundNotice(ctx, evidence, time.Now().UTC())
+		}
 	}
 	if err != nil {
 		logger.LogWarn(ctx, "CNY topup notice requires reconciliation")
@@ -211,7 +249,8 @@ func projectCNYTopUp(order model.CNYTopUpOrder) gin.H {
 	credit := decimal.NewFromInt(order.Quota).DivRound(decimal.NewFromFloat(common.QuotaPerUnit), 6)
 	return gin.H{"order_no": order.OrderNo, "status": order.State, "amount_cny": formatCNYFen(order.PayFen),
 		"credit_u": credit.StringFixed(6), "cny_per_u": order.CNYPerUnit, "method": order.Method,
-		"checkout_url": order.CheckoutURL, "created_at": order.CreatedAt, "paid_at": order.PaidAt, "refunded_at": order.RefundedAt}
+		"checkout_url": order.CheckoutURL, "checkout_qr": order.CheckoutQR, "created_at": order.CreatedAt,
+		"paid_at": order.PaidAt, "refunded_at": order.RefundedAt}
 }
 
 func formatCNYFen(fen int64) string { return decimal.New(fen, -2).StringFixed(2) }

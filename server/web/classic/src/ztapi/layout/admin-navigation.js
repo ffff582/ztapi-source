@@ -62,6 +62,12 @@ export const adminNavigation = [
     permission: AdminPermission.financeRead,
   },
   {
+    label: '人民币订单',
+    icon: Coins,
+    route: '/finance/cny-orders',
+    permission: AdminPermission.financeRead,
+  },
+  {
     label: '推广返利',
     icon: Users,
     route: '/finance/referrals',

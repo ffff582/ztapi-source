@@ -30,3 +30,16 @@ it('lets a customer enter an arbitrary cent amount and shows the locked order be
   expect(screen.getByRole('link', { name: '前往付款' })).toHaveAttribute('href', 'https://checkout.example.test/order');
   expect(post).toHaveBeenCalledWith('/user/topup/cny/orders', { amount_cny: '12.37', method: 'wxpay', idempotency_key: expect.any(String) });
 });
+
+it('renders a QR-only checkout as a local QR image without a navigation link', async () => {
+  vi.spyOn(apiClient, 'get').mockResolvedValueOnce({ enabled: true, min_cny: '1.00', max_cny: '1.00', cny_per_u: '6.67' })
+    .mockResolvedValue([{
+      order_no: 'CNY-test-qr', status: 'pending', method: 'wxpay', amount_cny: '1.00', credit_u: '0.149925',
+      checkout_url: '', checkout_qr: 'weixin://wxpay/bizpayurl/up?pr=fixture', created_at: Date.now() / 1000,
+    }]);
+  render(<CNYTopUp onBalanceChange={() => undefined} />);
+  const qr = await screen.findByRole('img', { name: '付款二维码' });
+  expect(qr.tagName).toBe('svg');
+  expect(qr.querySelector('image')).toBeNull();
+  expect(screen.queryByRole('link', { name: '前往付款' })).not.toBeInTheDocument();
+});

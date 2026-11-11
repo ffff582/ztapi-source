@@ -42,6 +42,7 @@ import AdminUsersPage from './features/users/AdminUsersPage.jsx';
 import { QuotaPerUnitProvider } from './quota.jsx';
 import StaffRolesPage from './features/users/StaffRolesPage.jsx';
 import OrdersPage from './features/finance/OrdersPage.jsx';
+import CNYOrdersPage from './features/finance/CNYOrdersPage.jsx';
 import FinanceOverviewPage from './features/finance/OverviewPage.jsx';
 import ReferralWithdrawalsPage from './features/finance/ReferralWithdrawalsPage.jsx';
 import LedgerPage from './features/finance/LedgerPage.jsx';
@@ -248,6 +249,14 @@ function AdminRoutes() {
             title='财务管理'
           >
             <OrdersPage canWrite={financeCanWrite} />
+          </ProtectedPage>
+        }
+      />
+      <Route
+        path='/finance/cny-orders'
+        element={
+          <ProtectedPage permission={AdminPermission.financeRead} title='人民币订单'>
+            <CNYOrdersPage />
           </ProtectedPage>
         }
       />
