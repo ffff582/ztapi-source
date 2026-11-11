@@ -6,12 +6,13 @@ import {
   getPublicModelFamily,
   parsePricingEnvelope,
   parseRuntimeStatus,
+  type DisplayFXReference,
   type PricingEnvelope,
   type PricingModel,
   type PublicModelFamily,
 } from '../../api/contracts';
 import { useLocale } from '../../i18n/locale';
-import { formatUnitPrice, modelPrices, type PriceDisplay } from '../models/pricing';
+import { formatUnitPrice, imageSalePriceDetails, modelPrices, type PriceDisplay } from '../models/pricing';
 import { PriceCurrencyControl, usePriceDisplay } from '../models/PriceCurrencyControl';
 
 const families: PublicModelFamily[] = ['OpenAI', 'Claude', 'Gemini'];
@@ -43,7 +44,8 @@ export function PublicModelProof() {
   const [pricing, setPricing] = useState<PricingEnvelope | null>(null);
   const [quotaPerUnit, setQuotaPerUnit] = useState<number | null>(null);
   const [displayRate, setDisplayRate] = useState<number | undefined>();
-  const { display, setCurrency } = usePriceDisplay(displayRate);
+  const [displayReference, setDisplayReference] = useState<DisplayFXReference>();
+  const { display, setCurrency } = usePriceDisplay(displayRate, displayReference);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
 
   useEffect(() => {
@@ -57,6 +59,7 @@ export function PublicModelProof() {
         setPricing(pricingValue);
         setQuotaPerUnit(statusValue.quota_per_unit);
         setDisplayRate(statusValue.usd_exchange_rate);
+        setDisplayReference(statusValue.display_fx);
         setStatus('ready');
       })
       .catch(() => {
@@ -157,7 +160,14 @@ export function PublicModelProof() {
                     </div>
                     <p>{model.description || (model.modality === 'image' ? t('当前可用的图片生成模型') : model.modality === 'video' ? t('当前可用的视频生成模型') : t('当前可用的公开模型'))}</p>
                     <dl>
-                      {media ? (
+                      {model.image_sale ? (
+                        imageSalePriceDetails(model.image_sale, display).map((price) => (
+                          <div key={price.key}>
+                            <dt>{price.label}</dt>
+                            <dd>{price.price}</dd>
+                          </div>
+                        ))
+                      ) : media ? (
                         <div>
                           <dt>{t('价格')}</dt>
                           <dd>{t('按规格计费')}</dd>

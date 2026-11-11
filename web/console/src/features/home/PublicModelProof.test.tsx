@@ -1,8 +1,9 @@
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PublicModelProof } from './PublicModelProof';
 import { managedPublicPricing } from './public-pricing.fixture';
+import { imageDisplayFX, partialImageItem, publicImageItem } from '../models/image-sale.fixture';
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -78,11 +79,36 @@ function renderProof(fetchMock: ReturnType<typeof vi.fn>) {
 
 afterEach(() => {
   cleanup();
+  localStorage.removeItem('ztapi.priceCurrency');
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
 describe('public homepage model proof', () => {
+  it('uses the same dated reference as the market without changing the U quote', async () => {
+    renderProof(vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/api/status')
+      ? jsonResponse({ success: true, data: { quota_per_unit: 500_000, usd_exchange_rate: 7.3, display_fx: imageDisplayFX } })
+      : jsonResponse(managedPublicPricing)));
+
+    const card = (await screen.findByText('zt-gpt-5.6-sol')).closest('article')!;
+    expect(within(card).getByText('84.5 元 / 1M tokens')).toBeVisible();
+    expect(screen.getByText(/2026-11-06/)).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'U' }));
+    expect(within(card).getByText('13 U / 1M tokens')).toBeVisible();
+  });
+
+  it('shows the published per-image price and only the enabled sizes', async () => {
+    const image = publicImageItem({ ...partialImageItem(), model_name: 'zt-gp-image-2' });
+    renderProof(vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/api/status')
+      ? statusResponse() : jsonResponse({ ...managedPublicPricing, data: [image] })));
+
+    const card = (await screen.findByText('zt-gp-image-2')).closest('article')!;
+    expect(within(card).getByText('1K')).toBeVisible();
+    expect(within(card).getByText('2K')).toBeVisible();
+    expect(within(card).getAllByText('0.30 U / 张')).toHaveLength(2);
+    expect(within(card).queryByText('4K')).not.toBeInTheDocument();
+  });
+
   it('links actual model prices without an unsupported global saving', async () => {
     renderProof(vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/api/status')
       ? statusResponse() : jsonResponse(managedPublicPricing)));
