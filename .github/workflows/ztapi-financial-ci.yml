@@ -248,9 +248,11 @@ jobs:
         env:
           ZTAPI_BALANCE_LEDGER_MYSQL_TEST_DSN: root:ztapi_test_root_2026@tcp(127.0.0.1:3306)/ztapi_test?charset=utf8mb4
           ZTAPI_USDT_MYSQL_TEST_DSN: root:ztapi_test_root_2026@tcp(127.0.0.1:3306)/ztapi_test?charset=utf8mb4
+          ZTAPI_CNY_MYSQL_TEST_DSN: root:ztapi_test_root_2026@tcp(127.0.0.1:3306)/ztapi_test?charset=utf8mb4
           ZTAPI_REQUIRE_MYSQL_INTEGRATION: true
         run: |
           go test ./model -run '^(TestBalanceLedgerMySQLIntegration|TestUSDT.*MySQL)$' -count=1 -v
+          go test ./model ./service ./controller -run '^TestCNY' -count=1 -v
           go test ./service -run '^TestWalletFundingLedgerMySQLIntegration$' -count=1 -v
 
       - name: Stop isolated cached MySQL

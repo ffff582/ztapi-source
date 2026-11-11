@@ -1,0 +1,160 @@
+import { CreditCard, ExternalLink, RefreshCw } from 'lucide-react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { apiClient } from '../../api/client';
+import { useLocale } from '../../i18n/locale';
+import './cny-topup.css';
+
+type Method = 'alipay' | 'wxpay';
+type State = 'pending' | 'paid' | 'refund_pending' | 'refunded';
+type Order = {
+  order_no: string;
+  status: State;
+  amount_cny: string;
+  credit_u: string;
+  cny_per_u: string;
+  checkout_url: string;
+  method: Method;
+  created_at: number;
+};
+type Config = { enabled: true; min_cny: string; max_cny: string; cny_per_u: string } | { enabled: false };
+
+const ordersPath = '/user/topup/cny/orders';
+const centAmount = /^\d{1,8}(\.\d{1,2})?$/;
+const statusLabels: Record<State, string> = {
+  pending: '等待支付确认', paid: '人民币充值已到账', refund_pending: '退款核对中', refunded: '已原路退款',
+};
+
+function safeCheckout(value: string) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && !url.username && !url.password ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+export function CNYTopUp({ onBalanceChange }: { onBalanceChange: () => void }) {
+  const { t } = useLocale();
+  const [config, setConfig] = useState<Config | null>(null);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [amount, setAmount] = useState('');
+  const [method, setMethod] = useState<Method>('alipay');
+  const [submitting, setSubmitting] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [submitError, setSubmitError] = useState(false);
+  const [historyError, setHistoryError] = useState(false);
+  const draft = useRef<{ amount: string; method: Method; key: string } | null>(null);
+  const previous = useRef<Order[]>([]);
+  const awaitingRecentPayment = orders.some((order) => order.status === 'pending' && order.created_at > Date.now() / 1000 - 1800);
+
+  useEffect(() => {
+    let alive = true;
+    void apiClient.get<Config>('/user/topup/cny/info').then((next) => {
+      if (alive) setConfig(next);
+    }).catch(() => undefined);
+    return () => { alive = false; };
+  }, []);
+
+  useEffect(() => {
+    if (config === null) return;
+    let alive = true;
+    let busy = false;
+    const read = async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        const next = await apiClient.get<Order[]>(ordersPath);
+        if (!alive || !Array.isArray(next)) return;
+        if (next.some((row) => previous.current.some((old) => old.order_no === row.order_no && old.status !== row.status && row.status !== 'pending'))) {
+          draft.current = null;
+          onBalanceChange();
+        }
+        previous.current = next;
+        setOrders(next);
+        setHistoryError(false);
+      } catch {
+        if (alive) setHistoryError(true);
+      } finally {
+        busy = false;
+      }
+    };
+    void read();
+    const timer = awaitingRecentPayment ? window.setInterval(() => void read(), 4_000) : undefined;
+    return () => { alive = false; if (timer !== undefined) window.clearInterval(timer); };
+  }, [config, onBalanceChange, awaitingRecentPayment, refreshKey]);
+
+  const amountValid = config?.enabled && centAmount.test(amount) && Number(amount) >= Number(config.min_cny) && Number(amount) <= Number(config.max_cny);
+
+  async function create(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!amountValid || submitting) return;
+    const normalized = Number(amount).toFixed(2);
+    const current = draft.current;
+    const key = current?.amount === normalized && current.method === method ? current.key : crypto.randomUUID();
+    draft.current = { amount: normalized, method, key };
+    setSubmitting(true);
+    setSubmitError(false);
+    try {
+      const next = await apiClient.post<Order>(ordersPath, { amount_cny: normalized, method, idempotency_key: key });
+      const updated = [next, ...previous.current.filter((row) => row.order_no !== next.order_no)];
+      previous.current = updated;
+      setOrders(updated);
+      if (next.status === 'paid') onBalanceChange();
+      if (next.status !== 'pending') draft.current = null;
+    } catch {
+      setSubmitError(true);
+      setRefreshKey((n) => n + 1);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (!config?.enabled && orders.length === 0) return null;
+  return (
+    <section className="console-panel cny-topup" aria-labelledby="cny-topup-heading">
+      <div className="console-panel__heading">
+        <CreditCard aria-hidden="true" size={20} />
+        <h2 id="cny-topup-heading">{t('人民币充值')}</h2>
+      </div>
+      {config?.enabled && (
+        <form className="cny-topup__form" onSubmit={(event) => void create(event)}>
+          <div className="console-field">
+            <label htmlFor="cny-topup-amount">{t('人民币金额')}</label>
+            <div className="wallet-amount-control">
+              <input id="cny-topup-amount" type="text" inputMode="decimal" maxLength={11} value={amount}
+                disabled={submitting} onChange={(event) => setAmount(event.target.value)} />
+              <span>CNY</span>
+            </div>
+            <p className="console-field__help">¥{config.min_cny} - ¥{config.max_cny} · 1 U = ¥{config.cny_per_u}</p>
+          </div>
+          <fieldset className="cny-topup__methods" disabled={submitting}>
+            <legend>{t('付款方式')}</legend>
+            <label><input type="radio" name="cny-method" checked={method === 'alipay'} onChange={() => setMethod('alipay')} /> {t('支付宝')}</label>
+            <label><input type="radio" name="cny-method" checked={method === 'wxpay'} onChange={() => setMethod('wxpay')} /> {t('微信支付')}</label>
+          </fieldset>
+          <button className="console-button console-button--primary" type="submit" disabled={!amountValid || submitting}>
+            {t(submitting ? '正在创建...' : '创建人民币订单')}
+          </button>
+          {submitError && <p className="console-alert" role="alert">{t('订单结果暂未确认，请查看记录后重试原订单。')}</p>}
+        </form>
+      )}
+      {(historyError || orders.length > 0) && <button type="button" className="console-button" onClick={() => setRefreshKey((n) => n + 1)}>
+        <RefreshCw aria-hidden="true" size={16} />{t('重新查询人民币订单')}
+      </button>}
+      {orders.length > 0 && <ul className="cny-topup__orders" aria-live="polite">
+        {orders.map((order) => {
+          const checkout = config?.enabled && order.status === 'pending' ? safeCheckout(order.checkout_url) : null;
+          return <li key={order.order_no}>
+            <div><strong>{t(statusLabels[order.status] ?? '状态待核验')}</strong><span className="cny-topup__id">{order.order_no}</span></div>
+            <dl><div><dt>{t('应付金额')}</dt><dd>¥{order.amount_cny}</dd></div>
+              <div><dt>{t('订单额度')}</dt><dd>{order.credit_u} U</dd></div></dl>
+            {checkout && <a className="console-button" href={checkout} target="_blank" rel="noopener noreferrer">
+              {t('前往付款')}<ExternalLink aria-hidden="true" size={16} />
+            </a>}
+            {order.status === 'pending' && !checkout && <p className="console-field__help">{t('付款状态待确认，请勿重复支付。')}</p>}
+          </li>;
+        })}
+      </ul>}
+    </section>
+  );
+}

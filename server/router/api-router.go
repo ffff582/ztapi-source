@@ -64,6 +64,11 @@ func SetApiRouter(router *gin.Engine) {
 		// Standard OAuth providers (GitHub, Discord, OIDC, LinuxDO) - unified route
 		apiRouter.GET("/oauth/:provider", middleware.CriticalRateLimit(), controller.HandleOAuth)
 		apiRouter.GET("/ratio_config", middleware.CriticalRateLimit(), controller.GetRatioConfig)
+		apiRouter.POST("/payment/cny/notify", controller.CNYTopUpNotify)
+		cnyRefund := apiRouter.Group("/admin/payments/cny/:order_no/refund")
+		cnyRefund.Use(middleware.RootAuth(), middleware.AdminPermissionAuth(common.PermissionFinanceWrite), middleware.CriticalRateLimit(), middleware.SecureVerificationRequired())
+		cnyRefund.POST("/hold", controller.HoldCNYTopUpRefund)
+		cnyRefund.POST("/confirm", controller.ConfirmCNYTopUpRefund)
 
 		if legacyPaymentEnabled {
 			apiRouter.POST("/stripe/webhook", anonymousRequestBodyLimit, controller.StripeWebhook)
@@ -103,6 +108,11 @@ func SetApiRouter(router *gin.Engine) {
 
 		userRoute := apiRouter.Group("/user")
 		{
+			cnyTopUp := userRoute.Group("/topup/cny", middleware.UserAuth())
+			cnyTopUp.GET("/info", controller.GetCNYTopUpInfo)
+			cnyTopUp.GET("/orders", controller.ListCNYTopUpOrders)
+			cnyTopUp.POST("/orders", middleware.CriticalRateLimit(), controller.CreateCNYTopUpOrder)
+
 			usdtTopUpRoute := userRoute.Group("/topup/usdt-trc20")
 			usdtTopUpRoute.Use(middleware.UserAuth())
 			{

@@ -375,6 +375,8 @@ async function installConsoleAPI(
       });
       return;
     }
+    if (url.pathname === '/api/user/topup/cny/info') return fulfill(route, { enabled: false });
+    if (url.pathname === '/api/user/topup/cny/orders') return fulfill(route, []);
     if (url.pathname === '/api/user/topup/self') {
       await fulfill(route, { page: 1, page_size: 5, total: 0, items: [] });
       return;
