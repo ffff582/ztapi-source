@@ -48,9 +48,10 @@ func TestCNYNoticeAcknowledgesOnlyDurableMatchingPayment(t *testing.T) {
 	require.True(t, ok)
 	verified, checks := false, 0
 	router.GET("/notify", func(c *gin.Context) {
-		handleCNYTopUpNotify(c, gateway, func(_ context.Context, evidence model.CNYPaymentEvidence) error {
+		handleCNYTopUpNotify(c, gateway, func(_ context.Context, notice service.CNYPaymentNotice) error {
 			checks++
-			require.Equal(t, "fixture-trade", evidence.TradeNo)
+			require.Equal(t, service.CNYTradeSuccess, notice.Status())
+			require.Equal(t, "fixture-trade", notice.Evidence().TradeNo)
 			if !verified {
 				return errors.New("fixture upstream did not verify")
 			}
@@ -97,6 +98,9 @@ func TestCNYNoticeAcknowledgesOnlyDurableMatchingPayment(t *testing.T) {
 	require.Equal(t, 3, checks)
 	require.NoError(t, db.First(&user, user.Id).Error)
 	require.Equal(t, int(order.Quota), user.Quota)
+	var ledgerRows int64
+	require.NoError(t, db.Model(&model.BalanceLedger{}).Where("user_id = ?", user.Id).Count(&ledgerRows).Error)
+	require.EqualValues(t, 1, ledgerRows)
 	require.NoError(t, db.First(&order, order.ID).Error)
 	require.Equal(t, model.CNYTopUpPaid, order.State)
 	require.Empty(t, order.CheckoutQR)

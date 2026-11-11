@@ -179,23 +179,24 @@ func CNYTopUpNotify(c *gin.Context) {
 	handleCNYTopUpNotify(c, g, g.VerifyPaid)
 }
 
-func handleCNYTopUpNotify(c *gin.Context, g service.CNYGateway, verifyPaid func(context.Context, model.CNYPaymentEvidence) error) {
+func handleCNYTopUpNotify(c *gin.Context, g service.CNYGateway, verifyPaid func(context.Context, service.CNYPaymentNotice) error) {
 	if c.Request.Method != http.MethodGet || c.Request.ContentLength != 0 || len(c.Request.TransferEncoding) != 0 || len(c.Request.URL.RawQuery) > 8192 {
 		c.String(http.StatusBadRequest, "fail")
 		return
 	}
-	evidence, status, err := g.DecodeNotice([]byte(c.Request.URL.RawQuery))
+	notice, err := g.DecodeNotice([]byte(c.Request.URL.RawQuery))
 	if err != nil {
 		c.String(http.StatusBadRequest, "fail")
 		return
 	}
 	ctx := c.Request.Context()
+	evidence := notice.Evidence()
 	order, err := model.ReadCNYTopUpPaymentOrder(ctx, evidence)
 	if err == nil {
-		switch status {
+		switch notice.Status() {
 		case service.CNYTradeSuccess:
 			if order.State == model.CNYTopUpPending {
-				err = verifyPaid(ctx, evidence)
+				err = verifyPaid(ctx, notice)
 			}
 			if err == nil {
 				_, err = model.SettleCNYTopUp(ctx, evidence, time.Now().UTC())

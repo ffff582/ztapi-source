@@ -30,33 +30,33 @@ func TestCNYGatewayCallbackBindsSignedAmountsAndRejectsAmbiguity(t *testing.T) {
 	}
 	fields["sign"] = signCNYFields(fields, g.key)
 	raw := encode()
-	receipt, status, err := g.DecodeNotice(raw)
+	notice, err := g.DecodeNotice(raw)
 	require.NoError(t, err)
-	require.Equal(t, int64(10001), receipt.PaidFen)
-	require.Equal(t, "TRADE_SUCCESS", status)
+	require.Equal(t, int64(10001), notice.Evidence().PaidFen)
+	require.Equal(t, "TRADE_SUCCESS", notice.Status())
 	delete(fields, "param")
 	fields["sign"] = signCNYFields(fields, g.key)
-	receipt, _, err = g.DecodeNotice(encode())
+	notice, err = g.DecodeNotice(encode())
 	require.NoError(t, err, "the merchant may omit the optional param")
-	require.Equal(t, "CNY-order-1", receipt.OrderNo)
+	require.Equal(t, "CNY-order-1", notice.Evidence().OrderNo)
 	fields["param"] = "CNY-other"
 	fields["sign"] = signCNYFields(fields, g.key)
-	_, _, err = g.DecodeNotice(encode())
+	_, err = g.DecodeNotice(encode())
 	require.Error(t, err, "an explicit conflicting param must fail")
 	fields["param"] = "CNY-order-1"
 	fields["sign"] = signCNYFields(fields, g.key)
 	fields["sign_type"] = "SHA256"
-	_, _, err = g.DecodeNotice(encode())
+	_, err = g.DecodeNotice(encode())
 	require.Error(t, err)
 	fields["sign_type"] = "MD5"
-	_, _, err = g.DecodeNotice(append(raw, []byte("&%6doney=1")...))
+	_, err = g.DecodeNotice(append(raw, []byte("&%6doney=1")...))
 	require.Error(t, err)
 	fields["money"] = "100.02"
-	_, _, err = g.DecodeNotice(encode())
+	_, err = g.DecodeNotice(encode())
 	require.Error(t, err)
 	fields["param"] = "CNY-order-1&trade_status=TRADE_SUCCESS"
 	fields["sign"] = signCNYFields(fields, g.key)
-	_, _, err = g.DecodeNotice(encode())
+	_, err = g.DecodeNotice(encode())
 	require.Error(t, err)
 }
 
@@ -139,15 +139,19 @@ func TestCNYGatewayDistinguishesGatewayFromCashierHost(t *testing.T) {
 
 func TestCNYGatewayVerifiesExactProviderOrder(t *testing.T) {
 	const paid = `{"code":1,"pid":1234,"out_trade_no":"CNY-order-1","trade_no":"trade-1","type":"alipay","money":"1.000","status":1}`
+	nullApp := strings.Replace(paid, `"pid":1234`, `"pid":null`, 1)
 	for _, tc := range []struct{ name, body string }{
 		{"matching", paid},
+		{"null-app", nullApp},
 		{"empty-app", strings.Replace(paid, `"pid":1234`, `"pid":""`, 1)},
+		{"missing-app", strings.Replace(paid, `"pid":1234,`, "", 1)},
 		{"wrong-app", strings.Replace(paid, "1234", "4321", 1)},
-		{"wrong-order", strings.Replace(paid, "CNY-order-1", "CNY-order-2", 1)},
-		{"wrong-trade", strings.Replace(paid, "\"trade-1\"", "\"trade-2\"", 1)},
-		{"wrong-method", strings.Replace(paid, "alipay", "wxpay", 1)},
-		{"wrong-amount", strings.Replace(paid, "1.000", "1.010", 1)},
-		{"unpaid", strings.Replace(paid, `"status":1`, `"status":0`, 1)},
+		{"duplicate-app", strings.Replace(paid, `"pid":1234`, `"pid":4321,"pid":null`, 1)},
+		{"wrong-order", strings.Replace(nullApp, "CNY-order-1", "CNY-order-2", 1)},
+		{"wrong-trade", strings.Replace(nullApp, `"trade-1"`, `"trade-2"`, 1)},
+		{"wrong-method", strings.Replace(nullApp, "alipay", "wxpay", 1)},
+		{"wrong-amount", strings.Replace(nullApp, "1.000", "1.010", 1)},
+		{"unpaid", strings.Replace(nullApp, `"status":1`, `"status":0`, 1)},
 		{"duplicate-status", strings.Replace(paid, `"status":1`, `"status":0,"status":1`, 1)},
 		{"missing-status", strings.Replace(paid, `,"status":1`, "", 1)},
 	} {
@@ -164,13 +168,43 @@ func TestCNYGatewayVerifiesExactProviderOrder(t *testing.T) {
 				}, r.URL.Query())
 				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(tc.body))}, nil
 			})}
-			err := g.VerifyPaid(context.Background(), model.CNYPaymentEvidence{MerchantNo: "fixture", AppID: "1234",
-				OrderNo: "CNY-order-1", TradeNo: "trade-1", Method: "alipay", OrderFen: 100, PaidFen: 100})
-			if tc.name == "matching" {
+			notice, err := g.DecodeNotice(cnyFixtureNotice("1234", CNYTradeSuccess))
+			require.NoError(t, err)
+			err = g.VerifyPaid(context.Background(), notice)
+			if tc.name == "matching" || tc.name == "null-app" {
 				require.NoError(t, err)
 			} else {
 				require.Error(t, err)
 			}
 		})
 	}
+}
+
+func TestCNYGatewayRequiresSignedSuccessForOrderQuery(t *testing.T) {
+	g := CNYGateway{MerchantNo: "fixture", AppID: "1234", key: cnyFixtureKey}
+	queries := 0
+	g.client = &http.Client{Transport: cnyFixtureTransport(func(*http.Request) (*http.Response, error) {
+		queries++
+		return nil, fmt.Errorf("unexpected order query")
+	})}
+	wrongApp, err := g.DecodeNotice(cnyFixtureNotice("4321", CNYTradeSuccess))
+	require.Error(t, err)
+	require.Error(t, g.VerifyPaid(context.Background(), wrongApp))
+	for _, status := range []string{"TRADE_PENDING", CNYTradeRefund} {
+		notice, err := g.DecodeNotice(cnyFixtureNotice("1234", status))
+		require.NoError(t, err)
+		require.Error(t, g.VerifyPaid(context.Background(), notice))
+	}
+	require.Zero(t, queries)
+}
+
+func cnyFixtureNotice(app, status string) []byte {
+	fields := map[string]string{"pid": app, "trade_no": "trade-1", "out_trade_no": "CNY-order-1", "type": "alipay",
+		"money": "1.00", "trade_status": status, "sign_type": "MD5"}
+	fields["sign"] = signCNYFields(fields, cnyFixtureKey)
+	query := url.Values{}
+	for k, v := range fields {
+		query.Set(k, v)
+	}
+	return []byte(query.Encode())
 }

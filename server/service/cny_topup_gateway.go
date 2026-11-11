@@ -48,6 +48,14 @@ type CNYCheckout struct {
 	TradeNo, URL, QRCode string
 }
 
+type CNYPaymentNotice struct {
+	evidence model.CNYPaymentEvidence
+	status   string
+}
+
+func (n CNYPaymentNotice) Evidence() model.CNYPaymentEvidence { return n.evidence }
+func (n CNYPaymentNotice) Status() string                     { return n.status }
+
 func LoadCNYGateway() (CNYGateway, bool) {
 	g := CNYGateway{MerchantNo: os.Getenv("ZTAPI_CNY_TOPUP_MERCHANT"), AppID: os.Getenv("ZTAPI_CNY_TOPUP_APP"),
 		key: os.Getenv("ZTAPI_CNY_TOPUP_KEY"), checkoutHost: os.Getenv("ZTAPI_CNY_TOPUP_CHECKOUT_HOST"),
@@ -145,8 +153,9 @@ func cnyReplyIdentity(raw json.RawMessage) string {
 	return ""
 }
 
-func (g CNYGateway) VerifyPaid(ctx context.Context, evidence model.CNYPaymentEvidence) error {
-	if g.client == nil || g.key == "" || evidence.MerchantNo != g.MerchantNo || evidence.AppID != g.AppID ||
+func (g CNYGateway) VerifyPaid(ctx context.Context, notice CNYPaymentNotice) error {
+	evidence := notice.Evidence()
+	if notice.Status() != CNYTradeSuccess || g.client == nil || g.key == "" || evidence.MerchantNo != g.MerchantNo || evidence.AppID != g.AppID ||
 		!model.ValidCNYPaymentID(evidence.OrderNo) || !model.ValidCNYPaymentID(evidence.TradeNo) {
 		return errCNYGateway
 	}
@@ -165,9 +174,11 @@ func (g CNYGateway) VerifyPaid(ctx context.Context, evidence model.CNYPaymentEvi
 	if err != nil {
 		return err
 	}
+	// The signed success notice binds the app even when the authenticated query returns a null pid.
+	appMatches := string(reply["pid"]) == "null" || cnyReplyIdentity(reply["pid"]) == g.AppID
 	fen, err := model.ParseCNYAmountFen(cnyReplyString(reply["money"]))
 	if err != nil || fen != evidence.PaidFen || fen != evidence.OrderFen || string(reply["status"]) != "1" ||
-		cnyReplyIdentity(reply["pid"]) != g.AppID || cnyReplyString(reply["out_trade_no"]) != evidence.OrderNo ||
+		!appMatches || cnyReplyString(reply["out_trade_no"]) != evidence.OrderNo ||
 		cnyReplyString(reply["trade_no"]) != evidence.TradeNo || cnyReplyString(reply["type"]) != evidence.Method {
 		return errCNYGateway
 	}
@@ -200,28 +211,28 @@ func (g CNYGateway) validCheckoutQR(s, method string) bool {
 	return err == nil && (path == "/bizpayurl" || path == "/bizpayurl/up") && len(query["pr"]) == 1 && query.Get("pr") != ""
 }
 
-func (g CNYGateway) DecodeNotice(raw []byte) (model.CNYPaymentEvidence, string, error) {
+func (g CNYGateway) DecodeNotice(raw []byte) (CNYPaymentNotice, error) {
 	if len(raw) > 8192 || g.key == "" {
-		return model.CNYPaymentEvidence{}, "", errCNYGateway
+		return CNYPaymentNotice{}, errCNYGateway
 	}
 	query, err := url.ParseQuery(string(raw))
 	if err != nil || len(query) > 10 {
-		return model.CNYPaymentEvidence{}, "", errCNYGateway
+		return CNYPaymentNotice{}, errCNYGateway
 	}
 	fields := make(map[string]string, len(query))
 	for name, values := range query {
 		switch name {
 		case "pid", "trade_no", "out_trade_no", "type", "name", "money", "trade_status", "param", "sign_type", "sign":
 		default:
-			return model.CNYPaymentEvidence{}, "", errCNYGateway
+			return CNYPaymentNotice{}, errCNYGateway
 		}
 		if len(values) != 1 || len(values[0]) > 512 || strings.ContainsAny(values[0], "&=\r\n\x00") {
-			return model.CNYPaymentEvidence{}, "", errCNYGateway
+			return CNYPaymentNotice{}, errCNYGateway
 		}
 		fields[name] = values[0]
 	}
 	if fields["sign_type"] != "MD5" || subtle.ConstantTimeCompare([]byte(fields["sign"]), []byte(signCNYFields(fields, g.key))) != 1 {
-		return model.CNYPaymentEvidence{}, "", errCNYGateway
+		return CNYPaymentNotice{}, errCNYGateway
 	}
 	status, method := fields["trade_status"], fields["type"]
 	fen, err := model.ParseCNYAmountFen(fields["money"])
@@ -229,10 +240,12 @@ func (g CNYGateway) DecodeNotice(raw []byte) (model.CNYPaymentEvidence, string, 
 		fields["pid"] != g.AppID || (fields["param"] != "" && fields["param"] != fields["out_trade_no"]) ||
 		(method != "wxpay" && method != "alipay") ||
 		(status != "TRADE_PENDING" && status != CNYTradeSuccess && status != CNYTradeRefund && status != "TRADE_ERROR") {
-		return model.CNYPaymentEvidence{}, "", errCNYGateway
+		return CNYPaymentNotice{}, errCNYGateway
 	}
-	return model.CNYPaymentEvidence{MerchantNo: g.MerchantNo, AppID: g.AppID, TradeNo: fields["trade_no"], Method: method,
-		OrderNo: fields["out_trade_no"], OrderFen: fen, PaidFen: fen}, status, nil
+	return CNYPaymentNotice{status: status, evidence: model.CNYPaymentEvidence{
+		MerchantNo: g.MerchantNo, AppID: g.AppID, TradeNo: fields["trade_no"], Method: method,
+		OrderNo: fields["out_trade_no"], OrderFen: fen, PaidFen: fen,
+	}}, nil
 }
 
 func signCNYFields(fields map[string]string, key string) string {
