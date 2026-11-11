@@ -60,9 +60,16 @@ func cnyTopUpForUser(user int) (cnyTopUpConfig, bool) {
 	}
 	rate, err := decimal.NewFromString(rateRaw)
 	min, errMin := model.ParseCNYAmountFen(os.Getenv("ZTAPI_CNY_TOPUP_MIN_CNY"))
-	max, errMax := model.ParseCNYAmountFen(os.Getenv("ZTAPI_CNY_TOPUP_MAX_CNY"))
+	var max int64
+	if raw := os.Getenv("ZTAPI_CNY_TOPUP_MAX_CNY"); raw != "" {
+		var errMax error
+		max, errMax = model.ParseCNYAmountFen(raw)
+		if errMax != nil || max < min {
+			return cnyTopUpConfig{}, false
+		}
+	}
 	if !ok || err != nil || rate.Exponent() < -8 || rate.LessThan(decimal.New(1, -2)) || rate.GreaterThan(decimal.NewFromInt(100)) ||
-		errMin != nil || errMax != nil || max < min {
+		errMin != nil {
 		return cnyTopUpConfig{}, false
 	}
 	return cnyTopUpConfig{gateway: g, methods: methods, rate: rate, minFen: min, maxFen: max}, true
@@ -74,7 +81,9 @@ func GetCNYTopUpInfo(c *gin.Context) {
 	data := gin.H{"enabled": enabled}
 	if enabled {
 		data["min_cny"] = formatCNYFen(config.minFen)
-		data["max_cny"] = formatCNYFen(config.maxFen)
+		if config.maxFen > 0 {
+			data["max_cny"] = formatCNYFen(config.maxFen)
+		}
 		data["cny_per_u"] = config.rate.String()
 		data["methods"] = config.methods
 	}
@@ -99,7 +108,7 @@ func CreateCNYTopUpOrder(c *gin.Context) {
 		return
 	}
 	fen, err := model.ParseCNYAmountFen(input.Amount)
-	if err != nil || fen < config.minFen || fen > config.maxFen {
+	if err != nil || fen < config.minFen || (config.maxFen > 0 && fen > config.maxFen) {
 		writeUSDTTopUpError(c, http.StatusBadRequest, "invalid_cny_amount")
 		return
 	}
@@ -279,6 +288,8 @@ func writeCNYTopUpMutationError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, gorm.ErrRecordNotFound):
 		writeUSDTTopUpError(c, http.StatusNotFound, "cny_order_not_found")
+	case errors.Is(err, model.ErrBalanceLedgerOverflow):
+		writeUSDTTopUpError(c, http.StatusConflict, "cny_credit_capacity")
 	case errors.Is(err, model.ErrCNYTopUpEvidence), errors.Is(err, model.ErrCNYTopUpConflict), errors.Is(err, model.ErrBalanceLedgerNegativeBalance):
 		writeUSDTTopUpError(c, http.StatusConflict, "cny_order_conflict")
 	default:

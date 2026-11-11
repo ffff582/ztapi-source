@@ -18,7 +18,7 @@ type Order = {
   method: Method;
   created_at: number;
 };
-type Config = { enabled: true; min_cny: string; max_cny: string; cny_per_u: string; methods: Method[] } | { enabled: false };
+type Config = { enabled: true; min_cny: string; max_cny?: string; cny_per_u: string; methods: Method[] } | { enabled: false };
 
 const ordersPath = '/user/topup/cny/orders';
 const centAmount = /^\d{1,8}(\.\d{1,2})?$/;
@@ -86,7 +86,7 @@ export function CNYTopUp({ onBalanceChange }: { onBalanceChange: () => void }) {
     return () => { alive = false; if (timer !== undefined) window.clearInterval(timer); };
   }, [config, onBalanceChange, awaitingRecentPayment, refreshKey]);
 
-  const amountValid = config?.enabled && centAmount.test(amount) && Number(amount) >= Number(config.min_cny) && Number(amount) <= Number(config.max_cny);
+  const amountValid = config?.enabled && centAmount.test(amount) && Number(amount) >= Number(config.min_cny) && (!config.max_cny || Number(amount) <= Number(config.max_cny));
   const methods = config?.enabled && Array.isArray(config.methods) ? config.methods.filter((item) => item === 'alipay' || item === 'wxpay') : [];
   const selectedMethod = methods.includes(method) ? method : methods[0];
 
@@ -130,7 +130,7 @@ export function CNYTopUp({ onBalanceChange }: { onBalanceChange: () => void }) {
                 disabled={submitting} onChange={(event) => setAmount(event.target.value)} />
               <span>CNY</span>
             </div>
-            <p className="console-field__help">¥{config.min_cny} - ¥{config.max_cny} · 1 U = ¥{config.cny_per_u}</p>
+            <p className="console-field__help">{config.max_cny ? `¥${config.min_cny} - ¥${config.max_cny} · ` : ''}1 U = ¥{config.cny_per_u}</p>
           </div>
           <fieldset className="cny-topup__methods" disabled={submitting}>
             <legend>{t('付款方式')}</legend>

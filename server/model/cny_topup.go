@@ -93,19 +93,46 @@ func CreateCNYTopUpOrder(ctx context.Context, order CNYTopUpOrder) (CNYTopUpOrde
 	order = CNYTopUpOrder{OrderNo: order.OrderNo, UserID: order.UserID, RequestKey: order.RequestKey, MerchantNo: order.MerchantNo,
 		AppID: order.AppID, Method: order.Method, PayFen: order.PayFen, Quota: order.Quota, CNYPerUnit: order.CNYPerUnit,
 		CreatedAt: order.CreatedAt, State: CNYTopUpPending}
-	db := DB.WithContext(ctx)
-	result := db.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}, {Name: "request_key"}}, DoNothing: true}).Create(&order)
-	if result.Error != nil {
-		return CNYTopUpOrder{}, false, result.Error
+	if DB.Dialector.Name() == "sqlite" {
+		balanceLedgerSQLiteMu.Lock()
+		defer balanceLedgerSQLiteMu.Unlock()
 	}
 	var existing CNYTopUpOrder
-	if err := db.Where("user_id = ? AND request_key = ?", order.UserID, order.RequestKey).First(&existing).Error; err != nil {
+	fresh := false
+	err := DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Serialize quotes with other CNY orders and balance writes for this account.
+		var user User
+		if err := cnyLock(tx).Select("id", "quota").First(&user, order.UserID).Error; err != nil {
+			return err
+		}
+		found := tx.Where("user_id = ? AND request_key = ?", order.UserID, order.RequestKey).Limit(1).Find(&existing)
+		if found.Error != nil {
+			return found.Error
+		}
+		if found.RowsAffected != 0 {
+			if existing.PayFen != order.PayFen || existing.Method != order.Method {
+				return ErrCNYTopUpConflict
+			}
+			return nil
+		}
+		var pending int64
+		if err := tx.Model(&CNYTopUpOrder{}).Where("user_id = ? AND state = ?", user.Id, CNYTopUpPending).
+			Select("COALESCE(SUM(quota), 0)").Scan(&pending).Error; err != nil {
+			return err
+		}
+		if pending < 0 || order.Quota > maxBalanceLedgerQuota-int64(user.Quota)-pending {
+			return ErrBalanceLedgerOverflow
+		}
+		if err := tx.Create(&order).Error; err != nil {
+			return err
+		}
+		existing, fresh = order, true
+		return nil
+	})
+	if err != nil {
 		return CNYTopUpOrder{}, false, err
 	}
-	if existing.PayFen != order.PayFen || existing.Method != order.Method {
-		return CNYTopUpOrder{}, false, ErrCNYTopUpConflict
-	}
-	return existing, result.RowsAffected == 1 && existing.OrderNo == order.OrderNo, nil
+	return existing, fresh, nil
 }
 
 func GetCNYTopUpOrder(ctx context.Context, userID int, orderNo string) (CNYTopUpOrder, error) {

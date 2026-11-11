@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -85,4 +86,23 @@ func TestCNYTopUpConcurrentSettlementMySQL(t *testing.T) {
 	require.Zero(t, user.Quota)
 	require.NoError(t, db.Model(&BalanceLedger{}).Where("request_id = ?", order.OrderNo).Count(&count).Error)
 	require.EqualValues(t, 2, count)
+
+	require.NoError(t, db.Model(&User{}).Where("id = ?", user.Id).Update("quota", maxBalanceLedgerQuota-2*input.Quota).Error)
+	var admitted, blocked atomic.Int64
+	parallel(func(i int) error {
+		candidate := input
+		candidate.OrderNo = fmt.Sprintf("cny-cap-%s-%d", suffix, i)
+		candidate.RequestKey = candidate.OrderNo
+		_, fresh, err := CreateCNYTopUpOrder(ctx, candidate)
+		if errors.Is(err, ErrBalanceLedgerOverflow) {
+			blocked.Add(1)
+			return nil
+		}
+		if fresh {
+			admitted.Add(1)
+		}
+		return err
+	})
+	require.EqualValues(t, 2, admitted.Load())
+	require.EqualValues(t, callers-2, blocked.Load())
 }

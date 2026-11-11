@@ -51,3 +51,10 @@ it('shows only enabled methods and directs refund requests to support', async ()
   expect(screen.queryByLabelText('微信支付')).not.toBeInTheDocument();
   expect(screen.getByRole('link', { name: '退款请联系平台客服' })).toHaveAttribute('href', 'https://t.me/gan66');
 });
+
+it('does not enforce a retail maximum when the server omits it', async () => {
+  vi.spyOn(apiClient, 'get').mockResolvedValueOnce({ enabled: true, min_cny: '0.01', cny_per_u: '7', methods: ['alipay'] }).mockResolvedValueOnce([]);
+  render(<CNYTopUp onBalanceChange={() => undefined} />);
+  fireEvent.change(await screen.findByLabelText('人民币金额'), { target: { value: '600.00' } });
+  expect(screen.getByRole('button', { name: '创建人民币订单' })).toBeEnabled();
+});

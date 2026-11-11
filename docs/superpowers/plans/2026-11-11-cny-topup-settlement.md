@@ -18,5 +18,5 @@
 - 试验仅使用验收账号。`ZTAPI_CNY_TOPUP_ENABLED` 默认关闭；先在独立测试实例配置 `ZTAPI_CNY_TOPUP_TEST_USER_ID`、`ZTAPI_CNY_TOPUP_MIN_CNY=1`、`ZTAPI_CNY_TOPUP_MAX_CNY=1` 和经确认的 `ZTAPI_CNY_TOPUP_CNY_PER_U`，不要设置 `ZTAPI_CNY_TOPUP_PUBLIC=true`。通过现有域名的精确回调路径转发到隔离服务，确认入口代理及应用访问日志都不记录查询串。商户凭据由服务端配置，禁止提交；公开开放前建议轮换已暴露的密钥。关停新单后保留在途单核销能力。
 - 对照同一商户订单验证用户实付、回调金额、到账 U、重复通知无二次入账。收银台跳回页面不触发入账。未确认下单不得反复向商户发起新的同一订单；先在商户后台查清。
 - 原路退款前由管理员二次验证并调用 `POST /api/admin/payments/cny/:order_no/refund/hold`，读回待退款状态和额度预留，再在商户后台实际操作。随后从支付方凭证核对原交易号、退款交易号、全额退款金额和原路最终状态，调用同路径 `/confirm`。未经核验的通知不扣减或恢复余额。当前无自动退款和失败后自动解除预留，需按商户最终结果复核。
-- 生产从权限为 0600 的 `/etc/ztapi/cny-topup.env` 读取配置，默认没有该文件且不开放。首发仅配置已验收的 `ZTAPI_CNY_TOPUP_METHODS=alipay`，`ZTAPI_CNY_TOPUP_CNY_PER_U=7`，按实付面值计算，不额外加收手续费；正式单笔上下限待确认。回调只在公开 HTTPS 站点接收，不记录签名查询串。
+- 生产从权限为 0600 的 `/etc/ztapi/cny-topup.env` 读取配置，默认没有该文件且不开放。首发仅配置已验收的 `ZTAPI_CNY_TOPUP_METHODS=alipay`，`ZTAPI_CNY_TOPUP_CNY_PER_U=7`，按实付面值计算，不额外加收手续费。不设置业务单笔上限，最小金额为 ¥0.01；账本容量、已有待确认人民币订单和支付渠道限额仍有效。回调只在公开 HTTPS 站点接收，不记录签名查询串。
 - 回调验收失败、账务不一致或财务 CI 不通过，继续关闭公开入口；USDT 不需要随之下线。

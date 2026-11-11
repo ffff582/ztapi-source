@@ -72,6 +72,25 @@ func TestCNYTopUpFreezesQuoteAndSettlesOnce(t *testing.T) {
 	require.Equal(t, order.Quota, rows[0].Delta)
 }
 
+func TestCNYTopUpRespectsAvailableLedgerCapacityBeforeCheckout(t *testing.T) {
+	db, user, pending, _, _ := cnyTestOrder(t)
+	ctx := context.Background()
+	remaining := int64(10000)
+	require.NoError(t, db.Model(&User{}).Where("id = ?", user.Id).Update("quota", maxBalanceLedgerQuota-pending.Quota-remaining).Error)
+	retry, fresh, err := CreateCNYTopUpOrder(ctx, pending)
+	require.NoError(t, err)
+	require.False(t, fresh)
+	require.Equal(t, pending.OrderNo, retry.OrderNo)
+	next := pending
+	next.OrderNo, next.RequestKey, next.Quota = "CNY-over", "test-over", remaining+1
+	_, _, err = CreateCNYTopUpOrder(ctx, next)
+	require.ErrorIs(t, err, ErrBalanceLedgerOverflow)
+	next.Quota = remaining
+	_, fresh, err = CreateCNYTopUpOrder(ctx, next)
+	require.NoError(t, err)
+	require.True(t, fresh)
+}
+
 func TestCNYTopUpCommitFailureLeavesNoCreditOrPaidOrder(t *testing.T) {
 	db, user, order, proof, now := cnyTestOrder(t)
 	require.NoError(t, db.Exec(`CREATE TRIGGER reject_cny_ledger BEFORE INSERT ON balance_ledgers BEGIN SELECT RAISE(ABORT, 'forced write failure'); END`).Error)
