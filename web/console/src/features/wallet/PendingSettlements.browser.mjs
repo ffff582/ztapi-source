@@ -129,7 +129,7 @@ try {
     const checkout = cny.getByRole('link', { name: '前往付款' });
     await expect(checkout).toHaveAttribute('href', 'https://checkout.example.test/synthetic');
     await checkout.click({ trial: true });
-    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), true);
     const cnyScreenshot = path.join(evidence, `wallet-cny-${viewport.width}.png`);
     await cny.screenshot({ path: cnyScreenshot });
     cnyOrder = { ...cnyOrder, status: 'paid', checkout_url: '' };
