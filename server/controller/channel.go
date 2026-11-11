@@ -197,17 +197,25 @@ func FetchZTAPIUpstreamModels(c *gin.Context) {
 		common.ApiSuccess(c, ztapiChannelTestResponse{ErrorCategory: category, Message: message})
 		return
 	}
-	if c.Query("evidence_only") != "" {
-		if c.Request.Method != http.MethodPost || c.Query("evidence_only") != "glm-5.3" || c.Query("import") != "" {
+	if source := c.Query("evidence_only"); source != "" {
+		if c.Request.Method != http.MethodPost || (source != "glm-5.3" && source != model.ZTAPIGLM53FlashSource) || c.Query("import") != "" {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "模型发现证据参数无效。"})
 			return
 		}
-		physical, resolveErr := service.ResolveZTAPIManagedUpstreamModel(channel, "glm-5.3")
-		if resolveErr != nil || model.ValidateZTAPIXcloudGLM53Route("glm-5.3", channel.Id, channel.GetBaseURL(), physical) != nil {
+		physical, resolveErr := service.ResolveZTAPIManagedUpstreamModel(channel, source)
+		var routeErr error
+		record := model.RecordZTAPIXcloudGLM53Discovery
+		if source == model.ZTAPIGLM53FlashSource {
+			routeErr = model.ValidateZTAPIEnterpriseGLM53FlashRoute(channel.Id, channel.GetBaseURL(), physical)
+			record = model.RecordZTAPIEnterpriseGLM53FlashDiscovery
+		} else {
+			routeErr = model.ValidateZTAPIXcloudGLM53Route(source, channel.Id, channel.GetBaseURL(), physical)
+		}
+		if resolveErr != nil || routeErr != nil {
 			c.JSON(http.StatusConflict, gin.H{"success": false, "message": "渠道与已核验的模型路由不一致。"})
 			return
 		}
-		result, evidenceErr := model.RecordZTAPIXcloudGLM53Discovery(ids, c.GetInt("id"), time.Now().UTC())
+		result, evidenceErr := record(ids, c.GetInt("id"), time.Now().UTC())
 		if evidenceErr != nil {
 			c.JSON(http.StatusConflict, gin.H{"success": false, "message": "上游模型不可见或渠道配置已变化。"})
 			return

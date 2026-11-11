@@ -118,3 +118,33 @@ func TestXcloudGLM53FinalRouteGuard(t *testing.T) {
 		})
 	}
 }
+
+func TestGLM53FlashEnterpriseFinalRouteGuard(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		id             int
+		base, physical string
+		ok             bool
+	}{
+		{"enterprise", 1, "https://ai.yunxinapi.com/hub", "glm-5.3-flash", true},
+		{"yunxin_pool_same_host", 2, "https://ai.yunxinapi.com/hub", "glm-5.3-flash", false},
+		{"xcloud", 8, "https://www.xcloudtoken.com", "glm-5.3-flash", false},
+		{"wrong_host", 1, "https://example.invalid/hub", "glm-5.3-flash", false},
+		{"standard_not_flash", 1, "https://ai.yunxinapi.com/hub", "glm-5.3", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			info := &relaycommon.RelayInfo{
+				OriginModelName:          "glm-5.3-flash",
+				ChannelMeta:              &relaycommon.ChannelMeta{ChannelId: tc.id, ChannelBaseUrl: tc.base, UpstreamModelName: tc.physical},
+				ZTAPIPublicationSnapshot: &relaycommon.ZTAPIPublicationSnapshot{SourceModel: "glm-5.3-flash", PricePolicy: string(model.ZTAPIPricePolicyEnterprise20Margin)},
+			}
+			err := ModelMappedHelper(c, info, &dto.GeneralOpenAIRequest{})
+			if tc.ok {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
+}

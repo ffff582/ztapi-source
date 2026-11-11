@@ -2,6 +2,7 @@ package model
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -22,6 +23,65 @@ func TestQuotationRoutes20261030EnterpriseOnlyDoesNotFollowPoolDiscovery(t *test
 	require.True(t, ztapiQuotationChannelPermitted20261030("claude-fable-5", 4))
 	require.True(t, ztapiQuotationChannelPermitted20261030("glm-5.3", 8))
 	require.False(t, ztapiQuotationChannelPermitted20261030("glm-5.3", 2))
+}
+
+func TestGLM53FlashEnterpriseOnlyForQuotedPurchase(t *testing.T) {
+	quote, err := ZTAPIQuotationABEntries()
+	require.NoError(t, err)
+	source := &ZTAPIModelPriceSource{
+		SourceModel: "glm-5.3-flash", SourceDocumentChecksum: quote.WorkbookSHA256,
+		ResourceType: "enterprise", QuotationCell: "D37", QuotationGrade: "A",
+		QuotationModelCode: "glm-5.3-flash", PricePolicy: string(ZTAPIPricePolicyEnterprise20Margin),
+	}
+	require.True(t, ztapiQuotationRouteRestrictionApplies20261030(source))
+	require.True(t, ztapiQuotationSourceChannelPermitted20261030(source, 1))
+	for _, id := range []int{2, 4, 8} {
+		require.False(t, ztapiQuotationSourceChannelPermitted20261030(source, id))
+	}
+}
+
+func TestGLM53FlashEnterprisePublicationFreezesOnlyChannelOne(t *testing.T) {
+	f := setupZTAPIPublicationGateFixture(t)
+	url := "https://ai.yunxinapi.com/hub"
+	for _, id := range []int{1, 2, 8} {
+		channel := f.channel
+		channel.Id, channel.BaseURL, channel.Models = id, &url, ZTAPIGLM53FlashSource
+		if id == 1 {
+			require.NoError(t, f.db.Save(&channel).Error)
+		} else {
+			require.NoError(t, f.db.Create(&channel).Error)
+		}
+		require.NoError(t, channel.AddAbilities(f.db))
+		now := time.Now().UTC().Unix()
+		d := ZTAPIDiscoverySnapshot{ChannelID: id, ModelCount: 1, ModelListHash: f.snapshot.ModelListHash, FetchedAt: now}
+		require.NoError(t, f.db.Create(&d).Error)
+		require.NoError(t, f.db.Create(&ZTAPIDiscoveredModel{SnapshotID: d.ID, ChannelID: id, SourceModel: ZTAPIGLM53FlashSource}).Error)
+		v := f.verification
+		v.ID, v.ChannelID, v.VerifiedAt = 0, id, now
+		require.NoError(t, f.db.Create(&v).Error)
+	}
+	alias := "zt-glm-5.3-flash"
+	f.config.SourceModel, f.config.PublicName, f.config.ProviderFamily = ZTAPIGLM53FlashSource, &alias, ZTAPIProviderGLM
+	require.NoError(t, f.db.Save(&f.config).Error)
+	require.NoError(t, f.db.Model(&f.identity).Updates(map[string]any{"public_name": alias, "provider_family": ZTAPIProviderGLM}).Error)
+	workbook, err := ZTAPIQuotationABEntries()
+	require.NoError(t, err)
+	quote, err := BuildZTAPIABTextPriceSourceWithFX(workbook, "GLM 5.3 Flash", f.config.ID, 1, time.Now().Unix(),
+		platformFXParamsForTest("6.63", "6.67"))
+	require.NoError(t, err)
+	imported, _, preview, err := ImportZTAPIModelPriceSource(ZTAPIModelPriceSourceImport{
+		Source: quote, ExpectedVersion: f.config.Version, OperatorID: 1, Reason: "isolated enterprise quote test",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "0.1025641026", preview.InputSaleUSDPerMillion)
+	require.Equal(t, "0.3589743590", preview.OutputSaleUSDPerMillion)
+	require.Equal(t, "0.0294871795", preview.SaleUSD[ZTAPIBillingDimensionCacheRead])
+	imported.Published = true
+	committed, err := UpdateZTAPIModelConfigAndBilling(imported, imported.Version, nil)
+	require.NoError(t, err)
+	var snapshot ZTAPIModelPublicationSnapshot
+	require.NoError(t, f.db.First(&snapshot, committed.PublicationSnapshotID).Error)
+	require.Equal(t, []int{1}, snapshot.ChannelIDs())
 }
 
 func TestQuotationRoutes20261030GeminiPreservesLegacyReaderNotLegacyAdmission(t *testing.T) {

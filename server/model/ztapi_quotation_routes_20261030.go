@@ -75,7 +75,8 @@ func ztapiQuotationPortfolioChannels20261030(source string) []int {
 	switch source {
 	case "gemini-3-flash-preview", "gemini-3.1-pro-preview", "gpt-image-2", "qwen3.8-max",
 		"gpt-4.1-mini", "gpt-4.1-nano", "gpt-4o-mini", "gpt-5-nano",
-		"text-embedding-3-small", "text-embedding-ada-002", "gemini-3.1-flash-lite-preview", "gemini-3.5-flash", "doubao-seedance-2-5":
+		"text-embedding-3-small", "text-embedding-ada-002", "gemini-3.1-flash-lite-preview", "gemini-3.5-flash", "doubao-seedance-2-5",
+		ZTAPIGLM53FlashSource:
 		return []int{1}
 	case "claude-fable-5", "claude-sonnet-5":
 		return []int{2, 4}

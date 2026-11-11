@@ -19,6 +19,10 @@ func ModelMappedHelper(c *gin.Context, info *common.RelayInfo, request dto.Reque
 		if err != nil || info.ZTAPIPublicationSnapshot == nil {
 			return
 		}
+		if info.ZTAPIPublicationSnapshot.SourceModel == model.ZTAPIGLM53FlashSource {
+			err = model.ValidateZTAPIEnterpriseGLM53FlashRoute(info.ChannelId, info.ChannelBaseUrl, info.UpstreamModelName)
+			return
+		}
 		switch info.ZTAPIPublicationSnapshot.PricePolicy {
 		case string(model.ZTAPIPricePolicySupplierAdmission20261019):
 			err = model.ValidateZTAPISupplierAdmissionRouteWithXcloud20261029(info.ZTAPIPublicationSnapshot.SourceModel,

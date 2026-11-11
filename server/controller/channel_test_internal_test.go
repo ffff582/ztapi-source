@@ -435,6 +435,47 @@ func TestFetchZTAPIUpstreamModelsDoesNotPersistFailedDiscovery(t *testing.T) {
 	require.Zero(t, count)
 }
 
+func TestGLM53FlashDiscoveryEvidenceDoesNotRewriteChannel(t *testing.T) {
+	db := setupFetchZTAPIUpstreamModelsTestDB(t)
+	alias := "zt-glm-5.3-flash"
+	require.NoError(t, db.Create(&model.ZTAPIModelConfig{SourceModel: "glm-5.3-flash", PublicName: &alias, Version: 9}).Error)
+	url := "https://ai.yunxinapi.com/hub"
+	channel := model.Channel{Id: 1, Name: "yunxin enterprise", Type: constant.ChannelTypeOpenAI,
+		Status: common.ChannelStatusEnabled, Group: "default", ZTAPIManaged: true,
+		Key: "synthetic-key", BaseURL: &url, Models: "glm-5.3-flash,another-model"}
+	require.NoError(t, db.Create(&channel).Error)
+	channel.Id = 2
+	require.NoError(t, db.Create(&channel).Error)
+	previous := fetchZTAPIChannelUpstreamModelIDs
+	fetchZTAPIChannelUpstreamModelIDs = func(*model.Channel) ([]string, error) {
+		return []string{"glm-5.3-flash", "unconfigured-model"}, nil
+	}
+	t.Cleanup(func() { fetchZTAPIChannelUpstreamModelIDs = previous })
+	for _, tc := range []struct {
+		channel string
+		status  int
+	}{{"2", http.StatusConflict}, {"1", http.StatusOK}} {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/ztapi/fetch_models/"+tc.channel+"?evidence_only=glm-5.3-flash", nil)
+		ctx.Params = gin.Params{{Key: "id", Value: tc.channel}}
+		ctx.Set("id", 1)
+		FetchZTAPIUpstreamModels(ctx)
+		require.Equal(t, tc.status, recorder.Code, recorder.Body.String())
+	}
+	var got model.Channel
+	require.NoError(t, db.First(&got, 1).Error)
+	require.Equal(t, "glm-5.3-flash,another-model", got.Models)
+	var discovered []model.ZTAPIDiscoveredModel
+	require.NoError(t, db.Find(&discovered).Error)
+	require.Len(t, discovered, 1)
+	require.Equal(t, 1, discovered[0].ChannelID)
+	require.Equal(t, "glm-5.3-flash", discovered[0].SourceModel)
+	var count int64
+	require.NoError(t, db.Model(&model.Ability{}).Count(&count).Error)
+	require.Zero(t, count)
+}
+
 func TestGLM53DiscoveryEvidenceDoesNotRewriteChannel(t *testing.T) {
 	db := setupFetchZTAPIUpstreamModelsTestDB(t)
 	alias := "zt-glm-5.3"

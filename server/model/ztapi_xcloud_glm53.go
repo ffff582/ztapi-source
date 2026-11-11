@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -25,6 +26,12 @@ func ValidateZTAPIXcloudGLM53Route(source string, channelID int, baseURL, physic
 // Record only the verified model; unlike catalog discovery, this never edits
 // channel models, abilities, or existing publications.
 func RecordZTAPIXcloudGLM53Discovery(visible []string, operatorID int, fetchedAt time.Time) (*ZTAPIDiscoveryResult, error) {
+	return recordZTAPIExactModelDiscovery(8, "glm-5.3", visible, operatorID, fetchedAt, func(channel *Channel) error {
+		return ValidateZTAPIXcloudGLM53Route("glm-5.3", channel.Id, channel.GetBaseURL(), "glm-5.3")
+	})
+}
+
+func recordZTAPIExactModelDiscovery(channelID int, source string, visible []string, operatorID int, fetchedAt time.Time, validate func(*Channel) error) (*ZTAPIDiscoveryResult, error) {
 	if operatorID <= 0 || fetchedAt.IsZero() {
 		return nil, errors.New("discovery requires operator and time")
 	}
@@ -34,45 +41,45 @@ func RecordZTAPIXcloudGLM53Discovery(visible []string, operatorID int, fetchedAt
 	}
 	found := false
 	for _, id := range ids {
-		if id == "glm-5.3" {
+		if id == source {
 			found = true
 		}
 	}
 	if !found {
-		return nil, errors.New("glm-5.3 missing from upstream discovery")
+		return nil, errors.New("approved model missing from upstream discovery")
 	}
-	hash := sha256.Sum256([]byte("glm-5.3"))
-	result := &ZTAPIDiscoveryResult{ChannelID: 8, ModelListHash: hex.EncodeToString(hash[:]), ImportedCount: 1, ModelIDs: []string{"glm-5.3"}, FetchedAt: fetchedAt.Unix()}
+	hash := sha256.Sum256([]byte(source))
+	result := &ZTAPIDiscoveryResult{ChannelID: channelID, ModelListHash: hex.EncodeToString(hash[:]), ImportedCount: 1, ModelIDs: []string{source}, FetchedAt: fetchedAt.Unix()}
 	err = withZTAPICatalogWrite(func(tx *gorm.DB) error {
 		var channel Channel
-		if err := tx.First(&channel, 8).Error; err != nil {
+		if err := tx.First(&channel, channelID).Error; err != nil {
 			return err
 		}
-		if !channel.ZTAPIManaged || channel.Status != common.ChannelStatusEnabled || ValidateZTAPIXcloudGLM53Route("glm-5.3", channel.Id, channel.GetBaseURL(), "glm-5.3") != nil {
-			return errors.New("xcloud channel changed")
+		if !channel.ZTAPIManaged || channel.Status != common.ChannelStatusEnabled || validate(&channel) != nil {
+			return errors.New("approved channel changed")
 		}
 		configured := false
 		for _, name := range strings.Split(channel.Models, ",") {
-			if strings.TrimSpace(name) == "glm-5.3" {
+			if strings.TrimSpace(name) == source {
 				configured = true
 			}
 		}
 		if !configured {
-			return errors.New("glm-5.3 is not configured")
+			return errors.New("approved model is not configured")
 		}
 		var config ZTAPIModelConfig
-		if err := tx.Where("source_model = ? AND public_name = ?", "glm-5.3", "zt-glm-5.3").First(&config).Error; err != nil {
+		if err := tx.Where("source_model = ? AND public_name = ?", source, "zt-"+source).First(&config).Error; err != nil {
 			return err
 		}
-		snapshot := ZTAPIDiscoverySnapshot{ChannelID: 8, ModelListHash: result.ModelListHash, ModelCount: 1, FetchedAt: result.FetchedAt}
+		snapshot := ZTAPIDiscoverySnapshot{ChannelID: channelID, ModelListHash: result.ModelListHash, ModelCount: 1, FetchedAt: result.FetchedAt}
 		if err := tx.Create(&snapshot).Error; err != nil {
 			return err
 		}
-		if err := tx.Create(&ZTAPIDiscoveredModel{SnapshotID: snapshot.ID, ChannelID: 8, SourceModel: "glm-5.3"}).Error; err != nil {
+		if err := tx.Create(&ZTAPIDiscoveredModel{SnapshotID: snapshot.ID, ChannelID: channelID, SourceModel: source}).Error; err != nil {
 			return err
 		}
 		result.SnapshotID = snapshot.ID
-		return tx.Create(&ZTAPIAuditEvent{Action: "model.discovery_evidence", ModelConfigID: config.ID, PublicName: config.PublicNameValue(), Version: config.Version, OperatorID: operatorID, Payload: `{"channel_id":8,"source_model":"glm-5.3"}`, CreatedAt: fetchedAt.Unix()}).Error
+		return tx.Create(&ZTAPIAuditEvent{Action: "model.discovery_evidence", ModelConfigID: config.ID, PublicName: config.PublicNameValue(), Version: config.Version, OperatorID: operatorID, Payload: fmt.Sprintf(`{"channel_id":%d,"source_model":%q}`, channelID, source), CreatedAt: fetchedAt.Unix()}).Error
 	})
 	if err != nil {
 		return nil, err

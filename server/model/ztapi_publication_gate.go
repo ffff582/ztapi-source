@@ -265,7 +265,8 @@ func ztapiPublicationBlockersTx(tx *gorm.DB, config *ZTAPIModelConfig) ([]string
 	// name for those channels; matching the catalog name alone makes a correctly
 	// mapped channel look undiscovered and silently blocks publication.
 	mappedByChannel, err := ztapiMappedUpstreamModelByChannelTx(tx, config.SourceModel,
-		priceErr == nil && (priceSource.PricePolicy == string(ZTAPIPricePolicySupplierAdmission20261019) || priceSource.PricePolicy == string(ZTAPIPricePolicyXcloudGLM53)))
+		config.SourceModel == ZTAPIGLM53FlashSource ||
+			priceErr == nil && (priceSource.PricePolicy == string(ZTAPIPricePolicySupplierAdmission20261019) || priceSource.PricePolicy == string(ZTAPIPricePolicyXcloudGLM53)))
 	if err != nil {
 		return nil, evidence, err
 	}
@@ -301,6 +302,21 @@ func ztapiPublicationBlockersTx(tx *gorm.DB, config *ZTAPIModelConfig) ([]string
 			continue
 		}
 		freshDiscoveryChannels[row.ChannelID] = struct{}{}
+	}
+	if config.SourceModel == ZTAPIGLM53FlashSource {
+		var enterprise Channel
+		channelErr := tx.Select("id", "base_url", "type", "ztapi_managed").
+			Where("id = ? AND status = ?", 1, common.ChannelStatusEnabled).Take(&enterprise).Error
+		physical := config.SourceModel
+		if mapped, ok := mappedByChannel[1]; ok {
+			physical = mapped
+		}
+		for id := range freshDiscoveryChannels {
+			if channelErr != nil || !enterprise.ZTAPIManaged ||
+				ValidateZTAPIEnterpriseGLM53FlashRoute(id, enterprise.GetBaseURL(), physical) != nil {
+				delete(freshDiscoveryChannels, id)
+			}
+		}
 	}
 	if priceErr == nil && priceSource.PricePolicy == string(ZTAPIPricePolicySupplierAdmission20261019) {
 		// A pool quote is not authority to send to another resource, or to a
