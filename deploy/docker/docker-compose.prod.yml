@@ -48,6 +48,8 @@ services:
     env_file:
       - path: /etc/ztapi/health.env
         required: false
+      - path: /etc/ztapi/cny-topup.env
+        required: false
     environment:
       ZTAPI_ENV: production
       ZTAPI_RELEASE_VERSION: ${ZTAPI_RELEASE_VERSION:?set ZTAPI_RELEASE_VERSION}

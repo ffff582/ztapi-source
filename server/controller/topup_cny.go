@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -25,6 +26,7 @@ import (
 
 type cnyTopUpConfig struct {
 	gateway service.CNYGateway
+	methods []string
 	rate    decimal.Decimal
 	minFen  int64
 	maxFen  int64
@@ -34,9 +36,20 @@ func cnyTopUpForUser(user int) (cnyTopUpConfig, bool) {
 	if user <= 0 || !operation_setting.IsPaymentComplianceConfirmed() || os.Getenv("ZTAPI_CNY_TOPUP_ENABLED") != "true" {
 		return cnyTopUpConfig{}, false
 	}
-	if os.Getenv("ZTAPI_CNY_TOPUP_PUBLIC") != "true" {
+	public := os.Getenv("ZTAPI_CNY_TOPUP_PUBLIC") == "true"
+	if !public {
 		allowed, err := strconv.Atoi(os.Getenv("ZTAPI_CNY_TOPUP_TEST_USER_ID"))
 		if err != nil || user != allowed {
+			return cnyTopUpConfig{}, false
+		}
+	}
+	configuredMethods := os.Getenv("ZTAPI_CNY_TOPUP_METHODS")
+	if configuredMethods == "" && !public {
+		configuredMethods = "alipay,wxpay"
+	}
+	methods := strings.Split(configuredMethods, ",")
+	for i, method := range methods {
+		if (method != "alipay" && method != "wxpay") || slices.Contains(methods[:i], method) {
 			return cnyTopUpConfig{}, false
 		}
 	}
@@ -52,7 +65,7 @@ func cnyTopUpForUser(user int) (cnyTopUpConfig, bool) {
 		errMin != nil || errMax != nil || max < min {
 		return cnyTopUpConfig{}, false
 	}
-	return cnyTopUpConfig{g, rate, min, max}, true
+	return cnyTopUpConfig{gateway: g, methods: methods, rate: rate, minFen: min, maxFen: max}, true
 }
 
 func GetCNYTopUpInfo(c *gin.Context) {
@@ -63,6 +76,7 @@ func GetCNYTopUpInfo(c *gin.Context) {
 		data["min_cny"] = formatCNYFen(config.minFen)
 		data["max_cny"] = formatCNYFen(config.maxFen)
 		data["cny_per_u"] = config.rate.String()
+		data["methods"] = config.methods
 	}
 	common.ApiSuccess(c, data)
 }
@@ -80,7 +94,7 @@ func CreateCNYTopUpOrder(c *gin.Context) {
 		Method     string `json:"method"`
 		RequestKey string `json:"idempotency_key"`
 	}
-	if !readCNYTopUpJSON(c, &input) || !model.ValidCNYPaymentID(input.RequestKey) || (input.Method != "alipay" && input.Method != "wxpay") {
+	if !readCNYTopUpJSON(c, &input) || !model.ValidCNYPaymentID(input.RequestKey) || !slices.Contains(config.methods, input.Method) {
 		writeUSDTTopUpError(c, http.StatusBadRequest, "invalid_cny_order")
 		return
 	}

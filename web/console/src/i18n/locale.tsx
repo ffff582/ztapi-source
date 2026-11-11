@@ -34,6 +34,7 @@ const english: Record<string, string> = {
   '付款状态待确认，请勿重复支付。': 'Payment is unconfirmed. Do not pay again.',
   '订单结果暂未确认，请查看记录后重试原订单。': 'The order result is unconfirmed. Check your orders before retrying.',
   '重新查询人民币订单': 'Refresh CNY orders',
+  '退款请联系平台客服': 'Contact support for refund requests',
   '张': 'image',
   '每张输出图': 'output image',
   '{{name}} 按张售价': '{{name}} per-image prices',

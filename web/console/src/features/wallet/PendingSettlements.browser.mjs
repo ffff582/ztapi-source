@@ -45,7 +45,7 @@ try {
         case '/api/user/topup/info': return respond({ enable_usdt_trc20_topup: false,
           usdt_trc20_network: 'tron-mainnet', usdt_trc20_asset: 'USDT', usdt_trc20_min_topup: 10, usdt_trc20_order_ttl_seconds: 600 });
         case '/api/user/topup/self': return respond({ page: 1, page_size: 5, total: 0, items: [] });
-        case '/api/user/topup/cny/info': return respond(cnyEnabled ? { enabled: true, min_cny: '1.00', max_cny: '50.00', cny_per_u: '6.67' } : { enabled: false });
+        case '/api/user/topup/cny/info': return respond(cnyEnabled ? { enabled: true, min_cny: '1.00', max_cny: '50.00', cny_per_u: '6.67', methods: ['alipay', 'wxpay'] } : { enabled: false });
         case '/api/user/topup/cny/orders': {
           if (route.request().method() === 'POST') {
             const body = route.request().postDataJSON();

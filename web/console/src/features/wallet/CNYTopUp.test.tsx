@@ -16,7 +16,7 @@ it('does not offer CNY payment when new orders are closed', async () => {
 });
 
 it('lets a customer enter an arbitrary cent amount and shows the locked order before leaving the site', async () => {
-  vi.spyOn(apiClient, 'get').mockResolvedValueOnce({ enabled: true, min_cny: '1.00', max_cny: '50.00', cny_per_u: '6.67' }).mockResolvedValueOnce([]);
+  vi.spyOn(apiClient, 'get').mockResolvedValueOnce({ enabled: true, min_cny: '1.00', max_cny: '50.00', cny_per_u: '6.67', methods: ['alipay', 'wxpay'] }).mockResolvedValueOnce([]);
   const post = vi.spyOn(apiClient, 'post').mockResolvedValue({
     order_no: 'CNY-test-order', status: 'pending', method: 'wxpay', amount_cny: '12.37', credit_u: '1.854572', cny_per_u: '6.67',
     checkout_url: 'https://checkout.example.test/order', created_at: Date.now() / 1000,
@@ -32,7 +32,7 @@ it('lets a customer enter an arbitrary cent amount and shows the locked order be
 });
 
 it('renders a QR-only checkout as a local QR image without a navigation link', async () => {
-  vi.spyOn(apiClient, 'get').mockResolvedValueOnce({ enabled: true, min_cny: '1.00', max_cny: '1.00', cny_per_u: '6.67' })
+  vi.spyOn(apiClient, 'get').mockResolvedValueOnce({ enabled: true, min_cny: '1.00', max_cny: '1.00', cny_per_u: '6.67', methods: ['alipay', 'wxpay'] })
     .mockResolvedValue([{
       order_no: 'CNY-test-qr', status: 'pending', method: 'wxpay', amount_cny: '1.00', credit_u: '0.149925',
       checkout_url: '', checkout_qr: 'weixin://wxpay/bizpayurl/up?pr=fixture', created_at: Date.now() / 1000,
@@ -42,4 +42,12 @@ it('renders a QR-only checkout as a local QR image without a navigation link', a
   expect(qr.tagName).toBe('svg');
   expect(qr.querySelector('image')).toBeNull();
   expect(screen.queryByRole('link', { name: '前往付款' })).not.toBeInTheDocument();
+});
+
+it('shows only enabled methods and directs refund requests to support', async () => {
+  vi.spyOn(apiClient, 'get').mockResolvedValueOnce({ enabled: true, min_cny: '1.00', max_cny: '50.00', cny_per_u: '7', methods: ['alipay'] }).mockResolvedValueOnce([]);
+  render(<CNYTopUp onBalanceChange={() => undefined} />);
+  expect(await screen.findByLabelText('支付宝')).toBeChecked();
+  expect(screen.queryByLabelText('微信支付')).not.toBeInTheDocument();
+  expect(screen.getByRole('link', { name: '退款请联系平台客服' })).toHaveAttribute('href', 'https://t.me/gan66');
 });

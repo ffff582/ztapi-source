@@ -18,10 +18,11 @@ type Order = {
   method: Method;
   created_at: number;
 };
-type Config = { enabled: true; min_cny: string; max_cny: string; cny_per_u: string } | { enabled: false };
+type Config = { enabled: true; min_cny: string; max_cny: string; cny_per_u: string; methods: Method[] } | { enabled: false };
 
 const ordersPath = '/user/topup/cny/orders';
 const centAmount = /^\d{1,8}(\.\d{1,2})?$/;
+const methodLabels: Record<Method, string> = { alipay: '支付宝', wxpay: '微信支付' };
 const statusLabels: Record<State, string> = {
   pending: '等待支付确认', paid: '人民币充值已到账', refund_pending: '退款核对中', refunded: '已原路退款',
 };
@@ -86,18 +87,20 @@ export function CNYTopUp({ onBalanceChange }: { onBalanceChange: () => void }) {
   }, [config, onBalanceChange, awaitingRecentPayment, refreshKey]);
 
   const amountValid = config?.enabled && centAmount.test(amount) && Number(amount) >= Number(config.min_cny) && Number(amount) <= Number(config.max_cny);
+  const methods = config?.enabled && Array.isArray(config.methods) ? config.methods.filter((item) => item === 'alipay' || item === 'wxpay') : [];
+  const selectedMethod = methods.includes(method) ? method : methods[0];
 
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!amountValid || submitting) return;
+    if (!amountValid || !selectedMethod || submitting) return;
     const normalized = Number(amount).toFixed(2);
     const current = draft.current;
-    const key = current?.amount === normalized && current.method === method ? current.key : crypto.randomUUID();
-    draft.current = { amount: normalized, method, key };
+    const key = current?.amount === normalized && current.method === selectedMethod ? current.key : crypto.randomUUID();
+    draft.current = { amount: normalized, method: selectedMethod, key };
     setSubmitting(true);
     setSubmitError(false);
     try {
-      const next = await apiClient.post<Order>(ordersPath, { amount_cny: normalized, method, idempotency_key: key });
+      const next = await apiClient.post<Order>(ordersPath, { amount_cny: normalized, method: selectedMethod, idempotency_key: key });
       const updated = [next, ...previous.current.filter((row) => row.order_no !== next.order_no)];
       previous.current = updated;
       setOrders(updated);
@@ -118,7 +121,7 @@ export function CNYTopUp({ onBalanceChange }: { onBalanceChange: () => void }) {
         <CreditCard aria-hidden="true" size={20} />
         <h2 id="cny-topup-heading">{t('人民币充值')}</h2>
       </div>
-      {config?.enabled && (
+      {config?.enabled && selectedMethod && (
         <form className="cny-topup__form" onSubmit={(event) => void create(event)}>
           <div className="console-field">
             <label htmlFor="cny-topup-amount">{t('人民币金额')}</label>
@@ -131,8 +134,7 @@ export function CNYTopUp({ onBalanceChange }: { onBalanceChange: () => void }) {
           </div>
           <fieldset className="cny-topup__methods" disabled={submitting}>
             <legend>{t('付款方式')}</legend>
-            <label><input type="radio" name="cny-method" checked={method === 'alipay'} onChange={() => setMethod('alipay')} /> {t('支付宝')}</label>
-            <label><input type="radio" name="cny-method" checked={method === 'wxpay'} onChange={() => setMethod('wxpay')} /> {t('微信支付')}</label>
+            {methods.map((option) => <label key={option}><input type="radio" name="cny-method" checked={selectedMethod === option} onChange={() => setMethod(option)} /> {t(methodLabels[option])}</label>)}
           </fieldset>
           <button className="console-button console-button--primary" type="submit" disabled={!amountValid || submitting}>
             {t(submitting ? '正在创建...' : '创建人民币订单')}
@@ -140,6 +142,7 @@ export function CNYTopUp({ onBalanceChange }: { onBalanceChange: () => void }) {
           {submitError && <p className="console-alert" role="alert">{t('订单结果暂未确认，请查看记录后重试原订单。')}</p>}
         </form>
       )}
+      <p className="console-field__help"><a href="https://t.me/gan66" target="_blank" rel="noopener noreferrer">{t('退款请联系平台客服')}</a></p>
       {(historyError || orders.length > 0) && <button type="button" className="console-button" onClick={() => setRefreshKey((n) => n + 1)}>
         <RefreshCw aria-hidden="true" size={16} />{t('重新查询人民币订单')}
       </button>}

@@ -5,7 +5,7 @@ import YAML from 'yaml';
 
 test('P5 runtime secrets survive source release replacement and are not required for legacy deployments',()=>{
  const compose=YAML.parse(readFileSync('deploy/docker/docker-compose.prod.yml','utf8'));
- assert.deepEqual(compose.services.server.env_file,[{path:'/etc/ztapi/health.env',required:false}]);
+ assert.ok(compose.services.server.env_file.some(({path,required})=>path==='/etc/ztapi/health.env'&&required===false));
  const environment=compose.services.server.environment;
  for(const key of ['ZTAPI_HEALTH_ENABLED','ZTAPI_HEALTH_PROBE_KEY','ZTAPI_HEALTH_ALERT_WEBHOOK_URL','ZTAPI_HEALTH_SYNTHETIC_PROBES_ENABLED','ZTAPI_HEALTH_VERIFICATION_PROBES_ENABLED']) assert.equal(environment[key],undefined,'compose must not override protected runtime configuration');
 });

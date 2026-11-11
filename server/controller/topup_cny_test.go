@@ -14,11 +14,49 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
+
+func TestCNYPublicOrdersRequireExplicitPaymentMethods(t *testing.T) {
+	setting := operation_setting.GetPaymentSetting()
+	previous := *setting
+	t.Cleanup(func() { *setting = previous })
+	setting.ComplianceConfirmed = true
+	setting.ComplianceTermsVersion = operation_setting.CurrentComplianceTermsVersion
+	t.Setenv("ZTAPI_CNY_TOPUP_MERCHANT", "merchant-fixture")
+	t.Setenv("ZTAPI_CNY_TOPUP_APP", "app-fixture")
+	t.Setenv("ZTAPI_CNY_TOPUP_KEY", "fake-gateway-key-for-local-tests")
+	t.Setenv("ZTAPI_CNY_TOPUP_CHECKOUT_HOST", "checkout.example.test")
+	t.Setenv("ZTAPI_CNY_TOPUP_CALLBACK_ORIGIN", "https://ztapi.vip")
+	t.Setenv("ZTAPI_CNY_TOPUP_ENABLED", "true")
+	t.Setenv("ZTAPI_CNY_TOPUP_PUBLIC", "true")
+	t.Setenv("ZTAPI_CNY_TOPUP_MIN_CNY", "1.00")
+	t.Setenv("ZTAPI_CNY_TOPUP_MAX_CNY", "50.00")
+	t.Setenv("ZTAPI_CNY_TOPUP_CNY_PER_U", "7")
+	t.Setenv("ZTAPI_CNY_TOPUP_METHODS", "")
+	_, ok := cnyTopUpForUser(1)
+	require.False(t, ok)
+	t.Setenv("ZTAPI_CNY_TOPUP_METHODS", "alipay")
+	_, ok = cnyTopUpForUser(1)
+	require.True(t, ok)
+	router := gin.New()
+	router.GET("/info", func(c *gin.Context) { c.Set("id", 1); GetCNYTopUpInfo(c) })
+	router.POST("/orders", func(c *gin.Context) { c.Set("id", 1); CreateCNYTopUpOrder(c) })
+	info := httptest.NewRecorder()
+	router.ServeHTTP(info, httptest.NewRequest("GET", "/info", nil))
+	require.Contains(t, info.Body.String(), `"methods":["alipay"]`)
+	order := httptest.NewRecorder()
+	router.ServeHTTP(order, httptest.NewRequest("POST", "/orders", strings.NewReader(`{"amount_cny":"1.00","method":"wxpay","idempotency_key":"fixture-key"}`)))
+	require.Equal(t, 400, order.Code)
+	require.Contains(t, order.Body.String(), "invalid_cny_order")
+	t.Setenv("ZTAPI_CNY_TOPUP_METHODS", "alipay,unknown")
+	_, ok = cnyTopUpForUser(1)
+	require.False(t, ok)
+}
 
 func TestCNYNoticeAcknowledgesOnlyDurableMatchingPayment(t *testing.T) {
 	const key = "fake-gateway-key-for-local-tests"
