@@ -78,6 +78,49 @@ describe('WalletPage', () => {
     vi.unstubAllGlobals();
   });
 
+  it('switches recharge methods without discarding either draft or submitting an order', async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = requestPath(input);
+      if (path.endsWith('/api/user/topup/info')) return Promise.resolve(success(configuration()));
+      if (path.endsWith('/api/user/topup/cny/info')) {
+        return Promise.resolve(success({ enabled: true, min_cny: '1.00', cny_per_u: '7', methods: ['alipay', 'wxpay'] }));
+      }
+      if (path.endsWith('/api/user/topup/cny/orders') && init?.method !== 'POST') return Promise.resolve(success([]));
+      return accountRead(path);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<WalletPage />);
+    const usdt = screen.getByRole('radio', { name: 'USDT' });
+    const alipay = screen.getByRole('radio', { name: '支付宝' });
+    const wechat = screen.getByRole('radio', { name: '微信支付' });
+    const usdtAmount = await screen.findByLabelText('充值数量');
+    expect(usdt).toBeChecked();
+    expect(screen.queryByRole('radio', { name: '人民币' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: '支付宝' })).not.toBeInTheDocument();
+    fireEvent.change(usdtAmount, { target: { value: '25' } });
+
+    fireEvent.click(alipay);
+    expect(alipay).toBeChecked();
+    const cnyAmount = await screen.findByLabelText('充值金额');
+    expect(cnyAmount).toBeVisible();
+    expect(usdtAmount).not.toBeVisible();
+    expect(screen.getByText('USDT 充值额外赠送 5%')).not.toBeVisible();
+    expect(screen.queryByRole('region', { name: '充值记录' })).not.toBeInTheDocument();
+    fireEvent.change(cnyAmount, { target: { value: '12.37' } });
+    fireEvent.click(wechat);
+    expect(screen.getByRole('region', { name: '微信支付' })).toBeVisible();
+    expect(cnyAmount).toHaveValue('12.37');
+
+    fireEvent.click(usdt);
+    expect(usdtAmount).toBeVisible();
+    expect(usdtAmount).toHaveValue(25);
+    expect(cnyAmount).not.toBeVisible();
+    fireEvent.click(alipay);
+    expect(cnyAmount).toHaveValue('12.37');
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+  });
+
   it('creates a whole-unit order and renders exact address-only TRC-20 instructions', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(new Date('2026-09-04T06:00:00Z').getTime());
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -160,11 +203,15 @@ describe('WalletPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '创建支付订单' }));
     await act(async () => undefined);
     expect(screen.getByText('等待链上确认')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('radio', { name: '支付宝' }));
+    expect(screen.getByText('等待链上确认')).not.toBeVisible();
 
     await act(async () => vi.advanceTimersByTimeAsync(1_999));
     expect(statusRequests).toBe(0);
     await act(async () => vi.advanceTimersByTimeAsync(1));
-    expect(screen.getByText('充值已到账')).toBeInTheDocument();
+    expect(screen.getByText('充值已到账')).not.toBeVisible();
+    fireEvent.click(screen.getByRole('radio', { name: 'USDT' }));
+    expect(screen.getByText('充值已到账')).toBeVisible();
 		expect(screen.getByText('10.50 U')).toBeInTheDocument();
 		expect(screen.getByText('其中赠送 0.50 U')).toBeInTheDocument();
     expect(statusRequests).toBe(1);

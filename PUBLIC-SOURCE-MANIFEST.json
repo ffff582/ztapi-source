@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "7474dc8165313902c90302bf1118283c52160517",
+  "release_commit": "70433246aef1f967e46df7ce7b111bc05f7e539c",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-7474dc8165313902c90302bf1118283c52160517",
+  "source_tag": "production-70433246aef1f967e46df7ce7b111bc05f7e539c",
   "files": [
     {
       "path": ".dockerignore",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "76ee578541a63f807c947481a01a9b39872df9fd639deee2ab1af9933e594477",
+      "sha256": "48946cac337f67e01e0fa3959666f532039f5df37632804e3e8187d1edb26122",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "1962ba06ea9b960e6de10ed86dd8d042639a68881c7400119911e11630e28af3",
+      "sha256": "e1cddac21d1d6ee7d500aca524b0a736830b9c2966002cd822b916accadf2ab0",
       "size": 942
     },
     {
@@ -12651,8 +12651,8 @@
     },
     {
       "path": "web/console/src/brand/theme.css",
-      "sha256": "451f20f614f67795bc22a8792acf0e5fb73cef33b0d1010e93fe7b539dfd28f7",
-      "size": 71729
+      "sha256": "354dfb41f5fe4373af76266f1a1dbb40428fb2d3dcc92d4f5aa6ecde6558c58e",
+      "size": 73006
     },
     {
       "path": "web/console/src/brand/tokens.css",
@@ -13366,18 +13366,18 @@
     },
     {
       "path": "web/console/src/features/wallet/CNYTopUp.test.tsx",
-      "sha256": "f2c49b7e1f7fc609a089157319317b14e06a00a76e41e29ef5450898d102c234",
-      "size": 3869
+      "sha256": "b30495610d24b944c9fd377180d5d251b2a62f1f295ce6938185dc839cf3c37a",
+      "size": 5495
     },
     {
       "path": "web/console/src/features/wallet/CNYTopUp.tsx",
-      "sha256": "779e75faae08ca69e7994262358a2ac53a5702fc47c66faa103ebecba8611a9f",
-      "size": 8345
+      "sha256": "cf19795b8eaa7e1389221acd81f3a38c896f7a192f76c5b31b675cc4a4f20303",
+      "size": 8509
     },
     {
       "path": "web/console/src/features/wallet/PendingSettlements.browser.mjs",
-      "sha256": "711154359c6c0a2bd9c884f4a4f714904c8554189105eb9b2063c3d0d8289ff8",
-      "size": 9552
+      "sha256": "c0a30648215b1c3a83f209cdf1a2249fbb46f10f37c5b2d2c604ab3b2391024a",
+      "size": 10824
     },
     {
       "path": "web/console/src/features/wallet/PendingSettlements.test.tsx",
@@ -13401,18 +13401,18 @@
     },
     {
       "path": "web/console/src/features/wallet/WalletPage.test.tsx",
-      "sha256": "0fd285bb9a36b325fcc4c621fae462d297f6fb6564fdabe102357c1155bf39df",
-      "size": 10656
+      "sha256": "251b03d6aa8d83e59e840bfff3328db0e623a38e68067ae893106a294e42c3ba",
+      "size": 13118
     },
     {
       "path": "web/console/src/features/wallet/WalletPage.tsx",
-      "sha256": "771347c359cf84cdaeec70fa098b797d1e674ed3a52bcf18b60d21c378124a27",
-      "size": 17051
+      "sha256": "23a6ef1f33b82889de0c463ed952e9d2a63a9c4e18d31cd71026c9ce5517d024",
+      "size": 18227
     },
     {
       "path": "web/console/src/features/wallet/cny-topup.css",
-      "sha256": "da7a26eb8df0a81b13177725110fda06ac755e1d5a3397c9547ec751d6a597b2",
-      "size": 975
+      "sha256": "31eab09fab475df6001815469c22b1b7f6d646f567bfa8a0f547b9dc95b3d7b2",
+      "size": 809
     },
     {
       "path": "web/console/src/features/wallet/useAccountResource.ts",
@@ -13431,8 +13431,8 @@
     },
     {
       "path": "web/console/src/i18n/locale.tsx",
-      "sha256": "ee119478b358eacbb7d1f50fbebe188ad9c2d1c5c86fa9879d39b8d13b58212a",
-      "size": 83874
+      "sha256": "d17bf79efd01e438dead9afa17cf13d6a1ce3cc8a6d1675c0e497c182da07c9b",
+      "size": 83856
     },
     {
       "path": "web/console/src/main.tsx",

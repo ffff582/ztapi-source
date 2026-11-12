@@ -2,8 +2,10 @@ import {
   CheckCircle2,
   Clipboard,
   Clock3,
+  CreditCard,
   QrCode,
   ShieldCheck,
+  Smartphone,
   TriangleAlert,
   WalletCards,
   X,
@@ -12,7 +14,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiClient } from '../../api/client';
 import { AccountBalance, formatAccountUnits } from './AccountBalance';
-import { CNYTopUp } from './CNYTopUp';
+import { CNYTopUp, type CNYPaymentMethod } from './CNYTopUp';
 import { PendingSettlements } from './PendingSettlements';
 import { TopUpHistory, formatTopUpTime } from './TopUpHistory';
 import {
@@ -73,6 +75,7 @@ function formatCountdown(seconds: number) {
 
 export function WalletPage() {
   const { locale, t } = useLocale();
+  const [method, setMethod] = useState<'usdt' | CNYPaymentMethod>('usdt');
   const [pageState, setPageState] = useState<PageState>('loading');
   const [configuration, setConfiguration] = useState<USDTTopUpInfo | null>(null);
   const [amount, setAmount] = useState('');
@@ -227,19 +230,8 @@ export function WalletPage() {
     [visibleOrderStatus],
   );
 
-  return (
-    <div className="console-page wallet-page">
-      <header className="console-page__header">
-        <div>
-          <p className="console-eyebrow">{t('账户余额')}</p>
-          <h1>{t('余额充值')}</h1>
-        </div>
-        <p>{t('为当前 ZTAPI 账户充值。')}</p>
-      </header>
-
-      <AccountBalance refreshKey={`${order?.trade_no ?? ''}:${order?.status ?? ''}:${cnyBalanceVersion}`} />
-      <PendingSettlements />
-
+  const usdtPanel = (
+    <div className="wallet-method-panel" hidden={method !== 'usdt'}>
       <section className="wallet-bonus" aria-label={t('充值优惠')}>
         <strong>{t('USDT 充值额外赠送 5%')}</strong>
         <span>{t('赠送额度自动到账，可用于调用全部已上架模型。')}</span>
@@ -440,8 +432,41 @@ export function WalletPage() {
           )}
         </div>
       )}
-      <CNYTopUp onBalanceChange={refreshCNYBalance} />
       <TopUpHistory key={`${order?.trade_no ?? ''}:${order?.status ?? ''}`} />
+    </div>
+  );
+
+  return (
+    <div className="console-page wallet-page">
+      <header className="console-page__header">
+        <div>
+          <p className="console-eyebrow">{t('账户余额')}</p>
+          <h1>{t('余额充值')}</h1>
+        </div>
+        <p>{t('为当前 ZTAPI 账户充值。')}</p>
+      </header>
+
+      <AccountBalance refreshKey={`${order?.trade_no ?? ''}:${order?.status ?? ''}:${cnyBalanceVersion}`} />
+      <PendingSettlements />
+
+      <fieldset className="wallet-method-switch" aria-label={t('充值方式')}>
+        <label>
+          <input type="radio" name="wallet-recharge-method" checked={method === 'usdt'} onChange={() => setMethod('usdt')} />
+          <span><WalletCards aria-hidden="true" size={16} />USDT</span>
+        </label>
+        <label>
+          <input type="radio" name="wallet-recharge-method" checked={method === 'alipay'} onChange={() => setMethod('alipay')} />
+          <span><CreditCard aria-hidden="true" size={16} />{t('支付宝')}</span>
+        </label>
+        <label>
+          <input type="radio" name="wallet-recharge-method" checked={method === 'wxpay'} onChange={() => setMethod('wxpay')} />
+          <span><Smartphone aria-hidden="true" size={16} />{t('微信支付')}</span>
+        </label>
+      </fieldset>
+      {usdtPanel}
+      <div hidden={method === 'usdt'}>
+        <CNYTopUp method={method === 'usdt' ? 'alipay' : method} onBalanceChange={refreshCNYBalance} />
+      </div>
     </div>
   );
 }
