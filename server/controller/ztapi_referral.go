@@ -423,6 +423,8 @@ func AdminZTAPIReferralWithdrawalAction(c *gin.Context) {
 		row, err = model.RejectZTAPIReferralWithdrawal(c.Request.Context(), input)
 	case "claim":
 		row, err = model.ClaimZTAPIReferralPaymentIntent(c.Request.Context(), input)
+	case "recheck-payment":
+		row, err = model.RecheckZTAPIReferralPaymentIntent(c.Request.Context(), input)
 	case "submitted":
 		row, err = model.SubmitZTAPIReferralManualPayment(c.Request.Context(), input)
 	case "confirm-paid":

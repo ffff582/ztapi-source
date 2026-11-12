@@ -331,6 +331,38 @@ func RejectZTAPIReferralWithdrawal(ctx context.Context, in ZTAPIReferralWithdraw
 func ClaimZTAPIReferralPaymentIntent(ctx context.Context, in ZTAPIReferralWithdrawalAction) (*ZTAPIReferralWithdrawal, error) {
 	return referralWithdrawalAction(ctx, "claim", in)
 }
+
+// RecheckZTAPIReferralPaymentIntent is a point-in-time check by the holder
+// immediately before sending funds from an external wallet. It does not send funds.
+func RecheckZTAPIReferralPaymentIntent(ctx context.Context, in ZTAPIReferralWithdrawalAction) (*ZTAPIReferralWithdrawal, error) {
+	if in.WithdrawalID <= 0 || in.ExpectedVersion <= 0 || in.OperatorID <= 0 || referralNow(in.Now) != nil {
+		return nil, ErrZTAPIReferralInvalid
+	}
+	owner, err := referralWithdrawalOwner(ctx, in.WithdrawalID)
+	if err != nil {
+		return nil, err
+	}
+	var result *ZTAPIReferralWithdrawal
+	err = referralTransaction(ctx, func(tx *gorm.DB) error {
+		if err := referralLockAccount(tx, owner); err != nil {
+			return err
+		}
+		w, err := referralLoadWithdrawal(tx, in.WithdrawalID)
+		if err != nil {
+			return err
+		}
+		if w.UserID != owner || w.HolderID != in.OperatorID || w.Version != in.ExpectedVersion || w.Status != "paying" || w.TxID != "" || in.Now.Unix() < w.UpdatedAt || in.Now.Unix() >= w.FeeExpiresAt {
+			return ErrZTAPIReferralConflict
+		}
+		if _, err = referralAllocationCheck(tx, w, false); err != nil {
+			return err
+		}
+		result = w
+		return nil
+	})
+	return result, err
+}
+
 func SubmitZTAPIReferralManualPayment(ctx context.Context, in ZTAPIReferralWithdrawalAction) (*ZTAPIReferralWithdrawal, error) {
 	return referralWithdrawalAction(ctx, "submitted", in)
 }

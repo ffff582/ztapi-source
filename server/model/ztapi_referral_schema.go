@@ -226,6 +226,64 @@ func MigrateZTAPIReferral(db *gorm.DB) error {
 	if db == nil {
 		return ErrZTAPIReferralInvalid
 	}
+	var err error
+	if db.Dialector.Name() == "sqlite" {
+		err = db.Transaction(migrateSQLiteZTAPIReferral)
+	} else {
+		err = migrateZTAPIReferralTables(db)
+	}
+	if err != nil {
+		return err
+	}
+	return RegisterZTAPIReferralImmutability(db)
+}
+
+func migrateSQLiteZTAPIReferral(db *gorm.DB) error {
+	var objects []struct{ Name, SQL string }
+	table := (&ZTAPIReferralCommission{}).TableName()
+	if err := db.Raw("SELECT name, sql FROM sqlite_master WHERE tbl_name = ? AND type IN ('index', 'trigger') AND sql IS NOT NULL", table).Scan(&objects).Error; err != nil {
+		return err
+	}
+	migrator := db.Migrator()
+	// SQLite cannot add a column with an inline UNIQUE constraint. Create the
+	// nullable column first; AutoMigrate will create its separate unique index.
+	if migrator.HasTable(table) && !migrator.HasColumn(&ZTAPIReferralCommission{}, "CNYOrderID") {
+		if err := db.Exec("ALTER TABLE `ztapi_referral_commissions` ADD COLUMN `cny_order_id` integer").Error; err != nil {
+			return err
+		}
+	}
+	if err := migrateZTAPIReferralTables(db); err != nil {
+		return err
+	}
+	// AlterColumn copies the table without its separately defined indexes and
+	// triggers. Restore them before committing the schema change.
+	for _, object := range objects {
+		var count int64
+		if err := db.Raw("SELECT count(*) FROM sqlite_master WHERE tbl_name = ? AND name = ?", table, object.Name).Scan(&count).Error; err != nil {
+			return err
+		}
+		if count == 0 {
+			if err := db.Exec(object.SQL).Error; err != nil {
+				return err
+			}
+		}
+	}
+	statement := &gorm.Statement{DB: db}
+	commissions := &ZTAPIReferralCommission{}
+	if err := statement.Parse(commissions); err != nil {
+		return err
+	}
+	for name := range statement.Schema.ParseIndexes() {
+		if !migrator.HasIndex(commissions, name) {
+			if err := migrator.CreateIndex(commissions, name); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func migrateZTAPIReferralTables(db *gorm.DB) error {
 	if err := db.AutoMigrate(ZTAPIReferralModels()...); err != nil {
 		return err
 	}
@@ -246,7 +304,7 @@ func MigrateZTAPIReferral(db *gorm.DB) error {
 			}
 		}
 	}
-	return RegisterZTAPIReferralImmutability(db)
+	return nil
 }
 
 func referralDB(ctx context.Context) (*gorm.DB, error) {

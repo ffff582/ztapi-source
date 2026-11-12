@@ -30,6 +30,33 @@ func TestZTAPIReferralCNYMarginUsesConservativeFXAndBothFees(t *testing.T) {
 	require.ErrorIs(t, err, ErrZTAPIReferralNotReady)
 }
 
+func TestZTAPIReferralCNYActivationRejectsUnprovenFeesAndStaleMarketFX(t *testing.T) {
+	now := referralTestTime.Unix()
+	policy := ZTAPICNYReferralPolicy{
+		MerchantNo: "merchant1", AppID: "app1", VerifiedAt: now - 900, EnabledAt: now - 800, ExpiresAt: now + 86400,
+		FeeBPS: map[string]int{"alipay": 600, "wxpay": 600}, Evidence: "two sample receipts",
+	}
+	fx := &ZTAPIFXPolicy{CreatedAt: now, MarketCNYPerUSDT: "6.66", UpstreamCNYPerUSD: "6.7174"}
+	_, err := cnyReferralReviewedFX(policy, fx, now)
+	require.ErrorIs(t, err, ErrZTAPIReferralNotReady)
+	policy.FeeEvidence = ZTAPICNYReferralFeeEvidence{
+		MerchantNo: "merchant1", AppID: "app1", EffectiveAt: now - 1000, ExpiresAt: now + 86400,
+		ScheduleReference: "signed merchant fee schedule", SettlementReference: "merchant payout terms",
+	}
+	policy.MarketObservedAt = now - 86401
+	policy.ObservedMarketFX = "6.7"
+	_, err = cnyReferralReviewedFX(policy, fx, now)
+	require.ErrorIs(t, err, ErrZTAPIReferralNotReady)
+	policy.MarketObservedAt = now - 3600
+	policy.ObservedMarketFX = "6.75"
+	rate, err := cnyReferralReviewedFX(policy, fx, now)
+	require.NoError(t, err)
+	require.Equal(t, "6.75", rate.String())
+	policy.FeeEvidence.AppID = "wrong-app"
+	_, err = cnyReferralReviewedFX(policy, fx, now)
+	require.ErrorIs(t, err, ErrZTAPIReferralNotReady)
+}
+
 func TestZTAPIReferralCNYPrincipalUsesActuallyCreditedQuota(t *testing.T) {
 	policy := ZTAPICNYReferralPolicy{CNYPerUnit: "7", QuotaPerUnit: 500000}
 	order := CNYTopUpOrder{PayFen: 100, Quota: 71428, CNYPerUnit: "7"}
@@ -58,12 +85,17 @@ func cnyReferralPaid(t *testing.T, policy ZTAPICNYReferralPolicy, method string,
 
 func cnyReferralPaidForUser(t *testing.T, policy ZTAPICNYReferralPolicy, method string, fen int64, created time.Time, userID int) CNYTopUpOrder {
 	t.Helper()
+	return cnyReferralTestSettle(t, policy, &policy, method, fen, created, userID)
+}
+
+func cnyReferralTestSettle(t *testing.T, policy ZTAPICNYReferralPolicy, admission *ZTAPICNYReferralPolicy, method string, fen int64, created time.Time, userID int) CNYTopUpOrder {
+	t.Helper()
 	ctx := context.Background()
 	id := common.GetUUID()
 	quota, err := CNYTopUpQuota(fen, decimal.NewFromInt(7), decimal.NewFromInt(policy.QuotaPerUnit))
 	require.NoError(t, err)
 	o := CNYTopUpOrder{OrderNo: "CNY-" + id, UserID: userID, RequestKey: id, MerchantNo: policy.MerchantNo, AppID: policy.AppID, Method: method, PayFen: fen, Quota: quota, CNYPerUnit: "7", CreatedAt: created.Unix()}
-	_, _, err = CreateCNYTopUpOrder(ctx, o)
+	_, _, err = createCNYTopUpOrder(ctx, o, func(context.Context, CNYTopUpOrder) *ZTAPICNYReferralPolicy { return admission })
 	require.NoError(t, err)
 	evidence := CNYPaymentEvidence{OrderNo: o.OrderNo, MerchantNo: o.MerchantNo, AppID: o.AppID, Method: method, OrderFen: fen, PaidFen: fen, TradeNo: "T" + id}
 	_, err = RecordCNYTopUpCheckout(ctx, o.OrderNo, evidence.TradeNo, "https://checkout.example.test/pay", "")
@@ -78,6 +110,7 @@ func TestZTAPIReferralCNYNoHistoryOrDuplicateAcrossPaymentRails(t *testing.T) {
 	ctx := context.Background()
 	start := time.Unix(policy.EnabledAt, 0)
 	old := cnyReferralPaid(t, policy, "alipay", 100, start.Add(-time.Minute))
+	closed := cnyReferralTestSettle(t, policy, nil, "alipay", 100, start.Add(time.Second), 2)
 	alipay := cnyReferralPaid(t, policy, "alipay", 100, start.Add(time.Minute))
 	wx := cnyReferralPaid(t, policy, "wxpay", 100, start.Add(2*time.Minute))
 	usdt := referralSettlement(t, db, 100, start, start.Add(time.Minute))
@@ -93,6 +126,7 @@ func TestZTAPIReferralCNYNoHistoryOrDuplicateAcrossPaymentRails(t *testing.T) {
 	require.Len(t, rows, 3)
 	require.Equal(t, usdt.ID, rows[0].OrderID)
 	require.Nil(t, rows[0].CNYOrderID)
+	require.Zero(t, closed.ReferralPolicyEpoch)
 	for i, order := range []CNYTopUpOrder{alipay, wx} {
 		row := rows[i+1]
 		require.Equal(t, order.ID, *row.CNYOrderID)
@@ -173,4 +207,25 @@ func TestZTAPIReferralCNYRefundAfterPayoutUsesManualLoss(t *testing.T) {
 	var inviter User
 	require.NoError(t, db.First(&inviter, 1).Error)
 	require.Zero(t, inviter.Quota)
+}
+
+func TestZTAPIReferralCNYClaimMustBeRecheckedBeforeManualPayment(t *testing.T) {
+	_, policy := cnyReferralFixture(t)
+	ctx := t.Context()
+	start := time.Unix(policy.EnabledAt, 0)
+	order := cnyReferralPaid(t, policy, "wxpay", 420000, start)
+	_, err := ReconcileZTAPICNYReferralSettlements(ctx, &policy, ZTAPICNYReferralCursor{}, 20, start.Add(time.Hour))
+	require.NoError(t, err)
+	now := time.Unix(order.PaidAt+ZTAPIReferralFreezeSeconds, 0)
+	withdrawal := referralRequest(t, 20_000_000, now, "cny-claim-before-refund")
+	claim := referralClaim(t, withdrawal, now.Add(time.Second))
+	action := referralAction(claim, now.Add(2*time.Second))
+	checked, err := RecheckZTAPIReferralPaymentIntent(ctx, action)
+	require.NoError(t, err)
+	require.Equal(t, claim.Version, checked.Version)
+	_, err = HoldCNYTopUpRefund(ctx, order.OrderNo, 1, now.Add(3*time.Second))
+	require.NoError(t, err)
+	action.Now = now.Add(4 * time.Second)
+	_, err = RecheckZTAPIReferralPaymentIntent(ctx, action)
+	require.ErrorIs(t, err, ErrZTAPIReferralConflict)
 }

@@ -30,27 +30,28 @@ var (
 // Cash and service credits are not interchangeable. Fen and quota are stored
 // exactly; the display FX and current policy cannot change an existing order.
 type CNYTopUpOrder struct {
-	ID              int64   `gorm:"primaryKey"`
-	OrderNo         string  `gorm:"type:varchar(64);not null;uniqueIndex"`
-	UserID          int     `gorm:"not null;uniqueIndex:idx_cny_request,priority:1"`
-	RequestKey      string  `gorm:"type:varchar(64);not null;uniqueIndex:idx_cny_request,priority:2"`
-	MerchantNo      string  `gorm:"type:varchar(64);not null"`
-	AppID           string  `gorm:"type:varchar(64);not null"`
-	Method          string  `gorm:"type:varchar(16);not null"`
-	PayFen          int64   `gorm:"not null"`
-	Quota           int64   `gorm:"not null"`
-	CNYPerUnit      string  `gorm:"type:varchar(32);not null"`
-	State           string  `gorm:"type:varchar(24);not null"`
-	ProviderTradeNo *string `gorm:"type:varchar(64);uniqueIndex"`
-	CheckoutURL     string  `gorm:"type:text"`
-	CheckoutQR      string  `gorm:"type:text"`
-	CreatedAt       int64   `gorm:"not null"`
-	PaidAt          int64
-	RefundHeldAt    int64
-	RefundedAt      int64
-	RefundOperator  int
-	ProviderRefund  *string `gorm:"type:varchar(64);uniqueIndex"`
-	RefundNoticeAt  int64
+	ID                  int64   `gorm:"primaryKey"`
+	OrderNo             string  `gorm:"type:varchar(64);not null;uniqueIndex"`
+	UserID              int     `gorm:"not null;uniqueIndex:idx_cny_request,priority:1"`
+	RequestKey          string  `gorm:"type:varchar(64);not null;uniqueIndex:idx_cny_request,priority:2"`
+	MerchantNo          string  `gorm:"type:varchar(64);not null"`
+	AppID               string  `gorm:"type:varchar(64);not null"`
+	Method              string  `gorm:"type:varchar(16);not null"`
+	PayFen              int64   `gorm:"not null"`
+	Quota               int64   `gorm:"not null"`
+	CNYPerUnit          string  `gorm:"type:varchar(32);not null"`
+	State               string  `gorm:"type:varchar(24);not null"`
+	ProviderTradeNo     *string `gorm:"type:varchar(64);uniqueIndex"`
+	CheckoutURL         string  `gorm:"type:text"`
+	CheckoutQR          string  `gorm:"type:text"`
+	CreatedAt           int64   `gorm:"not null"`
+	PaidAt              int64
+	RefundHeldAt        int64
+	RefundedAt          int64
+	RefundOperator      int
+	ProviderRefund      *string `gorm:"type:varchar(64);uniqueIndex"`
+	RefundNoticeAt      int64
+	ReferralPolicyEpoch int64 `gorm:"not null;default:0" json:"-"`
 }
 
 type CNYPaymentEvidence struct {
@@ -84,6 +85,10 @@ func CNYTopUpQuota(fen int64, cnyPerUnit, quotaPerUnit decimal.Decimal) (int64, 
 }
 
 func CreateCNYTopUpOrder(ctx context.Context, order CNYTopUpOrder) (CNYTopUpOrder, bool, error) {
+	return createCNYTopUpOrder(ctx, order, cnyReferralOrderAdmission)
+}
+
+func createCNYTopUpOrder(ctx context.Context, order CNYTopUpOrder, admission func(context.Context, CNYTopUpOrder) *ZTAPICNYReferralPolicy) (CNYTopUpOrder, bool, error) {
 	if order.UserID <= 0 || order.PayFen <= 0 || order.Quota <= 0 || order.Quota > maxBalanceLedgerQuota || order.CreatedAt <= 0 ||
 		!ValidCNYPaymentID(order.OrderNo) || !ValidCNYPaymentID(order.RequestKey) || !ValidCNYPaymentID(order.MerchantNo) || !ValidCNYPaymentID(order.AppID) ||
 		(order.Method != "wxpay" && order.Method != "alipay") || len(order.CNYPerUnit) == 0 || len(order.CNYPerUnit) > 32 {
@@ -93,6 +98,11 @@ func CreateCNYTopUpOrder(ctx context.Context, order CNYTopUpOrder) (CNYTopUpOrde
 	order = CNYTopUpOrder{OrderNo: order.OrderNo, UserID: order.UserID, RequestKey: order.RequestKey, MerchantNo: order.MerchantNo,
 		AppID: order.AppID, Method: order.Method, PayFen: order.PayFen, Quota: order.Quota, CNYPerUnit: order.CNYPerUnit,
 		CreatedAt: order.CreatedAt, State: CNYTopUpPending}
+	if admission != nil {
+		if policy := admission(ctx, order); policy != nil && policy.EnabledAt > 0 && order.CreatedAt >= policy.EnabledAt {
+			order.ReferralPolicyEpoch = policy.EnabledAt
+		}
+	}
 	if DB.Dialector.Name() == "sqlite" {
 		balanceLedgerSQLiteMu.Lock()
 		defer balanceLedgerSQLiteMu.Unlock()

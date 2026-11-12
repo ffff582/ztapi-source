@@ -41,7 +41,7 @@ func ReconcileZTAPICNYReferralSettlements(ctx context.Context, policy *ZTAPICNYR
 	}
 	var paid []CNYTopUpOrder
 	if readErr := db.Table("cny_top_up_orders AS o").Select("o.*").Joins("JOIN ztapi_referral_bindings AS b ON b.user_id = o.user_id").
-		Where("o.id > ? AND o.created_at >= ? AND o.state = ? AND o.paid_at > 0 AND o.paid_at <= ?", cursor.Paid, policy.EnabledAt, CNYTopUpPaid, at.Unix()).
+		Where("o.id > ? AND o.referral_policy_epoch > 0 AND o.created_at >= o.referral_policy_epoch AND o.state = ? AND o.paid_at > 0 AND o.paid_at <= ?", cursor.Paid, CNYTopUpPaid, at.Unix()).
 		Where("NOT EXISTS (SELECT 1 FROM ztapi_referral_commissions AS r WHERE r.cny_order_id = o.id)").Order("o.id").Limit(limit).Find(&paid).Error; readErr != nil {
 		return cursor, readErr
 	}
@@ -74,7 +74,7 @@ func creditVerifiedCNYReferral(ctx context.Context, db *gorm.DB, candidate CNYTo
 		}
 		_, knownMethod := policy.FeeBPS[order.Method]
 		if order.State != CNYTopUpPaid || order.RefundNoticeAt != 0 || order.RefundHeldAt != 0 || order.RefundedAt != 0 || !knownMethod || (order.Method != "alipay" && order.Method != "wxpay") || order.MerchantNo != policy.MerchantNo || order.AppID != policy.AppID ||
-			order.UserID != binding.UserID || order.UserID == binding.InviterID || order.CreatedAt < policy.EnabledAt || order.CreatedAt < binding.BoundAt || order.CreatedAt < binding.CampaignStartedAt ||
+			order.UserID != binding.UserID || order.UserID == binding.InviterID || order.ReferralPolicyEpoch <= 0 || order.CreatedAt < order.ReferralPolicyEpoch || order.CreatedAt < binding.BoundAt || order.CreatedAt < binding.CampaignStartedAt ||
 			order.PaidAt < order.CreatedAt || order.PaidAt >= binding.ExpiresAt || order.PaidAt > at.Unix() || order.PaidAt > math.MaxInt64/1000 || order.ProviderTradeNo == nil || !ValidCNYPaymentID(*order.ProviderTradeNo) {
 			return nil
 		}
