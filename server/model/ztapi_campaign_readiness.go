@@ -25,14 +25,16 @@ import (
 // It pins the complete callable catalog and expires; changing a price or route
 // invalidates admission of new referrals, never an existing earned obligation.
 type ZTAPIReferralCostAttestation struct {
-	Version             int                         `json:"version"`
-	CatalogSHA256       string                      `json:"catalog_sha256"`
-	VerifiedAt          int64                       `json:"verified_at"`
-	ExpiresAt           int64                       `json:"expires_at"`
-	FinanceCapability   string                      `json:"finance_capability"`
-	PlatformFeeKnown    bool                        `json:"platform_fee_known"`
-	PlatformFeeEvidence string                      `json:"platform_fee_evidence"`
-	PriceGate           ZTAPIReferralPriceGateInput `json:"price_gate"`
+	Version                 int                         `json:"version"`
+	CatalogSHA256           string                      `json:"catalog_sha256"`
+	TransitionCatalogSHA256 string                      `json:"transition_catalog_sha256,omitempty"`
+	TransitionExpiresAt     int64                       `json:"transition_expires_at,omitempty"`
+	VerifiedAt              int64                       `json:"verified_at"`
+	ExpiresAt               int64                       `json:"expires_at"`
+	FinanceCapability       string                      `json:"finance_capability"`
+	PlatformFeeKnown        bool                        `json:"platform_fee_known"`
+	PlatformFeeEvidence     string                      `json:"platform_fee_evidence"`
+	PriceGate               ZTAPIReferralPriceGateInput `json:"price_gate"`
 }
 
 var ZTAPIReferralFinanceCapabilityCheck func(context.Context) bool
@@ -257,7 +259,9 @@ func ProductionZTAPIReferralReadiness(ctx context.Context, db *gorm.DB, at time.
 	if err != nil {
 		return input, []string{"protected_cost_evidence_missing_or_expired", "supplier_model_mapping_and_usage_upper_bound_unverified", "platform_fee_envelope_unverified"}, nil
 	}
-	if proof.CatalogSHA256 != fingerprint || !reflect.DeepEqual(proof.PriceGate.RequiredKeys, required) {
+	// Rolling releases may attest both exact fingerprints without interrupting USDT admission.
+	transition := proof.TransitionCatalogSHA256 == fingerprint && proof.TransitionExpiresAt > at.Unix() && proof.TransitionExpiresAt <= proof.ExpiresAt
+	if (proof.CatalogSHA256 != fingerprint && !transition) || !reflect.DeepEqual(proof.PriceGate.RequiredKeys, required) {
 		return input, []string{"catalog_prices_or_routes_changed_since_cost_review"}, nil
 	}
 	for _, key := range required {

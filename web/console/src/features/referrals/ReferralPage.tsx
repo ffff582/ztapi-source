@@ -110,6 +110,7 @@ function ReferralWorkspace() {
           {!open && <p className="referral-muted">{t('当前不接受新的参与申请；已有佣金和提现记录仍以服务器账本为准。')}</p>}
           {data.campaign.blocked_reasons.length > 0 && <ul className="referral-blocks">{data.campaign.blocked_reasons.map((reason, index) => <li key={index}>{t(reason)}</li>)}</ul>}
           <p>{t('规则：真实到账充值本金的 5%，绑定后 12 个月内有效，每笔冻结 7 天。')}</p>
+          <p className="referral-muted">{data.campaign.cny_accepting_orders ? t('计佣方式：USDT、支付宝、微信支付。人民币只计算启用后创建的订单，退款后冲回佣金。') : t('计佣方式：USDT。')}</p>
           <p className="referral-muted">{t('20 USDT 起提，仅支持 TRC20；网络费由提现人承担，先报价、确认后人工打款。')}</p>
           <p className="referral-muted">{t('调用额度和赠送额度不计佣，也不能兑换现金。未开放期间不承诺新邀请开始计佣。')}</p>
           <Invitation data={data} enabled={open && data.campaign.accepting_invites} />
@@ -181,7 +182,7 @@ function CommissionTable({ data }: { data: ReferralPageData<ReferralCommission> 
   const headings = ['受邀用户', '充值本金 (USDT)', '佣金 (USDT)', '已冲回 (USDT)', '解冻时间', '状态'];
   const states: Record<string, string> = { frozen: '冻结中', available: '可提现', reversed: '已冲回', partially_reversed: '部分冲回' };
   return <table className="referral-table" aria-label={t('充值佣金明细')}><thead><tr>{headings.map((heading) => <th key={heading} scope="col">{t(heading)}</th>)}</tr></thead><tbody>{data.items.map((item) => <tr key={item.id}>
-    <td data-label={t(headings[0])}><span>{item.invitee_label}<small>{new Date(item.earned_at).toLocaleString(localeTag(locale), { hour12: false })}</small></span></td>
+    <td data-label={t(headings[0])}><span>{item.invitee_label}<small>{item.payment_method === 'alipay' ? t('支付宝') : item.payment_method === 'wxpay' ? t('微信支付') : 'USDT'} · {new Date(item.earned_at).toLocaleString(localeTag(locale), { hour12: false })}</small></span></td>
     <td data-label={t(headings[1])}><span>{item.principal}</span></td><td data-label={t(headings[2])}><span>{item.commission}</span></td><td data-label={t(headings[3])}><span>{item.reversed}</span></td>
     <td data-label={t(headings[4])}><time dateTime={item.available_at}>{new Date(item.available_at).toLocaleString(localeTag(locale), { hour12: false })}</time></td><td data-label={t(headings[5])}><span>{t(states[item.status] ?? '状态待核验')}</span></td>
   </tr>)}</tbody></table>;

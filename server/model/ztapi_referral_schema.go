@@ -72,8 +72,11 @@ type ZTAPIReferralCommission struct {
 	UserID                  int    `gorm:"not null;index" json:"user_id"`
 	InviteeID               int    `gorm:"not null" json:"-"`
 	BindingID               int64  `gorm:"not null;index" json:"binding_id"`
-	OrderID                 int64  `gorm:"not null;uniqueIndex" json:"order_id"`
-	TopUpID                 int    `gorm:"not null;uniqueIndex" json:"-"`
+	OrderID                 int64  `gorm:"uniqueIndex;default:null" json:"order_id"`
+	TopUpID                 int    `gorm:"uniqueIndex;default:null" json:"-"`
+	CNYOrderID              *int64 `gorm:"uniqueIndex" json:"-"`
+	CNYMethod               string `gorm:"size:16" json:"-"`
+	CNYRefundBlocked        bool   `gorm:"-" json:"-"`
 	BalanceLedgerID         int    `gorm:"not null;uniqueIndex" json:"-"`
 	PrincipalMicros         int64  `gorm:"type:bigint;not null" json:"principal_micros"`
 	CommissionMicros        int64  `gorm:"type:bigint;not null" json:"commission_micros"`
@@ -225,6 +228,23 @@ func MigrateZTAPIReferral(db *gorm.DB) error {
 	}
 	if err := db.AutoMigrate(ZTAPIReferralModels()...); err != nil {
 		return err
+	}
+	// GORM does not relax legacy NOT NULL constraints during MySQL AutoMigrate.
+	// NULL leaves the existing unique USDT identifiers intact for mixed funding.
+	commissions := &ZTAPIReferralCommission{}
+	columns, err := db.Migrator().ColumnTypes(commissions)
+	if err != nil {
+		return err
+	}
+	for _, column := range columns {
+		if column.Name() != "order_id" && column.Name() != "top_up_id" {
+			continue
+		}
+		if nullable, known := column.Nullable(); !known || !nullable {
+			if err = db.Migrator().AlterColumn(commissions, column.Name()); err != nil {
+				return err
+			}
+		}
 	}
 	return RegisterZTAPIReferralImmutability(db)
 }

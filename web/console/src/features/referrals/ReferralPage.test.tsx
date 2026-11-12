@@ -78,6 +78,13 @@ describe('user referral page', () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('https://ztapi.vip/register?invite=zt-ref-abc'));
   });
 
+  it('announces the additional eligible payment methods only when the CNY gate is enabled', async () => {
+    Object.assign(overview.campaign, { cny_accepting_orders: true });
+    mount();
+    expect(await screen.findByText(/计佣方式：USDT、支付宝、微信支付/)).toBeVisible();
+    expect(screen.queryByText('计佣方式：USDT。')).not.toBeInTheDocument();
+  });
+
   it.each(['disabled', 'readiness'])('keeps the page present but disables new participation when %s', async (mode) => {
     if (mode === 'disabled') overview.campaign.enabled = false;
     else overview.campaign.blocked_reasons = ['成本凭证待核验'] as never[];

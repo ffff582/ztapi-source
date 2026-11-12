@@ -39,6 +39,7 @@ type ZTAPIReferralWorker struct {
 func (w *ZTAPIReferralWorker) Done() <-chan struct{} { return w.done }
 
 var ztapiReferralProductionWorker atomic.Pointer[ZTAPIReferralWorker]
+var ztapiCNYReferralActiveAt atomic.Int64
 
 func GetZTAPIReferralWorkerStatus() ZTAPIReferralWorkerStatus {
 	w := ztapiReferralProductionWorker.Load()
@@ -56,6 +57,31 @@ func StartProductionZTAPIReferralWorker(ctx context.Context) *ZTAPIReferralWorke
 	})
 	ztapiReferralProductionWorker.Store(w)
 	return w
+}
+
+func ZTAPICNYReferralActive(at time.Time) bool {
+	last := ztapiCNYReferralActiveAt.Load()
+	return last > 0 && last >= at.Add(-time.Minute).Unix() && last <= at.Unix()
+}
+
+func StartProductionZTAPICNYReferralWorker(ctx context.Context) *ZTAPIReferralWorker {
+	var cursor model.ZTAPICNYReferralCursor
+	return startZTAPIReferralWorker(ctx, os.Getenv("ZTAPI_CNY_REFERRAL_WORKER_ENABLED") == "true", 30*time.Second, func(ctx context.Context) (model.ZTAPIReferralReconcileResult, error) {
+		at := time.Now().UTC()
+		var active *model.ZTAPICNYReferralPolicy
+		if policy, err := model.ProductionZTAPICNYReferralPolicy(ctx, at); err == nil {
+			active = &policy
+		}
+		// Reversals remain enabled even if the margin gate suspends new commissions.
+		next, err := model.ReconcileZTAPICNYReferralSettlements(ctx, active, cursor, 50, at)
+		cursor = next
+		if active != nil && err == nil {
+			ztapiCNYReferralActiveAt.Store(at.Unix())
+		} else {
+			ztapiCNYReferralActiveAt.Store(0)
+		}
+		return model.ZTAPIReferralReconcileResult{}, err
+	})
 }
 
 func startZTAPIReferralWorker(ctx context.Context, enabled bool, interval time.Duration, reconcile func(context.Context) (model.ZTAPIReferralReconcileResult, error)) *ZTAPIReferralWorker {

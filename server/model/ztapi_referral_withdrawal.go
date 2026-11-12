@@ -87,6 +87,13 @@ func RequestZTAPIReferralWithdrawal(ctx context.Context, in ZTAPIReferralWithdra
 		remaining := in.AmountMicros
 		allocations := []ZTAPIReferralAllocation{}
 		for _, c := range commissions {
+			payable, err := referralCNYCommissionPayable(tx, c, true)
+			if err != nil {
+				return err
+			}
+			if !payable {
+				continue
+			}
 			free, err := referralCommissionFree(tx, c)
 			if err != nil {
 				return err
@@ -147,6 +154,15 @@ func referralAllocationCheck(tx *gorm.DB, w *ZTAPIReferralWithdrawal, allowInval
 		}
 		if c.UserID != w.UserID || c.AvailableAt > w.CreatedAt {
 			return nil, ErrZTAPIReferralConflict
+		}
+		if !allowInvalid {
+			payable, err := referralCNYCommissionPayable(tx, c, true)
+			if err != nil {
+				return nil, err
+			}
+			if !payable {
+				return nil, ErrZTAPIReferralConflict
+			}
 		}
 		if _, err := referralCommissionFree(tx, c); err != nil {
 			return nil, err

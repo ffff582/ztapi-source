@@ -40,6 +40,14 @@ describe('referral API data contracts', () => {
     expect(page.items[0].commission).toBe('5.000000');
   });
 
+  it('accepts an independently enabled CNY rail and shows only known payment methods', () => {
+    const row = { id: 1, invitee_label: '好友 A', principal: '100.000000', commission: '5.000000', reversed: '0.000000', earned_at: fixture.server_time, available_at: fixture.server_time, status: 'frozen', payment_method: 'wxpay' };
+    const value = parseReferralOverview({ ...fixture, campaign: { ...fixture.campaign, cny_accepting_orders: true }, commissions: [row] });
+    expect(value.campaign.cny_accepting_orders).toBe(true);
+    expect(value.commissions[0].payment_method).toBe('wxpay');
+    expect(() => parseReferralCommissionPage({ total: 1, items: [{ ...row, payment_method: 'unknown' }] })).toThrow();
+  });
+
   it('normalizes Unix-second backend times and top-level step-up flags without losing micro precision', () => {
     const value = parseReferralOverview({ ...fixture, server_time: 1794124800, campaign: { ...fixture.campaign, started_at: 0 }, requires_totp: true, withdrawal_reauth_available: false,
       commissions: [{ id: 1, invitee_label: '好友 #1', principal: '100.000000', commission: '5.000000', reversed: '0.000000', earned_at: 1794124800, available_at: 1794729600, status: 'frozen' }],

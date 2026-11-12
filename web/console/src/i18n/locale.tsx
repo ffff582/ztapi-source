@@ -43,6 +43,8 @@ const english: Record<string, string> = {
   '标准参考图档按 {{side}}x{{side}} 像素面积（{{pixels}} 像素）计，超出按面积向上取整分档。': 'A standard reference unit is {{side}}x{{side}} pixels ({{pixels}} pixels of area); excess area is rounded up to whole units.',
   '实际费用在派发前确定。': 'The actual charge is determined before dispatch.',
   '推广返利': 'Referral Rewards',
+  '计佣方式：USDT。': 'Eligible top-ups: USDT.',
+  '计佣方式：USDT、支付宝、微信支付。人民币只计算启用后创建的订单，退款后冲回佣金。': 'Eligible top-ups: USDT, Alipay, and WeChat Pay. CNY orders only qualify when created after activation. Refunds reverse commissions.',
   '邀请推广': 'Invitations',
   '刷新推广数据': 'Refresh referral data',
   '正在读取推广数据...': 'Loading referral data...',
