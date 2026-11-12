@@ -32,6 +32,7 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/setup", controller.GetSetup)
 		apiRouter.POST("/setup", anonymousRequestBodyLimit, controller.PostSetup)
 		apiRouter.GET("/status", controller.GetStatus)
+		apiRouter.GET("/display-fx", controller.GetZTAPIDisplayFX)
 		apiRouter.GET("/uptime/status", controller.GetUptimeKumaStatus)
 		apiRouter.GET("/models", middleware.UserAuth(), controller.DashboardListModels)
 		apiRouter.GET("/status/test", middleware.AdminAuth(), controller.TestStatus)
@@ -63,6 +64,11 @@ func SetApiRouter(router *gin.Engine) {
 		// Standard OAuth providers (GitHub, Discord, OIDC, LinuxDO) - unified route
 		apiRouter.GET("/oauth/:provider", middleware.CriticalRateLimit(), controller.HandleOAuth)
 		apiRouter.GET("/ratio_config", middleware.CriticalRateLimit(), controller.GetRatioConfig)
+		apiRouter.GET("/payment/cny/notify", controller.CNYTopUpNotify)
+		cnyRefund := apiRouter.Group("/admin/payments/cny/:order_no/refund")
+		cnyRefund.Use(middleware.RootAuth(), middleware.AdminPermissionAuth(common.PermissionFinanceWrite), middleware.CriticalRateLimit(), middleware.SecureVerificationRequired())
+		cnyRefund.POST("/hold", controller.HoldCNYTopUpRefund)
+		cnyRefund.POST("/confirm", controller.ConfirmCNYTopUpRefund)
 
 		if legacyPaymentEnabled {
 			apiRouter.POST("/stripe/webhook", anonymousRequestBodyLimit, controller.StripeWebhook)
@@ -86,10 +92,27 @@ func SetApiRouter(router *gin.Engine) {
 		}
 
 		// Universal secure verification routes
+		apiRouter.GET("/referrals/status", controller.GetZTAPIReferralPublicStatus)
+		referralRoute := apiRouter.Group("/referrals/self")
+		referralRoute.Use(middleware.ZTAPIUserAuth())
+		{
+			referralRoute.GET("", controller.GetZTAPIReferralSelf)
+			referralRoute.GET("/commissions", controller.GetZTAPIReferralCommissions)
+			referralRoute.GET("/withdrawals", controller.GetZTAPIReferralWithdrawals)
+			referralRoute.POST("/withdrawals", middleware.CriticalRateLimit(), controller.RequestZTAPIReferralWithdrawal)
+			referralRoute.POST("/withdrawals/:id/confirm", middleware.CriticalRateLimit(), controller.ConfirmZTAPIReferralWithdrawal)
+			referralRoute.POST("/withdrawals/:id/cancel", middleware.CriticalRateLimit(), controller.CancelZTAPIReferralWithdrawal)
+		}
+
 		apiRouter.POST("/verify", middleware.UserAuth(), middleware.CriticalRateLimit(), controller.UniversalVerify)
 
 		userRoute := apiRouter.Group("/user")
 		{
+			cnyTopUp := userRoute.Group("/topup/cny", middleware.UserAuth())
+			cnyTopUp.GET("/info", controller.GetCNYTopUpInfo)
+			cnyTopUp.GET("/orders", controller.ListCNYTopUpOrders)
+			cnyTopUp.POST("/orders", middleware.CriticalRateLimit(), controller.CreateCNYTopUpOrder)
+
 			usdtTopUpRoute := userRoute.Group("/topup/usdt-trc20")
 			usdtTopUpRoute.Use(middleware.UserAuth())
 			{
@@ -187,8 +210,14 @@ func SetApiRouter(router *gin.Engine) {
 
 		adminBalanceRoute := apiRouter.Group("/admin")
 		{
+			adminBalanceRoute.GET("/referrals", middleware.AdminPermissionAuth(common.PermissionReferralRead), controller.GetAdminZTAPIReferrals)
+			adminBalanceRoute.GET("/referrals/readiness", middleware.AdminPermissionAuth(common.PermissionReferralRead), controller.GetAdminZTAPIReferralReadiness)
+			adminBalanceRoute.GET("/referrals/downgrade-status", middleware.AdminPermissionAuth(common.PermissionReferralRead), controller.GetZTAPIReferralDowngradeStatus)
+			adminBalanceRoute.POST("/referrals/campaign", middleware.ZTAPIUserAuth(), middleware.RootAuth(), middleware.AdminPermissionAuth(common.PermissionReferralWrite), middleware.CriticalRateLimit(), controller.UpdateZTAPIReferralCampaign)
+			adminBalanceRoute.POST("/referrals/withdrawals/:id/:action", middleware.ZTAPIUserAuth(), middleware.AdminPermissionAuth(common.PermissionReferralWrite), middleware.CriticalRateLimit(), controller.AdminZTAPIReferralWithdrawalAction)
 			adminBalanceRoute.GET("/overview", middleware.AdminPermissionAuth(common.PermissionOverviewRead), controller.GetAdminOverview)
 			adminBalanceRoute.GET("/topups", middleware.AdminPermissionAuth(common.PermissionFinanceRead), controller.GetAdminTopUps)
+			adminBalanceRoute.GET("/payments/cny/orders", middleware.AdminPermissionAuth(common.PermissionFinanceRead), controller.GetAdminCNYTopUpOrders)
 			adminBalanceRoute.GET("/payment/watched-addresses", middleware.AdminPermissionAuth(common.PermissionFinanceRead), controller.GetZTAPIWatchedReceivingAddresses)
 			adminBalanceRoute.POST("/payment/watched-addresses", middleware.AdminPermissionAuth(common.PermissionPaymentAddressWrite), controller.CreateZTAPIWatchedReceivingAddress)
 			adminBalanceRoute.PUT("/payment/watched-addresses/:id", middleware.AdminPermissionAuth(common.PermissionPaymentAddressWrite), controller.UpdateZTAPIWatchedReceivingAddress)
@@ -313,6 +342,7 @@ func SetApiRouter(router *gin.Engine) {
 			channelRoute.GET("/ztapi/search", middleware.AdminPermissionAuth(common.PermissionChannelRead), controller.SearchZTAPIChannels)
 			channelRoute.GET("/ztapi/test/:id", middleware.AdminPermissionAuth(common.PermissionChannelWrite), controller.TestZTAPIChannel)
 			channelRoute.GET("/ztapi/fetch_models/:id", middleware.AdminPermissionAuth(common.PermissionChannelWrite), controller.FetchZTAPIUpstreamModels)
+			channelRoute.POST("/ztapi/fetch_models/:id", middleware.AdminPermissionAuth(common.PermissionChannelWrite), controller.FetchZTAPIUpstreamModels)
 			channelRoute.POST("/ztapi/refresh_quoted_pool_discovery", middleware.AdminPermissionAuth(common.PermissionChannelWrite), controller.RefreshZTAPIQuotedPoolDiscovery)
 			channelRoute.POST("/ztapi/", middleware.AdminPermissionAuth(common.PermissionChannelWrite), controller.AddZTAPIChannel)
 			channelRoute.PUT("/ztapi/:id", middleware.AdminPermissionAuth(common.PermissionChannelWrite), controller.UpdateZTAPIChannel)
@@ -460,7 +490,23 @@ func SetApiRouter(router *gin.Engine) {
 			modelsRoute.PUT("/ztapi/:id/identity", middleware.AdminPermissionAuth(common.PermissionModelWrite), controller.UpdateZTAPIModelIdentity)
 			modelsRoute.POST("/ztapi/:id/price-preview", middleware.AdminPermissionAuth(common.PermissionModelRead), controller.PreviewZTAPIModelPriceSource)
 			modelsRoute.POST("/ztapi/reprice-commercial-v2", middleware.AdminPermissionAuth(common.PermissionModelWrite), controller.RepriceZTAPICommercialCatalog)
+			modelsRoute.POST("/ztapi/fable-uniform-cache-write", middleware.RootAuth(), middleware.AdminPermissionAuth(common.PermissionModelWrite), controller.PublishZTAPIFableUniformCacheWrite)
+			modelsRoute.POST("/ztapi/image-sale/publish", middleware.RootAuth(), middleware.AdminPermissionAuth(common.PermissionModelWrite), controller.PublishZTAPIImageSale)
+			modelsRoute.POST("/ztapi/fable-xcloud-only", middleware.RootAuth(), middleware.AdminPermissionAuth(common.PermissionModelWrite), controller.PublishZTAPIFableXcloudOnly)
 			modelsRoute.POST("/ztapi/reprice-sale-multiplier", middleware.AdminPermissionAuth(common.PermissionModelWrite), controller.RepriceZTAPISaleMultiplier)
+			modelsRoute.POST("/ztapi/cash-margin-20261030/preview", middleware.AdminPermissionAuth(common.PermissionModelRead), controller.PreviewZTAPICashMargin20261030)
+			modelsRoute.GET("/ztapi/price-reduction-20261107/baseline", middleware.RootAuth(), middleware.AdminPermissionAuth(common.PermissionModelRead), controller.GetZTAPIPriceReductionBaseline20261107)
+			modelsRoute.POST("/ztapi/price-reduction-20261107/preview", middleware.RootAuth(), middleware.AdminPermissionAuth(common.PermissionModelRead), controller.PreviewZTAPIPriceReduction20261107)
+			modelsRoute.POST("/ztapi/price-reduction-20261107/apply", middleware.RootAuth(), middleware.AdminPermissionAuth(common.PermissionModelWrite), controller.ApplyZTAPIPriceReduction20261107)
+			modelsRoute.POST("/ztapi/referral-floor-20261107/preview", middleware.RootAuth(), middleware.AdminPermissionAuth(common.PermissionModelRead), controller.PreviewZTAPIReferralFloor20261107)
+			modelsRoute.POST("/ztapi/referral-floor-20261107/apply", middleware.RootAuth(), middleware.AdminPermissionAuth(common.PermissionModelWrite), controller.ApplyZTAPIReferralFloor20261107)
+			modelsRoute.POST("/ztapi/referral-floor-20261107/restore", middleware.RootAuth(), middleware.AdminPermissionAuth(common.PermissionModelWrite), controller.RestoreZTAPIReferralFloor20261107)
+			modelsRoute.GET("/ztapi/referral-floor-20261107/downgrade-status", middleware.RootAuth(), middleware.AdminPermissionAuth(common.PermissionModelRead), controller.CheckZTAPIReferralFloorDowngrade20261107)
+			modelsRoute.POST("/ztapi/price-reduction-20261107/rollback", middleware.RootAuth(), middleware.AdminPermissionAuth(common.PermissionModelWrite), controller.RollbackZTAPIPriceReduction20261107)
+			modelsRoute.GET("/ztapi/price-reduction-20261107/downgrade-status", middleware.RootAuth(), middleware.AdminPermissionAuth(common.PermissionModelRead), controller.CheckZTAPIPriceReductionDowngrade20261107)
+			modelsRoute.POST("/ztapi/cash-margin-20261030/apply", middleware.AdminPermissionAuth(common.PermissionModelWrite), controller.ApplyZTAPICashMargin20261030)
+			modelsRoute.POST("/ztapi/cash-margin-20261030/restore", middleware.AdminPermissionAuth(common.PermissionModelWrite), controller.RestoreZTAPICashMargin20261030)
+			modelsRoute.GET("/ztapi/cash-margin-20261030/downgrade-status", middleware.AdminPermissionAuth(common.PermissionModelRead), controller.CheckZTAPICashMarginDowngrade20261030)
 			modelsRoute.GET("/ztapi/fx", middleware.AdminPermissionAuth(common.PermissionModelRead), controller.GetZTAPIFXPolicy)
 			modelsRoute.POST("/ztapi/fx", middleware.AdminPermissionAuth(common.PermissionModelWrite), controller.CreateZTAPIFXPolicy)
 			modelsRoute.GET("/ztapi/fx/okx-alipay", middleware.AdminPermissionAuth(common.PermissionModelRead), controller.GetZTAPIOKXAlipayRate)
@@ -468,6 +514,8 @@ func SetApiRouter(router *gin.Engine) {
 			modelsRoute.GET("/ztapi/fx/pricing", middleware.AdminPermissionAuth(common.PermissionModelRead), controller.GetZTAPIFXPricingPreview)
 			modelsRoute.POST("/ztapi/fx/reprice", middleware.AdminPermissionAuth(common.PermissionModelWrite), controller.ApplyZTAPIFXRepricing)
 			modelsRoute.GET("/ztapi/reprice-ab-20260915/preview", middleware.AdminPermissionAuth(common.PermissionModelRead), controller.GetZTAPIABPricingPreview)
+			modelsRoute.GET("/ztapi/reprice-supplier-20261019/preview", middleware.AdminPermissionAuth(common.PermissionModelRead), controller.GetZTAPISupplierPricingPreview20261019)
+			modelsRoute.POST("/ztapi/reprice-supplier-20261019", middleware.AdminPermissionAuth(common.PermissionModelWrite), controller.RepriceZTAPISupplierCatalog20261019)
 			modelsRoute.POST("/ztapi/reprice-ab-20260915", middleware.AdminPermissionAuth(common.PermissionModelWrite), controller.RepriceZTAPIABCatalog)
 			modelsRoute.POST("/ztapi/reprice-ab-pool-78-20260929", middleware.AdminPermissionAuth(common.PermissionModelWrite), controller.RepriceZTAPIABPool78Catalog)
 			modelsRoute.POST("/ztapi/reprice-ab-enterprise-15-20260929", middleware.AdminPermissionAuth(common.PermissionModelWrite), controller.RepriceZTAPIABEnterprise15Catalog)

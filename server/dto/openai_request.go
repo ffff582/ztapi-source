@@ -112,6 +112,7 @@ type GeneralOpenAIRequest struct {
 	//xai
 	SearchParameters json.RawMessage `json:"search_parameters,omitempty"`
 	// claude
+	CacheControl     json.RawMessage   `json:"cache_control,omitempty"`
 	WebSearchOptions *WebSearchOptions `json:"web_search_options,omitempty"`
 	// OpenRouter Params
 	Usage     json.RawMessage `json:"usage,omitempty"`
@@ -266,16 +267,18 @@ func (r *GeneralOpenAIRequest) GetSystemRoleName() string {
 const CustomType = "custom"
 
 type ToolCallRequest struct {
-	ID       string          `json:"id,omitempty"`
-	Type     string          `json:"type"`
-	Function FunctionRequest `json:"function,omitempty"`
-	Custom   json.RawMessage `json:"custom,omitempty"`
+	ID           string          `json:"id,omitempty"`
+	Type         string          `json:"type"`
+	Function     FunctionRequest `json:"function,omitempty"`
+	Custom       json.RawMessage `json:"custom,omitempty"`
+	CacheControl json.RawMessage `json:"cache_control,omitempty"`
 }
 
 type FunctionRequest struct {
 	Description string `json:"description,omitempty"`
 	Name        string `json:"name"`
 	Parameters  any    `json:"parameters,omitempty"`
+	Strict      *bool  `json:"strict,omitempty"`
 	Arguments   string `json:"arguments,omitempty"`
 }
 
@@ -996,6 +999,7 @@ type Input struct {
 	Type    string          `json:"type,omitempty"`
 	Role    string          `json:"role,omitempty"`
 	Content json.RawMessage `json:"content,omitempty"`
+	Tools   json.RawMessage `json:"tools,omitempty"`
 }
 
 type MediaInput struct {
@@ -1035,6 +1039,10 @@ func (r *OpenAIResponsesRequest) ParseInput() []MediaInput {
 		var inputs []Input
 		_ = common.Unmarshal(r.Input, &inputs)
 		for _, input := range inputs {
+			if input.Type == "additional_tools" && len(input.Tools) > 0 {
+				mediaInputs = append(mediaInputs, MediaInput{Type: "input_text", Text: string(input.Tools)})
+				continue
+			}
 			if common.GetJsonType(input.Content) == "string" {
 				var str string
 				_ = common.Unmarshal(input.Content, &str)

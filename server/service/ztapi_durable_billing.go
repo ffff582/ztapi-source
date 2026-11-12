@@ -41,6 +41,7 @@ func newZTAPIDurableBilling(info *relaycommon.RelayInfo, amount int) (*ztapiDura
 	var row *model.ZTAPIRequestSettlement
 	var err error
 	if info.ZTAPIPublicationSnapshot.Modality == "image" {
+		imageSaleQuote, imageSaleInputSHA256 := info.GetZTAPIImageSaleQuote()
 		selectorJSON, selectorErr := ztapiImageReservationSelector(info.Request, info)
 		if selectorErr != nil {
 			return nil, types.NewErrorWithStatusCode(selectorErr, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
@@ -64,6 +65,9 @@ func newZTAPIDurableBilling(info *relaycommon.RelayInfo, amount int) (*ztapiDura
 		maximumDimensions, maximumQuota, deriveErr := deriveZTAPIImageMaximumReservation(
 			info.ZTAPIPublicationSnapshot.MediaPriceContractJSON, protocol, selector, quotaPerUnitDecimal,
 		)
+		if info.ZTAPIPublicationSnapshot.ImageSaleContractJSON != "" && deriveErr == nil {
+			maximumDimensions, maximumQuota, deriveErr = deriveZTAPIImageSaleReservation(info.ZTAPIPublicationSnapshot.ImageSaleContractJSON, protocol, selector, imageSaleQuote, quotaPerUnitDecimal)
+		}
 		if deriveErr != nil {
 			return nil, types.NewErrorWithStatusCode(deriveErr, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 		}
@@ -76,6 +80,8 @@ func newZTAPIDurableBilling(info *relaycommon.RelayInfo, amount int) (*ztapiDura
 			PublicModel: info.OriginModelName, PriceSnapshotJSON: string(snapshot), SelectorJSON: canonicalSelector,
 			ProtocolContractJSON: protocolJSON, ProtocolEvidenceHash: protocol.EvidenceHash, QuotaPerUnit: quotaPerUnit,
 			MaximumDimensions: maximumDimensions, MaximumQuota: maximumQuota,
+			ImageSaleQuote:       imageSaleQuote,
+			ImageSaleInputSHA256: imageSaleInputSHA256,
 		})
 	} else {
 		snapshot, marshalErr := common.Marshal(info.ZTAPIPublicationSnapshot)
@@ -181,7 +187,12 @@ func (s *ztapiDurableBilling) Refund(c *gin.Context) error {
 			}
 		}
 		if !released && err == nil {
-			row, err = model.PendZTAPIRequestSettlement(s.row.OperationID, "{}", model.ZTAPIMissingUpstreamBillingUnconfirmed)
+			check := ztapiFrozenUsageDimensions(c, s.info, nil, s.row.PriceSnapshotJSON)
+			raw, marshalErr := marshalZTAPIBillingUsageWithDimensions(s.info, (*dto.Usage)(nil), &check, []string{"upstream_billing_unconfirmed"})
+			if marshalErr != nil {
+				return marshalErr
+			}
+			row, err = model.PendZTAPIRequestSettlement(s.row.OperationID, string(raw), model.ZTAPIMissingUpstreamBillingUnconfirmed)
 		}
 	} else {
 		row, err = model.ReleaseZTAPIRequestSettlement(s.row.OperationID)
@@ -258,12 +269,26 @@ func ObserveZTAPIBillingResponse(info *relaycommon.RelayInfo, response *http.Res
 	return model.RecordZTAPIRequestAttemptResponse(s.row.OperationID, s.attempt.Attempt, s.attempt.ChannelID, response.StatusCode, id)
 }
 
-func pendZTAPIBilling(info *relaycommon.RelayInfo, usage any, missing []string) error {
+func pendZTAPIBilling(info *relaycommon.RelayInfo, usage any, missing []string, checks ...relaycommon.ZTAPIUsageDimensionResult) error {
 	s, ok := info.Billing.(*ztapiDurableBilling)
 	if !ok {
 		return model.ErrZTAPISettlementInvalid
 	}
-	raw, err := common.Marshal(usage)
+	var check relaycommon.ZTAPIUsageDimensionResult
+	if len(checks) > 0 {
+		check = checks[0]
+	} else {
+		s.mu.Lock()
+		frozenJSON := s.row.PriceSnapshotJSON
+		s.mu.Unlock()
+		textUsage, _ := usage.(*dto.Usage)
+		if value, ok := usage.(dto.Usage); ok {
+			textUsage = &value
+		}
+		check = ztapiFrozenUsageDimensions(nil, info, textUsage, frozenJSON)
+	}
+	missing = sanitizeZTAPIBillingEvidenceReasons(missing)
+	raw, err := marshalZTAPIBillingUsageWithDimensions(info, usage, &check, missing)
 	if err != nil {
 		return err
 	}

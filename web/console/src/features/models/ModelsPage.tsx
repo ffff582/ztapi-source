@@ -7,11 +7,16 @@ import {
   parseRuntimeStatus,
   type PricingEnvelope,
   type PricingModel,
+  type DisplayFXReference,
 } from '../../api/contracts';
 import { PublicHeader } from '../../components/layout/PublicHeader';
+import { ResourceDisclosureNotice } from '../../components/ResourceDisclosureNotice';
 import { useLocale } from '../../i18n/locale';
 import { providerFamilyRank, sortVendorModelsByRecency } from './catalog-order';
 import { modelOfficialDiscount, modelPriceDetails, type ModelPriceDetail } from './pricing';
+import { OfficialPriceComparison, OfficialPriceReference } from './OfficialPriceReference';
+import { PriceCurrencyControl, usePriceDisplay } from './PriceCurrencyControl';
+import { ImageSalePricing } from './ImageSalePricing';
 
 type ModelCategory = 'all' | 'text' | 'image' | 'video' | 'embedding';
 
@@ -41,6 +46,9 @@ export function ModelsPage() {
   const { t } = useLocale();
   const [pricing, setPricing] = useState<PricingEnvelope | null>(null);
   const [quotaPerUnit, setQuotaPerUnit] = useState<number | null>(null);
+  const [displayRate, setDisplayRate] = useState<number | undefined>();
+  const [displayReference, setDisplayReference] = useState<DisplayFXReference>();
+  const { display, setCurrency } = usePriceDisplay(displayRate, displayReference);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState<ModelCategory>('all');
@@ -55,6 +63,8 @@ export function ModelsPage() {
         if (active) {
           setPricing(pricingValue);
           setQuotaPerUnit(statusValue.quota_per_unit);
+          setDisplayRate(statusValue.usd_exchange_rate);
+          setDisplayReference(statusValue.display_fx);
           setStatus('ready');
         }
       })
@@ -105,6 +115,7 @@ export function ModelsPage() {
     <div className="models-page">
       <PublicHeader />
       <main>
+        <ResourceDisclosureNotice />
         <section className="models-masthead">
           <div className="public-shell models-masthead__inner">
             <p className="console-eyebrow">{t('实时公开目录')}</p>
@@ -114,10 +125,11 @@ export function ModelsPage() {
         </section>
 
         <section className="models-catalog public-shell" aria-label={t('公开模型目录')}>
-          <aside className="catalog-offer" aria-label={t('综合优惠约 20%')}>
-            <strong>{t('综合优惠约 20%')}</strong>
-            <span>{t('模型价格对比官方更优惠，充值再额外赠送 5% 使用额度。')}</span>
+          <aside className="catalog-offer" aria-label={t('价格说明')}>
+            <strong>{t('逐项查看实际售价与官网参考')}</strong>
+            <span>{t('售价以当前公开目录为准；不同规格、阶梯和缓存分别计价，不承诺全站统一折扣。')}</span>
           </aside>
+          <PriceCurrencyControl display={display} onChange={setCurrency} />
 
           <div className="catalog-tools">
             <div className="catalog-tools__heading">
@@ -167,11 +179,13 @@ export function ModelsPage() {
               </div>
               <div className="catalog-models">
                 {group.models.map((model) => {
-                  const prices = modelPriceDetails(model, pricing, quotaPerUnit);
-                  const headlinePrices = primaryPrices(prices);
-                  const discount = modelOfficialDiscount(prices);
+                  const prices = modelPriceDetails(model, pricing, quotaPerUnit, display);
+                  const headlinePrices = model.image_sale ? (model.image_sale.version === 2 ? prices : [prices[0], prices[2]]) : primaryPrices(prices);
+                  const quoted = model.official_reference?.kind === 'supplier_quoted_official';
+                  const discount = quoted ? null : modelOfficialDiscount(prices);
+                  const referenceLabel = quoted ? '报价表官网基准' : '官网参考价';
                   return (
-                    <article className="catalog-model" key={model.model_name} aria-label={model.model_name}>
+                    <article className={`catalog-model${model.image_sale ? ' catalog-model--image-sale' : ''}`} key={model.model_name} aria-label={model.model_name}>
                       <details>
                         <summary>
                           <span className="catalog-model__identity">
@@ -192,17 +206,25 @@ export function ModelsPage() {
                         </summary>
                         <div className="catalog-model__detail">
                           {model.description && <p>{model.description}</p>}
-                          <div className="catalog-model__price-head"><span>{t('规格')}</span><span>{t('我们的价格')}</span><span>{t('官方价格')}</span></div>
+                          {model.image_sale ? (
+                            <ImageSalePricing name={model.model_name} sale={model.image_sale} display={display} />
+                          ) : <>
+                          <div className="catalog-model__price-head"><span>{t('规格')}</span><span>{t('我们的价格')}</span><span>{t(referenceLabel)}</span></div>
                           <ul className="catalog-model__price-list" aria-label={t('{{name}} 售价', { name: model.model_name })}>
                             {prices.map((price) => (
                               <li key={price.key}>
                                 <span>{t(price.label)}</span>
                                 <span className="catalog-model__sale"><small>{t('我们的价格')}</small><strong>{t(price.price)}</strong></span>
-                                <span className="catalog-model__official"><small>{t('官方价格')}</small>{price.officialPrice ? t(price.officialPrice) : '—'}</span>
+                                <span className="catalog-model__official">
+                                  <small>{t(referenceLabel)}</small>{price.officialPrice ? t(price.officialPrice) : t('暂无官网参考')}
+                                  <OfficialPriceComparison price={price} quoted={quoted} />
+                                </span>
                               </li>
                             ))}
                           </ul>
-                          <small>{t('仅在同模型、同规格有可核对的官方价格时展示折扣。')}</small>
+                          <OfficialPriceReference reference={model.official_reference} />
+                          <small>{t('仅比较同模型、同规格的已提供参考价；参考价不是来源认证，也不保证为官网现价。')}</small>
+                          </>}
                         </div>
                       </details>
                     </article>

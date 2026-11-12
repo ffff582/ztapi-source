@@ -133,6 +133,9 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 		return nil, types.NewErrorWithStatusCode(err, types.ErrorCode(helper.ZTAPIInvalidReasoningEffortCode), http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 	}
 	relaycommon.CaptureReasoningEffortForwardedJSON(info, jsonData, types.RelayFormatOpenAIResponses)
+	if apiErr := helper.ValidateZTAPIHostedToolPricing(info, jsonData); apiErr != nil {
+		return nil, apiErr
+	}
 
 	body, size, closer, err := relaycommon.NewOutboundJSONBody(jsonData)
 	if err != nil {
@@ -166,7 +169,7 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 		usage, newApiErr := openaichannel.OaiResponsesToChatStreamHandler(c, info, httpResp)
 		if newApiErr != nil {
 			service.ResetStatusCode(newApiErr, statusCodeMappingStr)
-			return nil, newApiErr
+			return usage, newApiErr
 		}
 		return usage, nil
 	}
@@ -174,7 +177,7 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 	usage, newApiErr := openaichannel.OaiResponsesToChatHandler(c, info, httpResp)
 	if newApiErr != nil {
 		service.ResetStatusCode(newApiErr, statusCodeMappingStr)
-		return nil, newApiErr
+		return usage, newApiErr
 	}
 	return usage, nil
 }

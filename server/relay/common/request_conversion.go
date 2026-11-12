@@ -82,6 +82,9 @@ func ReasoningEffortFromRequest(req any) string {
 
 func SetReasoningEffortForRequest(req any, effort string) error {
 	effort = normalizedReasoningEffort(effort)
+	if effort == "" {
+		return dropReasoningEffortForRequest(req)
+	}
 	switch request := req.(type) {
 	case *dto.GeneralOpenAIRequest:
 		if request == nil {
@@ -138,6 +141,55 @@ func SetReasoningEffortForRequest(req any, effort string) error {
 	}
 }
 
+func dropEffortObject(body []byte) ([]byte, error) {
+	if !gjson.GetBytes(body, "effort").Exists() {
+		return body, nil
+	}
+	updated, err := sjson.DeleteBytes(body, "effort")
+	if err == nil && len(gjson.ParseBytes(updated).Map()) == 0 {
+		return nil, nil
+	}
+	return updated, err
+}
+
+func dropReasoningEffortForRequest(req any) error {
+	switch request := req.(type) {
+	case *dto.GeneralOpenAIRequest:
+		if request == nil {
+			return nil
+		}
+		request.ReasoningEffort = ""
+		updated, err := dropEffortObject(request.Reasoning)
+		request.Reasoning = updated
+		return err
+	case *dto.OpenAIResponsesRequest:
+		if request != nil && request.Reasoning != nil {
+			request.Reasoning.Effort = ""
+			if request.Reasoning.Summary == "" {
+				request.Reasoning = nil
+			}
+		}
+	case *dto.ClaudeRequest:
+		if request == nil {
+			return nil
+		}
+		updated, err := dropEffortObject(request.OutputConfig)
+		request.OutputConfig = updated
+		return err
+	case *dto.GeminiChatRequest:
+		if request != nil && request.GenerationConfig.ThinkingConfig != nil {
+			config := request.GenerationConfig.ThinkingConfig
+			config.ThinkingLevel = ""
+			if config.ThinkingBudget == nil && !config.IncludeThoughts {
+				request.GenerationConfig.ThinkingConfig = nil
+			}
+		}
+	default:
+		return fmt.Errorf("unsupported reasoning request type %T", req)
+	}
+	return nil
+}
+
 func CaptureReasoningEffortReceived(info *RelayInfo, req any) {
 	if info == nil {
 		return
@@ -157,22 +209,25 @@ func MarkReasoningEffortSource(info *RelayInfo, source string) {
 	}
 }
 
-func reasoningEffortFromJSON(body []byte, format types.RelayFormat) string {
-	paths := []string{}
+func reasoningEffortJSONPaths(format types.RelayFormat) []string {
 	switch format {
 	case types.RelayFormatOpenAI:
-		paths = []string{"reasoning_effort", "reasoning.effort"}
+		return []string{"reasoning_effort", "reasoning.effort"}
 	case types.RelayFormatOpenAIResponses, types.RelayFormatOpenAIResponsesCompaction:
-		paths = []string{"reasoning.effort"}
+		return []string{"reasoning.effort"}
 	case types.RelayFormatClaude:
-		paths = []string{"output_config.effort"}
+		return []string{"output_config.effort"}
 	case types.RelayFormatGemini:
-		paths = []string{
+		return []string{
 			"generationConfig.thinkingConfig.thinkingLevel",
 			"generation_config.thinking_config.thinking_level",
 		}
 	}
-	for _, path := range paths {
+	return nil
+}
+
+func reasoningEffortFromJSON(body []byte, format types.RelayFormat) string {
+	for _, path := range reasoningEffortJSONPaths(format) {
 		if effort := normalizedReasoningEffort(gjson.GetBytes(body, path).String()); effort != "" {
 			return effort
 		}
@@ -185,25 +240,67 @@ func ReasoningEffortFromJSON(body []byte, format types.RelayFormat) string {
 }
 
 func SetReasoningEffortInJSON(body []byte, format types.RelayFormat, effort string) ([]byte, error) {
-	paths := []string{}
-	switch format {
-	case types.RelayFormatOpenAI:
-		paths = []string{"reasoning_effort", "reasoning.effort"}
-	case types.RelayFormatOpenAIResponses, types.RelayFormatOpenAIResponsesCompaction:
-		paths = []string{"reasoning.effort"}
-	case types.RelayFormatClaude:
-		paths = []string{"output_config.effort"}
-	case types.RelayFormatGemini:
-		paths = []string{
-			"generationConfig.thinkingConfig.thinkingLevel",
-			"generation_config.thinking_config.thinking_level",
-		}
-	default:
+	paths := reasoningEffortJSONPaths(format)
+	if len(paths) == 0 {
 		return body, fmt.Errorf("unsupported reasoning relay format %q", format)
+	}
+	if normalizedReasoningEffort(effort) == "" {
+		for _, path := range paths {
+			if !gjson.GetBytes(body, path).Exists() {
+				continue
+			}
+			var err error
+			body, err = sjson.DeleteBytes(body, path)
+			if err != nil {
+				return nil, err
+			}
+			if index := strings.LastIndex(path, "."); index >= 0 {
+				parent := path[:index]
+				if value := gjson.GetBytes(body, parent); value.IsObject() && len(value.Map()) == 0 {
+					body, err = sjson.DeleteBytes(body, parent)
+					if err != nil {
+						return nil, err
+					}
+				}
+			}
+		}
+		return body, nil
 	}
 	for _, path := range paths {
 		if result := gjson.GetBytes(body, path); result.Exists() {
 			return sjson.SetBytes(body, path, normalizedReasoningEffort(effort))
+		}
+	}
+	return body, nil
+}
+
+// Normalize every recognized field independently; dropping one must not remove another.
+func NormalizeReasoningEffortsInJSON(body []byte, format types.RelayFormat, normalize func(string) string) ([]byte, error) {
+	for _, path := range reasoningEffortJSONPaths(format) {
+		requested := normalizedReasoningEffort(gjson.GetBytes(body, path).String())
+		if requested == "" {
+			continue
+		}
+		effort := normalizedReasoningEffort(normalize(requested))
+		if effort == requested {
+			continue
+		}
+		var err error
+		if effort != "" {
+			body, err = sjson.SetBytes(body, path, effort)
+		} else {
+			body, err = sjson.DeleteBytes(body, path)
+			if err == nil {
+				if index := strings.LastIndex(path, "."); index >= 0 {
+					parent := path[:index]
+					if value := gjson.GetBytes(body, parent); value.IsObject() && len(value.Map()) == 0 {
+						body, err = sjson.DeleteBytes(body, parent)
+					}
+				}
+			}
+		}
+		if err != nil {
+			return nil, err
 		}
 	}
 	return body, nil

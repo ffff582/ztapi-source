@@ -77,10 +77,14 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 	if info.ZTAPIPublicationSnapshot != nil && info.RelayMode == relayconstant.RelayModeResponses &&
 		info.ApiType == appconstant.APITypeOpenAI && openaicompat.ShouldResponsesUseChatCompletions(info.UpstreamModelName) {
 		usage, apiErr := responsesViaChatCompletions(c, info, adaptor, request)
+		if usage != nil {
+			// A failed client stream can still have a confirmed supplier usage
+			// receipt. Settle it once rather than leaving the reservation pending.
+			service.PostTextConsumeQuota(c, info, usage, nil)
+		}
 		if apiErr != nil {
 			return apiErr
 		}
-		service.PostTextConsumeQuota(c, info, usage, nil)
 		return nil
 	}
 	var requestBody io.Reader
@@ -123,8 +127,11 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 			return types.NewErrorWithStatusCode(err, types.ErrorCode(helper.ZTAPIInvalidReasoningEffortCode), http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 		}
 		relaycommon.CaptureReasoningEffortForwardedJSON(info, jsonData, info.GetFinalRequestRelayFormat())
+		if apiErr := helper.ValidateZTAPIHostedToolPricing(info, jsonData); apiErr != nil {
+			return apiErr
+		}
 
-		logger.LogDebug(c, "requestBody: %s", jsonData)
+		logger.LogDebug(c, "request body bytes: %d", len(jsonData))
 		body, size, closer, err := relaycommon.NewOutboundJSONBody(jsonData)
 		if err != nil {
 			return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
@@ -156,6 +163,9 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 
 	usage, newAPIError := adaptor.DoResponse(c, httpResp, info)
 	if newAPIError != nil {
+		if usageDto, ok := usage.(*dto.Usage); ok && usageDto != nil && info.ZTAPIPublicationSnapshot != nil {
+			service.PostTextConsumeQuota(c, info, usageDto, nil)
+		}
 		// reset status code 重置状态码
 		service.ResetStatusCode(newAPIError, statusCodeMappingStr)
 		return newAPIError

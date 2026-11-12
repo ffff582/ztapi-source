@@ -59,6 +59,7 @@ func main() {
 	service.EnsureZTAPIUpstreamFXRate()
 	model.RunZTAPIFXInitialRepricing()
 	service.StartZTAPIFXRefreshTask(context.Background())
+	service.StartZTAPIDisplayFXRefreshTask(context.Background())
 
 	common.SysLog("New API " + common.Version + " started")
 	if os.Getenv("GIN_MODE") != "debug" {
@@ -127,6 +128,13 @@ func main() {
 	service.StartBillingRefundRetryTask()
 
 	healthContext, stopHealthWorker := context.WithCancel(context.Background())
+	model.ZTAPIReferralFinanceCapabilityCheck = service.ZTAPIReferralFinanceCapabilityReady
+	model.ZTAPIReferralWorkerCapabilityCheck = service.ZTAPIReferralWorkerReady
+	referralWorker := service.StartProductionZTAPIReferralWorker(healthContext)
+	defer func() {
+		stopHealthWorker()
+		<-referralWorker.Done()
+	}()
 	healthWorker, err := service.StartProductionZTAPIHealthWorker(healthContext)
 	if err != nil {
 		stopHealthWorker()

@@ -40,8 +40,66 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/go-redis/redis/v8"
+	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
+
+func TestCNYAdminOrdersSeparateRequestedFromVerifiedAmounts(t *testing.T) {
+	db, engine := setupAdminOperationsTest(t)
+	require.NoError(t, db.AutoMigrate(&model.CNYTopUpOrder{}))
+	finance, token := createAdminOperationsUser(t, db, "cny-finance", common.RoleFinanceUser, 0)
+	support, supportToken := createAdminOperationsUser(t, db, "cny-support", common.RoleSupportUser, 0)
+	customer, _ := createAdminOperationsUser(t, db, "cny-customer", common.RoleCommonUser, 0)
+	now := time.Now().Unix()
+	trade := "blackcat-verified-order"
+	base := model.CNYTopUpOrder{UserID: customer.Id, MerchantNo: "merchant-test", AppID: "app-test",
+		Method: "wxpay", PayFen: 100, Quota: 100, CNYPerUnit: "6.67", CreatedAt: now, State: model.CNYTopUpPending}
+	pending, paid := base, base
+	pending.OrderNo, pending.RequestKey, pending.CheckoutURL = "CNY-local-pending", "internal-pending", "https://checkout.example.test/private"
+	paid.OrderNo, paid.RequestKey, paid.ProviderTradeNo = "CNY-verified", "internal-paid", &trade
+	paid.State, paid.PaidAt = model.CNYTopUpPaid, now
+	require.NoError(t, db.Create(&[]model.CNYTopUpOrder{pending, paid}).Error)
+
+	const endpoint = "/api/admin/payments/cny/orders"
+	list := performAdminOperationsRequest(t, engine, http.MethodGet, endpoint, finance, token, "", "cny-finance-list")
+	require.Equal(t, http.StatusOK, list.Code)
+	var payload struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Total int `json:"total"`
+			Items []struct {
+				OrderNo         string  `json:"order_no"`
+				ProviderTradeNo *string `json:"provider_trade_no"`
+				AmountCNY       string  `json:"amount_cny"`
+				PaidAmountCNY   *string `json:"paid_amount_cny"`
+			} `json:"items"`
+		} `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(list.Body.Bytes(), &payload))
+	require.True(t, payload.Success)
+	require.Equal(t, 2, payload.Data.Total)
+	require.Len(t, payload.Data.Items, 2)
+	require.Equal(t, paid.OrderNo, payload.Data.Items[0].OrderNo)
+	require.Equal(t, &trade, payload.Data.Items[0].ProviderTradeNo)
+	require.NotNil(t, payload.Data.Items[0].PaidAmountCNY)
+	require.Equal(t, "1.00", *payload.Data.Items[0].PaidAmountCNY)
+	require.Equal(t, pending.OrderNo, payload.Data.Items[1].OrderNo)
+	require.Equal(t, "1.00", payload.Data.Items[1].AmountCNY)
+	require.Nil(t, payload.Data.Items[1].PaidAmountCNY)
+	require.Nil(t, payload.Data.Items[1].ProviderTradeNo)
+	require.NotContains(t, list.Body.String(), "checkout.example.test")
+	require.NotContains(t, list.Body.String(), "internal-paid")
+
+	for _, number := range []string{trade, paid.OrderNo} {
+		found := performAdminOperationsRequest(t, engine, http.MethodGet, endpoint+"?order_no="+number, finance, token, "", "cny-finance-lookup")
+		require.Equal(t, http.StatusOK, found.Code)
+		require.Contains(t, found.Body.String(), paid.OrderNo)
+		require.NotContains(t, found.Body.String(), pending.OrderNo)
+	}
+	denied := performAdminOperationsRequest(t, engine, http.MethodGet, endpoint, support, supportToken, "", "cny-finance-denied")
+	require.Contains(t, denied.Body.String(), `"success":false`)
+	require.NotContains(t, denied.Body.String(), paid.OrderNo)
+}
 
 func TestAdminFinanceOrdersUseSafeProjectionFiltersAndCASMutations(t *testing.T) {
 	db, engine := setupAdminOperationsTest(t)

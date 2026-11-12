@@ -38,6 +38,7 @@ import os
 from pathlib import Path
 import queue
 import re
+import shutil
 import ssl
 import stat
 import subprocess
@@ -76,6 +77,7 @@ CONDITIONS = {
     "database_container_dead", "database_container_unavailable",
     "database_query_failed", "heartbeat_missing", "heartbeat_invalid",
     "worker_stale", "worker_tick_error",
+    "disk_usage_high",
 }
 
 
@@ -203,6 +205,11 @@ def run_command(argv, timeout):
     return CommandResult(process.returncode, output[0])
 
 
+def disk_condition():
+    usage = shutil.disk_usage("/")
+    return "disk_usage_high" if usage.total > 0 and usage.used * 100 >= usage.total * 80 else "ok"
+
+
 def observe(config, command, now):
     for key, role in (("ZTAPI_HEALTH_WATCHDOG_SERVER_CONTAINER", "server"),
                       ("ZTAPI_HEALTH_WATCHDOG_MYSQL_CONTAINER", "database")):
@@ -231,7 +238,7 @@ def observe(config, command, now):
         return "worker_stale", timestamp, code
     if code == "worker_tick_error":
         return "worker_tick_error", timestamp, code
-    return "ok", timestamp, code
+    return disk_condition(), timestamp, code
 
 
 def valid_webhook(url):
@@ -296,6 +303,14 @@ def valid_telegram(token, chat_id):
     return re.fullmatch(r"@[A-Za-z][A-Za-z0-9_]{4,31}", chat_id) is not None
 
 
+def telegram_text(payload):
+    if payload.get("condition") == "disk_usage_high":
+        if payload.get("test_mode"):
+            return "【ZTAPI 磁盘告警演练】模拟达到80%阈值；当前实际使用率为" + str(payload.get("actual_percent", "未知")) + "% 。这是测试，不是实际故障。"
+        return "【ZTAPI 磁盘告警】根分区使用率已达到80%阈值，请检查磁盘空间。不会自动删除客户数据。事件编号：" + str(payload.get("incident_id", ""))
+    return json.dumps(payload, separators=(",", ":"))
+
+
 def send_telegram(token, chat_id, payload, timeout):
     """Return only an API-confirmed message ID, or None for any uncertainty.
 
@@ -325,7 +340,7 @@ def send_telegram(token, chat_id, payload, timeout):
                 "api.telegram.org", 443, timeout=timeout,
                 context=ssl.create_default_context(),
             )
-            body = {"chat_id": chat_id, "text": json.dumps(payload, separators=(",", ":"))}
+            body = {"chat_id": chat_id, "text": telegram_text(payload)}
             connection.request("POST", "/bot" + token + "/sendMessage",
                                json.dumps(body, separators=(",", ":")).encode(),
                                {"Content-Type": "application/json"})

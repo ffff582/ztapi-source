@@ -19,38 +19,54 @@ import (
 // Source model IDs, channel IDs, evidence IDs and upstream price source IDs are
 // intentionally absent.
 type ZTAPIPublicCatalogItem struct {
-	Modality               string                       `json:"modality"`
-	ModelName              string                       `json:"model_name"`
-	ProviderFamily         string                       `json:"provider_family"`
-	ProviderName           string                       `json:"provider_name"`
-	Protocol               string                       `json:"protocol"`
-	EnableGroups           []string                     `json:"enable_groups"`
-	SupportedEndpointTypes []constant.EndpointType      `json:"supported_endpoint_types"`
-	InputPricePerMillion   string                       `json:"input_price_per_million"`
-	OutputPricePerMillion  string                       `json:"output_price_per_million"`
-	BillingDimensions      []string                     `json:"billing_dimensions"`
-	SaleUSD                map[string]string            `json:"sale_usd"`
-	OfficialUSD            map[string]string            `json:"official_usd,omitempty"`
-	TokenPriceRules        []ZTAPIPublicTokenPriceRule  `json:"token_price_rules,omitempty"`
-	BillingRule            string                       `json:"billing_rule"`
-	PricingVersion         string                       `json:"pricing_version"`
-	SupportedOptions       *ZTAPIPublicSupportedOptions `json:"supported_options,omitempty"`
-	PricingRules           []ZTAPIPublicPricingRule     `json:"pricing_rules,omitempty"`
-	BillingUnit            string                       `json:"billing_unit,omitempty"`
+	Modality               string                        `json:"modality"`
+	ModelName              string                        `json:"model_name"`
+	ProviderFamily         string                        `json:"provider_family"`
+	ProviderName           string                        `json:"provider_name"`
+	Protocol               string                        `json:"protocol"`
+	EnableGroups           []string                      `json:"enable_groups"`
+	SupportedEndpointTypes []constant.EndpointType       `json:"supported_endpoint_types"`
+	InputPricePerMillion   string                        `json:"input_price_per_million"`
+	OutputPricePerMillion  string                        `json:"output_price_per_million"`
+	BillingDimensions      []string                      `json:"billing_dimensions"`
+	SaleUSD                map[string]string             `json:"sale_usd"`
+	OfficialUSD            map[string]string             `json:"official_usd,omitempty"`
+	OfficialReference      *ZTAPIPublicOfficialReference `json:"official_reference,omitempty"`
+	TokenPriceRules        []ZTAPIPublicTokenPriceRule   `json:"token_price_rules,omitempty"`
+	BillingRule            string                        `json:"billing_rule"`
+	PricingVersion         string                        `json:"pricing_version"`
+	SupportedOptions       *ZTAPIPublicSupportedOptions  `json:"supported_options,omitempty"`
+	PricingRules           []ZTAPIPublicPricingRule      `json:"pricing_rules,omitempty"`
+	BillingUnit            string                        `json:"billing_unit,omitempty"`
+	ImageSale              *types.ZTAPIImageSaleContract `json:"image_sale,omitempty"`
+}
+
+func (item ZTAPIPublicCatalogItem) MarshalJSON() ([]byte, error) {
+	type catalogItem ZTAPIPublicCatalogItem
+	if item.ImageSale == nil {
+		return json.Marshal(catalogItem(item))
+	}
+	// Keep the legacy wire shape, but do not advertise Token retail on flat images.
+	return json.Marshal(struct {
+		catalogItem
+		InputPricePerMillion  *string `json:"input_price_per_million,omitempty"`
+		OutputPricePerMillion *string `json:"output_price_per_million,omitempty"`
+	}{catalogItem: catalogItem(item)})
 }
 
 type ZTAPIPublicSupportedOptions struct {
-	Sizes              []string                       `json:"sizes,omitempty"`
-	Qualities          []string                       `json:"qualities,omitempty"`
-	RenderOptions      []ZTAPIPublicImageRenderOption `json:"render_options,omitempty"`
-	ResponseFormats    []string                       `json:"response_formats,omitempty"`
-	MinCount           int                            `json:"min_count,omitempty"`
-	MaxCount           int                            `json:"max_count,omitempty"`
-	SupportsEdits      bool                           `json:"supports_edits,omitempty"`
-	EditInput          *ZTAPIPublicImageEditInput     `json:"edit_input,omitempty"`
-	Resolutions        []string                       `json:"resolutions,omitempty"`
-	DurationSeconds    []int                          `json:"duration_seconds,omitempty"`
-	SupportsVideoInput *bool                          `json:"supports_video_input,omitempty"`
+	AllowedRequests    []types.ZTAPIImageSaleAllowedRequest `json:"allowed_requests,omitempty"`
+	Sizes              []string                             `json:"sizes,omitempty"`
+	Qualities          []string                             `json:"qualities,omitempty"`
+	RenderOptions      []ZTAPIPublicImageRenderOption       `json:"render_options,omitempty"`
+	ResponseFormats    []string                             `json:"response_formats,omitempty"`
+	MinCount           int                                  `json:"min_count,omitempty"`
+	MaxCount           int                                  `json:"max_count,omitempty"`
+	SupportsEdits      bool                                 `json:"supports_edits,omitempty"`
+	EditInput          *ZTAPIPublicImageEditInput           `json:"edit_input,omitempty"`
+	Resolutions        []string                             `json:"resolutions,omitempty"`
+	DurationSeconds    []int                                `json:"duration_seconds,omitempty"`
+	SupportsVideoInput *bool                                `json:"supports_video_input,omitempty"`
 }
 
 type ZTAPIPublicImageRenderOption struct {
@@ -377,6 +393,7 @@ func ztapiDiscountTokenPriceRules(raw string, multiplier decimal.Decimal) (strin
 }
 
 type ZTAPIRuntimePublication struct {
+	PricePolicy            string
 	Modality               string
 	ModelConfigID          int
 	SnapshotID             int64
@@ -406,6 +423,7 @@ type ZTAPIRuntimePublication struct {
 	MediaOfficialUSD       map[string]map[string]string
 	TokenPriceRulesJSON    string
 	MediaPriceContractJSON string
+	ImageSaleContractJSON  string
 	InputPriceDisplay      string
 	OutputPriceDisplay     string
 	ImageProtocolContract  *types.ZTAPIImageProtocolContract `json:"-"`
@@ -575,7 +593,7 @@ func copyZTAPIStringMap(values map[string]string) map[string]string {
 }
 
 func validZTAPISnapshotPricing(snapshot *ZTAPIModelPublicationSnapshot) bool {
-	if snapshot == nil {
+	if snapshot == nil || validateZTAPICacheWritePricingMode(snapshot) != nil || validateZTAPIImageSaleSnapshot(snapshot) != nil {
 		return false
 	}
 	modality := ZTAPIModelModality(snapshot.SourceModel)
@@ -636,6 +654,17 @@ func loadZTAPIActivePublications(db *gorm.DB) ([]ZTAPIRuntimePublication, error)
 		if source.ModelConfigID != snapshot.ModelConfigID || source.SourceModel != snapshot.SourceModel {
 			continue
 		}
+		if validateZTAPICashSnapshotMode20261030(&source, &snapshot) != nil {
+			continue
+		}
+		if isZTAPICashMarginPolicy20261030(source.PricePolicy) &&
+			(ValidateZTAPICashMarginSource20261030(db, &source) != nil || validateZTAPICashMarginRoute20261030(&source, snapshot.PublicName, channels) != nil) {
+			continue
+		}
+		if isZTAPIDatedRetailPolicy20261107(source.PricePolicy) &&
+			(ValidateZTAPIPriceReductionSource20261107(db, &source) != nil || ValidateZTAPIPriceReductionRoute20261107(&source, snapshot.PublicName, channels) != nil) {
+			continue
+		}
 		sourceMultiplier, multiplierErr := ztapiNormalizedSaleMultiplier(source.SaleMultiplier)
 		snapshotMultiplier, snapshotMultiplierErr := ztapiNormalizedSaleMultiplier(snapshot.SaleMultiplier)
 		if multiplierErr != nil || snapshotMultiplierErr != nil || !sourceMultiplier.Equal(snapshotMultiplier) {
@@ -692,7 +721,8 @@ func loadZTAPIActivePublications(db *gorm.DB) ([]ZTAPIRuntimePublication, error)
 		if ZTAPIModelModality(snapshot.SourceModel) == ZTAPIModalityVideo && videoProtocol == nil {
 			continue
 		}
-		result = append(result, ZTAPIRuntimePublication{
+		publication := ZTAPIRuntimePublication{
+			PricePolicy:   source.PricePolicy,
 			ModelConfigID: configs[i].ID, SnapshotID: snapshot.ID, Version: snapshot.ModelVersion,
 			PriceSourceID: source.ID, PriceSourceVersion: source.Version, SaleMultiplier: sourceMultiplier.StringFixed(10),
 			Modality:    ZTAPIModelModality(snapshot.SourceModel),
@@ -711,10 +741,15 @@ func loadZTAPIActivePublications(db *gorm.DB) ([]ZTAPIRuntimePublication, error)
 			MediaOfficialUSD:       copyZTAPINestedStringMap(mediaOfficialUSD),
 			TokenPriceRulesJSON:    runtimeTokenRules,
 			MediaPriceContractJSON: runtimeMediaContract,
+			ImageSaleContractJSON:  snapshot.ImageSaleContractJSON,
 			InputPriceDisplay:      preview.InputSaleUSDPerMillion, OutputPriceDisplay: preview.OutputSaleUSDPerMillion,
 			ImageProtocolContract: imageProtocol,
 			VideoProtocolContract: videoProtocol,
-		})
+		}
+		if err := applyZTAPICacheWritePricingMode(&publication, snapshot.CacheWritePricingMode); err != nil {
+			continue
+		}
+		result = append(result, publication)
 	}
 	sort.Slice(result, func(i, j int) bool {
 		if result[i].ProviderFamily == result[j].ProviderFamily {
@@ -735,6 +770,7 @@ func ListZTAPIPublicCatalog() ([]ZTAPIPublicCatalogItem, error) {
 
 func runtimePublicationFromCache(publication ztapiPublishedModel) ZTAPIRuntimePublication {
 	return ZTAPIRuntimePublication{
+		PricePolicy:   publication.PricePolicy,
 		ModelConfigID: publication.ModelConfigID, SnapshotID: publication.SnapshotID, Version: publication.Version,
 		PriceSourceID: publication.PriceSourceID, PriceSourceVersion: publication.PriceSourceVersion,
 		SaleMultiplier: publication.SaleMultiplier,
@@ -756,6 +792,7 @@ func runtimePublicationFromCache(publication ztapiPublishedModel) ZTAPIRuntimePu
 		MediaOfficialUSD:       copyZTAPINestedStringMap(publication.MediaOfficialUSD),
 		TokenPriceRulesJSON:    publication.TokenPriceRulesJSON,
 		MediaPriceContractJSON: publication.MediaPriceContractJSON,
+		ImageSaleContractJSON:  publication.ImageSaleContractJSON,
 		InputPriceDisplay:      publication.InputPriceDisplay, OutputPriceDisplay: publication.OutputPriceDisplay,
 		ImageProtocolContract: cloneZTAPIImageProtocolContract(publication.ImageProtocolContract),
 		VideoProtocolContract: cloneZTAPIVideoProtocolContract(publication.VideoProtocolContract),
@@ -852,6 +889,13 @@ func buildZTAPIPublicCatalog(publications []ZTAPIRuntimePublication) []ZTAPIPubl
 			item.SaleUSD = map[string]string{}
 			item.OfficialUSD = map[string]string{}
 			item.BillingRule = "multi_dimension"
+		}
+		if publication.ImageSaleContractJSON != "" {
+			if !applyZTAPIPublicImageSale(publication, &item) {
+				continue
+			}
+		} else {
+			applyZTAPIOfficialComparison20261107(publication.SourceModel, &item)
 		}
 		items = append(items, item)
 	}

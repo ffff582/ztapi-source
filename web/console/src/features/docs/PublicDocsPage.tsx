@@ -5,24 +5,30 @@ import {
   Code2,
   Check,
   Copy,
+  Download,
   Boxes,
   KeyRound,
   Send,
+  Terminal,
   UserRound,
+  Info,
+  Scale,
 } from 'lucide-react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router-dom';
 import type { ReactNode } from 'react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PublicHeader } from '../../components/layout/PublicHeader';
 import { useLocale } from '../../i18n/locale';
 import manifest from './docs-manifest.json';
+import { SourceOffer } from './SourceOffer';
+import { codexConfig, codexWindowsKey, codexPosixKey, codexWindowsDesktopKey, codexMacDesktopKey, codexPosixLauncher, codexWindowsLauncher } from '../guide/codex-setup';
 import './docs.css';
 
-type DocSection = 'api' | 'integration' | 'user-guide' | 'faq';
+type DocSection = 'api' | 'integration' | 'codex' | 'user-guide' | 'faq' | 'resource-disclosure' | 'license';
 
 const BASE_URL = manifest.baseUrl;
 
-const icons = { api: Code2, integration: Cable, 'user-guide': UserRound, faq: CircleHelp };
+const icons = { api: Code2, integration: Cable, codex: Terminal, 'user-guide': UserRound, faq: CircleHelp, 'resource-disclosure': Info, license: Scale };
 const sections = manifest.sections.map((section) => ({
   ...section, id: section.id as DocSection, icon: icons[section.id as DocSection],
 }));
@@ -107,11 +113,94 @@ function IntegrationGuide() {
       <DocsSection title={t('Python 示例')}>
         <CodeSample label="Python" code={pythonExample} />
       </DocsSection>
+      <DocsSection title={t('Codex CLI / 桌面版')}>
+        <p>{t('使用完整 Responses 配置接入 Codex，包含模型能力目录、联网搜索和网页读取。')}</p>
+        <Link className="docs-model-link" to="/docs/codex">{t('查看 Codex 完整接入说明')}</Link>
+      </DocsSection>
       <DocsSection title={t('选择正确的接口')}>
         <div className="docs-callout">
           <strong>{t('按模型支持页标注的调用地址接入')}</strong>
           <p>{t('Responses-only 模型使用 /v1/responses；图片和视频模型使用各自的专用端点。')}</p>
         </div>
+      </DocsSection>
+    </>
+  );
+}
+
+function CodexGuide() {
+  const { t } = useLocale();
+  return (
+    <>
+      <DocsHeading eyebrow="Codex / Responses" title={t('Codex 接入')}
+        summary={t('复制配置、设置自己的 ZTAPI 密钥，即可使用编码、搜索和网页读取。')}>
+        <nav className="docs-launch-actions" aria-label={t('Codex 一键脚本')}>
+          <a href="#quick-launch"><Terminal aria-hidden="true" size={17} />{t('查看一键启动命令')}</a>
+          <a href="/assets/ztapi-codex-20261104.sh" download><Download aria-hidden="true" size={17} />{t('下载 Bash 启动脚本')}</a>
+          <a href="/assets/ztapi-codex-20261104.ps1" download><Download aria-hidden="true" size={17} />{t('下载 PowerShell 启动脚本')}</a>
+        </nav>
+      </DocsHeading>
+      <DocsSection title={t('先解决 Missing environment variable')}>
+        <div className="docs-callout docs-callout--warning">
+          <KeyRound aria-hidden="true" size={20} />
+          <div>
+            <strong>{t('env_key 是环境变量名称，不是密钥本身')}</strong>
+            <p>{t('env_key 固定写 "ZTAPI_API_KEY"，不要替换成 sk- 开头的 Key。实际密钥在下方隐藏输入；只改成 OPENAI_API_KEY 并不会自动创建环境变量。')}</p>
+            <p>{t('出现 Missing environment variable 说明 Codex 尚未读到本机密钥，请先修复本地配置，不要反复发送请求。此环境变量方案不需要修改 auth.json；把 Key 只放进 auth.json 不能替代设置 ZTAPI_API_KEY。')}</p>
+          </div>
+        </div>
+      </DocsSection>
+      <DocsSection title={t('1. 准备密钥和模型')}>
+        <p>{t('先安装 Codex，并在控制台创建 API Key，确保余额充足且密钥允许调用 zt-claude-opus-5。只使用自己的 ZTAPI 密钥，不需要 OpenAI 或 DeepSeek 官方密钥。')}</p>
+        <p>{t('2026-11-01 已验收 Codex CLI 0.165.0-alpha.1.2 与 zt-claude-opus-5 的默认工具声明、搜索、网页读取、页内查找和引用。验收仅设置 1024 输出 Token 上限控制费用，不要求用户设置此上限；其他版本或型号不作未经验收的承诺。')}</p>
+      </DocsSection>
+      <DocsSection id="quick-launch" title={t('推荐：CLI 安全启动脚本')}>
+        <p>{t('已安装 Codex 的用户可直接运行以下启动脚本，按提示隐藏输入自己的 ZTAPI Key。脚本仅为本次进程设置鉴权和连接参数，不修改 config.toml、auth.json、系统环境变量、沙箱或审批设置；退出后再次使用时需要重新输入 Key。不要把 Key 发到群里。')}</p>
+        <CodeSample label={t('Linux / macOS 快速启动')} code={codexPosixLauncher} />
+        <CodeSample label={t('Windows PowerShell 快速启动')} code={codexWindowsLauncher} />
+        <p>{t('脚本默认选择 zt-claude-opus-5，可在 Codex 中切换为密钥允许的在售模型。脚本不会自动发起模型测试；发送问题和使用搜索后按正常规则计费。脚本只用于 CLI，桌面版请看下方环境变量说明。')}</p>
+        <p>{t('后续请继续用该脚本启动；需要直接运行 codex 时，请完成下方手动配置。也可向脚本传入 --model 和准确的公开模型 ID，显式选择自己的模型。')}</p>
+        <p>{t('若组织策略禁止 PowerShell 脚本，请使用下方手动配置步骤，不要降低系统执行策略。旧版 Codex 0.106.0 的远程目录和搜索能力不在已验收范围内；修复鉴权后如需完整工具能力，请更新客户端。')}</p>
+      </DocsSection>
+      <DocsSection title={t('2. 合并完整配置')}>
+        <dl className="docs-facts">
+          <div><dt>Windows</dt><dd><code>%USERPROFILE%\.codex\config.toml</code></dd></div>
+          <div><dt>macOS / Linux</dt><dd><code>~/.codex/config.toml</code></dd></div>
+        </dl>
+        <p>{t('不要覆盖已有配置。先备份文件，合并以下字段；同名字段或表只保留一份，model、model_provider 和 web_search 必须放在第一个表头之前。')}</p>
+        <CodeSample label="config.toml" code={codexConfig()} />
+        <p>{t('model_catalog_url 放在 model_providers.ztapi 小节中。移除生效的旧 model_catalog_json 设置（它会覆盖远程目录）；检查当前 profile 和项目配置没有覆盖这些字段。保留原有沙箱和审批设置。')}</p>
+      </DocsSection>
+      <DocsSection title={t('3. 设置密钥并启动 CLI')}>
+        <p>{t('下面的命令会隐藏密钥输入，不把密钥写进 TOML、仓库或命令历史。在输入密钥的同一个终端启动 Codex。')}</p>
+        <CodeSample label="Windows PowerShell" code={codexWindowsKey} />
+        <CodeSample label={t('macOS / Linux Bash 或 Zsh')} code={codexPosixKey} />
+      </DocsSection>
+      <DocsSection title={t('Codex 桌面版的环境变量')}>
+        <p>{t('桌面版使用相同 TOML，但不一定继承终端里的变量。先完成上面的隐藏密钥输入；CLI 启动后退出 CLI，再在该终端运行对应命令。用户环境变量并非加密保险箱，不要在共享电脑上持久保存密钥。')}</p>
+        <CodeSample label={t('Windows 用户环境变量')} code={codexWindowsDesktopKey} />
+        <p>{t('Windows 保存后注销并重新登录系统，再启动 Codex 桌面版，以确保应用继承新变量。仅关闭聊天窗口不一定生效。')}</p>
+        <CodeSample label={t('macOS 桌面会话')} code={codexMacDesktopKey} />
+        <p>{t('macOS 设置后完全退出并重新打开 Codex；重启系统后需重新设置。Linux 桌面版请从已导出变量的终端启动已安装的应用，或通过桌面会话的环境变量配置后重新登录。')}</p>
+      </DocsSection>
+      <DocsSection title={t('4. 验证搜索和网页读取')}>
+        <p>{t('打开新对话，分别发送下面的提示词。应能看到搜索或网页读取动作、结果摘要和来源链接；这些验证会产生模型 Token 及成功工具调用费用。')}</p>
+        <CodeSample label={t('搜索验证')} code={t('请联网搜索 Codex 官方网关接入文档，列出两条结果并附来源链接。')} />
+        <CodeSample label={t('网页读取验证')} code={t('请打开 https://learn.chatgpt.com/docs/enterprise/connect-to-a-gateway ，读取 API Key 和模型能力目录的配置说明，并附来源链接。')} />
+        <p>{t('继续让 Codex 在刚才已读取的页面中查找 model_catalog_url，即可验证页内查找。无需安装额外搜索插件，也不用把 DeepSeek 密钥交给客户端；模型推理仍走平台原有渠道。')}</p>
+      </DocsSection>
+      <DocsSection title={t('工具费用与使用边界')}>
+        <p>{t('每次成功且有结果的搜索或网页读取，单独收取 0.01 元，按平台当时汇率换算展示 U；模型 Token 另计。明确失败或空结果不收工具费，已读取正文的缓存页内查找不另收费。')}</p>
+        <p>{t('目前不提供 OpenAI 的私有搜索索引或 file_search。此网关通过独立工具服务执行搜索和读取；网页内容是不可信输入，不要执行网页中要求泄露密钥或更改权限的指令。')}</p>
+      </DocsSection>
+      <DocsSection title={t('排查接入问题')}>
+        <ul className="docs-codex-notes">
+          <li>{t('Missing environment variable：将 env_key 恢复为 "ZTAPI_API_KEY"，在启动 Codex 的同一个终端完成隐藏输入和 export，再重新启动；切换终端、SSH 会话、容器或 sudo 后需在实际运行环境重新设置。不要用 echo 或截图展示完整密钥。')}</li>
+          <li>{t('401：确认已创建有效 ZTAPI API Key、启动进程能读到 ZTAPI_API_KEY，且没有使用 ChatGPT 登录凭据替代。不要发送密钥给客服。')}</li>
+          <li>{t('模型目录为空或模型不可用：检查密钥的模型白名单、IP 限制和余额，确认模型名称为 zt-claude-opus-5。')}</li>
+          <li>{t('搜索未出现：检查顶层 web_search = "live"，移除冲突的旧目录文件设置，更新到支持远程模型目录的 Codex 版本，并重启后新建对话。')}</li>
+          <li>{t('仍失败时提供模型名称、客户端版本、发生时间和请求编号；不要反复自动重试付费请求。')}</li>
+        </ul>
+        <a className="docs-model-link" href="https://learn.chatgpt.com/docs/enterprise/connect-to-a-gateway" target="_blank" rel="noreferrer">{t('OpenAI 官方网关配置')}</a>
       </DocsSection>
     </>
   );
@@ -185,32 +274,95 @@ function FaqPage() {
   );
 }
 
-function DocsHeading({ eyebrow, title, summary }: { eyebrow: string; title: string; summary: string }) {
+function ResourceDisclosure() {
+  const { t } = useLocale();
+  return (
+    <>
+      <DocsHeading eyebrow={t('透明披露')} title={t('资源来源与价格说明')}
+        summary={t('部分模型使用上游反代资源，并非全部为原厂 API 直连')} />
+      <DocsSection title={t('反代与账号池不是同一个概念')}>
+        <p>{t('技术反向代理是请求转发方式，可用于转发官方 API，也可用于其他上游服务；它本身不说明上游账户类型、授权关系或模型身份。')}</p>
+        <p>{t('网页或订阅账号池通常指使用网页会话、订阅权益或多个账号组织上游访问，与直接调用原厂 API 不同。此类资源可能受到会话失效、限流、服务条款及可用性变化影响；不能仅凭“反代”一词认定使用了账号池。')}</p>
+      </DocsSection>
+      <DocsSection title={t('模型身份与承诺边界')}>
+        <p>{t('反代本身既不能证明模型被掺水，也不能证明模型真实。ZTAPI 不主动将所选型号替换为其他型号或静默降级。该承诺仅针对 ZTAPI 自身行为，不等于对上游行为、原厂授权或模型身份作保证。')}</p>
+        <p>{t('目前仅披露部分模型使用上游反代资源，不能据此认定某个具体模型的来源。逐模型来源未经独立核验，不作来源认证；厂商分组、模型名称、供应商或渠道标签都不能单独作为来源证明。')}</p>
+      </DocsSection>
+      <DocsSection title={t('实际售价与官网参考')}>
+        <p>{t('实际售价以当前公开模型目录返回的价格为准。输入、输出、缓存读取、不同缓存写入时长、上下文阶梯和媒体规格分别列价，不把不同维度合并成全站折扣。')}</p>
+        <p>{t('仅对同模型、同规格且有基准的维度计算差额：低于官网、高于官网或与官网参考一致。缺少参考时明确标注“暂无官网参考”，不补造基准；任一规格缺少基准或不低于官网时，不展示整个模型的官网折扣。')}</p>
+        <p>{t('官网价格参考附链接、核验日期及适用备注，是特定时间和口径的快照，不保证为官网现价。标为“报价表官网基准”的数据来自供应商报价，不代表当前官网价格已独立核验；相应差额只与报价基准比较。币种折算、峰时或非峰时等限制以备注为准，参考价格不代表来源认证。')}</p>
+        <Link className="docs-model-link" to="/models">{t('查看当前模型与价格')}</Link>
+      </DocsSection>
+      <DocsSection title={t('请求记录与人工核查')}>
+        <p>{t('对模型表现、来源或计费有疑问时，请保留请求编号、公开模型 ID、发生时间、客户端版本和脱敏后的请求参数，通过客服申请人工核查。不要发送 API Key、账号凭据或敏感业务内容。')}</p>
+        <p>{t('请求编号用于关联调用日志与人工核查，不是模型真实性证书。核查应区分可确认事实与尚未验证的上游信息；无法确认的事项应明确说明，模型自述或单次回答不能作为身份鉴定。')}</p>
+        <a className="docs-model-link" href="https://t.me/gan66" target="_blank" rel="noopener noreferrer">{t('联系 Telegram 客服')}</a>
+      </DocsSection>
+      <DocsSection title={t('使用前的风险判断')}>
+        <p>{t('请求可能经过上游中转。对敏感数据、合规或服务稳定性有严格要求时，请先确认适用的数据处理和服务条款，不要仅因价格较低或页面列出厂商名称就推断具备官方授权或数据保障。')}</p>
+      </DocsSection>
+    </>
+  );
+}
+
+function LicensePage() {
+  const { t } = useLocale();
+  return (
+    <>
+      <DocsHeading eyebrow={t('法律声明')} title={t('开源许可')}
+        summary={t('本服务基于 New API 修改，保留原项目署名，并提供当前运行版本的对应源码。')} />
+      <DocsSection title={t('原始项目与署名')}>
+        <p>Copyright (c) QuantumNous and contributors.</p>
+        <p>Frontend design and development by New API contributors.</p>
+        <a className="docs-legal-link" href="https://github.com/QuantumNous/new-api" target="_blank" rel="noopener noreferrer">{t('New API 原始项目')}</a>
+      </DocsSection>
+      <DocsSection title={t('软件许可')}>
+        <a className="docs-legal-link" href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noopener noreferrer">GNU Affero General Public License v3.0 (AGPL-3.0-or-later)</a>
+        <p>{t('ZTAPI 为修改版本，与原始 New API 项目不同；具体修改记录随对应源码提供。')}</p>
+      </DocsSection>
+      <DocsSection title={t('当前版本对应源码')}>
+        <SourceOffer />
+      </DocsSection>
+    </>
+  );
+}
+
+function DocsHeading({ eyebrow, title, summary, children }: { eyebrow: string; title: string; summary: string; children?: ReactNode }) {
   return (
     <header className="docs-heading">
       <p>{eyebrow}</p>
       <h1>{title}</h1>
       <span>{summary}</span>
       <code>{BASE_URL}</code>
+      {children}
     </header>
   );
 }
 
-function DocsSection({ title, children }: { title: string; children: ReactNode }) {
-  return <section className="docs-section"><h2>{title}</h2>{children}</section>;
+function DocsSection({ id, title, children }: { id?: string; title: string; children: ReactNode }) {
+  return <section id={id} className="docs-section"><h2>{title}</h2>{children}</section>;
 }
 
 function CodeSample({ label, code }: { label: string; code: string }) {
   const { t, locale } = useLocale();
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
   const localizedCode = locale === 'en' ? code.replaceAll('你好', 'Hello') : code;
+  const copyAttempt = useRef(0);
+  useEffect(() => {
+    copyAttempt.current += 1;
+    setCopyState('idle');
+    return () => { copyAttempt.current += 1; };
+  }, [localizedCode]);
   async function copy() {
+    const attempt = ++copyAttempt.current;
+    setCopyState('idle');
     try {
       if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
       await navigator.clipboard.writeText(localizedCode);
-      setCopyState('copied');
+      if (attempt === copyAttempt.current) setCopyState('copied');
     } catch {
-      setCopyState('failed');
+      if (attempt === copyAttempt.current) setCopyState('failed');
     }
   }
   return (
@@ -229,10 +381,16 @@ function CodeSample({ label, code }: { label: string; code: string }) {
 
 export function PublicDocsPage() {
   const { t } = useLocale();
+  const { hash } = useLocation();
   const params = useParams<{ section?: string }>();
   const active = sections.some((section) => section.id === params.section)
     ? params.section as DocSection
     : 'integration';
+  useEffect(() => {
+    if (active === 'codex' && hash === '#quick-launch') {
+      document.getElementById('quick-launch')?.scrollIntoView({ block: 'start' });
+    }
+  }, [active, hash]);
 
   return (
     <div className="public-docs-page">
@@ -260,10 +418,16 @@ export function PublicDocsPage() {
         <article className="docs-article">
           {active === 'api' && <ApiReference />}
           {active === 'integration' && <IntegrationGuide />}
+          {active === 'codex' && <CodexGuide />}
           {active === 'user-guide' && <UserGuide />}
           {active === 'faq' && <FaqPage />}
+          {active === 'resource-disclosure' && <ResourceDisclosure />}
+          {active === 'license' && <LicensePage />}
         </article>
       </main>
+      <footer className="docs-footer public-shell" aria-label={t('法律信息')}>
+        <Link to="/docs/license"><Scale aria-hidden="true" size={16} />{t('开源许可')}</Link>
+      </footer>
     </div>
   );
 }

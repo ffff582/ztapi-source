@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/dto"
-	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/stretchr/testify/require"
@@ -57,13 +56,15 @@ func TestZTAPIReasoningValidatesFinalJSONAfterParameterOverride(t *testing.T) {
 	require.JSONEq(t, `{"reasoning":{"effort":"high"}}`, string(got))
 }
 
-func TestZTAPIReasoningRejectsUnsupportedEffortBeforeDispatch(t *testing.T) {
+func TestZTAPIReasoningDropsUnsupportedEffortBeforeDispatch(t *testing.T) {
 	request := &dto.OpenAIResponsesRequest{Reasoning: &dto.Reasoning{Effort: "ultra"}}
 	info := &relaycommon.RelayInfo{ZTAPIPublicationSnapshot: &relaycommon.ZTAPIPublicationSnapshot{SourceModel: "gpt-5.4"}}
 
 	err := ValidateAndNormalizeZTAPIReasoningEffort(info, request)
-	require.ErrorIs(t, err, model.ErrZTAPIReasoningEffortUnsupported)
-	require.Equal(t, "ultra", request.Reasoning.Effort)
+	require.NoError(t, err)
+	require.Nil(t, request.Reasoning)
+	require.True(t, info.ReasoningEffortDropped)
+	require.Equal(t, "not_in_supported_list", info.ReasoningEffortDropReason)
 	require.Equal(t, "invalid_reasoning_effort", ZTAPIInvalidReasoningEffortCode)
 }
 

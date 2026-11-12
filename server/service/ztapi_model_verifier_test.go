@@ -649,7 +649,7 @@ func TestZTAPIGPTImage2ContractPublishesMappedAspectRatiosAndResolutions(t *test
 	contract, _, err := ztapiGPTImage2ProtocolContract("X-Request-ID")
 	require.NoError(t, err)
 	require.ElementsMatch(t, []string{
-		"1024x1024", "1024x576", "576x1024", "1024x768", "768x1024", "1152x768", "768x1152",
+		"1024x1024", "1280x720", "720x1280", "1024x768", "768x1024", "1152x768", "768x1152",
 		"2048x2048", "2048x1152", "1152x2048", "2048x1536", "1536x2048", "2304x1536", "1536x2304",
 		"3840x2160", "2160x3840", "3072x2304", "2304x3072", "3456x2304", "2304x3456",
 	}, contract.Capabilities.Sizes)
@@ -767,10 +767,10 @@ func TestVerifyZTAPIGPTImage2UsesRealGenerationAndPersistsExactProtocol(t *testi
 	require.Equal(t, "X-Request-ID", contract.RequestIDKey)
 	generation, ok := contract.FindReservationAuthority(types.ZTAPIImageSelector{Operation: "generation", Size: "1024x1024", Quality: "low", ResponseFormat: "b64_json", N: 1})
 	require.True(t, ok)
-	require.Equal(t, map[string]string{"text_input": "200000", "image_input": "0", "image_output": "196"}, generation.MaximumDimensions)
+	require.Equal(t, map[string]string{"text_input": "200000", "image_input": "0", "image_output": "16384"}, generation.MaximumDimensions)
 	edit, ok := contract.FindReservationAuthority(types.ZTAPIImageSelector{Operation: "edit", Size: "1024x1024", Quality: "low", ResponseFormat: "b64_json", N: 10})
 	require.True(t, ok)
-	require.Equal(t, map[string]string{"text_input": "200000", "image_input": "200000", "image_output": "1960"}, edit.MaximumDimensions)
+	require.Equal(t, map[string]string{"text_input": "200000", "image_input": "200000", "image_output": "163840"}, edit.MaximumDimensions)
 	require.Equal(t, types.ZTAPIImageRequestFieldOmit, contract.UpstreamRequestFields["response_format"])
 
 	var stored model.ZTAPIModelVerification

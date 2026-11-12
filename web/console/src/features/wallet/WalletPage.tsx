@@ -12,6 +12,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiClient } from '../../api/client';
 import { AccountBalance, formatAccountUnits } from './AccountBalance';
+import { CNYTopUp } from './CNYTopUp';
 import { PendingSettlements } from './PendingSettlements';
 import { TopUpHistory, formatTopUpTime } from './TopUpHistory';
 import {
@@ -81,6 +82,8 @@ export function WalletPage() {
   const [error, setError] = useState('');
   const [copied, setCopied] = useState<'amount' | 'address' | null>(null);
   const [countdown, setCountdown] = useState(0);
+  const [cnyBalanceVersion, setCNYBalanceVersion] = useState(0);
+  const refreshCNYBalance = useCallback(() => setCNYBalanceVersion((version) => version + 1), []);
   const pollingRef = useRef(false);
 
   const commitOrder = useCallback((nextOrder: USDTTopUpOrder) => {
@@ -231,14 +234,14 @@ export function WalletPage() {
           <p className="console-eyebrow">{t('账户余额')}</p>
           <h1>{t('余额充值')}</h1>
         </div>
-        <p>{t('通过 TRON Mainnet 的 USDT（TRC-20）为当前 ZTAPI 账户充值。')}</p>
+        <p>{t('为当前 ZTAPI 账户充值。')}</p>
       </header>
 
-      <AccountBalance refreshKey={`${order?.trade_no ?? ''}:${order?.status ?? ''}`} />
+      <AccountBalance refreshKey={`${order?.trade_no ?? ''}:${order?.status ?? ''}:${cnyBalanceVersion}`} />
       <PendingSettlements />
 
       <section className="wallet-bonus" aria-label={t('充值优惠')}>
-        <strong>{t('充值额外赠送 5%')}</strong>
+        <strong>{t('USDT 充值额外赠送 5%')}</strong>
         <span>{t('赠送额度自动到账，可用于调用全部已上架模型。')}</span>
       </section>
 
@@ -437,6 +440,7 @@ export function WalletPage() {
           )}
         </div>
       )}
+      <CNYTopUp onBalanceChange={refreshCNYBalance} />
       <TopUpHistory key={`${order?.trade_no ?? ''}:${order?.status ?? ''}`} />
     </div>
   );

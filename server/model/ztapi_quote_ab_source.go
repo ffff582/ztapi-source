@@ -13,8 +13,9 @@ import (
 )
 
 type ztapiABFrozenSaleRule struct {
-	Conditions []string          `json:"conditions"`
-	Sale       map[string]string `json:"sale"`
+	Conditions    []string          `json:"conditions"`
+	Sale          map[string]string `json:"sale"`
+	RetailBasisID int64             `json:"retail_basis_id,omitempty"`
 }
 
 var ztapiABTokenConditionPattern = regexp.MustCompile(`^(输入长度|输出长度)?=?(≤|≥|>|<)[0-9]+(?:\.[0-9]+)?[KM]$`)
@@ -450,6 +451,13 @@ func validateZTAPIABImage2PriceSource(quote ZTAPIABQuotationManifest, source *ZT
 func BuildZTAPIQuotedModelPriceSource(modelName string, modelConfigID, operatorID int, effectiveAt int64) (ZTAPIModelPriceSource, error) {
 	if DB == nil {
 		return ZTAPIModelPriceSource{}, errors.New("ZTAPI database is not initialized")
+	}
+	if _, found := ztapiSupplierAdmissionPrices20261019[modelName]; found {
+		fx, err := currentZTAPIABFXParams(DB)
+		if err != nil {
+			return ZTAPIModelPriceSource{}, err
+		}
+		return BuildZTAPISupplierAdmissionTextPriceSource20261019(modelName, modelConfigID, operatorID, effectiveAt, fx)
 	}
 	if modelName == "Claude Opus 5" {
 		return BuildZTAPI929QuotedModelPriceSource(modelName, modelConfigID, operatorID, effectiveAt)

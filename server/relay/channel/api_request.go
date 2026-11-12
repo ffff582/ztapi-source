@@ -321,6 +321,11 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 		return nil, fmt.Errorf("new request failed: %w", err)
 	}
 	applyUpstreamContentLength(req, info)
+	bodySize := req.ContentLength
+	if bodySize == 0 && req.Body != nil && req.Body != http.NoBody {
+		bodySize = -1
+	}
+	common.CaptureZTAPIOutboundRequestMetering(info, bodySize)
 	headers := req.Header
 	err = a.SetupRequestHeader(c, &headers, info)
 	if err != nil {
@@ -522,6 +527,22 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		client = &managedClient
 	}
 
+	if err := service.ReserveZTAPIReasoningOutputBudget(info); err != nil {
+		return nil, err
+	}
+	lease, admissionErr := acquireZTAPIUpstreamLease(c.Request.Context(), req, info)
+	if admissionErr != nil {
+		return nil, admissionErr
+	}
+	bodyOwnsLease := false
+	defer func() {
+		if !bodyOwnsLease {
+			lease.release()
+		}
+	}()
+	if lease != nil {
+		req = req.WithContext(lease.ctx)
+	}
 	healthAttempt, healthErr := common.BeginZTAPIHealthUpstream(c, c.GetInt("channel_id"), req.URL.Path, ztapiHealthCredentialMaterial(info, req.Header))
 	if healthErr != nil {
 		return nil, healthErr
@@ -545,16 +566,25 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		}
 	}
 
+	if lease != nil && lease.ctx.Err() != nil {
+		return nil, ztapiAdmissionError("upstream admission lease lost before dispatch", http.StatusServiceUnavailable)
+	}
 	if err := service.BeginZTAPIBillingAttempt(info, req.URL.Path); err != nil {
 		return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithSkipRetry())
 	}
 	healthAttempt.Dispatched()
+	if lease != nil {
+		c.Set("ztapi_upstream_admission_dispatched", true)
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		healthAttempt.TransportError(err)
 		logger.LogError(c, "do request failed: "+err.Error())
 		options := []types.NewAPIErrorOptions{
 			types.ErrOptionWithHideErrMsg("upstream error: do request failed"),
+		}
+		if lease != nil {
+			options = append(options, types.ErrOptionWithSkipRetry())
 		}
 		if c.Request.Context().Err() != nil {
 			options = append(options, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
@@ -569,6 +599,10 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	if err := service.ObserveZTAPIBillingResponse(info, resp); err != nil {
 		_ = resp.Body.Close()
 		return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithSkipRetry())
+	}
+	if lease != nil {
+		resp.Body = &ztapiAdmittedResponseBody{ReadCloser: resp.Body, lease: lease}
+		bodyOwnsLease = true
 	}
 
 	if upID := resp.Header.Get(common2.RequestIdKey); upID != "" {

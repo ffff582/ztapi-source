@@ -82,6 +82,7 @@ describe('ZTAPI administration shell', () => {
     expect(screen.getByRole('link', { name: '财务管理' })).toBeVisible();
     expect(screen.queryByRole('link', { name: '上游渠道' })).toBeNull();
     expect(screen.queryByRole('link', { name: '系统设置' })).toBeNull();
+    expect(screen.queryByRole('link', { name: '客服工单' })).toBeNull();
   });
 
   it('shows root-only settings and staff navigation to root operators', () => {
@@ -108,6 +109,19 @@ describe('ZTAPI administration shell', () => {
     expect(screen.getByRole('link', { name: '操作日志' })).toBeVisible();
     expect(screen.queryByRole('link', { name: '财务管理' })).toBeNull();
     expect(screen.queryByRole('link', { name: '审计日志' })).toBeNull();
+    expect(screen.getByRole('link', { name: '客服工单' })).toHaveAttribute('href', '/support/tickets');
+  });
+
+  it.each([2, 10, 100])('allows existing support-capable role %i into the support inbox', async (role) => {
+    renderAdminApp({ role, path: '/support/tickets' });
+    expect(await screen.findByRole('heading', { name: '客服工单' })).toBeVisible();
+    expect(screen.getByRole('link', { name: '客服工单' })).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('fails closed for the existing finance-only role at the support route', () => {
+    renderAdminApp({ role: 3, path: '/support/tickets' });
+    expect(screen.getByRole('alert')).toHaveTextContent('无权访问此页面');
+    expect(fetch.mock.calls.some(([url]) => String(url).startsWith('/api/admin/support'))).toBe(false);
   });
 
   it('marks the current route as active', async () => {

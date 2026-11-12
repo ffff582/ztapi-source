@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ChevronDown, Menu, X } from 'lucide-react';
+import { ChevronDown, LifeBuoy, Menu, X } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import ZtapiLogo from '../../assets/logo.tsx';
-import { hasAdminPermission } from '../auth/admin-permission-policy';
+import { AdminPermission, hasAdminPermission } from '../auth/admin-permission-policy';
 import { adminNavigation } from './admin-navigation.js';
 
 function Navigation({ role, label, onNavigate }) {
@@ -10,6 +10,11 @@ function Navigation({ role, label, onNavigate }) {
   const items = adminNavigation.filter((item) =>
     hasAdminPermission(role, item.permission),
   );
+  if (hasAdminPermission(role, AdminPermission.userRead)) {
+    items.splice(Math.max(0, items.findIndex((item) => item.route === '/logs')), 0, {
+      route: '/support/tickets', label: '客服工单', icon: LifeBuoy,
+    });
+  }
 
   return (
     <nav className='ztapi-admin-navigation' aria-label={label}>

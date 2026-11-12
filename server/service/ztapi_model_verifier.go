@@ -31,6 +31,7 @@ import (
 const (
 	ztapiVerificationRequestTimeout       = 20 * time.Second
 	ztapiVerificationSlowRequestTimeout   = 60 * time.Second
+	ztapiVerificationGPT61SolTimeout      = 120 * time.Second
 	ztapiVerificationVideoTimeout         = 5 * time.Minute
 	ztapiVerificationBodyLimit            = 1 << 20
 	ztapiVerificationFailureMetadataLimit = 2048
@@ -245,6 +246,9 @@ func ztapiVerificationUsesResponses(sourceModel string) bool {
 
 func ztapiVerificationRequestTimeoutForModel(sourceModel string) time.Duration {
 	normalized := strings.ToLower(strings.TrimSpace(sourceModel))
+	if normalized == "gpt-6.1-sol" {
+		return ztapiVerificationGPT61SolTimeout
+	}
 	if model.ZTAPIModelModality(normalized) == model.ZTAPIModalityVideo {
 		return ztapiVerificationVideoTimeout
 	}
@@ -455,7 +459,7 @@ func ztapiGPTImage2ProtocolContract(requestIDHeader string) (types.ZTAPIImagePro
 		ProviderPath:  "/v1/images/generations",
 		Capabilities: types.ZTAPIImageCapabilities{
 			Sizes: []string{
-				"1024x1024", "1024x576", "576x1024", "1024x768", "768x1024", "1152x768", "768x1152",
+				"1024x1024", "1280x720", "720x1280", "1024x768", "768x1024", "1152x768", "768x1152",
 				"2048x2048", "2048x1152", "1152x2048", "2048x1536", "1536x2048", "2304x1536", "1536x2304",
 				"3840x2160", "2160x3840", "3072x2304", "2304x3072", "3456x2304", "2304x3456",
 			},
@@ -514,8 +518,8 @@ func ztapiGPTImage2ProtocolContract(requestIDHeader string) (types.ZTAPIImagePro
 func ztapiGPTImage2RenderOptions() []types.ZTAPIImageRenderOption {
 	return []types.ZTAPIImageRenderOption{
 		{AspectRatio: "1:1", Resolution: "1K", Size: "1024x1024", Quality: "low"},
-		{AspectRatio: "16:9", Resolution: "1K", Size: "1024x576", Quality: "low"},
-		{AspectRatio: "9:16", Resolution: "1K", Size: "576x1024", Quality: "low"},
+		{AspectRatio: "16:9", Resolution: "1K", Size: "1280x720", Quality: "low"},
+		{AspectRatio: "9:16", Resolution: "1K", Size: "720x1280", Quality: "low"},
 		{AspectRatio: "4:3", Resolution: "1K", Size: "1024x768", Quality: "low"},
 		{AspectRatio: "3:4", Resolution: "1K", Size: "768x1024", Quality: "low"},
 		{AspectRatio: "3:2", Resolution: "1K", Size: "1152x768", Quality: "low"},
@@ -539,7 +543,7 @@ func ztapiGPTImage2RenderOptions() []types.ZTAPIImageRenderOption {
 func ztapiGPTImage2MaximumImageOutput(size string, count int) string {
 	const (
 		basePixels      = int64(1024 * 1024)
-		baseImageTokens = int64(196)
+		baseImageTokens = int64(16384)
 		maximumTokens   = int64(200000)
 	)
 	parts := strings.Split(size, "x")

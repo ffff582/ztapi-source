@@ -52,8 +52,32 @@ export const adminNavigation = [
   {
     label: '财务管理',
     icon: BadgeDollarSign,
+    route: '/finance/overview',
+    permission: AdminPermission.financeRead,
+  },
+  {
+    label: '充值记录',
+    icon: Coins,
     route: '/finance/orders',
     permission: AdminPermission.financeRead,
+  },
+  {
+    label: '人民币订单',
+    icon: Coins,
+    route: '/finance/cny-orders',
+    permission: AdminPermission.financeRead,
+  },
+  {
+    label: '推广返利',
+    icon: Users,
+    route: '/finance/referrals',
+    permission: AdminPermission.referralsRead,
+  },
+  {
+    label: '提现审核',
+    icon: ClipboardCheck,
+    route: '/finance/referrals/withdrawals',
+    permission: AdminPermission.referralsRead,
   },
   {
     label: '余额账本',

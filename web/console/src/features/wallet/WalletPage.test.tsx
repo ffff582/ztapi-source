@@ -94,7 +94,7 @@ describe('WalletPage', () => {
 
     render(<WalletPage />);
     const amount = await screen.findByLabelText('充值数量');
-		expect(screen.getByText('充值额外赠送 5%')).toBeVisible();
+		expect(screen.getByText('USDT 充值额外赠送 5%')).toBeVisible();
 		expect(screen.getByText('充值 10 U，实际到账 10.50 U')).toBeVisible();
     fireEvent.change(amount, { target: { value: '10' } });
     fireEvent.click(screen.getByRole('button', { name: '创建支付订单' }));

@@ -1,0 +1,205 @@
+.ztapi-support-page {
+  min-width: 0;
+}
+.ztapi-support-attachment {
+  margin-top: 10px;
+}
+.ztapi-support-attachment img {
+  display: block;
+  max-width: 100%;
+  max-height: 480px;
+  width: auto;
+  height: auto;
+  margin-top: 10px;
+  object-fit: contain;
+}
+.ztapi-support-page h1 {
+  font-size: 22px;
+  margin: 0;
+}
+.ztapi-support-page h2 {
+  font-size: 18px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.ztapi-support-page h3 {
+  font-size: 15px;
+  margin: 18px 0 10px;
+}
+.ztapi-support-layout {
+  display: grid;
+  grid-template-columns: minmax(200px, 280px) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+.ztapi-support-layout > * {
+  min-width: 0;
+}
+.ztapi-support-inbox {
+  border-right: 1px solid #dce2e8;
+  padding-right: 20px;
+}
+.ztapi-support-page label {
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+}
+.ztapi-support-page select,
+.ztapi-support-page textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid #dce2e8;
+  border-radius: 6px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+}
+.ztapi-support-page textarea {
+  resize: vertical;
+}
+.ztapi-support-page button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 1px solid #dce2e8;
+  border-radius: 6px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.ztapi-support-page button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.ztapi-support-inbox > nav:not(.ztapi-support-pagination) {
+  display: grid;
+  gap: 4px;
+  margin-top: 12px;
+}
+.ztapi-support-inbox > nav > button {
+  display: grid;
+  gap: 6px;
+  justify-content: stretch;
+  text-align: left;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.ztapi-support-inbox button[aria-current] {
+  background: #edf7fa;
+  border-color: #087ea4;
+}
+.ztapi-support-inbox button span {
+  font-size: 12px;
+  color: #536170;
+}
+.ztapi-support-pagination {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+.ztapi-support-detail-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ztapi-support-detail-heading > button {
+  flex: 0 0 36px;
+  width: 36px;
+}
+.ztapi-support-evidence {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 20px;
+  font-size: 13px;
+}
+.ztapi-support-evidence > div {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 8px;
+}
+.ztapi-support-evidence dt {
+  color: #536170;
+}
+.ztapi-support-evidence dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.ztapi-support-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.65;
+}
+.ztapi-support-messages {
+  max-height: 50vh;
+  overflow-y: auto;
+  border-block: 1px solid #dce2e8;
+}
+.ztapi-support-messages article {
+  padding: 12px 0;
+  border-bottom: 1px solid #dce2e8;
+}
+.ztapi-support-messages article header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 14px;
+  font-size: 12px;
+}
+.ztapi-support-messages time {
+  color: #536170;
+}
+.ztapi-support-reply {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+.ztapi-support-reply > button {
+  justify-self: start;
+}
+.ztapi-support-status {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 20px;
+  padding-block: 16px;
+  border-top: 1px solid #dce2e8;
+}
+.ztapi-support-page [role='alert'] {
+  padding: 10px;
+  border-left: 3px solid #b42318;
+  color: #b42318;
+  background: #fff;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 1100px) {
+  .ztapi-support-layout {
+    grid-template-columns: 220px minmax(0, 1fr);
+    gap: 16px;
+  }
+  .ztapi-support-evidence {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 720px) {
+  .ztapi-support-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ztapi-support-inbox {
+    border-right: 0;
+    padding-right: 0;
+    border-bottom: 1px solid #dce2e8;
+    padding-bottom: 16px;
+  }
+  .ztapi-support-inbox > nav:not(.ztapi-support-pagination) {
+    max-height: 260px;
+    overflow-y: auto;
+  }
+}

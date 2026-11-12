@@ -68,6 +68,7 @@ type ZTAPIModelPriceSource struct {
 	ResourceType           string `json:"resource_type" gorm:"size:32;not null;index"`
 	PricePolicy            string `json:"price_policy" gorm:"size:32;not null;default:enterprise_40_margin"`
 	SaleMultiplier         string `json:"sale_multiplier" gorm:"type:decimal(12,10);not null;default:1"`
+	CashMarginBaseSourceID int64  `json:"cash_margin_base_source_id,omitempty" gorm:"not null;default:0;index"`
 	TokenPriceRulesJSON    string `json:"token_price_rules,omitempty" gorm:"column:token_price_rules_json;type:text"`
 	MediaPriceContractJSON string `json:"media_price_contract,omitempty" gorm:"column:media_price_contract_json;type:text"`
 	SpendTier              string `json:"spend_tier" gorm:"size:32;not null"`
@@ -218,6 +219,9 @@ func ValidateZTAPIModelPriceSource(source *ZTAPIModelPriceSource) error {
 	if source == nil {
 		return errors.New("price source is nil")
 	}
+	if source.CashMarginBaseSourceID != 0 && !isZTAPICashMarginPolicy20261030(source.PricePolicy) && !isZTAPIDatedRetailPolicy20261107(source.PricePolicy) {
+		return errors.New("only cash margin sources may reference a cash margin parent")
+	}
 	if source.ModelConfigID <= 0 || strings.TrimSpace(source.SourceModel) == "" {
 		return errors.New("price source model identity is required")
 	}
@@ -305,6 +309,31 @@ func ValidateZTAPIModelPriceSource(source *ZTAPIModelPriceSource) error {
 			return err
 		}
 	}
+	if ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicyQuoteFrozenRetail20261019 {
+		if _, _, err := ztapiSupplierFrozenRules20261019(source); err != nil {
+			return err
+		}
+	}
+	if ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicySupplierAdmission20261019 {
+		if _, _, err := ztapiSupplierAdmissionFrozenRules20261019(source); err != nil {
+			return err
+		}
+	}
+	if ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicyXcloudGLM53 {
+		if err := validateZTAPIXcloudGLM53Price(source); err != nil {
+			return err
+		}
+	}
+	if isZTAPICashMarginPolicy20261030(source.PricePolicy) {
+		if _, _, err := ztapiCashMarginRules20261030(source); err != nil {
+			return err
+		}
+	}
+	if isZTAPIDatedRetailPolicy20261107(source.PricePolicy) {
+		if _, _, err := ztapiReductionRules20261107(source); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -326,6 +355,19 @@ func BuildZTAPIModelPricePreview(source *ZTAPIModelPriceSource) (*ZTAPIModelPric
 	values := ztapiPriceSourceValues(source)
 	poolOfficial, _, poolOfficialOK := ztapiPoolOfficialPriceContractFromManifest(ztapiQuotation, source.SourceModel)
 	var firstParty78 map[string]decimal.Decimal
+	var frozenRetail map[string]decimal.Decimal
+	if isZTAPIDatedRetailPolicy20261107(source.PricePolicy) {
+		_, frozenRetail, _ = ztapiReductionRules20261107(source)
+	}
+	if isZTAPICashMarginPolicy20261030(source.PricePolicy) {
+		_, frozenRetail, _ = ztapiCashMarginRules20261030(source)
+	}
+	if ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicyQuoteFrozenRetail20261019 {
+		_, frozenRetail, _ = ztapiSupplierFrozenRules20261019(source)
+	}
+	if ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicySupplierAdmission20261019 {
+		_, frozenRetail, _ = ztapiSupplierAdmissionFrozenRules20261019(source)
+	}
 	if ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicyPoolOfficial78Sep2026 {
 		firstParty78 = map[string]decimal.Decimal{}
 		price, ok := ztapiOfficialTextPrices20260929[source.SourceModel]
@@ -356,7 +398,10 @@ func BuildZTAPIModelPricePreview(source *ZTAPIModelPriceSource) (*ZTAPIModelPric
 		}
 		preview.CostUSD[dimension] = cost.StringFixed(10)
 		var sale decimal.Decimal
-		if ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicyPoolOfficial78Sep2026 {
+		if isZTAPIDatedRetailPolicy20261107(source.PricePolicy) || isZTAPICashMarginPolicy20261030(source.PricePolicy) || ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicyQuoteFrozenRetail20261019 ||
+			ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicySupplierAdmission20261019 {
+			sale = frozenRetail[dimension]
+		} else if ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicyPoolOfficial78Sep2026 {
 			var ok bool
 			sale, ok = firstParty78[dimension]
 			if !ok {
@@ -544,6 +589,9 @@ func UpdateZTAPIModelIdentity(update ZTAPIModelIdentityUpdate) (*ZTAPIModelConfi
 }
 
 func ImportZTAPIModelPriceSource(input ZTAPIModelPriceSourceImport) (*ZTAPIModelConfig, *ZTAPIModelPriceSource, *ZTAPIModelPricePreview, error) {
+	if isZTAPIDatedRetailPolicy20261107(input.Source.PricePolicy) {
+		return nil, nil, nil, errors.New("dated reduction sources require the controlled dated publisher")
+	}
 	input.Source.SourceModel = strings.TrimSpace(input.Source.SourceModel)
 	input.Source.ResourceType = strings.TrimSpace(input.Source.ResourceType)
 	input.Source.SpendTier = strings.TrimSpace(input.Source.SpendTier)
@@ -846,7 +894,9 @@ type ZTAPIModelPublicationSnapshot struct {
 	PricePolicy               string  `json:"price_policy" gorm:"size:32;not null;default:enterprise_40_margin"`
 	SaleMultiplier            string  `json:"sale_multiplier" gorm:"type:decimal(12,10);not null;default:1"`
 	TokenPriceRulesJSON       string  `json:"token_price_rules,omitempty" gorm:"column:token_price_rules_json;type:text"`
+	CacheWritePricingMode     string  `json:"cache_write_pricing_mode,omitempty" gorm:"size:32;not null;default:''"`
 	MediaPriceContractJSON    string  `json:"media_price_contract,omitempty" gorm:"column:media_price_contract_json;type:text"`
+	ImageSaleContractJSON     string  `json:"image_sale_contract,omitempty" gorm:"column:image_sale_contract_json;type:text"`
 	ImageProtocolContractJSON string  `json:"image_protocol_contract,omitempty" gorm:"column:image_protocol_contract_json;type:mediumtext"`
 	VideoProtocolContractJSON string  `json:"video_protocol_contract,omitempty" gorm:"column:video_protocol_contract_json;type:text"`
 	InputPricePerMillion      float64 `json:"input_price_per_million" gorm:"type:decimal(20,8);not null;default:0"`
@@ -867,6 +917,12 @@ func (snapshot *ZTAPIModelPublicationSnapshot) BeforeCreate(tx *gorm.DB) error {
 	if snapshot == nil {
 		return nil
 	}
+	if err := validateZTAPICacheWritePricingMode(snapshot); err != nil {
+		return err
+	}
+	if err := validateZTAPIImageSaleSnapshot(snapshot); err != nil {
+		return err
+	}
 	modality := ZTAPIModelModality(snapshot.SourceModel)
 	imageRequired := modality == ZTAPIModalityImage
 	videoRequired := modality == ZTAPIModalityVideo
@@ -877,8 +933,55 @@ func (snapshot *ZTAPIModelPublicationSnapshot) BeforeCreate(tx *gorm.DB) error {
 		return nil
 	}
 	var source ZTAPIModelPriceSource
-	if err := tx.Select("model_config_id", "source_model", "resource_type", "price_policy", "sale_multiplier", "token_price_rules_json", "media_price_contract_json").First(&source, snapshot.PriceSourceID).Error; err != nil {
+	if err := tx.Select("model_config_id", "source_model", "resource_type", "price_policy", "sale_multiplier", "token_price_rules_json", "media_price_contract_json", "cash_margin_base_source_id").First(&source, snapshot.PriceSourceID).Error; err != nil {
 		return err
+	}
+	if err := validateZTAPICashSnapshotMode20261030(&source, snapshot); err != nil {
+		return err
+	}
+	if isZTAPIDatedRetailPolicy20261107(source.PricePolicy) {
+		if err := tx.First(&source, snapshot.PriceSourceID).Error; err != nil {
+			return err
+		}
+		if err := ValidateZTAPIPriceReductionSource20261107(tx, &source); err != nil {
+			return err
+		}
+		if source.ModelConfigID != snapshot.ModelConfigID || source.SourceModel != snapshot.SourceModel {
+			return errors.New("dated reduction snapshot identity mismatch")
+		}
+		if err := ValidateZTAPIPriceReductionRoute20261107(&source, snapshot.PublicName, snapshot.ChannelIDs()); err != nil {
+			return err
+		}
+		preview, err := BuildZTAPIModelPricePreview(&source)
+		if err != nil {
+			return err
+		}
+		if !ztapiStoredPriceMatchesPreview(snapshot.InputPricePerMillion, preview.InputSaleUSDPerMillion) || !ztapiStoredPriceMatchesPreview(snapshot.OutputPricePerMillion, preview.OutputSaleUSDPerMillion) ||
+			!ztapiCacheRatiosMatchPreview(&ZTAPIModelConfig{CacheReadRatio: snapshot.CacheReadRatio, CacheCreationRatio: snapshot.CacheCreationRatio, CacheCreation5mRatio: snapshot.CacheCreation5mRatio, CacheCreation1hRatio: snapshot.CacheCreation1hRatio}, preview) {
+			return errors.New("dated reduction snapshot price mismatch")
+		}
+	}
+	if isZTAPICashMarginPolicy20261030(source.PricePolicy) {
+		if err := tx.First(&source, snapshot.PriceSourceID).Error; err != nil {
+			return err
+		}
+		if err := ValidateZTAPICashMarginSource20261030(tx, &source); err != nil {
+			return err
+		}
+		if source.ModelConfigID != snapshot.ModelConfigID || source.SourceModel != snapshot.SourceModel {
+			return errors.New("cash margin snapshot identity mismatch")
+		}
+		if err := validateZTAPICashMarginRoute20261030(&source, snapshot.PublicName, snapshot.ChannelIDs()); err != nil {
+			return err
+		}
+		preview, err := BuildZTAPIModelPricePreview(&source)
+		if err != nil {
+			return err
+		}
+		if !ztapiStoredPriceMatchesPreview(snapshot.InputPricePerMillion, preview.InputSaleUSDPerMillion) ||
+			!ztapiStoredPriceMatchesPreview(snapshot.OutputPricePerMillion, preview.OutputSaleUSDPerMillion) {
+			return errors.New("cash margin snapshot differs from deterministic prices")
+		}
 	}
 	if err := ValidateZTAPIPricePolicy(source.ResourceType, ZTAPIPricePolicy(source.PricePolicy)); err != nil {
 		return err

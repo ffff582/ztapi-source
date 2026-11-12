@@ -37,6 +37,8 @@ export const AdminPermission = Object.freeze({
   paymentAddressWrite: 'payment.address.write',
   financeRead: 'finance.read',
   financeWrite: 'finance.write',
+  referralsRead: 'finance.referrals.read',
+  referralsWrite: 'finance.referrals.write',
   logRead: 'log.read',
   systemWrite: 'system.write',
   roleWrite: 'role.write',
@@ -74,6 +76,8 @@ const permissionsByRole = Object.freeze({
     AdminPermission.auditRead,
   ],
   [AdminRole.root]: [
+    AdminPermission.referralsRead,
+    AdminPermission.referralsWrite,
     AdminPermission.overviewRead,
     AdminPermission.channelRead,
     AdminPermission.channelWrite,

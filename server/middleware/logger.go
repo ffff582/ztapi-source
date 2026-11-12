@@ -46,6 +46,9 @@ func sanitizeLogPath(path string) string {
 	if queryIndex < 0 {
 		return path
 	}
+	if base := strings.TrimSuffix(path[:queryIndex], "/"); base == "/api/payment/cny/notify" {
+		return path[:queryIndex]
+	}
 	query, err := url.ParseQuery(path[queryIndex+1:])
 	if err != nil {
 		return path[:queryIndex]

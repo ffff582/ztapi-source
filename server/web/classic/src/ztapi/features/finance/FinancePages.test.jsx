@@ -27,6 +27,7 @@ import {
   within,
 } from '@testing-library/react';
 import OrdersPage from './OrdersPage.jsx';
+import CNYOrdersPage from './CNYOrdersPage.jsx';
 import LedgerPage from './LedgerPage.jsx';
 import { adminDownload, adminRequest } from '../../auth/admin-session.js';
 
@@ -77,6 +78,34 @@ function deferred() {
   });
   return { promise, resolve };
 }
+
+describe('CNYOrdersPage', () => {
+  beforeEach(() => vi.clearAllMocks());
+  afterEach(cleanup);
+
+  it('does not present a pending amount as received and searches by platform order number', async () => {
+    const pending = {
+      order_no: 'CNY-pending', provider_trade_no: null, amount_cny: '1.00',
+      paid_amount_cny: null, method: 'wxpay', status: 'pending', created_at: 1794394000,
+    };
+    const paid = {
+      ...pending, order_no: 'CNY-paid', provider_trade_no: 'platform-001',
+      paid_amount_cny: '1.00', status: 'paid',
+    };
+    adminRequest.mockResolvedValueOnce(page([pending, paid])).mockResolvedValueOnce(page([paid]));
+    render(<CNYOrdersPage />);
+    const row = (await screen.findByText('CNY-pending')).closest('tr');
+    expect(within(row).getAllByText('¥1.00')).toHaveLength(1);
+    expect(within(row).getByText('未核验')).toBeVisible();
+    const paidRow = screen.getByText('CNY-paid').closest('tr');
+    expect(within(paidRow).getAllByText('¥1.00')).toHaveLength(2);
+    fireEvent.change(screen.getByRole('searchbox', { name: '商户或平台订单号' }), { target: { value: 'platform-001' } });
+    fireEvent.click(screen.getByRole('button', { name: '查询' }));
+    expect(await screen.findByText('platform-001')).toBeVisible();
+    expect(screen.queryByText('CNY-pending')).toBeNull();
+    expect(adminRequest).toHaveBeenLastCalledWith({ url: '/api/admin/payments/cny/orders?p=1&order_no=platform-001' });
+  });
+});
 
 describe('OrdersPage', () => {
   beforeEach(() => vi.clearAllMocks());

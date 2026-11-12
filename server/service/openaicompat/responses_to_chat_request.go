@@ -1,6 +1,7 @@
 package openaicompat
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,13 +15,17 @@ import (
 // serves Chat Completions only. Codex speaks the Responses API exclusively, so
 // requests for these models are translated instead of failing upstream: in
 // 2026-10 every Responses request for claude-* (78) and kimi-* (12) failed
-// with model_route_unavailable or InvalidParameter.
+// with model_route_unavailable or InvalidParameter. GLM 5/5.1 below were
+// independently verified Chat-only on the approved supplier in 2026-11.
 var responsesViaChatModelPrefixes = []string{"claude-", "kimi-"}
 
 // ShouldResponsesUseChatCompletions reports whether a Responses request for
 // the given upstream model must be served through Chat Completions.
 func ShouldResponsesUseChatCompletions(upstreamModel string) bool {
 	model := strings.ToLower(strings.TrimSpace(upstreamModel))
+	if model == "glm-5" || model == "glm-5.1" {
+		return true
+	}
 	for _, prefix := range responsesViaChatModelPrefixes {
 		if strings.HasPrefix(model, prefix) {
 			return true
@@ -36,6 +41,31 @@ func ShouldResponsesUseChatCompletions(upstreamModel string) bool {
 type ResponsesChatConversion struct {
 	Request     *dto.GeneralOpenAIRequest
 	CustomTools map[string]bool
+	ToolNames   map[string]ResponsesToolName
+}
+
+type ResponsesToolName struct {
+	Name      string
+	Namespace string
+}
+
+// Chat function names cannot carry namespaces. Use a stable collision-resistant
+// alias and restore the original name and namespace in the Responses output.
+func ResponsesChatToolName(namespace, name string) string {
+	if namespace == "" {
+		return name
+	}
+	sum := sha256.Sum256([]byte(namespace + "\x00" + name))
+	suffix := strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-' {
+			return r
+		}
+		return '_'
+	}, name)
+	if len(suffix) > 40 {
+		suffix = suffix[:40]
+	}
+	return fmt.Sprintf("ns_%x_%s", sum[:8], suffix)
 }
 
 // CustomToolInputArgument is the single string argument a custom tool is
@@ -48,10 +78,12 @@ type responsesInputItem struct {
 	Content   json.RawMessage `json:"content"`
 	CallID    string          `json:"call_id"`
 	Name      string          `json:"name"`
+	Namespace string          `json:"namespace"`
 	Arguments json.RawMessage `json:"arguments"`
 	Input     json.RawMessage `json:"input"`
 	Output    json.RawMessage `json:"output"`
 	Action    json.RawMessage `json:"action"`
+	Tools     []responsesTool `json:"tools"`
 }
 
 type responsesContentPart struct {
@@ -70,7 +102,9 @@ type responsesTool struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
 	Parameters  json.RawMessage `json:"parameters"`
+	Strict      *bool           `json:"strict,omitempty"`
 	Format      json.RawMessage `json:"format"`
+	Tools       []responsesTool `json:"tools"`
 }
 
 // ResponsesRequestToChatCompletionsRequest rewrites a stateless Responses
@@ -93,8 +127,17 @@ func ResponsesRequestToChatCompletionsRequest(req *dto.OpenAIResponsesRequest) (
 		return nil, errors.New("stored prompts are not supported for this model")
 	}
 
-	conversion := &ResponsesChatConversion{CustomTools: map[string]bool{}}
-	tools, err := convertResponsesTools(req.Tools, conversion.CustomTools)
+	conversion := &ResponsesChatConversion{CustomTools: map[string]bool{}, ToolNames: map[string]ResponsesToolName{}}
+	declarations, err := responsesToolDeclarations(req.Tools, req.Input)
+	if err != nil {
+		return nil, err
+	}
+	tools, err := convertResponsesTools(declarations, conversion.CustomTools, conversion.ToolNames)
+	if err != nil {
+		return nil, err
+	}
+	// Validate against current declarations before history adds old custom calls.
+	toolChoice, err := convertResponsesToolChoice(req.ToolChoice, conversion.CustomTools, conversion.ToolNames)
 	if err != nil {
 		return nil, err
 	}
@@ -123,9 +166,9 @@ func ResponsesRequestToChatCompletionsRequest(req *dto.OpenAIResponsesRequest) (
 		MaxTokens:   req.MaxOutputTokens,
 		User:        req.User,
 		Tools:       tools,
+		ToolChoice:  toolChoice,
 	}
 	if len(tools) > 0 {
-		chat.ToolChoice = convertResponsesToolChoice(req.ToolChoice)
 		if rawJSONPresent(req.ParallelToolCalls) {
 			var parallel bool
 			if err := common.Unmarshal(req.ParallelToolCalls, &parallel); err != nil {
@@ -142,6 +185,10 @@ func ResponsesRequestToChatCompletionsRequest(req *dto.OpenAIResponsesRequest) (
 		return nil, err
 	}
 	chat.ResponseFormat = format
+	applyCodexTitleFormatContract(chat)
+	if err := ValidateChatToolHistory(chat.Messages); err != nil {
+		return nil, err
+	}
 	conversion.Request = chat
 	return conversion, nil
 }
@@ -162,7 +209,60 @@ func rawJSONString(raw json.RawMessage) (string, error) {
 	return value, nil
 }
 
-func convertResponsesTools(raw json.RawMessage, customTools map[string]bool) ([]dto.ToolCallRequest, error) {
+// Recent Codex clients send tool updates as input items rather than repeating
+// the top-level tools array. Apply updates in order while retaining other tools.
+func responsesToolDeclarations(raw, input json.RawMessage) (json.RawMessage, error) {
+	var items []responsesInputItem
+	if common.Unmarshal(input, &items) != nil {
+		return raw, nil
+	}
+	var declared []responsesTool
+	loaded := false
+	for _, item := range items {
+		if item.Type != "additional_tools" {
+			continue
+		}
+		if !loaded && rawJSONPresent(raw) {
+			if err := common.Unmarshal(raw, &declared); err != nil {
+				return nil, fmt.Errorf("tools: %w", err)
+			}
+		}
+		loaded = true
+		declared = mergeResponsesTools(declared, item.Tools)
+	}
+	if !loaded {
+		return raw, nil
+	}
+	return common.Marshal(declared)
+}
+
+func mergeResponsesTools(current, updates []responsesTool) []responsesTool {
+	for _, update := range updates {
+		matched := false
+		for i := range current {
+			sameType := current[i].Type == update.Type ||
+				(current[i].Type == "function" || current[i].Type == "custom") && (update.Type == "function" || update.Type == "custom")
+			if !sameType || current[i].Name != update.Name {
+				continue
+			}
+			if update.Type == "namespace" {
+				if update.Description == "" {
+					update.Description = current[i].Description
+				}
+				update.Tools = mergeResponsesTools(current[i].Tools, update.Tools)
+			}
+			current[i] = update
+			matched = true
+			break
+		}
+		if !matched {
+			current = append(current, update)
+		}
+	}
+	return current
+}
+
+func convertResponsesTools(raw json.RawMessage, customTools map[string]bool, toolNames map[string]ResponsesToolName) ([]dto.ToolCallRequest, error) {
 	if !rawJSONPresent(raw) {
 		return nil, nil
 	}
@@ -171,23 +271,63 @@ func convertResponsesTools(raw json.RawMessage, customTools map[string]bool) ([]
 		return nil, fmt.Errorf("tools: %w", err)
 	}
 	tools := make([]dto.ToolCallRequest, 0, len(declared))
-	for _, tool := range declared {
+	seen := map[string]bool{}
+	var add func(responsesTool, string) error
+	add = func(tool responsesTool, namespace string) error {
+		if tool.Type != "function" && tool.Strict != nil {
+			return fmt.Errorf("tools: strict is not supported for tool type %q", tool.Type)
+		}
+		if tool.Type == "namespace" {
+			if namespace != "" || strings.TrimSpace(tool.Name) == "" {
+				return errors.New("tools: invalid or nested namespace")
+			}
+			for _, nested := range tool.Tools {
+				if nested.Type != "function" && nested.Type != "custom" {
+					return fmt.Errorf("tools: unsupported namespaced tool type %q", nested.Type)
+				}
+				nested.Description = strings.TrimSpace(tool.Description + "\n" + nested.Description)
+				if err := add(nested, tool.Name); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		if tool.Type != "function" && tool.Type != "custom" {
+			return fmt.Errorf("tools: unsupported tool type %q for this model", tool.Type)
+		}
+		if len(tool.Tools) > 0 {
+			return errors.New("tools: only namespaces can contain nested tools")
+		}
+		name := ResponsesChatToolName(namespace, tool.Name)
+		if strings.TrimSpace(tool.Name) == "" || seen[name] {
+			return errors.New("tools: missing or duplicate function name")
+		}
+		seen[name] = true
+		if namespace != "" {
+			toolNames[name] = ResponsesToolName{Name: tool.Name, Namespace: namespace}
+			tool.Description = strings.TrimSpace(tool.Description + "\nNamespace: " + namespace + ". Tool: " + tool.Name + ".")
+		}
 		switch tool.Type {
 		case "function":
+			customTools[name] = false
 			var parameters any
 			if rawJSONPresent(tool.Parameters) {
 				if err := common.Unmarshal(tool.Parameters, &parameters); err != nil {
-					return nil, fmt.Errorf("tool %q parameters: %w", tool.Name, err)
+					return fmt.Errorf("tool %q parameters: %w", tool.Name, err)
 				}
 			}
 			tools = append(tools, dto.ToolCallRequest{Type: "function", Function: dto.FunctionRequest{
-				Name: tool.Name, Description: tool.Description, Parameters: parameters,
+				Name: name, Description: tool.Description, Parameters: parameters, Strict: tool.Strict,
 			}})
 		case "custom":
-			customTools[tool.Name] = true
+			description, err := customToolDescription(tool)
+			if err != nil {
+				return err
+			}
+			customTools[name] = true
 			tools = append(tools, dto.ToolCallRequest{Type: "function", Function: dto.FunctionRequest{
-				Name:        tool.Name,
-				Description: customToolDescription(tool),
+				Name:        name,
+				Description: description,
 				Parameters: map[string]any{
 					"type": "object",
 					"properties": map[string]any{
@@ -197,9 +337,12 @@ func convertResponsesTools(raw json.RawMessage, customTools map[string]bool) ([]
 					"additionalProperties": false,
 				},
 			}})
-		default:
-			// Hosted tools (web search, file search, code interpreter, ...) run on
-			// the supplier's Responses platform and have no Chat Completions form.
+		}
+		return nil
+	}
+	for _, tool := range declared {
+		if err := add(tool, ""); err != nil {
+			return nil, err
 		}
 	}
 	return tools, nil
@@ -207,41 +350,88 @@ func convertResponsesTools(raw json.RawMessage, customTools map[string]bool) ([]
 
 // customToolDescription keeps the grammar a freeform tool declares, because the
 // model has to produce input that satisfies it without a native custom tool.
-func customToolDescription(tool responsesTool) string {
-	description := tool.Description
+func customToolDescription(tool responsesTool) (string, error) {
+	description := strings.TrimSpace(tool.Description)
 	var format struct {
 		Type       string `json:"type"`
 		Syntax     string `json:"syntax"`
 		Definition string `json:"definition"`
 	}
-	if rawJSONPresent(tool.Format) && common.Unmarshal(tool.Format, &format) == nil && format.Type == "grammar" && format.Definition != "" {
+	if rawJSONPresent(tool.Format) {
+		var fields map[string]json.RawMessage
+		if err := common.Unmarshal(tool.Format, &fields); err != nil {
+			return "", errors.New("custom tool format: invalid object")
+		}
+		if err := common.Unmarshal(tool.Format, &format); err != nil {
+			return "", errors.New("custom tool format: invalid fields")
+		}
+		for field := range fields {
+			if field != "type" && (format.Type != "grammar" || (field != "syntax" && field != "definition")) {
+				return "", errors.New("custom tool format: unsupported fields")
+			}
+		}
+		switch format.Type {
+		case "text":
+		case "grammar":
+			if (format.Syntax != "lark" && format.Syntax != "regex") || format.Definition == "" {
+				return "", errors.New("custom tool format: unsupported or empty grammar")
+			}
+		default:
+			return "", errors.New("custom tool format: unsupported type")
+		}
+	}
+	if format.Type == "grammar" {
 		description += fmt.Sprintf("\n\nPass the raw tool input in the %q argument. It must match this %s grammar:\n%s", CustomToolInputArgument, format.Syntax, format.Definition)
 	} else {
 		description += fmt.Sprintf("\n\nPass the raw tool input in the %q argument.", CustomToolInputArgument)
 	}
-	return strings.TrimSpace(description)
+	return description, nil
 }
 
-func convertResponsesToolChoice(raw json.RawMessage) any {
+func convertResponsesToolChoice(raw json.RawMessage, customTools map[string]bool, toolNames map[string]ResponsesToolName) (any, error) {
 	if !rawJSONPresent(raw) {
-		return nil
+		return nil, nil
 	}
 	var mode string
 	if common.Unmarshal(raw, &mode) == nil {
 		switch mode {
-		case "auto", "none", "required":
-			return mode
+		case "auto", "none":
+			if len(customTools) == 0 {
+				return nil, nil
+			}
+			return mode, nil
+		case "required":
+			if len(customTools) == 0 {
+				return nil, errors.New("tool_choice: required needs at least one declared tool")
+			}
+			return mode, nil
 		}
-		return nil
+		return nil, fmt.Errorf("tool_choice: unsupported mode %q", mode)
+	}
+	var fields map[string]json.RawMessage
+	if err := common.Unmarshal(raw, &fields); err != nil {
+		return nil, errors.New("tool_choice: must be a supported mode or tool selection")
+	}
+	for field := range fields {
+		if field != "type" && field != "name" && field != "namespace" {
+			return nil, errors.New("tool_choice: unsupported selection fields")
+		}
 	}
 	var choice struct {
-		Type string `json:"type"`
-		Name string `json:"name"`
+		Type      string `json:"type"`
+		Name      string `json:"name"`
+		Namespace string `json:"namespace"`
 	}
-	if common.Unmarshal(raw, &choice) == nil && (choice.Type == "function" || choice.Type == "custom") && choice.Name != "" {
-		return map[string]any{"type": "function", "function": map[string]any{"name": choice.Name}}
+	if err := common.Unmarshal(raw, &choice); err != nil || (choice.Type != "function" && choice.Type != "custom") || strings.TrimSpace(choice.Name) == "" {
+		return nil, errors.New("tool_choice: unsupported or missing tool type/name")
 	}
-	return nil
+	name := ResponsesChatToolName(choice.Namespace, choice.Name)
+	custom, declared := customTools[name]
+	original := toolNames[name]
+	if !declared || custom != (choice.Type == "custom") || original.Namespace != choice.Namespace || choice.Namespace != "" && original.Name != choice.Name {
+		return nil, errors.New("tool_choice: selection must match a declared tool type, name and namespace")
+	}
+	return map[string]any{"type": "function", "function": map[string]any{"name": name}}, nil
 }
 
 func convertResponsesTextFormat(raw json.RawMessage) (*dto.ResponseFormat, error) {
@@ -334,17 +524,20 @@ func convertResponsesInput(raw json.RawMessage, customTools map[string]bool) ([]
 				messages = append(messages, message)
 			}
 		case "function_call":
-			if err := addCall(item.CallID, item.Name, argumentsString(item.Arguments)); err != nil {
+			if err := addCall(item.CallID, ResponsesChatToolName(item.Namespace, item.Name), argumentsString(item.Arguments)); err != nil {
 				return nil, err
 			}
 		case "custom_tool_call":
-			customTools[item.Name] = true
+			name := ResponsesChatToolName(item.Namespace, item.Name)
+			if _, declared := customTools[name]; !declared {
+				customTools[name] = true
+			}
 			input, _ := rawJSONString(item.Input)
 			arguments, err := common.Marshal(map[string]string{CustomToolInputArgument: input})
 			if err != nil {
 				return nil, err
 			}
-			if err := addCall(item.CallID, item.Name, string(arguments)); err != nil {
+			if err := addCall(item.CallID, name, string(arguments)); err != nil {
 				return nil, err
 			}
 		case "local_shell_call":

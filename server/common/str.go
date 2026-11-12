@@ -25,6 +25,7 @@ const LocalLogContentLimit = 2048
 
 // LocalLogPreview limits log-only content unless debug logging is enabled.
 func LocalLogPreview(content string) string {
+	content = RedactSecrets(content)
 	if DebugEnabled || len(content) <= LocalLogContentLimit {
 		return content
 	}
@@ -197,6 +198,7 @@ func maskHostForPlainDomain(domain string) string {
 // www.openai.com -> ***.***.com
 // api.openai.com -> ***.***.com
 func MaskSensitiveInfo(str string) string {
+	str = RedactSecrets(str)
 	// Mask URLs
 	str = maskURLPattern.ReplaceAllStringFunc(str, func(urlStr string) string {
 		u, err := url.Parse(urlStr)

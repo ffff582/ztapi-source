@@ -782,6 +782,56 @@ describe('protected authentication routes', () => {
     });
   });
 
+  it('recovers from a rejected captcha without losing values or reusing the old challenge', async () => {
+    let challenges = 0;
+    const submitted: unknown[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith('/refresh')) return jsonResponse({ success: false, message: 'unauthorized' }, 401);
+      if (url.endsWith('/auth/captcha')) return jsonResponse(captchaResponse(`captcha-${++challenges}`));
+      if (url.endsWith('/auth/register')) {
+        submitted.push(JSON.parse(String(init?.body)));
+        return submitted.length === 1
+          ? jsonResponse({ success: false, message: 'invalid captcha' }, 400)
+          : jsonResponse(authResponse());
+      }
+      return jsonResponse(authResponse());
+    }));
+    renderRoute('/register');
+    await waitForRegisterForm();
+    await submitRegistration('alice', 'correct-horse', 'wrong', 'owner@example.com');
+    expect(await screen.findByRole('alert')).toHaveTextContent('验证码错误或已过期，请输入新的验证码');
+    await waitFor(() => expect(challenges).toBe(2));
+    expect(screen.getByLabelText('账号')).toHaveValue('alice');
+    expect(screen.getByLabelText('密码')).toHaveValue('correct-horse');
+    expect(screen.getByLabelText('邮箱（选填）')).toHaveValue('owner@example.com');
+    expect(screen.getByLabelText('验证码')).toHaveValue('');
+    await submitRegistration('alice', 'correct-horse', 'GOOD', 'owner@example.com');
+    expect(await screen.findByRole('heading', { name: '看板' })).toBeInTheDocument();
+    expect(submitted).toEqual([
+      { username: 'alice', password: 'correct-horse', email: 'owner@example.com', captcha_id: 'captcha-1', captcha_code: 'wrong' },
+      { username: 'alice', password: 'correct-horse', email: 'owner@example.com', captcha_id: 'captcha-2', captcha_code: 'GOOD' },
+    ]);
+  });
+
+  it('translates a captcha rejection on the English registration page', async () => {
+    localStorage.setItem('ztapi.locale', 'en');
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.endsWith('/refresh')) return jsonResponse({ success: false, message: 'unauthorized' }, 401);
+      if (url.endsWith('/auth/captcha')) return jsonResponse(captchaResponse());
+      return jsonResponse({ success: false, message: 'invalid captcha' }, 400);
+    }));
+    renderRoute('/register');
+    await screen.findByRole('heading', { name: 'Create a ZTAPI account' });
+    await screen.findByAltText('Verification code image');
+    for (const [id, value] of [['register-username', 'alice'], ['register-password', 'correct-horse'], ['register-captcha', 'wrong']]) {
+      fireEvent.change(document.getElementById(id)!, { target: { value } });
+    }
+    fireEvent.submit(document.querySelector('form')!);
+    expect(await screen.findByRole('alert')).toHaveTextContent('The verification code is incorrect or expired. Enter the new code.');
+  });
+
   it('submits an optional email without requiring an email code', async () => {
     const fetchMock = vi.fn(
       async (...args: [RequestInfo | URL, RequestInit?]) => {

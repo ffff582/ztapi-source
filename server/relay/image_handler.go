@@ -49,6 +49,9 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 		if newAPIError != nil {
 			return newAPIError
 		}
+		if quoteErr := service.VerifyZTAPIImageSaleDispatch(info, managedDispatch); quoteErr != nil {
+			return ztapiImageProtocolError(quoteErr)
+		}
 	} else {
 		err = helper.ModelMappedHelper(c, info, request)
 		if err != nil {
@@ -171,7 +174,11 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 				if err := service.PendZTAPIImageBilling(info, *evidence, "image_settlement_evidence_conflict"); err != nil {
 					logger.LogError(c, "managed image billing evidence conflict handoff failed: "+err.Error())
 				}
-			case evidence.Pending:
+			case info.ZTAPIImageDeliveryFailed():
+				if err := service.PendZTAPIImageBilling(info, *evidence, "image_delivery_incomplete"); err != nil {
+					logger.LogError(c, "managed image incomplete delivery evidence handoff failed: "+err.Error())
+				}
+			case evidence.Pending && info.ZTAPIPublicationSnapshot.ImageSaleContractJSON == "":
 				if err := service.PendZTAPIImageBilling(info, *evidence, "image_usage_untrusted"); err != nil {
 					logger.LogError(c, "managed image pending settlement handoff failed: "+err.Error())
 				}

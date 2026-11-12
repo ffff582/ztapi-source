@@ -3,6 +3,19 @@ import { getPublicModelFamily, parsePricingEnvelope, parseUserModelCatalog } fro
 import { managedPublicPricing } from '../features/home/public-pricing.fixture';
 
 describe('managed anonymous pricing projection', () => {
+  it.each(['official_snapshot', 'supplier_quoted_official'])('preserves optional %s reference metadata in public and authenticated catalogs', (kind) => {
+    const official_reference = { url: 'https://example.com/pricing', checked_at: '2026-11-07', kind, note: '固定高峰基准' };
+    const row = { ...managedPublicPricing.data[0], official_reference };
+    expect(parsePricingEnvelope({ ...managedPublicPricing, data: [row] }).models[0]).toHaveProperty('official_reference', official_reference);
+    const account = { ...row, provider_name: row.vendor_name, protocol: 'openai_compatible', modality: 'text' };
+    expect(parseUserModelCatalog({ success: true, data: [row.model_name], catalog: [account] }).catalog[0]).toHaveProperty('official_reference', official_reference);
+  });
+
+  it.each(['javascript:alert(1)', 'data:text/html,test', 'https://key:secret@example.com/pricing'])('rejects unsafe public reference links: %s', (url) => {
+    const row = { ...managedPublicPricing.data[0], official_reference: { url, checked_at: '2026-11-07', kind: 'official_snapshot', note: '' } };
+    expect(() => parsePricingEnvelope({ ...managedPublicPricing, data: [row] })).toThrow();
+  });
+
   it('preserves API family and exact dimensional prices for the actual 35-model schema', () => {
     const result = parsePricingEnvelope(managedPublicPricing);
     expect(result.models).toHaveLength(35);

@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -28,11 +29,13 @@ type responsesViaChatItem struct {
 	id        string
 	callID    string
 	name      string
+	namespace string
 	text      strings.Builder
 	arguments strings.Builder
 }
 
 func (item *responsesViaChatItem) render(status string) map[string]any {
+	var rendered map[string]any
 	switch item.kind {
 	case "reasoning":
 		return map[string]any{"type": "reasoning", "id": item.id, "summary": []map[string]any{{"type": "summary_text", "text": item.text.String()}}}
@@ -40,11 +43,21 @@ func (item *responsesViaChatItem) render(status string) map[string]any {
 		return map[string]any{"type": "message", "id": item.id, "status": status, "role": "assistant",
 			"content": []map[string]any{{"type": "output_text", "text": item.text.String(), "annotations": []any{}}}}
 	case "custom_tool_call":
-		return map[string]any{"type": "custom_tool_call", "id": item.id, "status": status, "call_id": item.callID, "name": item.name,
+		rendered = map[string]any{"type": "custom_tool_call", "id": item.id, "status": status, "call_id": item.callID, "name": item.name,
 			"input": customToolInput(item.arguments.String())}
 	default:
-		return map[string]any{"type": "function_call", "id": item.id, "status": status, "call_id": item.callID, "name": item.name,
+		rendered = map[string]any{"type": "function_call", "id": item.id, "status": status, "call_id": item.callID, "name": item.name,
 			"arguments": item.arguments.String()}
+	}
+	if item.namespace != "" {
+		rendered["namespace"] = item.namespace
+	}
+	return rendered
+}
+
+func restoreResponsesToolName(item *responsesViaChatItem, names map[string]openaicompat.ResponsesToolName) {
+	if original, ok := names[item.name]; ok {
+		item.name, item.namespace = original.Name, original.Namespace
 	}
 }
 
@@ -110,7 +123,7 @@ func newResponsesViaChatID(prefix string) string {
 	return prefix + strings.ReplaceAll(common.GetUUID(), "-", "")
 }
 
-func OaiChatToResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response, customTools map[string]bool) (*dto.Usage, *types.NewAPIError) {
+func OaiChatToResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response, customTools map[string]bool, names ...map[string]openaicompat.ResponsesToolName) (*dto.Usage, *types.NewAPIError) {
 	if resp == nil || resp.Body == nil {
 		return nil, types.NewOpenAIError(fmt.Errorf("invalid response"), types.ErrorCodeBadResponse, http.StatusInternalServerError)
 	}
@@ -121,6 +134,7 @@ func OaiChatToResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
 	}
 	var chat dto.OpenAITextResponse
+	observed := relaycommon.ObserveZTAPIOpenAIChatUsage(c, info, body, resp.Header)
 	if err := common.Unmarshal(body, &chat); err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
@@ -153,6 +167,9 @@ func OaiChatToResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 				kind = "custom_tool_call"
 			}
 			item := &responsesViaChatItem{kind: kind, id: newResponsesViaChatID("fc_"), callID: call.ID, name: call.Function.Name}
+			if len(names) > 0 {
+				restoreResponsesToolName(item, names[0])
+			}
 			item.arguments.WriteString(call.Function.Arguments)
 			text.WriteString(call.Function.Name)
 			text.WriteString(call.Function.Arguments)
@@ -164,7 +181,13 @@ func OaiChatToResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	}
 
 	usage := &chat.Usage
-	if usage.PromptTokens == 0 && usage.CompletionTokens == 0 {
+	if observed != nil || (info.ZTAPIPublicationSnapshot == nil && service.ValidUsage(usage)) {
+		if observed != nil {
+			usage = observed
+		}
+		normalizeChatUsage(info, usage)
+		relaycommon.CaptureZTAPIUpstreamUsageEvidence(info, body, "nonstream")
+	} else {
 		// Flagged as a local count, so managed billing parks it for review
 		// instead of charging an estimate.
 		usage = service.ResponseText2Usage(c, text.String(), info.UpstreamModelName, info.GetEstimatePromptTokens())
@@ -187,6 +210,7 @@ type responsesViaChatStream struct {
 	c           *gin.Context
 	info        *relaycommon.RelayInfo
 	customTools map[string]bool
+	toolNames   map[string]openaicompat.ResponsesToolName
 	id          string
 	createdAt   int64
 	sequence    int
@@ -295,6 +319,7 @@ func (s *responsesViaChatStream) toolCall(call dto.ToolCallResponse) {
 			kind = "custom_tool_call"
 		}
 		item = &responsesViaChatItem{kind: kind, id: newResponsesViaChatID("fc_"), callID: call.ID, name: call.Function.Name}
+		restoreResponsesToolName(item, s.toolNames)
 		if item.callID == "" {
 			item.callID = newResponsesViaChatID("call_")
 		}
@@ -382,7 +407,7 @@ func (s *responsesViaChatStream) closeCalls() {
 	s.calls = map[int]*responsesViaChatItem{}
 }
 
-func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response, customTools map[string]bool) (*dto.Usage, *types.NewAPIError) {
+func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response, customTools map[string]bool, names ...map[string]openaicompat.ResponsesToolName) (*dto.Usage, *types.NewAPIError) {
 	if resp == nil || resp.Body == nil {
 		return nil, types.NewOpenAIError(fmt.Errorf("invalid response"), types.ErrorCodeBadResponse, http.StatusInternalServerError)
 	}
@@ -392,6 +417,9 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		c: c, info: info, customTools: customTools, id: newResponsesViaChatID("resp_"),
 		createdAt: time.Now().Unix(), calls: map[int]*responsesViaChatItem{},
 	}
+	if len(names) > 0 {
+		stream.toolNames = names[0]
+	}
 	var (
 		usage        *dto.Usage
 		finishReason string
@@ -399,9 +427,11 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 	)
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
+		observed := relaycommon.ObserveZTAPIOpenAIChatUsage(c, info, []byte(data), resp.Header)
 		var chunk struct {
-			dto.ChatCompletionsStreamResponse
-			Error any `json:"error"`
+			Choices []dto.ChatCompletionsStreamResponseChoice `json:"choices"`
+			Usage   json.RawMessage                           `json:"usage"`
+			Error   any                                       `json:"error"`
 		}
 		if err := common.UnmarshalJsonStr(data, &chunk); err != nil {
 			sr.Error(err)
@@ -413,8 +443,18 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			return
 		}
 		stream.start()
-		if chunk.Usage != nil && service.ValidUsage(chunk.Usage) {
-			usage = chunk.Usage
+		var legacyUsage *dto.Usage
+		if info.ZTAPIPublicationSnapshot == nil && len(chunk.Usage) > 0 {
+			_ = common.Unmarshal(chunk.Usage, &legacyUsage)
+		}
+		if observed != nil || (info.ZTAPIPublicationSnapshot == nil && service.ValidUsage(legacyUsage)) {
+			selected := legacyUsage
+			if observed != nil {
+				selected = observed
+			}
+			normalizeChatUsage(info, selected)
+			relaycommon.CaptureZTAPIUpstreamUsageEvidence(info, []byte(data), "stream")
+			usage = selected
 		}
 		for _, choice := range chunk.Choices {
 			if choice.Index != 0 {
@@ -438,9 +478,17 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		}
 	})
 
+	if streamErr == nil && (finishReason == "" || info.StreamStatus != nil && (!info.StreamStatus.IsNormalEnd() || info.StreamStatus.HasErrors())) {
+		streamErr = types.NewErrorWithStatusCode(fmt.Errorf("upstream stream ended without a valid completion"), types.ErrorCodeBadResponse, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
+	}
 	if streamErr != nil {
 		if stream.started {
-			stream.emit("response.failed", map[string]any{"response": responsesViaChatEnvelope(info, stream.id, stream.createdAt, "failed", nil, stream.output, nil)})
+			failed := responsesViaChatEnvelope(info, stream.id, stream.createdAt, "failed", nil, stream.output, usage)
+			failed["error"] = map[string]any{"code": string(streamErr.GetErrorCode()), "message": "The upstream stream did not complete successfully."}
+			stream.emit("response.failed", map[string]any{"response": failed})
+		}
+		if finishReason != "" && usage != nil {
+			return usage, streamErr
 		}
 		return nil, streamErr
 	}

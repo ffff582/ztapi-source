@@ -34,7 +34,30 @@ func nonReasoningCapability(sourceModel, modality string) ZTAPIReasoningCapabili
 	}
 }
 
-// Keys are exact source_model values from ztapi_quotation_v1.json. Empty
+func sol61DeclaredReasoningCapability() ZTAPIReasoningCapability {
+	capability := pendingTextReasoningCapability("gpt-6.1-sol")
+	capability.ReasoningEfforts = []string{"high", "low", "max", "medium", "xhigh"}
+	capability.EvidenceQuote = "2026-11-04 supplier request req_cc0a838be40082b5 rejected none and declared low, medium, high, xhigh and max. This is a supplier declaration, not a claim that every effort has passed live validation."
+	return capability
+}
+
+func verifiedSixLevelChatCapability(sourceModel, requestID string) ZTAPIReasoningCapability {
+	return ZTAPIReasoningCapability{
+		SourceModel:      sourceModel,
+		Modality:         ZTAPIModalityText,
+		ReasoningEfforts: []string{"high", "low", "medium", "minimal", "none", "xhigh"},
+		EvidenceQuote:    "2026-11-05 approved supplier Chat accepted all six listed controls for " + sourceModel + " with complete output and usage. Platform request " + requestID + " rejected max and declared this exact list. Compatibility evidence does not independently establish reasoning-strength semantics.",
+	}
+}
+
+func luna56DeclaredReasoningCapability() ZTAPIReasoningCapability {
+	capability := pendingTextReasoningCapability("gpt-5.6-luna")
+	capability.ReasoningEfforts = []string{"high", "low", "max", "medium", "none", "xhigh"}
+	capability.EvidenceQuote = "2026-11-05 platform request 01af61fa-401c-4bb3-99ea-3820b15d9dea rejected minimal and declared none, low, medium, high, xhigh and max. This is a supplier declaration, not independent verification of reasoning-strength semantics."
+	return capability
+}
+
+// Keys are exact source_model values from the quotation-backed catalog. Empty
 // effort lists mean the provider contract still needs live validation. Standard
 // wire values pass through for compatibility, while local aliases remain closed.
 var ztapiReasoningCapabilities = map[string]ZTAPIReasoningCapability{
@@ -44,8 +67,10 @@ var ztapiReasoningCapabilities = map[string]ZTAPIReasoningCapability{
 	"claude-opus-4-7":               pendingTextReasoningCapability("claude-opus-4-7"),
 	"claude-opus-4-8":               pendingTextReasoningCapability("claude-opus-4-8"),
 	"claude-opus-5":                 pendingTextReasoningCapability("claude-opus-5"),
+	"claude-opus-5-5":               pendingTextReasoningCapability("claude-opus-5-5"),
 	"claude-sonnet-4-6":             pendingTextReasoningCapability("claude-sonnet-4-6"),
 	"claude-sonnet-5":               pendingTextReasoningCapability("claude-sonnet-5"),
+	"claude-sonnet-5-5":             pendingTextReasoningCapability("claude-sonnet-5-5"),
 	"deepseek-v4-flash":             pendingTextReasoningCapability("deepseek-v4-flash"),
 	"deepseek-v4-pro":               pendingTextReasoningCapability("deepseek-v4-pro"),
 	"gemini-3-flash-preview":        pendingTextReasoningCapability("gemini-3-flash-preview"),
@@ -53,8 +78,8 @@ var ztapiReasoningCapabilities = map[string]ZTAPIReasoningCapability{
 	"gemini-3.1-pro-preview":        pendingTextReasoningCapability("gemini-3.1-pro-preview"),
 	"gemini-3.5-flash":              pendingTextReasoningCapability("gemini-3.5-flash"),
 	"glm-4.7":                       pendingTextReasoningCapability("glm-4.7"),
-	"glm-5":                         pendingTextReasoningCapability("glm-5"),
-	"glm-5.1":                       pendingTextReasoningCapability("glm-5.1"),
+	"glm-5":                         verifiedSixLevelChatCapability("glm-5", "2f4fd60f-8d23-4332-9108-86f259d2713b"),
+	"glm-5.1":                       verifiedSixLevelChatCapability("glm-5.1", "8b57b3b2-0820-4f91-88ad-f728b04e6677"),
 	"glm-5.2":                       pendingTextReasoningCapability("glm-5.2"),
 	"gpt-4.1":                       nonReasoningCapability("gpt-4.1", ZTAPIModalityText),
 	"gpt-4.1-mini":                  nonReasoningCapability("gpt-4.1-mini", ZTAPIModalityText),
@@ -67,7 +92,7 @@ var ztapiReasoningCapabilities = map[string]ZTAPIReasoningCapability{
 	"gpt-5.4-nano":                  pendingTextReasoningCapability("gpt-5.4-nano"),
 	"gpt-5.4-pro":                   pendingTextReasoningCapability("gpt-5.4-pro"),
 	"gpt-5.5":                       pendingTextReasoningCapability("gpt-5.5"),
-	"gpt-5.6-luna":                  pendingTextReasoningCapability("gpt-5.6-luna"),
+	"gpt-5.6-luna":                  luna56DeclaredReasoningCapability(),
 	"gpt-5.6-sol": {
 		SourceModel:            "gpt-5.6-sol",
 		Modality:               ZTAPIModalityText,
@@ -76,9 +101,10 @@ var ztapiReasoningCapabilities = map[string]ZTAPIReasoningCapability{
 		LiveValidationRequired: true,
 	},
 	"gpt-5.6-terra":            pendingTextReasoningCapability("gpt-5.6-terra"),
-	"kimi-k2.5":                pendingTextReasoningCapability("kimi-k2.5"),
-	"kimi-k2.6":                pendingTextReasoningCapability("kimi-k2.6"),
-	"kimi-k2.7-code":           pendingTextReasoningCapability("kimi-k2.7-code"),
+	"gpt-6.1-sol":              sol61DeclaredReasoningCapability(),
+	"kimi-k2.5":                verifiedSixLevelChatCapability("kimi-k2.5", "47f15d4f-7f55-468a-a483-3ccc1808785e"),
+	"kimi-k2.6":                verifiedSixLevelChatCapability("kimi-k2.6", "cdfd16aa-ee44-41bc-b939-d4a7f8ce6990"),
+	"kimi-k2.7-code":           verifiedSixLevelChatCapability("kimi-k2.7-code", "5378f1c2-d2b1-4d56-ad5b-919ddf9d33a4"),
 	"qwen3.5-flash":            pendingTextReasoningCapability("qwen3.5-flash"),
 	"qwen3.7-max":              pendingTextReasoningCapability("qwen3.7-max"),
 	"qwen3.7-plus":             pendingTextReasoningCapability("qwen3.7-plus"),
@@ -88,6 +114,7 @@ var ztapiReasoningCapabilities = map[string]ZTAPIReasoningCapability{
 	"gpt-image-2":              nonReasoningCapability("gpt-image-2", ZTAPIModalityImage),
 	"gemini-2.5-flash-image":   nonReasoningCapability("gemini-2.5-flash-image", ZTAPIModalityImage),
 	"doubao-seedance-2.0":      nonReasoningCapability("doubao-seedance-2.0", ZTAPIModalityVideo),
+	"doubao-seedance-2-5":      nonReasoningCapability("doubao-seedance-2-5", ZTAPIModalityVideo),
 	"doubao-seedance-2-0-fast": nonReasoningCapability("doubao-seedance-2-0-fast", ZTAPIModalityVideo),
 	"doubao-seedance-2-0-mini": nonReasoningCapability("doubao-seedance-2-0-mini", ZTAPIModalityVideo),
 }
@@ -102,35 +129,58 @@ func ZTAPIReasoningCapabilityFor(sourceModel string) (ZTAPIReasoningCapability, 
 }
 
 func NormalizeZTAPIReasoningEffort(sourceModel, requested string) (string, error) {
+	normalized, _ := NormalizeZTAPIReasoningEffortWithReason(sourceModel, requested)
+	return normalized, nil
+}
+
+func IsZTAPIReasoningEffortDropReason(reason string) bool {
+	switch reason {
+	case "unknown_model", "not_in_supported_list", "non_reasoning_model", "unrecognized_value":
+		return true
+	}
+	return false
+}
+
+// Unsupported hints are optional, not grounds to reject the entire request.
+// The reason is bounded vocabulary; never put arbitrary client text in logs.
+func NormalizeZTAPIReasoningEffortWithReason(sourceModel, requested string) (string, string) {
 	requested = strings.ToLower(strings.TrimSpace(requested))
 	if requested == "" {
-		return "", nil
+		return "", ""
 	}
 	capability, ok := ZTAPIReasoningCapabilityFor(sourceModel)
 	if !ok {
-		return "", ErrZTAPIReasoningEffortUnsupported
+		return "", "unknown_model"
+	}
+	if len(capability.ReasoningEfforts) == 0 && !capability.LiveValidationRequired {
+		return "", "non_reasoning_model"
+	}
+	switch requested {
+	case "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra":
+	default:
+		return "", "unrecognized_value"
 	}
 	if requested == "ultra" {
 		requested = "max"
 		for _, supported := range capability.ReasoningEfforts {
 			if requested == supported {
-				return requested, nil
+				return requested, ""
 			}
 		}
-		return "", ErrZTAPIReasoningEffortUnsupported
+		return "", "not_in_supported_list"
 	}
 	if len(capability.ReasoningEfforts) == 0 && capability.LiveValidationRequired {
 		switch requested {
 		case "none", "minimal", "low", "medium", "high", "xhigh", "max":
-			return requested, nil
+			return requested, ""
 		default:
-			return "", ErrZTAPIReasoningEffortUnsupported
+			return "", "unrecognized_value"
 		}
 	}
 	for _, supported := range capability.ReasoningEfforts {
 		if requested == supported {
-			return requested, nil
+			return requested, ""
 		}
 	}
-	return "", ErrZTAPIReasoningEffortUnsupported
+	return "", "not_in_supported_list"
 }

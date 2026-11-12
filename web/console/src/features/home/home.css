@@ -16,6 +16,7 @@
 
 .public-home main {
   position: relative;
+  padding-top: var(--header-h);
 }
 
 .public-home section {
@@ -33,7 +34,7 @@
 
 .gateway-hero {
   isolation: isolate;
-  padding: calc(var(--header-h) + clamp(56px, 9vw, 112px)) 0 clamp(56px, 8vw, 96px);
+  padding: clamp(56px, 9vw, 112px) 0 clamp(56px, 8vw, 96px);
   text-align: center;
 }
 

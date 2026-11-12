@@ -24,8 +24,11 @@ try {
   browser = await chromium.launch({ channel: 'chrome', headless: true });
   for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }, { width: 320, height: 568 }]) {
     const context = await browser.newContext({ viewport, serviceWorkers: 'block' });
+    const qrOnly = viewport.width < 500;
     let items = [item(1), item(2)];
     let invalid = false;
+    let cnyEnabled = false;
+    let cnyOrder = null;
     await context.route('**/*', async (route) => {
       const url = new URL(route.request().url());
       const respond = (data) => route.fulfill({ json: { success: true, data } });
@@ -38,9 +41,24 @@ try {
           user: { id: 7, username: 'offline-review', role: 1, group: 'default' } });
         case '/api/user/self': return respond({ quota: 1_000_000 });
         case '/api/status': return respond({ quota_per_unit: 100_000 });
+        case '/api/spending/alerts': return respond({ items: [], unread_count: 0 });
         case '/api/user/topup/info': return respond({ enable_usdt_trc20_topup: false,
           usdt_trc20_network: 'tron-mainnet', usdt_trc20_asset: 'USDT', usdt_trc20_min_topup: 10, usdt_trc20_order_ttl_seconds: 600 });
         case '/api/user/topup/self': return respond({ page: 1, page_size: 5, total: 0, items: [] });
+        case '/api/user/topup/cny/info': return respond(cnyEnabled ? { enabled: true, min_cny: '1.00', max_cny: '50.00', cny_per_u: '6.67', methods: ['alipay', 'wxpay'] } : { enabled: false });
+        case '/api/user/topup/cny/orders': {
+          if (route.request().method() === 'POST') {
+            const body = route.request().postDataJSON();
+            assert.equal(body.amount_cny, '12.37');
+            assert.equal(body.method, 'wxpay');
+            assert.match(body.idempotency_key, /^[a-f0-9-]{36}$/);
+            cnyOrder = { order_no: 'CNY-fixture-browser', amount_cny: '12.37', credit_u: '1.854572', method: 'wxpay',
+              status: 'pending', checkout_url: qrOnly ? '' : 'https://checkout.example.test/synthetic',
+              checkout_qr: qrOnly ? 'weixin://wxpay/bizpayurl/up?pr=fixture' : '', created_at: Date.now() / 1000 };
+            return respond(cnyOrder);
+          }
+          return respond(cnyOrder ? [cnyOrder] : []);
+        }
         case '/api/user/self/pending-settlements': {
           assert.equal(route.request().method(), 'GET');
           if (invalid) return respond({ items: [] });
@@ -64,8 +82,8 @@ try {
     const holds = page.getByRole('region', { name: '待核账预留' });
     await expect(holds.getByText('预留中', { exact: true })).toBeVisible();
     await expect(holds.getByText('待核账', { exact: true })).toBeVisible();
-    await expect(holds.getByText('$2.50', { exact: true })).toHaveCount(2);
-    await expect(page.getByRole('region', { name: '账户余额' }).getByText('$10.00')).toBeVisible();
+    await expect(holds.getByText('2.50 U', { exact: true })).toHaveCount(2);
+    await expect(page.getByRole('region', { name: '账户余额' }).getByText('10.00 U')).toBeVisible();
     const layout = await page.evaluate(() => {
       const issues = [];
       if (document.documentElement.scrollWidth > window.innerWidth + 1) issues.push('page overflow');
@@ -96,13 +114,40 @@ try {
     await holds.getByRole('button', { name: '刷新预留记录' }).click();
     await expect(holds.getByText('预留记录加载失败，请刷新重试。')).toBeVisible();
     await expect(page).toHaveURL(`${origin}/console/wallet`);
-    await expect(page.getByRole('region', { name: '账户余额' }).getByText('$10.00')).toBeVisible();
+    await expect(page.getByRole('region', { name: '账户余额' }).getByText('10.00 U')).toBeVisible();
     invalid = false;
     items = [];
     await holds.getByRole('button', { name: '刷新预留记录' }).click();
     await expect(holds.getByText('暂无待核账预留。')).toBeVisible();
+    await expect(page.getByRole('region', { name: '人民币充值' })).toHaveCount(0);
+    cnyEnabled = true;
+    await page.reload();
+    const cny = page.getByRole('region', { name: '人民币充值' });
+    await cny.getByLabel('人民币金额').fill('12.37');
+    await cny.getByLabel('微信支付').check();
+    await cny.getByRole('button', { name: '创建人民币订单' }).click();
+    await expect(cny.getByText('¥12.37')).toBeVisible();
+    await expect(cny.getByText('1.854572 U')).toBeVisible();
+    const checkout = cny.getByRole('link', { name: '前往付款' });
+    const qr = cny.getByRole('img', { name: '付款二维码' });
+    if (qrOnly) {
+      await expect(qr).toBeVisible();
+      await expect(qr.locator('path').first()).toBeVisible();
+      await expect(checkout).toHaveCount(0);
+    } else {
+      await expect(checkout).toHaveAttribute('href', 'https://checkout.example.test/synthetic');
+      await checkout.click({ trial: true });
+    }
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), true);
+    const cnyScreenshot = path.join(evidence, `wallet-cny-${viewport.width}.png`);
+    await cny.screenshot({ path: cnyScreenshot });
+    cnyOrder = { ...cnyOrder, status: 'paid', checkout_url: '', checkout_qr: '' };
+    await cny.getByRole('button', { name: '重新查询人民币订单' }).click();
+    await expect(cny.getByText('人民币充值已到账')).toBeVisible();
+    await expect(cny.getByRole('link', { name: '前往付款' })).toHaveCount(0);
+    await expect(qr).toHaveCount(0);
     assert.deepEqual(errors, []);
-    report.viewports.push({ ...viewport, screenshot, status: 'passed' });
+    report.viewports.push({ ...viewport, screenshot, cnyScreenshot, status: 'passed' });
     await context.close();
   }
   assert.deepEqual(report.blockedRequests, []);

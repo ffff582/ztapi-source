@@ -3,7 +3,9 @@ package openai
 import (
 	"fmt"
 	"io"
+	"math"
 	"net/http"
+	"reflect"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -18,6 +20,55 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+// Preserve Xcloud's reported Kimi token totals for display when only cache
+// evidence is incomplete. These numbers must not be used for settlement.
+func incompleteXcloudKimiTokenCounts(info *relaycommon.RelayInfo) *dto.Usage {
+	if info == nil || info.ChannelMeta == nil || info.ZTAPIPublicationSnapshot == nil ||
+		info.ChannelId != 8 || strings.TrimRight(info.ChannelBaseUrl, "/") != "https://www.xcloudtoken.com" ||
+		info.UpstreamModelName != "kimi-k3" || info.ZTAPIMetering == nil {
+		return nil
+	}
+	evidence := info.ZTAPIMetering
+	if len(evidence.UsageIntegrityReasons) != 1 || evidence.UsageIntegrityReasons[0] != "usage_incomplete" ||
+		evidence.UnverifiedUsage == nil || evidence.UnverifiedUsage.Reason != "usage_incomplete" {
+		return nil
+	}
+	var counts struct {
+		Prompt     *int `json:"prompt_tokens"`
+		Completion *int `json:"completion_tokens"`
+		Total      *int `json:"total_tokens"`
+	}
+	if common.Unmarshal(evidence.UnverifiedUsage.RawUsage, &counts) != nil || counts.Prompt == nil ||
+		counts.Completion == nil || counts.Total == nil || *counts.Prompt < 0 || *counts.Completion < 0 ||
+		*counts.Prompt > math.MaxInt/8 || *counts.Completion > math.MaxInt/8 ||
+		*counts.Total != *counts.Prompt+*counts.Completion {
+		return nil
+	}
+	return &dto.Usage{PromptTokens: *counts.Prompt, CompletionTokens: *counts.Completion, TotalTokens: *counts.Total, UsageSource: "upstream_incomplete"}
+}
+
+func incompleteXcloudKimiFrameCounts(info *relaycommon.RelayInfo, raw []byte, header http.Header) (*dto.Usage, *types.ZTAPIUnverifiedUsageObservation) {
+	if info == nil || info.ChannelMeta == nil || info.ChannelId != 8 || info.UpstreamModelName != "kimi-k3" {
+		return nil, nil
+	}
+	// The scanner updates counters on info concurrently; only copy immutable
+	// request metadata needed to validate this usage frame.
+	current := &relaycommon.RelayInfo{
+		ChannelMeta:              info.ChannelMeta,
+		ZTAPIPublicationSnapshot: info.ZTAPIPublicationSnapshot,
+		IsStream:                 info.IsStream,
+		RelayFormat:              info.RelayFormat,
+	}
+	if relaycommon.ObserveZTAPIOpenAIChatUsage(nil, current, raw, header) != nil {
+		return nil, nil
+	}
+	partial := incompleteXcloudKimiTokenCounts(current)
+	if partial == nil {
+		return nil, nil
+	}
+	return partial, current.ZTAPIMetering.UnverifiedUsage.Sanitized()
+}
 
 func sendStreamData(c *gin.Context, info *relaycommon.RelayInfo, data string, forceFormat bool, thinkToContent bool) error {
 	if data == "" {
@@ -117,18 +168,50 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	var toolCount int
 	var usage = &dto.Usage{}
 	var lastStreamData string
-	var secondLastStreamData string // 存储倒数第二个stream data，用于音频模型
+	var lastUsageData string
 	streamMetadata := newZTAPIStreamMetadata(info)
 
-	// 检查是否为音频模型
-	isAudioModel := strings.Contains(strings.ToLower(model), "audio")
-
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
+		rawData := data
+		observed := relaycommon.ObserveZTAPIOpenAIChatUsage(c, info, []byte(rawData), resp.Header)
 		var err error
 		data, err = streamMetadata.normalize(data)
 		if err != nil {
 			sr.Error(err)
 			return
+		}
+		var frame struct {
+			Usage *dto.Usage `json:"usage"`
+		}
+		if common.UnmarshalJsonStr(rawData, &frame) == nil {
+			if observed != nil || (info.ZTAPIPublicationSnapshot == nil && service.ValidUsage(frame.Usage)) {
+				selected := frame.Usage
+				if observed != nil {
+					selected = observed
+				}
+				normalized := normalizeChatUsage(info, frame.Usage)
+				if observed != nil && !reflect.DeepEqual(frame.Usage, observed) {
+					normalized = true
+				}
+				if normalized || !service.ValidUsage(selected) {
+					data, err = replaceChatUsage(data, selected)
+				}
+				// Upstream snapshots are cumulative, not additive deltas.
+				usage, containStreamUsage, lastUsageData = selected, true, rawData
+			} else if partial, evidence := incompleteXcloudKimiFrameCounts(info, []byte(rawData), resp.Header); frame.Usage != nil && (!containStreamUsage || usage.UsageSource == "upstream_incomplete") && partial != nil {
+				usage = partial
+				info.ZTAPIMetering.UnverifiedUsage = evidence
+				common.SetContextKey(c, constant.ContextKeyLocalCountTokens, true)
+				data, err = replaceChatUsage(data, usage)
+				containStreamUsage, lastUsageData = true, rawData
+			} else if frame.Usage != nil && containStreamUsage && info.ZTAPIPublicationSnapshot != nil {
+				// Empty stop-frame usage must not replace the client's valid snapshot.
+				data, err = replaceChatUsage(data, nil)
+			}
+			if err != nil {
+				sr.Error(err)
+				return
+			}
 		}
 		if lastStreamData != "" {
 			if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
@@ -137,11 +220,6 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 			}
 		}
 		if len(data) > 0 {
-			// 对音频模型，保存倒数第二个stream data
-			if isAudioModel && lastStreamData != "" {
-				secondLastStreamData = lastStreamData
-			}
-
 			lastStreamData = data
 			if err := processTokenData(info.RelayMode, data, &responseTextBuilder, &toolCount); err != nil {
 				logger.LogError(c, "error processing stream token data: "+err.Error())
@@ -149,24 +227,6 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 			}
 		}
 	})
-
-	// 对音频模型，从倒数第二个stream data中提取usage信息
-	if isAudioModel && secondLastStreamData != "" {
-		var streamResp struct {
-			Usage *dto.Usage `json:"usage"`
-		}
-		err := common.Unmarshal([]byte(secondLastStreamData), &streamResp)
-		if err == nil && streamResp.Usage != nil && service.ValidUsage(streamResp.Usage) {
-			usage = streamResp.Usage
-			containStreamUsage = true
-
-			if common.DebugEnabled {
-				logger.LogDebug(c, "Audio model usage extracted from second last SSE: PromptTokens=%d, CompletionTokens=%d, TotalTokens=%d, InputTokens=%d, OutputTokens=%d",
-					usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens,
-					usage.InputTokens, usage.OutputTokens)
-			}
-		}
-	}
 
 	// 处理最后的响应
 	shouldSendLastResp := true
@@ -186,7 +246,12 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		usage.CompletionTokens += toolCount * 7
 	}
 
-	applyUsagePostProcessing(info, usage, common.StringToByteSlice(lastStreamData))
+	usageData := lastStreamData
+	if containStreamUsage && usage.UsageSource != "upstream_incomplete" {
+		usageData = lastUsageData
+		relaycommon.CaptureZTAPIUpstreamUsageEvidence(info, []byte(lastUsageData), "stream")
+	}
+	applyUsagePostProcessing(info, usage, common.StringToByteSlice(usageData))
 
 	HandleFinalResponse(c, info, lastStreamData, responseId, createAt, model, systemFingerprint, usage, containStreamUsage)
 
@@ -218,6 +283,7 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 		}
 	}
 
+	observed := relaycommon.ObserveZTAPIOpenAIChatUsage(c, info, responseBody, resp.Header)
 	err = common.Unmarshal(responseBody, &simpleResponse)
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
@@ -240,20 +306,37 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 	}
 
 	usageModified := false
-	if simpleResponse.Usage.PromptTokens == 0 {
-		completionTokens := simpleResponse.Usage.CompletionTokens
-		if completionTokens == 0 {
-			for _, choice := range simpleResponse.Choices {
-				ctkm := service.CountTextToken(choice.Message.StringContent()+choice.Message.GetReasoningContent(), info.UpstreamModelName)
-				completionTokens += ctkm
+	managed := info.ZTAPIPublicationSnapshot != nil
+	if observed != nil || (!managed && service.ValidUsage(&simpleResponse.Usage) && simpleResponse.Usage.PromptTokens != 0) {
+		usageModified = normalizeChatUsage(info, &simpleResponse.Usage)
+		if observed != nil {
+			usageModified = usageModified || !reflect.DeepEqual(&simpleResponse.Usage, observed)
+			simpleResponse.Usage = *observed
+			usageModified = usageModified || !service.ValidUsage(observed)
+		}
+		relaycommon.CaptureZTAPIUpstreamUsageEvidence(info, responseBody, "nonstream")
+	} else if managed || simpleResponse.Usage.PromptTokens == 0 {
+		if partial := incompleteXcloudKimiTokenCounts(info); partial != nil {
+			simpleResponse.Usage = *partial
+			common.SetContextKey(c, constant.ContextKeyLocalCountTokens, true)
+			usageModified = true
+		} else {
+			completionTokens := simpleResponse.Usage.CompletionTokens
+			if completionTokens == 0 {
+				for _, choice := range simpleResponse.Choices {
+					ctkm := service.CountTextToken(choice.Message.StringContent()+choice.Message.GetReasoningContent(), info.UpstreamModelName)
+					completionTokens += ctkm
+				}
 			}
+			simpleResponse.Usage = dto.Usage{
+				PromptTokens:     info.GetEstimatePromptTokens(),
+				CompletionTokens: completionTokens,
+				TotalTokens:      info.GetEstimatePromptTokens() + completionTokens,
+				UsageSource:      "local_estimate",
+			}
+			common.SetContextKey(c, constant.ContextKeyLocalCountTokens, true)
+			usageModified = true
 		}
-		simpleResponse.Usage = dto.Usage{
-			PromptTokens:     info.GetEstimatePromptTokens(),
-			CompletionTokens: completionTokens,
-			TotalTokens:      info.GetEstimatePromptTokens() + completionTokens,
-		}
-		usageModified = true
 	}
 
 	applyUsagePostProcessing(info, &simpleResponse.Usage, responseBody)
@@ -261,13 +344,11 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:
 		if usageModified {
-			var bodyMap map[string]interface{}
-			err = common.Unmarshal(responseBody, &bodyMap)
-			if err != nil {
-				return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+			normalized, normalizeErr := replaceChatUsage(string(responseBody), &simpleResponse.Usage)
+			if normalizeErr != nil {
+				return nil, types.NewOpenAIError(normalizeErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 			}
-			bodyMap["usage"] = simpleResponse.Usage
-			responseBody, _ = common.Marshal(bodyMap)
+			responseBody = []byte(normalized)
 		}
 		if forceFormat {
 			responseBody, err = common.Marshal(simpleResponse)

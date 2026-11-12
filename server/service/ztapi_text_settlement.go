@@ -25,13 +25,15 @@ func postZTAPIDurableTextQuota(c *gin.Context, info *relaycommon.RelayInfo, usag
 	var snapshot relaycommon.ZTAPIPublicationSnapshot
 	if err := common.UnmarshalJsonStr(frozenJSON, &snapshot); err != nil {
 		logger.LogError(c, "managed billing snapshot cannot be decoded")
-		_ = pendZTAPIBilling(info, usage, []string{"invalid_frozen_price"})
+		check := ztapiFrozenUsageDimensions(c, info, usage, frozenJSON)
+		_ = pendZTAPIBilling(info, usage, []string{"invalid_frozen_price"}, check)
 		return true
 	}
 	selected, tier, tierErr := relaycommon.SelectZTAPIFrozenTokenTier(&snapshot, usage)
 	if tierErr != nil {
 		logger.LogError(c, "managed token tier selection requires reconciliation: "+tierErr.Error())
-		_ = pendZTAPIBilling(info, usage, []string{"token_tier_invalid"})
+		check := ztapiFrozenUsageDimensions(c, info, usage, frozenJSON)
+		_ = pendZTAPIBilling(info, usage, []string{"token_tier_invalid"}, check)
 		return true
 	}
 	check := relaycommon.ValidateZTAPIUsageDimensions(c, ztapiUsageValidationInfo(info, selected), usage)
@@ -40,7 +42,7 @@ func postZTAPIDurableTextQuota(c *gin.Context, info *relaycommon.RelayInfo, usag
 		if check.UsageMissing {
 			missing = append(missing, "upstream_usage_missing")
 		}
-		if err := pendZTAPIBilling(info, usage, missing); err != nil {
+		if err := pendZTAPIBilling(info, usage, missing, check); err != nil {
 			logger.LogError(c, "managed billing pending handoff failed: "+err.Error())
 		}
 		return true
@@ -48,10 +50,10 @@ func postZTAPIDurableTextQuota(c *gin.Context, info *relaycommon.RelayInfo, usag
 	quota, dims, err := calculateZTAPIChargeDimensions(check)
 	if err != nil {
 		logger.LogError(c, "managed charge calculation requires reconciliation: "+err.Error())
-		_ = pendZTAPIBilling(info, usage, []string{"charge_calculation_invalid"})
+		_ = pendZTAPIBilling(info, usage, []string{"charge_calculation_invalid"}, check)
 		return true
 	}
-	rawUsage, err := common.Marshal(usage)
+	rawUsage, err := marshalZTAPIBillingUsageWithDimensions(info, usage, &check, nil)
 	if err != nil {
 		return true
 	}
@@ -64,8 +66,19 @@ func postZTAPIDurableTextQuota(c *gin.Context, info *relaycommon.RelayInfo, usag
 	if session.row.Status != model.ZTAPISettlementReserved {
 		return true
 	}
+	pendBeforeIntent := func(reason string) (*model.ZTAPIRequestSettlement, error) {
+		raw, err := marshalZTAPIBillingUsageWithDimensions(info, usage, &check, []string{reason})
+		if err != nil {
+			return nil, err
+		}
+		missing, err := common.Marshal([]string{reason})
+		if err != nil {
+			return nil, err
+		}
+		return model.PendZTAPIRequestSettlement(session.row.OperationID, string(raw), string(missing))
+	}
 	if session.attempt == nil {
-		row, err := model.PendZTAPIRequestSettlement(session.row.OperationID, string(rawUsage), `["dispatch_evidence_missing"]`)
+		row, err := pendBeforeIntent("dispatch_evidence_missing")
 		if err == nil {
 			session.row = row
 		} else {
@@ -79,7 +92,7 @@ func postZTAPIDurableTextQuota(c *gin.Context, info *relaycommon.RelayInfo, usag
 		}
 		if err = model.RecordZTAPIRequestAttemptResponse(session.row.OperationID, attempt.Index, attempt.ChannelID, attempt.HTTPStatus, attempt.UpstreamRequestID); err != nil {
 			logger.LogError(c, "managed attempt evidence requires reconciliation: "+err.Error())
-			row, pendingErr := model.PendZTAPIRequestSettlement(session.row.OperationID, string(rawUsage), `["attempt_evidence_conflict"]`)
+			row, pendingErr := pendBeforeIntent("attempt_evidence_conflict")
 			if pendingErr == nil {
 				session.row = row
 			}
@@ -87,6 +100,9 @@ func postZTAPIDurableTextQuota(c *gin.Context, info *relaycommon.RelayInfo, usag
 		}
 	}
 	otherInfo := map[string]any{"billing_source": "wallet", "billing_status": "settled", "billing_dimensions": check.Dimensions, "publication_version": snapshot.Version, "price_source_version": snapshot.PriceSourceVersion, "usage_semantic": check.UsageSemantic}
+	if evidence := ztapiMeteringSnapshot(info, usage); evidence != nil {
+		otherInfo["ztapi_metering_evidence"] = evidence
+	}
 	if tier != "" {
 		otherInfo["billing_tier"] = tier
 	}
@@ -101,6 +117,7 @@ func postZTAPIDurableTextQuota(c *gin.Context, info *relaycommon.RelayInfo, usag
 	row, err := model.FinalizeZTAPIRequestSettlementWithEvidence(session.row.OperationID, int64(quota), string(rawUsage), string(rawDimensions), model.ZTAPISettlementEvidence{FinalAttempt: session.attempt.Attempt, ConsumeLog: logEntry})
 	if err != nil {
 		logger.LogError(c, fmt.Sprintf("managed settlement failed request=%s: %v", info.RequestId, err))
+		// An existing intent requires byte-identical usage for its durable retry.
 		pending, pendingErr := model.PendZTAPIRequestSettlement(session.row.OperationID, string(rawUsage), `["settlement_retry_required"]`)
 		if pendingErr == nil {
 			session.row = pending
@@ -151,5 +168,6 @@ func ztapiUsageValidationInfo(info *relaycommon.RelayInfo, snapshot *relaycommon
 		FinalRequestRelayFormat:  info.GetFinalRequestRelayFormat(),
 		ResponsesUsageInfo:       info.ResponsesUsageInfo,
 		ZTAPIPublicationSnapshot: snapshot,
+		ZTAPIMetering:            info.ZTAPIMetering,
 	}
 }

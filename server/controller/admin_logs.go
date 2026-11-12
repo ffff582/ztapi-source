@@ -73,10 +73,12 @@ type adminRequestLogRow struct {
 }
 
 type adminRequestReasoningMetadata struct {
-	ReasoningEffortReceived  string `json:"reasoning_effort_received,omitempty"`
-	ReasoningEffortForwarded string `json:"reasoning_effort_forwarded,omitempty"`
-	ReasoningEffortSource    string `json:"reasoning_effort_source,omitempty"`
-	ReasoningTokensReported  *int   `json:"reasoning_tokens_reported,omitempty"`
+	ReasoningEffortReceived   string `json:"reasoning_effort_received,omitempty"`
+	ReasoningEffortForwarded  string `json:"reasoning_effort_forwarded,omitempty"`
+	ReasoningEffortSource     string `json:"reasoning_effort_source,omitempty"`
+	ReasoningEffortDropped    bool   `json:"reasoning_effort_dropped,omitempty"`
+	ReasoningEffortDropReason string `json:"reasoning_effort_drop_reason,omitempty"`
+	ReasoningTokensReported   *int   `json:"reasoning_tokens_reported,omitempty"`
 }
 
 type adminRequestLogResponse struct {
@@ -354,6 +356,15 @@ func projectAdminRequestReasoningMetadata(raw string) *adminRequestReasoningMeta
 		return nil
 	}
 	metadata := &adminRequestReasoningMetadata{}
+	if dropped, _ := other["reasoning_effort_dropped"].(bool); dropped {
+		if reason, _ := other["reasoning_effort_drop_reason"].(string); model.IsZTAPIReasoningEffortDropReason(reason) {
+			metadata.ReasoningEffortDropped = true
+			metadata.ReasoningEffortDropReason = reason
+			if other["reasoning_effort_received"] == "unrecognized" {
+				metadata.ReasoningEffortReceived = "unrecognized"
+			}
+		}
+	}
 	if value := normalizedAdminReasoningEffort(other["reasoning_effort_received"]); value != "" {
 		metadata.ReasoningEffortReceived = value
 	}
@@ -368,7 +379,7 @@ func projectAdminRequestReasoningMetadata(raw string) *adminRequestReasoningMeta
 			metadata.ReasoningTokensReported = &tokens
 		}
 	}
-	if metadata.ReasoningEffortReceived == "" && metadata.ReasoningEffortForwarded == "" && metadata.ReasoningEffortSource == "" && metadata.ReasoningTokensReported == nil {
+	if metadata.ReasoningEffortReceived == "" && metadata.ReasoningEffortForwarded == "" && metadata.ReasoningEffortSource == "" && metadata.ReasoningTokensReported == nil && !metadata.ReasoningEffortDropped {
 		return nil
 	}
 	return metadata

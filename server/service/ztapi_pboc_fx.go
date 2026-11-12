@@ -257,7 +257,7 @@ func StartZTAPIFXRefreshTask(ctx context.Context) {
 			return
 		}
 		gopool.Go(func() {
-			lastErr := runProductionZTAPIFXRefresh(ctx)
+			lastErr := runZTAPIFXRefreshOnStart(ctx, runProductionZTAPIFXRefresh)
 			for {
 				now := time.Now().In(ztapiFXBeijing)
 				delay := time.Until(nextZTAPIFXRefresh(now, lastErr))
@@ -272,4 +272,13 @@ func StartZTAPIFXRefreshTask(ctx context.Context) {
 			}
 		})
 	})
+}
+
+func runZTAPIFXRefreshOnStart(ctx context.Context, refresh func(context.Context) error) error {
+	// Rolling releases may skip the immediate refresh without disabling the
+	// normal 10:00 schedule or changing any published price.
+	if common.GetEnvOrDefaultBool("ZTAPI_SKIP_STARTUP_FX_REFRESH", false) {
+		return nil
+	}
+	return refresh(ctx)
 }

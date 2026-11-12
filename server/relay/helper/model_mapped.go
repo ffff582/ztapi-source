@@ -7,13 +7,31 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 )
 
-func ModelMappedHelper(c *gin.Context, info *common.RelayInfo, request dto.Request) error {
+func ModelMappedHelper(c *gin.Context, info *common.RelayInfo, request dto.Request) (err error) {
+	defer func() {
+		if err != nil || info.ZTAPIPublicationSnapshot == nil {
+			return
+		}
+		if info.ZTAPIPublicationSnapshot.SourceModel == model.ZTAPIGLM53FlashSource {
+			err = model.ValidateZTAPIEnterpriseGLM53FlashRoute(info.ChannelId, info.ChannelBaseUrl, info.UpstreamModelName)
+			return
+		}
+		switch info.ZTAPIPublicationSnapshot.PricePolicy {
+		case string(model.ZTAPIPricePolicySupplierAdmission20261019):
+			err = model.ValidateZTAPISupplierAdmissionRouteWithXcloud20261029(info.ZTAPIPublicationSnapshot.SourceModel,
+				info.ChannelId, info.ChannelBaseUrl, info.UpstreamModelName)
+		case string(model.ZTAPIPricePolicyXcloudGLM53):
+			err = model.ValidateZTAPIXcloudGLM53Route(info.ZTAPIPublicationSnapshot.SourceModel,
+				info.ChannelId, info.ChannelBaseUrl, info.UpstreamModelName)
+		}
+	}()
 	if info.ChannelMeta == nil {
 		info.ChannelMeta = &common.ChannelMeta{}
 	}

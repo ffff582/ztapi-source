@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { UsageBillingNote } from '../../components/UsageBillingNote';
 import { useLocale } from '../../i18n/locale';
+import { ClientSetupGuide } from './ClientSetupGuide';
 
 type GuideLanguage = 'curl' | 'python' | 'node';
 type GuideEndpoint = 'chat' | 'responses' | 'embeddings' | 'images' | 'video-tasks';
@@ -367,6 +368,8 @@ export function UsageGuidePage() {
           </Link>
         </div>
       </section>
+
+      <ClientSetupGuide />
 
       <section
         className="console-section guide-reference"

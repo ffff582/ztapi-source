@@ -1,0 +1,13 @@
+.cny-topup { min-width: 0; }
+.cny-topup__form { display: grid; gap: 1rem; max-width: 28rem; }
+.cny-topup__form > button { justify-self: start; }
+.cny-topup > .console-button { margin-top: .75rem; }
+.cny-topup__methods { margin: 0; border: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 1rem; }
+.cny-topup__methods legend { padding: 0; margin-bottom: .5rem; }
+.cny-topup__orders { padding: 0; margin: 1rem 0 0; list-style: none; }
+.cny-topup__orders li { border-top: 1px solid var(--border, #313641); padding: .8rem 0; }
+.cny-topup__id { display: block; margin-top: .25rem; font-size: .85rem; overflow-wrap: anywhere; }
+.cny-topup__orders dl { display: flex; flex-wrap: wrap; column-gap: 1.5rem; row-gap: .5rem; margin: .65rem 0; }
+.cny-topup__orders dd { margin: .2rem 0 0; font-variant-numeric: tabular-nums; }
+.cny-topup__qr { display: grid; justify-items: start; gap: .4rem; margin-top: .75rem; }
+.cny-topup__qr svg { display: block; max-width: 100%; height: auto; }
