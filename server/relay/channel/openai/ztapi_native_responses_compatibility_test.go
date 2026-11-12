@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"io"
@@ -58,6 +59,59 @@ func nativeSSE(frames ...string) string {
 
 func nativeHTTPResponse(body string) *http.Response {
 	return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}
+}
+
+func TestZTAPINativeResponsesHealthWithSplitTerminalDelimiter(t *testing.T) {
+	for _, mode := range []string{"completed", "failed_write", "missing_terminal"} {
+		t.Run(mode, func(t *testing.T) {
+			c, recorder, info := nativeResponsesContext(true, true)
+			var outcome types.ZTAPIHealthOutcome
+			session, err := relaycommon.StartZTAPIHealthRequest(c, info, relaycommon.ZTAPIHealthBackend{
+				AdmitRequest: func(context.Context, string, string, string, int, bool) (*types.ZTAPIHealthTicket, error) {
+					return &types.ZTAPIHealthTicket{Source: "real"}, nil
+				},
+				AdmitAttempt: func(context.Context, *types.ZTAPIHealthTicket, int, string, string) error { return nil },
+				RecordOutcome: func(_ context.Context, _ *types.ZTAPIHealthTicket, out types.ZTAPIHealthOutcome) error {
+					outcome = out
+					return nil
+				},
+			})
+			require.NoError(t, err)
+			attempt, err := relaycommon.BeginZTAPIHealthUpstream(c, 1, "/hub/v1/responses", "fixture-key")
+			require.NoError(t, err)
+			attempt.Dispatched()
+			wire := nativeSSE(`{"type":"response.output_text.delta","delta":"partial text"}`)
+			resp := nativeHTTPResponse(wire)
+			resp.Header.Set("Content-Type", "text/event-stream")
+			if mode != "missing_terminal" {
+				reader, writer := io.Pipe()
+				t.Cleanup(func() { _ = writer.Close(); _ = reader.Close() })
+				resp.Body = reader
+				// The relay stops on the complete JSON line before the next SSE byte arrives.
+				go func() {
+					_, _ = io.WriteString(writer, wire+"data: "+nativeResponseEvent("response.completed", nativeReceipt)+"\n")
+				}()
+			}
+			if mode == "failed_write" {
+				c.Writer = &nativeFailingGinWriter{ResponseWriter: c.Writer}
+			}
+			attempt.WrapResponse(resp)
+			usage, apiErr := OaiResponsesStreamHandler(c, info, resp)
+			require.NoError(t, session.Finalize(c.Request.Context(), apiErr != nil))
+			if mode == "completed" {
+				require.Nil(t, apiErr)
+				require.Contains(t, recorder.Body.String(), "event: response.completed")
+				assertNativeReceipt(t, c, info, usage, "stream", 1)
+				require.Equal(t, "success", outcome.Result)
+				require.Equal(t, "valid_output", outcome.Reason)
+				require.True(t, outcome.TransportComplete)
+			} else {
+				require.NotNil(t, apiErr)
+				require.NotContains(t, recorder.Body.String(), "event: response.completed")
+				require.NotEqual(t, "success", outcome.Result)
+			}
+		})
+	}
 }
 
 func TestZTAPINativeResponsesClientToolsDoNotCreateBillableCalls(t *testing.T) {

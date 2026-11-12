@@ -42,7 +42,7 @@ func setupHostedBillingTest(t *testing.T, wallet, tokenQuota int) hostedBillingF
 	})
 	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}, &model.BalanceLedger{}, &model.Channel{}, &model.Ability{},
 		&model.Log{}, &model.ZTAPIFXPolicy{}, &model.ZTAPIRequestSettlement{}, &model.ZTAPIRequestAttempt{},
-		&model.ZTAPISettlementFinalizationIntent{}, &model.ZTAPISettlementLogReceipt{}))
+		&model.ZTAPISettlementFinalizationIntent{}, &model.ZTAPISettlementLogReceipt{}, &model.ZTAPIPendingResolution{}, &model.ZTAPIMediaTask{}))
 	require.NoError(t, model.MigrateZTAPISupplierRefund(db))
 	require.NoError(t, model.MigrateZTAPIAttemptBilling(db))
 	require.NoError(t, model.MigrateZTAPISettlementLogOutbox(db))

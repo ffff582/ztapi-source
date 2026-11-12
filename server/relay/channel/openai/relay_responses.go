@@ -320,8 +320,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			forward = true
 		}
 		if downstreamErr == nil && forward {
-			data = types.PublicStreamErrorPayload(data)
-			payload := fmt.Sprintf("event: %s\ndata: %s\n\n", streamResponse.Type, data)
+			payload := fmt.Sprintf("event: %s\ndata: %s\n\n", streamResponse.Type, types.PublicStreamErrorPayload(data))
 			n, err := c.Writer.Write([]byte(payload))
 			if err == nil && n != len(payload) {
 				err = io.ErrShortWrite
@@ -333,6 +332,8 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 				downstreamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
 				sr.Error(err)
 				// Read remaining billing receipts, but never send a later success terminal.
+			} else if streamResponse.Type == "response.completed" && completed {
+				relaycommon.ConfirmZTAPINativeResponsesStreamTerminal(c, data)
 			}
 		}
 	})

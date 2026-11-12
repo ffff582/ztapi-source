@@ -107,6 +107,13 @@ jobs:
           go test -race ./relay/helper -run '^TestZTAPIStreamShutdown' -count=1 -timeout=2m
           go test -race ./relay/helper -run '^TestZTAPIStreamShutdown(Cancellation|Handler|Drains|Ping)' -count=10 -timeout=2m
 
+      - name: Run stream health and attempt billing regressions
+        working-directory: server
+        run: >-
+          go test ./model ./relay/channel/openai
+          -run '^TestZTAPI(AttemptBilling(ReconciliationDoesNotStarveOnUnverifiedLegacyRelease|TerminalFinalReviewIsResolved|WholeNoChargeResolvesAllReviews)|NativeResponsesHealthWithSplitTerminalDelimiter)$'
+          -count=1 -timeout=2m
+
       - name: Run hosted tool billing and receipt regressions
         working-directory: server
         run: >-
