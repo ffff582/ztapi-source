@@ -582,8 +582,10 @@ describe('PlaygroundPage', () => {
     expect(submitted[0].messages.at(-1)).toEqual({ role: 'user', content: prompt });
     expect(submitted[0].max_tokens).toBe(256);
     if (workbench) {
-      const saved = JSON.parse(localStorage.getItem('ztapi:workbench:text-conversations:v1:9')!);
-      expect(saved[0].messages[0].content).toBe(prompt);
+      await waitFor(() => {
+        const saved = JSON.parse(localStorage.getItem('ztapi:workbench:text-conversations:v1:9') ?? '[]');
+        expect(saved[0]?.messages[0]?.content).toBe(prompt);
+      });
     }
   });
 

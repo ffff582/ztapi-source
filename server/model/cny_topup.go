@@ -133,7 +133,13 @@ func createCNYTopUpOrder(ctx context.Context, order CNYTopUpOrder, admission fun
 		if pending < 0 || order.Quota > maxBalanceLedgerQuota-int64(user.Quota)-pending {
 			return ErrBalanceLedgerOverflow
 		}
-		if err := tx.Create(&order).Error; err != nil {
+		insert := tx
+		if order.ReferralPolicyEpoch == 0 {
+			// During rolling release the temporary node can serve checkout
+			// before the primary adds this optional field.
+			insert = tx.Omit("ReferralPolicyEpoch")
+		}
+		if err := insert.Create(&order).Error; err != nil {
 			return err
 		}
 		existing, fresh = order, true
