@@ -48,7 +48,7 @@ func ztapiReferralCampaignProjection(campaign *model.ZTAPIReferralCampaign, repo
 	if !campaign.Enabled && report.Ready {
 		reasons = append(reasons, "活动尚未开启")
 	}
-	return gin.H{"enabled": campaign.Enabled, "accepting_invites": campaign.Enabled && report.Ready, "version": campaign.Version, "started_at": campaign.StartedAt, "rate": "0.05", "freeze_days": 7, "term_months": 12, "minimum_withdrawal": "20.000000", "network": "TRC20", "blocked_reasons": reasons, "rule_version": campaign.RuleVersion}
+	return gin.H{"enabled": campaign.Enabled, "accepting_invites": campaign.Enabled && report.Ready, "cny_accepting_orders": campaign.Enabled && report.Ready && service.ZTAPICNYReferralActive(time.Now().UTC()), "version": campaign.Version, "started_at": campaign.StartedAt, "rate": "0.05", "freeze_days": 7, "term_months": 12, "minimum_withdrawal": "20.000000", "network": "TRC20", "blocked_reasons": reasons, "rule_version": campaign.RuleVersion}
 }
 
 func GetZTAPIReferralPublicStatus(c *gin.Context) {
@@ -133,13 +133,17 @@ func ztapiReferralCommissionProjections(rows []model.ZTAPIReferralCommission, at
 	items := make([]gin.H, 0, len(rows))
 	for _, row := range rows {
 		status := "available"
-		if row.AvailableAt > at.Unix() {
+		if row.AvailableAt > at.Unix() || row.CNYRefundBlocked {
 			status = "frozen"
 		}
 		if row.ReversedMicros == row.CommissionMicros {
 			status = "reversed"
 		}
-		items = append(items, gin.H{"id": row.ID, "invitee_label": fmt.Sprintf("好友 #%d", row.BindingID), "principal": model.FormatZTAPIReferralMicros(row.PrincipalMicros), "commission": model.FormatZTAPIReferralMicros(row.CommissionMicros), "reversed": model.FormatZTAPIReferralMicros(row.ReversedMicros), "earned_at": row.EarnedAt, "available_at": row.AvailableAt, "status": status})
+		method := "usdt"
+		if row.CNYOrderID != nil {
+			method = row.CNYMethod
+		}
+		items = append(items, gin.H{"id": row.ID, "invitee_label": fmt.Sprintf("好友 #%d", row.BindingID), "principal": model.FormatZTAPIReferralMicros(row.PrincipalMicros), "commission": model.FormatZTAPIReferralMicros(row.CommissionMicros), "reversed": model.FormatZTAPIReferralMicros(row.ReversedMicros), "earned_at": row.EarnedAt, "available_at": row.AvailableAt, "status": status, "payment_method": method})
 	}
 	return items
 }
@@ -419,6 +423,8 @@ func AdminZTAPIReferralWithdrawalAction(c *gin.Context) {
 		row, err = model.RejectZTAPIReferralWithdrawal(c.Request.Context(), input)
 	case "claim":
 		row, err = model.ClaimZTAPIReferralPaymentIntent(c.Request.Context(), input)
+	case "recheck-payment":
+		row, err = model.RecheckZTAPIReferralPaymentIntent(c.Request.Context(), input)
 	case "submitted":
 		row, err = model.SubmitZTAPIReferralManualPayment(c.Request.Context(), input)
 	case "confirm-paid":

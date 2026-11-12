@@ -72,6 +72,29 @@ func TestCNYTopUpFreezesQuoteAndSettlesOnce(t *testing.T) {
 	require.Equal(t, order.Quota, rows[0].Delta)
 }
 
+func TestCNYTopUpBeforeReferralMigrationStillAcceptsCheckoutAndSettlement(t *testing.T) {
+	db, _, first, proof, now := cnyTestOrder(t)
+	require.NoError(t, db.Exec("ALTER TABLE cny_top_up_orders DROP COLUMN referral_policy_epoch").Error)
+	t.Setenv("ZTAPI_CNY_REFERRAL_POLICY_FILE", "")
+	ctx := t.Context()
+	first.OrderNo, first.RequestKey = "CNY-before-referral-migration", "new-request-key"
+	saved, fresh, err := CreateCNYTopUpOrder(ctx, first)
+	require.NoError(t, err)
+	require.True(t, fresh)
+	require.Zero(t, saved.ReferralPolicyEpoch)
+	proof.OrderNo, proof.TradeNo = saved.OrderNo, "trade-before-referral-migration"
+	_, err = RecordCNYTopUpCheckout(ctx, saved.OrderNo, proof.TradeNo, "https://checkout.example.test/pay/2", "")
+	require.NoError(t, err)
+	for range 2 {
+		settled, err := SettleCNYTopUp(ctx, proof, now.Add(time.Minute))
+		require.NoError(t, err)
+		require.Equal(t, CNYTopUpPaid, settled.State)
+	}
+	var count int64
+	require.NoError(t, db.Model(&BalanceLedger{}).Where("request_id = ?", saved.OrderNo).Count(&count).Error)
+	require.EqualValues(t, 1, count)
+}
+
 func TestCNYTopUpRespectsAvailableLedgerCapacityBeforeCheckout(t *testing.T) {
 	db, user, pending, _, _ := cnyTestOrder(t)
 	ctx := context.Background()

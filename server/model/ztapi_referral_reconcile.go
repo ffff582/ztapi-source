@@ -154,7 +154,8 @@ func referralRecordSettlement(tx *gorm.DB, order USDTTopUpOrder) (bool, error) {
 		return false, err
 	}
 	commission := ZTAPIReferralCommission{UserID: b.InviterID, InviteeID: b.UserID, BindingID: b.ID, OrderID: order.ID, TopUpID: order.TopUpID, BalanceLedgerID: ledger.ID, PrincipalMicros: principal, CommissionMicros: principal / 20, BlockTimestampMS: block, EarnedAt: *order.SettledAt, AvailableAt: *order.SettledAt + ZTAPIReferralFreezeSeconds, RuleVersion: b.RuleVersion, EvidenceIdentity: identity}
-	if err = tx.Create(&commission).Error; err != nil {
+	// A rolling candidate may still serve USDT against the previous schema.
+	if err = tx.Omit("CNYOrderID", "CNYMethod").Create(&commission).Error; err != nil {
 		return false, err
 	}
 	key := fmt.Sprintf("commission:%d", order.ID)
@@ -243,7 +244,11 @@ func GetZTAPIReferralSummary(ctx context.Context, userID int, at time.Time) (ZTA
 					return err
 				}
 			}
-			if c.AvailableAt <= at.Unix() {
+			payable, err := referralCNYCommissionPayable(tx, c, false)
+			if err != nil {
+				return err
+			}
+			if payable && c.AvailableAt <= at.Unix() {
 				s.AvailableCommissionMicros, err = referralAdd(s.AvailableCommissionMicros, free)
 			} else {
 				s.FrozenCommissionMicros, err = referralAdd(s.FrozenCommissionMicros, free)
@@ -303,8 +308,17 @@ func ListZTAPIReferralCommissions(ctx context.Context, userID, page, pageSize in
 		return nil, 0, err
 	}
 	items := []ZTAPIReferralCommission{}
-	err = q.Order("id DESC").Offset(offset).Limit(size).Find(&items).Error
-	return items, count, err
+	if err = q.Order("id DESC").Offset(offset).Limit(size).Find(&items).Error; err != nil {
+		return nil, 0, err
+	}
+	for i := range items {
+		payable, err := referralCNYCommissionPayable(db, items[i], false)
+		if err != nil {
+			return nil, 0, err
+		}
+		items[i].CNYRefundBlocked = !payable
+	}
+	return items, count, nil
 }
 
 func ListZTAPIReferralWithdrawals(ctx context.Context, userID, page, pageSize int, status string) ([]ZTAPIReferralWithdrawal, int64, error) {

@@ -21,6 +21,10 @@ type ZTAPIReferralRefundInput struct {
 }
 
 func ReverseZTAPIReferralRechargePrincipal(ctx context.Context, in ZTAPIReferralRefundInput) (*ZTAPIReferralCommission, error) {
+	return reverseZTAPIReferralRechargePrincipal(ctx, in, false)
+}
+
+func reverseZTAPIReferralRechargePrincipal(ctx context.Context, in ZTAPIReferralRefundInput, cny bool) (*ZTAPIReferralCommission, error) {
 	if in.OrderID <= 0 || in.CumulativePrincipalMicros < 0 || in.OperatorID <= 0 || !referralValidKey(in.IdempotencyKey) || strings.TrimSpace(in.EvidenceReference) == "" || len(in.EvidenceReference) > 500 || strings.TrimSpace(in.Reason) == "" || len(in.Reason) > 500 || referralNow(in.At) != nil {
 		return nil, ErrZTAPIReferralInvalid
 	}
@@ -31,26 +35,30 @@ func ReverseZTAPIReferralRechargePrincipal(ctx context.Context, in ZTAPIReferral
 	if err != nil {
 		return nil, err
 	}
-	key := "refund:" + referralHash(in.IdempotencyKey)
+	match, namespace := "order_id = ?", "refund:"
+	if cny {
+		match, namespace = "cny_order_id = ?", "cny-refund:"
+	}
+	key := namespace + referralHash(in.IdempotencyKey)
 	db, err := referralDB(ctx)
 	if err != nil {
 		return nil, err
 	}
 	var route ZTAPIReferralCommission
-	if err = db.Select("id", "user_id").Where("order_id = ?", in.OrderID).First(&route).Error; err != nil {
+	if err = db.Select("id", "user_id").Where(match, in.OrderID).First(&route).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrZTAPIReferralNotFound
 		}
 		return nil, err
 	}
-	evidenceKey := "refund:" + referralHash(in.EvidenceReference)
+	evidenceKey := namespace + referralHash(in.EvidenceReference)
 	var result *ZTAPIReferralCommission
 	err = referralTransaction(ctx, func(tx *gorm.DB) error {
 		if err := referralLockAccount(tx, route.UserID); err != nil {
 			return err
 		}
 		var c ZTAPIReferralCommission
-		if err := tx.Where("order_id = ?", in.OrderID).First(&c).Error; err != nil {
+		if err := tx.Where(match, in.OrderID).First(&c).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrZTAPIReferralNotFound
 			}

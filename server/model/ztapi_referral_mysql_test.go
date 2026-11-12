@@ -83,6 +83,41 @@ func ztapiReferralOpenCommercialMySQL(t *testing.T) *gorm.DB {
 	return db
 }
 
+func TestZTAPICommercialMySQLCNYReferralMigrationAndReplay(t *testing.T) {
+	db := ztapiReferralOpenCommercialMySQL(t)
+	require.NoError(t, db.AutoMigrate(&CNYTopUpOrder{}))
+	f := newZTAPIReferralMySQLFixture(t, db, 600)
+	f.fund(t)
+	var legacy ZTAPIReferralCommission
+	require.NoError(t, db.Where("order_id = ?", f.order.ID).First(&legacy).Error)
+	// Recreate the previous two NOT NULL columns in this isolated fixture DB.
+	require.NoError(t, db.Exec("ALTER TABLE ztapi_referral_commissions MODIFY order_id BIGINT NOT NULL, MODIFY top_up_id BIGINT NOT NULL").Error)
+	require.NoError(t, MigrateZTAPIReferral(db))
+	var legacyAfter ZTAPIReferralCommission
+	require.NoError(t, db.First(&legacyAfter, legacy.ID).Error)
+	require.Equal(t, legacy, legacyAfter)
+	policy := ZTAPICNYReferralPolicy{EnabledAt: f.now.Add(-time.Hour).Unix(), MerchantNo: "merchant1", AppID: "app1", CNYPerUnit: "7", QuotaPerUnit: 500000, FeeBPS: map[string]int{"alipay": 500, "wxpay": 500}}
+	for _, method := range []string{"alipay", "wxpay"} {
+		order := cnyReferralPaidForUser(t, policy, method, 700, f.now.Add(-30*time.Minute), f.invitee.Id)
+		t.Cleanup(func() {
+			require.NoError(t, db.Exec("DELETE FROM balance_ledgers WHERE request_id = ? AND user_id = ?", order.OrderNo, f.invitee.Id).Error)
+			require.NoError(t, db.Where("id = ? AND user_id = ?", order.ID, f.invitee.Id).Delete(&CNYTopUpOrder{}).Error)
+		})
+	}
+	replayed := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			_, err := ReconcileZTAPICNYReferralSettlements(context.Background(), &policy, ZTAPICNYReferralCursor{}, 20, f.now)
+			replayed <- err
+		}()
+	}
+	require.NoError(t, <-replayed)
+	require.NoError(t, <-replayed)
+	var count int64
+	require.NoError(t, db.Model(&ZTAPIReferralCommission{}).Where("user_id = ? AND cny_order_id IS NOT NULL AND order_id IS NULL AND top_up_id IS NULL AND commission_micros = 50000", f.inviter.Id).Count(&count).Error)
+	require.EqualValues(t, 2, count)
+}
+
 type ztapiReferralMySQLFixture struct {
 	db               *gorm.DB
 	inviter, invitee User

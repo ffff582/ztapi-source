@@ -3,6 +3,7 @@ export type ReferralWithdrawalStatus = 'requested' | 'fee_quoted' | 'confirmed' 
 export interface ReferralCampaign {
   enabled: boolean;
   accepting_invites: boolean;
+  cny_accepting_orders?: boolean;
   started_at: string | null;
   rate: '0.05';
   freeze_days: 7;
@@ -31,6 +32,7 @@ export interface ReferralCommission {
   earned_at: string;
   available_at: string;
   status: string;
+  payment_method?: 'usdt' | 'alipay' | 'wxpay';
 }
 export interface ReferralWithdrawal {
   id: number;
@@ -86,8 +88,9 @@ function fail(): never { throw new ReferralContractError(); }
 
 function parseCommission(value: unknown): ReferralCommission {
   if (!record(value) || !integer(value.id) || value.id === 0 || !text(value.invitee_label, 128) || !text(value.status, 64) || !timestamp(value.earned_at) || !timestamp(value.available_at) || !isReferralMoney(value.principal) || !isReferralMoney(value.commission) || !isReferralMoney(value.reversed)) return fail();
-  const { id, invitee_label, principal, commission, reversed, earned_at, available_at, status } = value;
-  return { id, invitee_label, principal, commission, reversed, earned_at: timeString(earned_at), available_at: timeString(available_at), status };
+  const { id, invitee_label, principal, commission, reversed, earned_at, available_at, status, payment_method } = value;
+  if (payment_method !== undefined && payment_method !== 'usdt' && payment_method !== 'alipay' && payment_method !== 'wxpay') return fail();
+  return { id, invitee_label, principal, commission, reversed, earned_at: timeString(earned_at), available_at: timeString(available_at), status, ...(payment_method === undefined ? {} : { payment_method }) };
 }
 
 const withdrawalStatuses: ReferralWithdrawalStatus[] = ['requested', 'fee_quoted', 'confirmed', 'paying', 'submitted_unknown', 'paid', 'rejected', 'cancelled', 'manual_review'];
@@ -115,7 +118,8 @@ export function parseReferralCampaign(value: unknown): ReferralCampaign {
   if (!record(value)) return fail();
   const c = value;
   if (typeof c.enabled !== 'boolean' || typeof c.accepting_invites !== 'boolean' || !optionalTime(c.started_at) || c.rate !== '0.05' || c.freeze_days !== 7 || c.term_months !== 12 || c.minimum_withdrawal !== '20.000000' || c.network !== 'TRC20' || !Array.isArray(c.blocked_reasons) || c.blocked_reasons.length > 100 || !c.blocked_reasons.every((reason) => text(reason, 512))) return fail();
-  return { enabled: c.enabled, accepting_invites: c.accepting_invites, started_at: optionalTimeString(c.started_at), rate: c.rate, freeze_days: c.freeze_days, term_months: c.term_months, minimum_withdrawal: c.minimum_withdrawal, network: c.network, blocked_reasons: [...c.blocked_reasons] as string[] };
+  if (c.cny_accepting_orders !== undefined && typeof c.cny_accepting_orders !== 'boolean') return fail();
+  return { enabled: c.enabled, accepting_invites: c.accepting_invites, ...(c.cny_accepting_orders === undefined ? {} : { cny_accepting_orders: c.cny_accepting_orders }), started_at: optionalTimeString(c.started_at), rate: c.rate, freeze_days: c.freeze_days, term_months: c.term_months, minimum_withdrawal: c.minimum_withdrawal, network: c.network, blocked_reasons: [...c.blocked_reasons] as string[] };
 }
 
 export function parseReferralOverview(value: unknown): ReferralOverview {
