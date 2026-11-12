@@ -120,8 +120,8 @@ jobs:
       - name: Run stream health and attempt billing regressions
         working-directory: server
         run: >-
-          go test ./model ./relay/channel/openai
-          -run '^TestZTAPI(AttemptBilling(ReconciliationDoesNotStarveOnUnverifiedLegacyRelease|TerminalFinalReviewIsResolved|WholeNoChargeResolvesAllReviews)|NativeResponsesHealthWithSplitTerminalDelimiter)$'
+          go test ./model ./relay/channel/openai ./service
+          -run '^TestZTAPI(AttemptBilling(ReconciliationDoesNotStarveOnUnverifiedLegacyRelease|TerminalFinalReviewIsResolved|WholeNoChargeResolvesAllReviews)|NativeResponsesHealthWithSplitTerminalDelimiter|CommercialMaintenanceFindsEarlierAttemptAfterSuccess)$'
           -count=1 -timeout=2m
 
       - name: Run hosted tool billing and receipt regressions

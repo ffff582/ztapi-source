@@ -1,9 +1,10 @@
 package service
 
 import (
+	"testing"
+
 	"github.com/QuantumNous/new-api/model"
 	"github.com/stretchr/testify/require"
-	"testing"
 )
 
 func TestZTAPICommercialMaintenanceTimerQueuesPendingFinance(t *testing.T) {
@@ -27,7 +28,7 @@ func TestZTAPICommercialMaintenanceFindsEarlierAttemptAfterSuccess(t *testing.T)
 	old := model.DB
 	model.DB = db
 	t.Cleanup(func() { model.DB = old })
-	require.NoError(t, db.AutoMigrate(&model.ZTAPIRequestAttempt{}, &model.ZTAPIPendingResolution{}))
+	require.NoError(t, db.AutoMigrate(&model.ZTAPIRequestAttempt{}, &model.ZTAPIPendingResolution{}, &model.ZTAPIMediaTask{}))
 	require.NoError(t, model.MigrateZTAPIAttemptBilling(db))
 	parent := model.ZTAPIRequestSettlement{OperationID: "maintenance-attempt", RequestID: "01a07c2d-1d46-44a1-b294-2c3bea4912fd", Status: model.ZTAPISettlementSettled, Dispatched: true, FinalAttempt: 2}
 	require.NoError(t, db.Create(&parent).Error)
