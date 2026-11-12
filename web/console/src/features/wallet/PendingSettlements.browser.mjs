@@ -29,6 +29,7 @@ try {
     let invalid = false;
     let cnyEnabled = false;
     let cnyOrder = null;
+    let cnyPaidReads = 0;
     await context.route('**/*', async (route) => {
       const url = new URL(route.request().url());
       const respond = (data) => route.fulfill({ json: { success: true, data } });
@@ -42,7 +43,7 @@ try {
         case '/api/user/self': return respond({ quota: 1_000_000 });
         case '/api/status': return respond({ quota_per_unit: 100_000 });
         case '/api/spending/alerts': return respond({ items: [], unread_count: 0 });
-        case '/api/user/topup/info': return respond({ enable_usdt_trc20_topup: false,
+        case '/api/user/topup/info': return respond({ enable_usdt_trc20_topup: true,
           usdt_trc20_network: 'tron-mainnet', usdt_trc20_asset: 'USDT', usdt_trc20_min_topup: 10, usdt_trc20_order_ttl_seconds: 600 });
         case '/api/user/topup/self': return respond({ page: 1, page_size: 5, total: 0, items: [] });
         case '/api/user/topup/cny/info': return respond(cnyEnabled ? { enabled: true, min_cny: '1.00', max_cny: '50.00', cny_per_u: '6.67', methods: ['alipay', 'wxpay'] } : { enabled: false });
@@ -57,6 +58,7 @@ try {
               checkout_qr: qrOnly ? 'weixin://wxpay/bizpayurl/up?pr=fixture' : '', created_at: Date.now() / 1000 };
             return respond(cnyOrder);
           }
+          if (cnyOrder?.status === 'paid') cnyPaidReads += 1;
           return respond(cnyOrder ? [cnyOrder] : []);
         }
         case '/api/user/self/pending-settlements': {
@@ -119,13 +121,26 @@ try {
     items = [];
     await holds.getByRole('button', { name: '刷新预留记录' }).click();
     await expect(holds.getByText('暂无待核账预留。')).toBeVisible();
-    await expect(page.getByRole('region', { name: '人民币充值' })).toHaveCount(0);
+    const methods = page.getByRole('group', { name: '充值方式' });
+    const alipay = methods.getByRole('radio', { name: '支付宝' });
+    const wechat = methods.getByRole('radio', { name: '微信支付' });
+    await expect(methods.getByRole('radio')).toHaveCount(3);
+    await expect(methods.getByRole('radio', { name: '人民币' })).toHaveCount(0);
+    await expect(page.getByRole('region', { name: '支付宝' })).toHaveCount(0);
+    await page.getByRole('radio', { name: 'USDT' }).press('ArrowRight');
+    await expect(alipay).toBeChecked();
+    await expect(page.getByText('该支付方式暂不可用。')).toBeVisible();
     cnyEnabled = true;
     await page.reload();
-    const cny = page.getByRole('region', { name: '人民币充值' });
-    await cny.getByLabel('人民币金额').fill('12.37');
-    await cny.getByLabel('微信支付').check();
-    await cny.getByRole('button', { name: '创建人民币订单' }).click();
+    await expect(page.getByRole('radio', { name: 'USDT' })).toBeChecked();
+    await page.getByLabel('充值数量').fill('25');
+    await alipay.check();
+    await page.getByRole('region', { name: '支付宝' }).getByLabel('充值金额').fill('12.37');
+    await wechat.check();
+    const cny = page.getByRole('region', { name: '微信支付' });
+    await expect(page.getByLabel('充值数量')).toBeHidden();
+    await expect(cny.getByLabel('充值金额')).toHaveValue('12.37');
+    await cny.getByRole('button', { name: '创建充值订单' }).click();
     await expect(cny.getByText('¥12.37')).toBeVisible();
     await expect(cny.getByText('1.854572 U')).toBeVisible();
     const checkout = cny.getByRole('link', { name: '前往付款' });
@@ -139,11 +154,16 @@ try {
       await checkout.click({ trial: true });
     }
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), true);
+    assert.equal(await methods.locator('label > span').evaluateAll((labels) => labels.every((label) => label.scrollWidth <= label.clientWidth + 1)), true);
     const cnyScreenshot = path.join(evidence, `wallet-cny-${viewport.width}.png`);
-    await cny.screenshot({ path: cnyScreenshot });
+    await page.screenshot({ path: cnyScreenshot, fullPage: true });
+    await page.getByRole('radio', { name: 'USDT' }).check();
+    await expect(cny).toHaveCount(0);
+    await expect(page.getByLabel('充值数量')).toHaveValue('25');
     cnyOrder = { ...cnyOrder, status: 'paid', checkout_url: '', checkout_qr: '' };
-    await cny.getByRole('button', { name: '重新查询人民币订单' }).click();
-    await expect(cny.getByText('人民币充值已到账')).toBeVisible();
+    await expect.poll(() => cnyPaidReads).toBeGreaterThan(0);
+    await wechat.check();
+    await expect(cny.getByText('充值已到账')).toBeVisible();
     await expect(cny.getByRole('link', { name: '前往付款' })).toHaveCount(0);
     await expect(qr).toHaveCount(0);
     assert.deepEqual(errors, []);
