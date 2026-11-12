@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "6ca17d4f6b14886c7ea3351623a5266394976d17",
+  "release_commit": "ecafc80d9fa57ec7a8805617b3f3cfc460fe7fbe",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-6ca17d4f6b14886c7ea3351623a5266394976d17",
+  "source_tag": "production-ecafc80d9fa57ec7a8805617b3f3cfc460fe7fbe",
   "files": [
     {
       "path": ".dockerignore",
@@ -31,8 +31,8 @@
     },
     {
       "path": ".github/workflows/ztapi-financial-ci.yml",
-      "sha256": "79f9f94aff23cead2d1aa8be70973c5b6eedcf4cfa2a78ece47d5c81bb0e44c1",
-      "size": 14901
+      "sha256": "a4d6dcc2d09b40bde3925a12af04fd8c548b5b6a4c8542901dc1b5c3c76c3acc",
+      "size": 16348
     },
     {
       "path": ".github/workflows/ztapi-production-alert-acceptance.yml",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "99334737507c14b23776c887e431c0fa8c32d7da41a628a420b75eb54cc4913e",
+      "sha256": "48d895732d94a6ee73024fca90e7941eb789c5bb7a11428743d5a8bd7ec0288f",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "de3b3f01bdd81b75aee856d7ad185cea4735eb52f9005382c330b015e64f48aa",
+      "sha256": "52b73b0faa708cc53bc0579d9b358340358d22d5759f75a7415f4b70e7d7c112",
       "size": 942
     },
     {
@@ -3331,13 +3331,13 @@
     },
     {
       "path": "server/model/ztapi_attempt_billing_storage.go",
-      "sha256": "3497ae82e41cfbc5612fdaaa58b4d25700cc741867bf4bc1c2c2365a76900241",
-      "size": 39663
+      "sha256": "a88a2e868cd62ff14f5b40d96279675836e423deb17790cd0aea45089f3fab25",
+      "size": 40443
     },
     {
       "path": "server/model/ztapi_attempt_billing_test.go",
-      "sha256": "575b881460cd22beb996f8ec7282ce55ba2d2bfbcd9ffe6b6caf2a40ff8114c6",
-      "size": 35214
+      "sha256": "09e7b80338f5769d2635cee75203d4a3e310c7b225c4b266ce43d30813a15cf1",
+      "size": 36751
     },
     {
       "path": "server/model/ztapi_campaign_readiness.go",
@@ -4886,8 +4886,8 @@
     },
     {
       "path": "server/relay/channel/openai/relay_responses.go",
-      "sha256": "39e1addeddc26656f2d69c662475b64cdffe0d98efb9fa604e16544b7c499dc5",
-      "size": 14053
+      "sha256": "aabc0eca12ae98eada2c34545a8e842dc1dcf6a4ebfcf735f92eb2c0527c2e31",
+      "size": 14177
     },
     {
       "path": "server/relay/channel/openai/relay_responses_compact.go",
@@ -4936,8 +4936,8 @@
     },
     {
       "path": "server/relay/channel/openai/ztapi_native_responses_compatibility_test.go",
-      "sha256": "6f95b206f5ad0fa36d35cc982bd9873dc322042a61adb9faa493bad9ddefbdf6",
-      "size": 26901
+      "sha256": "82f27abe32016abaf2fcf032bcd9fe16d964e83812c67f914b3238b93b4392d2",
+      "size": 29269
     },
     {
       "path": "server/relay/channel/openai/ztapi_nonstream_metadata_test.go",
@@ -5486,8 +5486,8 @@
     },
     {
       "path": "server/relay/common/ztapi_health_session.go",
-      "sha256": "04f9d109b8998e3abb3178c7cdbe8c06875e8de0cfb57cde293b6e8dd4eb2e0e",
-      "size": 16932
+      "sha256": "2a01a50bb97e48bb9d494bb1764a7166b0f7411696336a6be0c6f7408a84d330",
+      "size": 17885
     },
     {
       "path": "server/relay/common/ztapi_health_session_test.go",
@@ -6551,8 +6551,8 @@
     },
     {
       "path": "server/service/ztapi_commercial_maintenance_test.go",
-      "sha256": "233a5c8addc3a95d9a3497d3b234bfbe8a91f429dfbf3e0ce0000c556470dbd3",
-      "size": 2414
+      "sha256": "15c26c207ab0d218b003c76c8ac8be310ecb2bc782416d4ab51982600e76f85f",
+      "size": 2440
     },
     {
       "path": "server/service/ztapi_conversion_semantics_test.go",
@@ -6661,8 +6661,8 @@
     },
     {
       "path": "server/service/ztapi_hosted_tool_billing_test.go",
-      "sha256": "9e128e46e0e772e5728df9b11ec8b9931f1c6f045423428c98094bdeb7c98a79",
-      "size": 29866
+      "sha256": "33a8f1d32c23d66ecb3a16078ea8009d687b4a67a85200b86eb676f650787faf",
+      "size": 29924
     },
     {
       "path": "server/service/ztapi_image_sale.go",
@@ -12166,8 +12166,8 @@
     },
     {
       "path": "tests/contracts/media-commercial-gate.test.mjs",
-      "sha256": "a897644a145ba7bbe8761fce2a846911c336a5a8dff3049dab5ed07555b4cb9d",
-      "size": 4248
+      "sha256": "13e0ca5f586033ece3d1c76a0d8d6d68a722aa93ba74048fbfa217773f638480",
+      "size": 5334
     },
     {
       "path": "tests/contracts/media-delivery-baseline.test.mjs",

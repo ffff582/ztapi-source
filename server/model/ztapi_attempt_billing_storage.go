@@ -154,21 +154,31 @@ func ReconcileZTAPIAttemptBillingReviews(limit int) error {
 		return ErrZTAPIAttemptBillingInvalid
 	}
 	var rows []ZTAPIRequestSettlement
+	// Select only terminal rows with evidence that Sync can act on. A legacy
+	// release without proof stays reviewable but must not consume the batch.
 	err := DB.Where(`((status = ? OR (status = ? AND final_attempt > 1)) AND EXISTS
 	(SELECT 1 FROM ztapi_request_attempts a WHERE a.settlement_id = ztapi_request_settlements.id
 	AND (ztapi_request_settlements.status = ? OR a.attempt < ztapi_request_settlements.final_attempt)
 	AND NOT EXISTS (SELECT 1 FROM ztapi_attempt_billing_reviews r WHERE r.request_id = ztapi_request_settlements.request_id AND r.attempt = a.attempt)))
-	OR (status IN ? AND EXISTS (SELECT 1 FROM ztapi_attempt_billing_reviews r WHERE r.request_id = ztapi_request_settlements.request_id AND r.status = 'pending'
-	AND (ztapi_request_settlements.status = ? OR r.attempt = ztapi_request_settlements.final_attempt)))`, ZTAPISettlementPending, ZTAPISettlementSettled, ZTAPISettlementPending, []string{ZTAPISettlementSettled, ZTAPISettlementReleased}, ZTAPISettlementReleased).Order("id").Limit(limit).Find(&rows).Error
+	OR (status = ? AND EXISTS (SELECT 1 FROM ztapi_attempt_billing_reviews r JOIN ztapi_supplier_refund_charges c
+	ON c.request_id = r.request_id AND c.attempt = r.attempt AND c.billing_proof_id = 0
+	WHERE r.request_id = ztapi_request_settlements.request_id AND r.status = 'pending' AND r.attempt = ztapi_request_settlements.final_attempt))
+	OR (status = ? AND EXISTS (SELECT 1 FROM ztapi_attempt_billing_reviews r WHERE r.request_id = ztapi_request_settlements.request_id AND r.status = 'pending')
+	AND (NOT dispatched OR EXISTS (SELECT 1 FROM ztapi_pending_resolutions p WHERE p.settlement_id = ztapi_request_settlements.id)
+	OR EXISTS (SELECT 1 FROM ztapi_media_tasks m WHERE m.settlement_id = ztapi_request_settlements.id
+	AND m.state = ? AND m.settlement_state = ? AND m.charge_disposition = ?)))`,
+		ZTAPISettlementPending, ZTAPISettlementSettled, ZTAPISettlementPending, ZTAPISettlementSettled, ZTAPISettlementReleased,
+		ZTAPIMediaTaskFailed, ZTAPISettlementReleased, ZTAPIMediaChargeNoCharge).Order("id").Limit(limit).Find(&rows).Error
 	if err != nil {
 		return err
 	}
+	var firstErr error
 	for i := range rows {
-		if err = ztapiSettlementTransaction(func(tx *gorm.DB) error { return SyncZTAPIAttemptBillingReviewsTx(tx, &rows[i]) }); err != nil {
-			return err
+		if err = ztapiSettlementTransaction(func(tx *gorm.DB) error { return SyncZTAPIAttemptBillingReviewsTx(tx, &rows[i]) }); err != nil && firstErr == nil {
+			firstErr = err
 		}
 	}
-	return nil
+	return firstErr
 }
 
 func ListZTAPIAttemptBillingReviews(status string, afterID uint, limit int) ([]ZTAPIAttemptBillingReview, error) {
