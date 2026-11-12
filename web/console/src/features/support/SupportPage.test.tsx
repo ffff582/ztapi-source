@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -135,13 +136,17 @@ describe('platform support', () => {
 
   it('loads opt-in binding independently without blocking general setup on binding failure', async () => {
     vi.mocked(supportApi.config).mockResolvedValue({ ...config, telegram_binding_enabled: true });
-    vi.mocked(supportApi.telegramBinding).mockRejectedValue(new SupportError(503));
+    let rejectBinding!: (cause: SupportError) => void;
+    vi.mocked(supportApi.telegramBinding).mockReturnValue(new Promise((_, reject) => {
+      rejectBinding = reject;
+    }));
     mount();
     await screen.findByText(message.content);
-    await screen.findByRole('region', { name: 'Telegram 工单通知' });
+    const binding = await screen.findByRole('region', { name: 'Telegram 工单通知' });
     expect(screen.getByLabelText('消息内容')).toBeEnabled();
     expect(screen.getByRole('button', { name: '申请人工工单' })).toBeEnabled();
-    expect(screen.getByRole('alert')).toHaveTextContent('绑定结果尚未确认');
+    await act(async () => rejectBinding(new SupportError(503)));
+    expect(within(binding).getByRole('alert')).toHaveTextContent('绑定结果尚未确认');
   });
 
   it('opens an owned conversation from a deterministic ticket link', async () => {
