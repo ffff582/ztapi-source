@@ -891,6 +891,10 @@ func mutateZTAPISettlementWithHooks(op string, precondition ztapiSettlementMutat
 }
 
 func ztapiSettlementWalletDeltaTx(tx *gorm.DB, user *User, delta int64, requestID, key, reason, source string, allowNegative bool) (*BalanceLedger, error) {
+	return ztapiSettlementWalletDeltaWithOperatorTx(tx, user, delta, requestID, key, reason, source, allowNegative, 0)
+}
+
+func ztapiSettlementWalletDeltaWithOperatorTx(tx *gorm.DB, user *User, delta int64, requestID, key, reason, source string, allowNegative bool, operatorID int) (*BalanceLedger, error) {
 	if delta == 0 {
 		return nil, nil
 	}
@@ -913,7 +917,7 @@ func ztapiSettlementWalletDeltaTx(tx *gorm.DB, user *User, delta int64, requestI
 	if update.RowsAffected != 1 {
 		return nil, ErrZTAPISettlementConflict
 	}
-	row := &BalanceLedger{UserID: user.Id, Delta: delta, BalanceBefore: before, BalanceAfter: after, Reason: reason, IdempotencyKey: key, RequestID: requestID, SourceType: source, CreatedAt: time.Now().UTC()}
+	row := &BalanceLedger{UserID: user.Id, OperatorID: operatorID, Delta: delta, BalanceBefore: before, BalanceAfter: after, Reason: reason, IdempotencyKey: key, RequestID: requestID, SourceType: source, CreatedAt: time.Now().UTC()}
 	if err = tx.Create(row).Error; err != nil {
 		return nil, err
 	}
