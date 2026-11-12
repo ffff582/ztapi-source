@@ -48,6 +48,27 @@ test('media commercial CI makes database and Redis integration suites non-skippa
   for (const step of job.steps) assert.notEqual(step['continue-on-error'], true);
 });
 
+test('media commercial CI isolates offline Go fixture writes from the runner disk', () => {
+  const job = loadMediaGateJob();
+  const fixture = job.steps.find((step) => step.id === 'offline-fixtures');
+  assert.ok(fixture, 'SQLite fixtures need a fresh per-job directory');
+  assert.match(fixture.run, /mktemp -d \/dev\/shm\/ztapi-media-ci\.XXXXXXXX/);
+  const users = job.steps.filter((step) => step.env?.TMPDIR);
+  assert.deepEqual(users.map((step) => step.name), [
+    'Run offline media Go suites',
+    'Run hosted tool billing and receipt regressions',
+    'Run price reduction and official comparison integrity',
+  ]);
+  for (const step of users) {
+    assert.equal(step.env.TMPDIR, '${{ steps.offline-fixtures.outputs.path }}');
+    assert.equal(step.env.GOTMPDIR, '${{ runner.temp }}');
+  }
+  const cleanup = job.steps.find((step) => step.name === 'Remove isolated Go fixture storage');
+  assert.ok(cleanup, 'temporary fixture storage must be cleaned even on failure');
+  assert.match(cleanup.if, /always\(\)/);
+  assert.match(cleanup.run, /\^\/dev\/shm\/ztapi-media-ci/);
+});
+
 test('media commercial CI runs offline UI suites and the responsive browser acceptance', () => {
   const job = loadMediaGateJob();
   const commands = job.steps
