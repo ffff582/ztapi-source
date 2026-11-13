@@ -1,0 +1,379 @@
+name: ZTAPI financial integrity
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - feature/ztapi-phase1
+      - feature/ganapi-phase1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ZTAPI_CI_ALLOW_IMAGE_PULL: ${{ github.repository == 'ffff582/ztapi-source' }}
+
+concurrency:
+  group: ztapi-financial-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  media-commercial-gates:
+    runs-on: ${{ github.repository == 'ffff582/ztapi-source' && 'ubuntu-24.04' || fromJSON('["self-hosted","ztapi-local"]') }}
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Start isolated cached MySQL and Redis
+        run: |
+          bash tools/ci-local-service.sh start mysql ztapi_media_ci_only ztapi_commercial_test
+          bash tools/ci-local-service.sh start redis ztapi_media_ci_only
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.13.1
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install web dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify financial CI isolation and hosted routing contracts
+        run: node --test tests/contracts/financial-ci-workflow.test.mjs tests/contracts/media-commercial-gate.test.mjs tests/contracts/commercial-finance-ci.test.mjs tests/contracts/health-deployment.test.mjs tests/contracts/usdt-replay-ci.test.mjs tests/contracts/hosted-financial-ci.test.mjs tests/contracts/referral-financial-ci.test.mjs
+
+      - name: Install classic administration dependencies
+        working-directory: server/web
+        run: bun install --frozen-lockfile --filter react-template
+
+      - name: Prepare clean Go embed placeholders
+        working-directory: server
+        run: |
+          mkdir -p web/default/dist web/classic/dist
+          printf '<!doctype html><title>ZTAPI test</title>' > web/default/dist/index.html
+          cp web/default/dist/index.html web/classic/dist/index.html
+
+      - name: Run mandatory commercial media MySQL races
+        working-directory: server
+        env:
+          ZTAPI_COMMERCIAL_MYSQL_TEST_DSN: root:ztapi_media_ci_only@tcp(127.0.0.1:3306)/ztapi_commercial_test?charset=utf8mb4
+          ZTAPI_REQUIRE_COMMERCIAL_MYSQL: true
+        run: go test ./model -run '^TestZTAPICommercialMySQL' -count=1 -v -timeout=5m
+
+      - name: Run mandatory real Redis authentication isolation
+        working-directory: server
+        env:
+          ZTAPI_REDIS_TEST_URL: redis://:ztapi_media_ci_only@127.0.0.1:6379/13
+          ZTAPI_REQUIRE_REDIS_INTEGRATION: true
+        run: |
+          go test ./router -run '^TestZTAPIRealRedisAuthAdmissionIsolation$' -count=1 -v -timeout=2m
+          go test -race ./relay/channel -run '^TestZTAPI(RealRedisUpstreamAdmission|UpstreamAdmission)' -count=1 -v -timeout=3m
+
+      - name: Prepare isolated Go fixture storage
+        id: offline-fixtures
+        run: |
+          # Keep SQLite fixture fsync off the runner disk without changing SQLite settings.
+          scratch=$(mktemp -d /dev/shm/ztapi-media-ci.XXXXXXXX)
+          printf 'path=%s\n' "$scratch" >> "$GITHUB_OUTPUT"
+
+      - name: Run offline media Go suites
+        working-directory: server
+        env:
+          TMPDIR: ${{ steps.offline-fixtures.outputs.path }}
+          GOTMPDIR: ${{ runner.temp }}
+        run: go test ./... -run 'ZTAPI.*(Media|Image|Video)' -count=1 -timeout=8m
+
+      - name: Run offline managed Chat Completions stream compatibility
+        working-directory: server
+        run: go test ./relay/channel/openai -run '^TestZTAPI((Stream|NonStream)Metadata|ClaudeToolPolicy)' -count=1 -timeout=2m
+
+      - name: Run reasoning compatibility, durable log and local error regressions
+        working-directory: server
+        run: >-
+          go test ./model ./relay/helper ./relay/common ./service ./service/openaicompat ./controller ./middleware ./types ./hostedsearch ./relay/channel/openai
+          -run 'TestZTAPI.*Reasoning|TestZTAPIUpstreamAdmissionUndispatched|TestLocalParameterFailuresNeverBlameUndispatchedUpstream'
+          -count=1 -timeout=5m
+
+      - name: Run streamed long-task shutdown race regression
+        working-directory: server
+        run: |
+          go test -race ./relay/helper -run '^TestZTAPIStreamShutdown' -count=1 -timeout=2m
+          go test -race ./relay/helper -run '^TestZTAPIStreamShutdown(Cancellation|Handler|Drains|Ping)' -count=10 -timeout=2m
+
+      - name: Run Responses disconnect receipt and rate-limit races
+        working-directory: server
+        run: >-
+          go test -race ./relay/common ./relay/channel/openai
+          -run '^TestZTAPI(ResponsesReceipt|NativeResponses(Disconnect|RateLimit))'
+          -count=3 -timeout=3m
+
+      - name: Run stream health and attempt billing regressions
+        working-directory: server
+        run: >-
+          go test ./model ./relay/channel/openai ./service
+          -run '^TestZTAPI(AttemptBilling(ReconciliationDoesNotStarveOnUnverifiedLegacyRelease|TerminalFinalReviewIsResolved|WholeNoChargeResolvesAllReviews)|NativeResponsesHealthWithSplitTerminalDelimiter|CommercialMaintenanceFindsEarlierAttemptAfterSuccess)$'
+          -count=1 -timeout=2m
+
+      - name: Run hosted tool billing and receipt regressions
+        working-directory: server
+        env:
+          TMPDIR: ${{ steps.offline-fixtures.outputs.path }}
+          GOTMPDIR: ${{ runner.temp }}
+        run: >-
+          go test ./relay/... ./controller ./service ./types ./hostedsearch
+          -count=1 -timeout=8m
+
+      - name: Run price reduction and official comparison integrity
+        working-directory: server
+        env:
+          TMPDIR: ${{ steps.offline-fixtures.outputs.path }}
+          GOTMPDIR: ${{ runner.temp }}
+        run: go test ./model ./controller ./types -run 'TestZTAPI.*(Pricing|Price|Cash|Official|PublicCatalog|Reduction)|TestZTAPIFableXcloudOnly|TestPriceReduction20261107|TestReferralFloor20261107|TestSupplierPriceCore20261019' -count=1 -timeout=8m
+
+      - name: Run bounded operational retention and disk alert regressions
+        run: |
+          python3 -m unittest discover -s deploy/maintenance -p 'test_ztapi*.py'
+          python3 -m unittest discover -s deploy/health -p 'test_ztapi*.py'
+
+      - name: Verify partial image release scope and unchanged budget
+        run: |
+          python3 -B tools/release/test_image_partial_release.py
+          python3 -B tools/release/test_image_partial_finance.py
+
+      - name: Verify partial image HTTP admission and quote evidence
+        working-directory: server
+        run: go test ./router ./cmd/ztapi-image-sale-review -run 'TestZTAPIImageSalePartialHTTP|TestReviewPartialImageSale' -count=1 -timeout=5m
+
+      - name: Verify image finance native usage schema compatibility
+        working-directory: server
+        run: go test ./finance ./cmd/ztapi-finance -run '^TestReader|^TestFinanceMySQL' -count=1 -timeout=3m
+
+      - name: Run offline UI suites
+        run: |
+          pnpm --filter @ztapi/console test -- --run
+          pnpm --dir server/web/classic test:ztapi:run
+          pnpm lint:web
+
+      - name: Run referral financial lifecycle
+        working-directory: server
+        run: go test ./common ./model ./service ./controller ./finance ./cmd/ztapi-referral-migrate -run 'TestZTAPIReferral|TestReferral|TestReaderReferral' -count=1 -timeout=5m
+
+      - name: Run production runtime configuration tests
+        run: npm run test:runtime
+
+      - name: Run reasoning audit harness tests
+        run: node --test tests/production/ztapi-reasoning-matrix.test.mjs
+
+      - name: Run Codex protocol acceptance harness tests
+        run: node --test tests/production/ztapi-codex-protocol.test.mjs
+
+      - name: Install Chromium
+        run: pnpm exec playwright install chromium
+
+      - name: Run responsive media browser acceptance
+        run: pnpm exec playwright test tests/e2e/media-models-and-guide.spec.ts
+
+      - name: Run per-image retail browser acceptance
+        working-directory: web/console
+        run: node node_modules/vitest/vitest.mjs run --config src/features/models/image-sale.browser.config.ts
+
+      - name: Run referral user and finance browser acceptance
+        run: |
+          node web/console/src/features/referrals/ReferralPage.browser.mjs
+          node server/web/classic/src/ztapi/features/finance/ReferralWithdrawalsPage.browser.test.mjs
+
+      - name: Run CNY and source-offer browser acceptance
+        run: node web/console/src/features/models/PriceCurrency.browser.mjs web/console/dist web/console/output/playwright/rmb-legal
+
+      # Keep this evidence only while someone could still be reading it. A
+      # passing run's report is never opened, and storing every one of them
+      # filled the account's artifact quota until no release could be uploaded.
+      - name: Upload browser acceptance evidence
+        if: failure() && github.repository != 'ffff582/ztapi-source'
+        uses: actions/upload-artifact@v4
+        with:
+          name: media-browser-acceptance
+          path: |
+            test-results/
+            playwright-report/
+            web/console/output/playwright/rmb-legal/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Stop isolated cached services
+        if: always()
+        run: |
+          bash tools/ci-local-service.sh stop redis
+          bash tools/ci-local-service.sh stop mysql
+
+      - name: Remove isolated Go fixture storage
+        if: always() && steps.offline-fixtures.outputs.path != ''
+        env:
+          FIXTURE_TMPDIR: ${{ steps.offline-fixtures.outputs.path }}
+        run: |
+          [[ "$FIXTURE_TMPDIR" =~ ^/dev/shm/ztapi-media-ci\.[[:alnum:]]{8}$ ]]
+          rm -rf -- "$FIXTURE_TMPDIR"
+
+  commercial-finance:
+    runs-on: ${{ github.repository == 'ffff582/ztapi-source' && 'ubuntu-24.04' || fromJSON('["self-hosted","ztapi-local"]') }}
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Start isolated cached MySQL
+        run: bash tools/ci-local-service.sh start mysql ztapi_commercial_ci_only ztapi_commercial_test
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache: false
+
+      - name: Run mandatory commercial billing and refund lifecycle
+        working-directory: server
+        env:
+          ZTAPI_COMMERCIAL_MYSQL_TEST_DSN: root:ztapi_commercial_ci_only@tcp(127.0.0.1:3306)/ztapi_commercial_test?charset=utf8mb4
+          ZTAPI_REQUIRE_COMMERCIAL_MYSQL: true
+        run: go test ./model -run '^TestZTAPICommercialMySQL' -count=1 -v -timeout=3m
+
+      - name: Run mandatory referral MySQL read-only reporting
+        working-directory: server
+        env:
+          ZTAPI_COMMERCIAL_MYSQL_TEST_DSN: root:ztapi_commercial_ci_only@tcp(127.0.0.1:3306)/ztapi_commercial_test?charset=utf8mb4
+          ZTAPI_REQUIRE_COMMERCIAL_MYSQL: true
+        run: go test ./finance -run '^TestReferralMySQL' -count=1 -v -timeout=3m
+
+      - name: Stop isolated cached MySQL
+        if: always()
+        run: bash tools/ci-local-service.sh stop mysql
+
+  financial-integrity:
+    runs-on: ${{ github.repository == 'ffff582/ztapi-source' && 'ubuntu-24.04' || fromJSON('["self-hosted","ztapi-local"]') }}
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Start isolated cached MySQL
+        run: bash tools/ci-local-service.sh start mysql ztapi_test_root_2026 ztapi_test
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache: false
+
+      - name: Run MySQL financial integrity tests
+        working-directory: server
+        env:
+          ZTAPI_BALANCE_LEDGER_MYSQL_TEST_DSN: root:ztapi_test_root_2026@tcp(127.0.0.1:3306)/ztapi_test?charset=utf8mb4
+          ZTAPI_USDT_MYSQL_TEST_DSN: root:ztapi_test_root_2026@tcp(127.0.0.1:3306)/ztapi_test?charset=utf8mb4
+          ZTAPI_CNY_MYSQL_TEST_DSN: root:ztapi_test_root_2026@tcp(127.0.0.1:3306)/ztapi_test?charset=utf8mb4
+          ZTAPI_REQUIRE_MYSQL_INTEGRATION: true
+        run: |
+          go test ./model -run '^(TestBalanceLedgerMySQLIntegration|TestUSDT.*MySQL)$' -count=1 -v
+          go test ./model ./service ./controller -run '^TestCNY' -count=1 -v
+          go test ./service -run '^TestWalletFundingLedgerMySQLIntegration$' -count=1 -v
+
+      - name: Stop isolated cached MySQL
+        if: always()
+        run: bash tools/ci-local-service.sh stop mysql
+
+  usdt-settled-replay:
+    runs-on: ${{ github.repository == 'ffff582/ztapi-source' && 'ubuntu-24.04' || fromJSON('["self-hosted","ztapi-local"]') }}
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Start isolated cached MySQL
+        run: bash tools/ci-local-service.sh start mysql ztapi_replay_ci_only ztapi_usdt_replay_test
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache: false
+
+      - name: Verify synthetic fixture and mandatory replay configuration
+        working-directory: server
+        run: go test ./model -run '^TestUSDTSettledReplay(SyntheticFixture|ConfigurationGate)$' -count=1 -v -timeout=2m
+
+      - name: Run mandatory already-settled replay regression
+        working-directory: server
+        env:
+          ZTAPI_USDT_REPLAY_MYSQL_TEST_DSN: root:ztapi_replay_ci_only@tcp(127.0.0.1:3306)/ztapi_usdt_replay_test?charset=utf8mb4
+          ZTAPI_REQUIRE_USDT_REPLAY_TEST: true
+        run: go test ./model -run '^TestUSDTAlreadySettledReplayMySQL$' -count=1 -v -timeout=2m
+
+      - name: Stop isolated cached MySQL
+        if: always()
+        run: bash tools/ci-local-service.sh stop mysql
+
+  health-integrity:
+    runs-on: ${{ github.repository == 'ffff582/ztapi-source' && 'ubuntu-24.04' || fromJSON('["self-hosted","ztapi-local"]') }}
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Start isolated cached MySQL
+        run: bash tools/ci-local-service.sh start mysql ztapi_health_ci_only ztapi_health_test
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache: false
+
+      - name: Run mandatory MySQL health integrity test
+        working-directory: server
+        env:
+          ZTAPI_HEALTH_MYSQL_TEST_DSN: root:ztapi_health_ci_only@tcp(127.0.0.1:3306)/ztapi_health_test?charset=utf8mb4
+          ZTAPI_REQUIRE_HEALTH_MYSQL_INTEGRATION: true
+        run: go test ./model -run '^TestZTAPIHealthMySQLDurableConcurrentTrip$' -count=1 -v
+
+      - name: Run mandatory observation-only and route aggregation gates
+        working-directory: server
+        run: >-
+          go test ./model ./relay/common ./service ./controller
+          -run 'TestZTAPI(RealTrafficCannotTripCircuit|CustomerExcludedOutcomesCreateNoVerificationOrCircuitChanges|RealTrafficSourceAwareClassification|RealCustomerExclusionReasonsOverrideFailureAndRetryAttempts|VerificationWorkerIdleDoesNoPaidPreparation|PoolFailureKeepsModelPublishedWhenEnterpriseRouteIsAvailable|AllEligibleRoutesVerifiedOpenCreatesOneModelIncident|AggregateIncludesTrustedOfficialRoute|AggregateExcludesDisabledAbility|VerifiedOpenRouteIsRejectedBeforeRealDispatchButProbeCanEnter|HealthTelegramDistinguishesRouteModelAndRecovery|HealthAdminReadAndRecovery)'
+          -count=1 -v -timeout=5m
+
+      - name: Run publication cache concurrency and fail-closed gates
+        working-directory: server
+        run: >-
+          go test ./model ./middleware
+          -run '^(TestZTAPIPublicationCache.*|TestZTAPIHealthCache.*|TestDistributeQuotationLookupFailureCannotSkipSnapshot|TestZTAPIHealthDistributeCircuitBeforeUnpublishedAndPrecharge)$'
+          -count=1 -v -timeout=3m
+
+      - name: Run immutable quotation performance and isolation gates
+        working-directory: server
+        env:
+          CGO_ENABLED: "1"
+        run: >-
+          go test -race ./model
+          -run '^TestZTAPIQuotationAB(WarmReadAvoidsRepeatedParsing|CachedReadsKeepIndependentNestedData)$'
+          -count=1 -v -timeout=3m
+
+      - name: Stop isolated cached MySQL
+        if: always()
+        run: bash tools/ci-local-service.sh stop mysql

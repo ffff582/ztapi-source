@@ -1,0 +1,387 @@
+package openai
+
+import (
+	"fmt"
+	"io"
+	"math"
+	"net/http"
+	"reflect"
+	"strings"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/relay/channel/openrouter"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relay/helper"
+	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/types"
+
+	"github.com/gin-gonic/gin"
+)
+
+// Preserve Xcloud's reported Kimi token totals for display when only cache
+// evidence is incomplete. These numbers must not be used for settlement.
+func incompleteXcloudKimiTokenCounts(info *relaycommon.RelayInfo) *dto.Usage {
+	if info == nil || info.ChannelMeta == nil || info.ZTAPIPublicationSnapshot == nil ||
+		info.ChannelId != 8 || strings.TrimRight(info.ChannelBaseUrl, "/") != "https://www.xcloudtoken.com" ||
+		info.UpstreamModelName != "kimi-k3" || info.ZTAPIMetering == nil {
+		return nil
+	}
+	evidence := info.ZTAPIMetering
+	if len(evidence.UsageIntegrityReasons) != 1 || evidence.UsageIntegrityReasons[0] != "usage_incomplete" ||
+		evidence.UnverifiedUsage == nil || evidence.UnverifiedUsage.Reason != "usage_incomplete" {
+		return nil
+	}
+	var counts struct {
+		Prompt     *int `json:"prompt_tokens"`
+		Completion *int `json:"completion_tokens"`
+		Total      *int `json:"total_tokens"`
+	}
+	if common.Unmarshal(evidence.UnverifiedUsage.RawUsage, &counts) != nil || counts.Prompt == nil ||
+		counts.Completion == nil || counts.Total == nil || *counts.Prompt < 0 || *counts.Completion < 0 ||
+		*counts.Prompt > math.MaxInt/8 || *counts.Completion > math.MaxInt/8 ||
+		*counts.Total != *counts.Prompt+*counts.Completion {
+		return nil
+	}
+	return &dto.Usage{PromptTokens: *counts.Prompt, CompletionTokens: *counts.Completion, TotalTokens: *counts.Total, UsageSource: "upstream_incomplete"}
+}
+
+func incompleteXcloudKimiFrameCounts(info *relaycommon.RelayInfo, raw []byte, header http.Header) (*dto.Usage, *types.ZTAPIUnverifiedUsageObservation) {
+	if info == nil || info.ChannelMeta == nil || info.ChannelId != 8 || info.UpstreamModelName != "kimi-k3" {
+		return nil, nil
+	}
+	// The scanner updates counters on info concurrently; only copy immutable
+	// request metadata needed to validate this usage frame.
+	current := &relaycommon.RelayInfo{
+		ChannelMeta:              info.ChannelMeta,
+		ZTAPIPublicationSnapshot: info.ZTAPIPublicationSnapshot,
+		IsStream:                 info.IsStream,
+		RelayFormat:              info.RelayFormat,
+	}
+	if relaycommon.ObserveZTAPIOpenAIChatUsage(nil, current, raw, header) != nil {
+		return nil, nil
+	}
+	partial := incompleteXcloudKimiTokenCounts(current)
+	if partial == nil {
+		return nil, nil
+	}
+	return partial, current.ZTAPIMetering.UnverifiedUsage.Sanitized()
+}
+
+func sendStreamData(c *gin.Context, info *relaycommon.RelayInfo, data string, forceFormat bool, thinkToContent bool) error {
+	if data == "" {
+		return nil
+	}
+
+	if !forceFormat && !thinkToContent {
+		return helper.StringData(c, data)
+	}
+
+	var lastStreamResponse dto.ChatCompletionsStreamResponse
+	if err := common.UnmarshalJsonStr(data, &lastStreamResponse); err != nil {
+		return err
+	}
+
+	if !thinkToContent {
+		return helper.ObjectData(c, lastStreamResponse)
+	}
+
+	hasThinkingContent := false
+	hasContent := false
+	var thinkingContent strings.Builder
+	for _, choice := range lastStreamResponse.Choices {
+		if len(choice.Delta.GetReasoningContent()) > 0 {
+			hasThinkingContent = true
+			thinkingContent.WriteString(choice.Delta.GetReasoningContent())
+		}
+		if len(choice.Delta.GetContentString()) > 0 {
+			hasContent = true
+		}
+	}
+
+	// Handle think to content conversion
+	if info.ThinkingContentInfo.IsFirstThinkingContent {
+		if hasThinkingContent {
+			response := lastStreamResponse.Copy()
+			for i := range response.Choices {
+				// send `think` tag with thinking content
+				response.Choices[i].Delta.SetContentString("<think>\n" + thinkingContent.String())
+				response.Choices[i].Delta.ReasoningContent = nil
+				response.Choices[i].Delta.Reasoning = nil
+			}
+			info.ThinkingContentInfo.IsFirstThinkingContent = false
+			info.ThinkingContentInfo.HasSentThinkingContent = true
+			return helper.ObjectData(c, response)
+		}
+	}
+
+	if lastStreamResponse.Choices == nil || len(lastStreamResponse.Choices) == 0 {
+		return helper.ObjectData(c, lastStreamResponse)
+	}
+
+	// Process each choice
+	for i, choice := range lastStreamResponse.Choices {
+		// Handle transition from thinking to content
+		// only send `</think>` tag when previous thinking content has been sent
+		if hasContent && !info.ThinkingContentInfo.SendLastThinkingContent && info.ThinkingContentInfo.HasSentThinkingContent {
+			response := lastStreamResponse.Copy()
+			for j := range response.Choices {
+				response.Choices[j].Delta.SetContentString("\n</think>\n")
+				response.Choices[j].Delta.ReasoningContent = nil
+				response.Choices[j].Delta.Reasoning = nil
+			}
+			info.ThinkingContentInfo.SendLastThinkingContent = true
+			helper.ObjectData(c, response)
+		}
+
+		// Convert reasoning content to regular content if any
+		if len(choice.Delta.GetReasoningContent()) > 0 {
+			lastStreamResponse.Choices[i].Delta.SetContentString(choice.Delta.GetReasoningContent())
+			lastStreamResponse.Choices[i].Delta.ReasoningContent = nil
+			lastStreamResponse.Choices[i].Delta.Reasoning = nil
+		} else if !hasThinkingContent && !hasContent {
+			// flush thinking content
+			lastStreamResponse.Choices[i].Delta.ReasoningContent = nil
+			lastStreamResponse.Choices[i].Delta.Reasoning = nil
+		}
+	}
+
+	return helper.ObjectData(c, lastStreamResponse)
+}
+
+func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
+	if resp == nil || resp.Body == nil {
+		logger.LogError(c, "invalid response or response body")
+		return nil, types.NewOpenAIError(fmt.Errorf("invalid response"), types.ErrorCodeBadResponse, http.StatusInternalServerError)
+	}
+
+	defer service.CloseResponseBodyGracefully(resp)
+
+	model := info.UpstreamModelName
+	var responseId string
+	var createAt int64 = 0
+	var systemFingerprint string
+	var containStreamUsage bool
+	var responseTextBuilder strings.Builder
+	var toolCount int
+	var usage = &dto.Usage{}
+	var lastStreamData string
+	var lastUsageData string
+	streamMetadata := newZTAPIStreamMetadata(info)
+
+	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
+		rawData := data
+		observed := relaycommon.ObserveZTAPIOpenAIChatUsage(c, info, []byte(rawData), resp.Header)
+		var err error
+		data, err = streamMetadata.normalize(data)
+		if err != nil {
+			sr.Error(err)
+			return
+		}
+		var frame struct {
+			Usage *dto.Usage `json:"usage"`
+		}
+		if common.UnmarshalJsonStr(rawData, &frame) == nil {
+			if observed != nil || (info.ZTAPIPublicationSnapshot == nil && service.ValidUsage(frame.Usage)) {
+				selected := frame.Usage
+				if observed != nil {
+					selected = observed
+				}
+				normalized := normalizeChatUsage(info, frame.Usage)
+				if observed != nil && !reflect.DeepEqual(frame.Usage, observed) {
+					normalized = true
+				}
+				if normalized || !service.ValidUsage(selected) {
+					data, err = replaceChatUsage(data, selected)
+				}
+				// Upstream snapshots are cumulative, not additive deltas.
+				usage, containStreamUsage, lastUsageData = selected, true, rawData
+			} else if partial, evidence := incompleteXcloudKimiFrameCounts(info, []byte(rawData), resp.Header); frame.Usage != nil && (!containStreamUsage || usage.UsageSource == "upstream_incomplete") && partial != nil {
+				usage = partial
+				info.ZTAPIMetering.UnverifiedUsage = evidence
+				common.SetContextKey(c, constant.ContextKeyLocalCountTokens, true)
+				data, err = replaceChatUsage(data, usage)
+				containStreamUsage, lastUsageData = true, rawData
+			} else if frame.Usage != nil && containStreamUsage && info.ZTAPIPublicationSnapshot != nil {
+				// Empty stop-frame usage must not replace the client's valid snapshot.
+				data, err = replaceChatUsage(data, nil)
+			}
+			if err != nil {
+				sr.Error(err)
+				return
+			}
+		}
+		if lastStreamData != "" {
+			if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+				common.SysLog("error handling stream format: " + err.Error())
+				sr.Error(err)
+			}
+		}
+		if len(data) > 0 {
+			lastStreamData = data
+			if err := processTokenData(info.RelayMode, data, &responseTextBuilder, &toolCount); err != nil {
+				logger.LogError(c, "error processing stream token data: "+err.Error())
+				sr.Error(err)
+			}
+		}
+	})
+
+	// 处理最后的响应
+	shouldSendLastResp := true
+	if err := handleLastResponse(lastStreamData, &responseId, &createAt, &systemFingerprint, &model, &usage,
+		&containStreamUsage, info, &shouldSendLastResp); err != nil {
+		logger.LogError(c, fmt.Sprintf("error handling last response: %s, lastStreamData: [%s]", err.Error(), lastStreamData))
+	}
+
+	if info.RelayFormat == types.RelayFormatOpenAI {
+		if shouldSendLastResp {
+			_ = sendStreamData(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent)
+		}
+	}
+
+	if !containStreamUsage {
+		usage = service.ResponseText2Usage(c, responseTextBuilder.String(), info.UpstreamModelName, info.GetEstimatePromptTokens())
+		usage.CompletionTokens += toolCount * 7
+	}
+
+	usageData := lastStreamData
+	if containStreamUsage && usage.UsageSource != "upstream_incomplete" {
+		usageData = lastUsageData
+		relaycommon.CaptureZTAPIUpstreamUsageEvidence(info, []byte(lastUsageData), "stream")
+	}
+	applyUsagePostProcessing(info, usage, common.StringToByteSlice(usageData))
+
+	HandleFinalResponse(c, info, lastStreamData, responseId, createAt, model, systemFingerprint, usage, containStreamUsage)
+
+	return usage, nil
+}
+
+func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
+	defer service.CloseResponseBodyGracefully(resp)
+
+	var simpleResponse dto.OpenAITextResponse
+	responseBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
+	}
+	logger.LogDebug(c, "upstream response body: %s", responseBody)
+	// Unmarshal to simpleResponse
+	if info.ChannelType == constant.ChannelTypeOpenRouter && info.ChannelOtherSettings.IsOpenRouterEnterprise() {
+		// 尝试解析为 openrouter enterprise
+		var enterpriseResponse openrouter.OpenRouterEnterpriseResponse
+		err = common.Unmarshal(responseBody, &enterpriseResponse)
+		if err != nil {
+			return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+		}
+		if enterpriseResponse.Success {
+			responseBody = enterpriseResponse.Data
+		} else {
+			logger.LogError(c, fmt.Sprintf("openrouter enterprise response success=false, data: %s", enterpriseResponse.Data))
+			return nil, types.NewOpenAIError(fmt.Errorf("openrouter response success=false"), types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+		}
+	}
+
+	observed := relaycommon.ObserveZTAPIOpenAIChatUsage(c, info, responseBody, resp.Header)
+	err = common.Unmarshal(responseBody, &simpleResponse)
+	if err != nil {
+		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+	}
+
+	if oaiError := simpleResponse.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
+		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
+	}
+
+	for _, choice := range simpleResponse.Choices {
+		if choice.FinishReason == constant.FinishReasonContentFilter {
+			common.SetContextKey(c, constant.ContextKeyAdminRejectReason, "openai_finish_reason=content_filter")
+			break
+		}
+	}
+
+	forceFormat := false
+	if info.ChannelSetting.ForceFormat {
+		forceFormat = true
+	}
+
+	usageModified := false
+	managed := info.ZTAPIPublicationSnapshot != nil
+	if observed != nil || (!managed && service.ValidUsage(&simpleResponse.Usage) && simpleResponse.Usage.PromptTokens != 0) {
+		usageModified = normalizeChatUsage(info, &simpleResponse.Usage)
+		if observed != nil {
+			usageModified = usageModified || !reflect.DeepEqual(&simpleResponse.Usage, observed)
+			simpleResponse.Usage = *observed
+			usageModified = usageModified || !service.ValidUsage(observed)
+		}
+		relaycommon.CaptureZTAPIUpstreamUsageEvidence(info, responseBody, "nonstream")
+	} else if managed || simpleResponse.Usage.PromptTokens == 0 {
+		if partial := incompleteXcloudKimiTokenCounts(info); partial != nil {
+			simpleResponse.Usage = *partial
+			common.SetContextKey(c, constant.ContextKeyLocalCountTokens, true)
+			usageModified = true
+		} else {
+			completionTokens := simpleResponse.Usage.CompletionTokens
+			if completionTokens == 0 {
+				for _, choice := range simpleResponse.Choices {
+					ctkm := service.CountTextToken(choice.Message.StringContent()+choice.Message.GetReasoningContent(), info.UpstreamModelName)
+					completionTokens += ctkm
+				}
+			}
+			simpleResponse.Usage = dto.Usage{
+				PromptTokens:     info.GetEstimatePromptTokens(),
+				CompletionTokens: completionTokens,
+				TotalTokens:      info.GetEstimatePromptTokens() + completionTokens,
+				UsageSource:      "local_estimate",
+			}
+			common.SetContextKey(c, constant.ContextKeyLocalCountTokens, true)
+			usageModified = true
+		}
+	}
+
+	applyUsagePostProcessing(info, &simpleResponse.Usage, responseBody)
+
+	switch info.RelayFormat {
+	case types.RelayFormatOpenAI:
+		if usageModified {
+			normalized, normalizeErr := replaceChatUsage(string(responseBody), &simpleResponse.Usage)
+			if normalizeErr != nil {
+				return nil, types.NewOpenAIError(normalizeErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+			}
+			responseBody = []byte(normalized)
+		}
+		if forceFormat {
+			responseBody, err = common.Marshal(simpleResponse)
+			if err != nil {
+				return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
+			}
+		} else {
+			break
+		}
+	case types.RelayFormatClaude:
+		claudeResp := service.ResponseOpenAI2Claude(&simpleResponse, info)
+		claudeRespStr, err := common.Marshal(claudeResp)
+		if err != nil {
+			return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
+		}
+		responseBody = claudeRespStr
+	case types.RelayFormatGemini:
+		geminiResp := service.ResponseOpenAI2Gemini(&simpleResponse, info)
+		geminiRespStr, err := common.Marshal(geminiResp)
+		if err != nil {
+			return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
+		}
+		responseBody = geminiRespStr
+	}
+
+	if metadata := newZTAPIStreamMetadata(info); metadata != nil {
+		normalized, normalizeErr := metadata.normalize(string(responseBody))
+		if normalizeErr != nil {
+			return nil, types.NewError(normalizeErr, types.ErrorCodeBadResponseBody)
+		}
+		responseBody = []byte(normalized)
+	}
+	service.IOCopyBytesGracefully(c, resp, responseBody)
+
+	return &simpleResponse.Usage, nil
+}
