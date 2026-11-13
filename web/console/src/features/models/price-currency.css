@@ -1,0 +1,53 @@
+.price-currency {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  margin: 14px 0;
+  min-width: 0;
+}
+
+.price-currency__switch {
+  display: inline-flex;
+  flex-shrink: 0;
+  border: 1px solid var(--border, #353740);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.price-currency__switch button {
+  min-width: 54px;
+  min-height: 34px;
+  padding: 6px 12px;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.price-currency__switch button[aria-pressed="true"] {
+  background: var(--accent, #4264ee);
+  color: #fff;
+}
+
+.price-currency__switch button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.price-currency__switch button:focus-visible {
+  outline: 2px solid var(--accent, #4264ee);
+  outline-offset: -3px;
+}
+
+.price-currency p {
+  flex: 1 1 210px;
+  min-width: 0;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-muted, #9a9eac);
+  overflow-wrap: anywhere;
+}

@@ -1,0 +1,325 @@
+.support-page {
+  min-width: 0;
+}
+.support-privacy,
+.support-binding p {
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.support-privacy {
+  color: var(--text-muted, #687077);
+  margin: 0 0 16px;
+}
+.support-binding {
+  border-block: 1px solid var(--border);
+  padding-block: 12px;
+  margin-bottom: 20px;
+  min-width: 0;
+}
+.support-binding-summary,
+.support-binding-confirm {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.support-binding-summary p {
+  margin-block: 8px;
+}
+.support-binding .console-button {
+  white-space: normal;
+  max-width: 100%;
+  min-height: 36px;
+  overflow-wrap: anywhere;
+}
+.support-binding .console-button svg {
+  flex-shrink: 0;
+}
+.support-binding-consent {
+  display: grid;
+  gap: 10px;
+  margin-block: 12px;
+  justify-items: start;
+}
+.support-binding-consent p {
+  margin: 0;
+}
+.support-binding-consent label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.support-binding-consent input {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  margin: 3px 0 0;
+}
+.support-binding-confirm {
+  margin-block: 12px;
+}
+.support-binding-confirm p {
+  flex-basis: 100%;
+  margin: 0;
+}
+.support-attachment {
+  margin-top: 10px;
+}
+.support-attachment img {
+  display: block;
+  max-width: 100%;
+  max-height: 480px;
+  width: auto;
+  height: auto;
+  margin-top: 10px;
+  object-fit: contain;
+}
+.support-upload-warning {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-muted, #687077);
+}
+.support-layout {
+  display: grid;
+  grid-template-columns: minmax(140px, 180px) minmax(0, 1fr) minmax(
+      210px,
+      270px
+    );
+  gap: 20px;
+  align-items: start;
+}
+.support-layout > * {
+  min-width: 0;
+}
+.support-page h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.support-page h3 {
+  margin: 16px 0 8px;
+  font-size: 14px;
+}
+.support-section-heading {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 36px;
+}
+.support-section-heading h2 {
+  overflow-wrap: anywhere;
+}
+.support-page button {
+  cursor: pointer;
+}
+.support-page button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.support-section-heading > button {
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: inherit;
+  border-radius: 6px;
+}
+.support-history nav,
+.support-request-list {
+  display: grid;
+  gap: 4px;
+  margin-top: 12px;
+}
+.support-history nav button,
+.support-request-list button {
+  text-align: left;
+  padding: 10px;
+  background: transparent;
+  color: inherit;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+  min-width: 0;
+  font: inherit;
+}
+.support-history nav button[aria-current],
+.support-request-list button[aria-pressed='true'] {
+  background: var(--surface);
+  border-color: var(--border);
+}
+.support-request-list span {
+  display: block;
+  font-size: 12px;
+  opacity: 0.7;
+  margin-top: 4px;
+}
+.support-chat {
+  border-inline: 1px solid var(--border);
+  padding-inline: 20px;
+}
+.support-messages {
+  min-height: 240px;
+  max-height: 55vh;
+  overflow-y: auto;
+  margin-block: 12px;
+}
+.support-message {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.support-message header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  align-items: baseline;
+  font-size: 12px;
+}
+.support-message time {
+  opacity: 0.65;
+}
+.support-message p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 8px 0 0;
+  line-height: 1.65;
+}
+.support-message--human strong {
+  color: var(--success, #16835e);
+}
+.support-message > span,
+.support-empty,
+.support-diagnostics > p,
+.support-ticket-form > p {
+  font-size: 12px;
+  opacity: 0.7;
+}
+.support-ticket-status {
+  font-size: 13px;
+  padding-block: 10px;
+  border-block: 1px solid var(--border);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.support-composer,
+.support-ticket-form {
+  display: grid;
+  gap: 8px;
+}
+.support-composer label,
+.support-ticket-form label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+}
+.support-page textarea,
+.support-ticket-form input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: inherit;
+  border-radius: 6px;
+  padding: 10px;
+  font: inherit;
+}
+.support-page textarea {
+  resize: vertical;
+}
+.support-composer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 36px;
+}
+.support-composer-actions > span {
+  font-size: 12px;
+  margin-right: auto;
+  opacity: 0.65;
+}
+.support-composer-actions .support-upload {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  position: relative;
+  cursor: pointer;
+  min-height: 34px;
+}
+.support-upload input {
+  position: absolute;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  inset: 0;
+  cursor: pointer;
+}
+.support-upload:focus-within {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+.support-handoff {
+  margin-block: 14px;
+}
+.support-evidence dl {
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+}
+.support-evidence dl > div {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr);
+  gap: 8px;
+}
+.support-evidence dt {
+  opacity: 0.7;
+}
+.support-evidence dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.support-evidence p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+@media (max-width: 1200px) {
+  .support-layout {
+    grid-template-columns: 150px minmax(0, 1fr);
+  }
+  .support-diagnostics {
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+  }
+  .support-request-list {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  .support-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+  .support-history nav {
+    max-height: 120px;
+    overflow-y: auto;
+  }
+  .support-chat {
+    border-inline: 0;
+    border-top: 1px solid var(--border);
+    padding: 14px 0 0;
+  }
+  .support-messages {
+    max-height: 48vh;
+  }
+}

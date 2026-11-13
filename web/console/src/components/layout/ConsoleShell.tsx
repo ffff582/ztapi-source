@@ -1,0 +1,86 @@
+import {
+  BookOpenText,
+  BellRing,
+  Boxes,
+  KeyRound,
+  LayoutDashboard,
+  LifeBuoy,
+  ScrollText,
+  Users,
+  UserRound,
+  WalletCards,
+} from 'lucide-react';
+import { Link, NavLink, Outlet } from 'react-router-dom';
+import { useSyncExternalStore } from 'react';
+import { getAuthSession, subscribeAuthSession } from '../../api/client';
+import { ConsoleHeader } from './ConsoleHeader';
+import { useLocale } from '../../i18n/locale';
+
+const consoleNavigation = [
+  {
+    label: '控制台',
+    items: [
+      { to: '/console', label: '看板', icon: LayoutDashboard, end: true },
+      { to: '/console/models', label: '模型市场', icon: Boxes, end: false },
+      { to: '/console/guide', label: 'API 文档', icon: BookOpenText, end: false },
+    ],
+  },
+  {
+    label: '账户与数据',
+    items: [
+      { to: '/console/keys', label: 'API Key', icon: KeyRound, end: false },
+      { to: '/console/logs', label: '用量日志', icon: ScrollText, end: false },
+      { to: '/console/spending', label: '消费预警', icon: BellRing, end: false },
+      { to: '/console/wallet', label: '账单充值', icon: WalletCards, end: false },
+      { to: '/console/referrals', label: '推广返利', icon: Users, end: false },
+      { to: '/console/account', label: '账号设置', icon: UserRound, end: false },
+      { to: '/console/support', label: '平台客服', icon: LifeBuoy, end: false },
+    ],
+  },
+];
+
+export function ConsoleShell() {
+  const { t } = useLocale();
+  const session = useSyncExternalStore(subscribeAuthSession, getAuthSession);
+
+  return (
+    <div className="console-shell">
+      <aside className="console-sidebar">
+        <Link className="console-brand" to="/console" aria-label="ZTAPI Console">
+          <img src="/brand/ztapi-mark.png" alt="" width="28" height="28" />
+          <span>ZTAPI</span>
+        </Link>
+
+        <nav className="console-nav" aria-label={t('控制台导航')}>
+          {consoleNavigation.map(({ label, items }) => (
+            <div className="console-nav-group" key={label} role="group" aria-label={t(label)}>
+              <p className="console-nav-group__label">{t(label)}</p>
+              {items.map(({ to, label: itemLabel, icon: Icon, end }) => (
+                <NavLink
+                  className={({ isActive }) =>
+                    `console-nav__link${isActive ? ' console-nav__link--active' : ''}`
+                  }
+                  end={end}
+                  key={to}
+                  to={to}
+                >
+                  <Icon size={18} aria-hidden="true" />
+                  <span>{t(itemLabel)}</span>
+                </NavLink>
+              ))}
+            </div>
+          ))}
+        </nav>
+      </aside>
+
+      <div className="console-workspace">
+        <ConsoleHeader />
+
+        <main className="console-content">
+          {session?.referral_bound === false && <p className="console-referral-registration-note" role="status">{t('注册成功，但本次未建立推广返佣关系，请勿将本次邀请视为已生效。')}</p>}
+          <Outlet />
+        </main>
+      </div>
+    </div>
+  );
+}
