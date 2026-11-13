@@ -1,0 +1,101 @@
+package finance
+
+import (
+	"context"
+	"github.com/QuantumNous/new-api/common"
+	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
+	"testing"
+)
+
+func readerSnapshotFixture(t *testing.T) *gorm.DB {
+	t.Helper()
+	store := newStore(t)
+	db := store.db
+	for _, sql := range []string{
+		"CREATE TABLE users(id INTEGER,username TEXT,role INTEGER,status INTEGER,deleted_at DATETIME)",
+		"CREATE TABLE balance_ledgers(id INTEGER,user_id INTEGER,delta BIGINT,balance_before BIGINT,balance_after BIGINT,source_type TEXT,request_id TEXT,idempotency_key TEXT,created_at DATETIME)",
+		"CREATE TABLE ztapi_request_settlements(id INTEGER,user_id INTEGER,request_id TEXT,operation_id TEXT,status TEXT,public_model TEXT,price_snapshot_json TEXT,charge_dimensions_json TEXT,missing_dimensions_json TEXT,reserved_quota BIGINT,charged_quota BIGINT,final_attempt INTEGER,created_at DATETIME)",
+		"CREATE TABLE ztapi_settlement_log_outboxes(operation_id TEXT,created_at BIGINT)",
+		"CREATE TABLE ztapi_request_attempts(settlement_id INTEGER,attempt INTEGER,channel_id INTEGER,created_at DATETIME)",
+		"CREATE TABLE top_ups(id INTEGER,user_id INTEGER,trade_no TEXT,status TEXT,complete_time BIGINT)",
+		"CREATE TABLE usdt_top_up_orders(top_up_id INTEGER,status TEXT,credit_units BIGINT,pay_amount_micros BIGINT)",
+		"CREATE TABLE channels(id INTEGER,name TEXT,base_url TEXT)",
+		"CREATE TABLE ztapi_model_verifications(id INTEGER,channel_id INTEGER,model_config_id INTEGER,verified_at BIGINT)",
+		"CREATE TABLE ztapi_supplier_refund_charges(id INTEGER,request_id TEXT,user_id INTEGER,original_ledger_id INTEGER,charged_quota BIGINT,billing_proof_id INTEGER,channel_id INTEGER,billing_operation_id TEXT,created_at DATETIME)",
+		"CREATE TABLE ztapi_supplier_refunds(ledger_id INTEGER,charge_id INTEGER,refunded_quota BIGINT,status TEXT)",
+		"INSERT INTO users VALUES(1,'customer',100,1,NULL)",
+		"INSERT INTO ztapi_request_settlements VALUES(1,1,'r1','op1','settled','zt-test','{}','[]','[]',10,10,1,'2026-09-16 00:00:00')",
+		"INSERT INTO ztapi_settlement_log_outboxes VALUES('op1',1789516800)",
+		"INSERT INTO ztapi_model_verifications VALUES(656,2,7,1789516800)",
+	} {
+		require.NoError(t, db.Exec(sql).Error)
+	}
+	return db
+}
+
+func TestReaderUsesPostingTimeAndOnlySelectsFinancialColumns(t *testing.T) {
+	db := readerSnapshotFixture(t)
+	reader := &Reader{DB: db, QuotaPerUnit: 500000}
+	s, e := reader.Load(context.Background(), moment("2026-10-26T00:00:00Z"))
+	require.NoError(t, e)
+	require.Len(t, s.Settlements, 1)
+	require.NotNil(t, s.Referral)
+	require.False(t, s.Referral.Supported)
+	require.Equal(t, "referral_schema_missing", s.Referral.Reason)
+	require.Len(t, s.Users, 1)
+	require.Equal(t, 100, s.Users[0].Role, "snapshot classification must use actual source identity")
+	require.Equal(t, int64(1789516800), s.Settlements[0].CompletedAt)
+	require.Len(t, s.Verifications, 1)
+	require.Equal(t, int64(656), s.Verifications[0].ID)
+	require.Equal(t, 2, s.Verifications[0].ChannelID)
+	u, e := reader.Identity(context.Background(), 1)
+	require.NoError(t, e)
+	require.Equal(t, 100, u.Role)
+	t.Run("native usage financial projection", func(t *testing.T) {
+		require.NoError(t, db.Exec("ALTER TABLE ztapi_request_settlements ADD COLUMN usage_json TEXT").Error)
+		usage := imageSaleUsage(t)
+		require.NoError(t, db.Table("ztapi_request_settlements").Where("id = ?", 1).Update("usage_json", usage).Error)
+		fresh := &Reader{DB: db, QuotaPerUnit: 500000}
+		current, err := fresh.Load(context.Background(), moment("2026-10-26T00:00:00Z"))
+		require.NoError(t, err)
+		require.Len(t, current.Settlements, 1)
+		encoded, err := common.Marshal(current.Settlements[0])
+		require.NoError(t, err)
+		var projection map[string]any
+		require.NoError(t, common.Unmarshal(encoded, &projection))
+		require.Equal(t, usage, projection["UsageJSON"])
+	})
+}
+
+func TestReaderNativeUsageGenericMigratorDoesNotPanic(t *testing.T) {
+	for _, present := range []bool{false, true} {
+		name := "legacy_without_usage"
+		if present {
+			name = "native_usage_present"
+		}
+		t.Run(name, func(t *testing.T) {
+			db := readerSnapshotFixture(t)
+			usage := ""
+			if present {
+				require.NoError(t, db.Exec("ALTER TABLE ztapi_request_settlements ADD COLUMN usage_json TEXT").Error)
+				usage = imageSaleUsage(t)
+				require.NoError(t, db.Table("ztapi_request_settlements").Where("id = ?", 1).Update("usage_json", usage).Error)
+			}
+			db = referralGenericSchemaDB(t, db, "")
+			if present {
+				require.NoError(t, db.Exec("PRAGMA query_only = OFF").Error)
+				require.NoError(t, db.Exec("INSERT INTO INFORMATION_SCHEMA.columns VALUES(?,?,?)", "finance_generic_stub", "ztapi_request_settlements", "usage_json").Error)
+				require.NoError(t, db.Exec("PRAGMA query_only = ON").Error)
+			}
+			var snapshot Snapshot
+			var err error
+			require.NotPanics(t, func() {
+				snapshot, err = (&Reader{DB: db, QuotaPerUnit: 500000}).Load(context.Background(), moment("2026-11-09T00:00:00Z"))
+			})
+			require.NoError(t, err)
+			require.Len(t, snapshot.Settlements, 1)
+			require.Equal(t, usage, snapshot.Settlements[0].UsageJSON)
+		})
+	}
+}

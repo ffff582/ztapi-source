@@ -1,0 +1,206 @@
+{
+  "generated_at": "2026-10-29T20:24:51.219Z",
+  "runtime_files": [
+    {
+      "path": "server/model/ztapi_cash_margin_policy_20261030.go",
+      "bytes": 8483,
+      "sha256": "d1739798ae5d39ea60e260343c0bf006aa699a115a2044a4fd61d3b39a64379b"
+    },
+    {
+      "path": "server/model/ztapi_cash_margin_repricing_20261030.go",
+      "bytes": 15467,
+      "sha256": "802b07602f558655700545e28b2fbebdaf336226e095fc11be37b97246af6562"
+    },
+    {
+      "path": "server/model/ztapi_cash_margin_downgrade_20261030.go",
+      "bytes": 3717,
+      "sha256": "9cc359fec188687b9cf0145df2e4ddeed4261ed3f21e7cb02b8d84eca3493259"
+    },
+    {
+      "path": "server/controller/ztapi_cash_margin_20261030.go",
+      "bytes": 3379,
+      "sha256": "4834097de0173e4b5acd476e80c4cb05b1b89be7baefb56521618fb83cc8db40"
+    },
+    {
+      "path": "server/model/ztapi_pricing_policy.go",
+      "bytes": 4802,
+      "sha256": "9b920105e233ed0356cd7a8fb9ddd95f97364a1d1819f201e0e1a42ff3d04112"
+    },
+    {
+      "path": "server/model/ztapi_model_evidence.go",
+      "bytes": 47181,
+      "sha256": "6cd867b8df16f8adb5787cb55c76ce0e3c52be89d73ff7946b6fc9b741a00c27"
+    },
+    {
+      "path": "server/model/ztapi_publication_gate.go",
+      "bytes": 29136,
+      "sha256": "16d6b46bd05909716bd21383b65915b6a5e924f885a7f33fc777359f8967d4aa"
+    },
+    {
+      "path": "server/model/ztapi_quotation.go",
+      "bytes": 29020,
+      "sha256": "c482317a6c9178f569cf016225209ace1e27cdc963d9956330b6ffaaef46c807"
+    },
+    {
+      "path": "server/model/ztapi_public_catalog.go",
+      "bytes": 35639,
+      "sha256": "ec3f752924d9257b71454d9baa86f94d1b35a3607f14de1bf7895d2c1b1ab1ec"
+    },
+    {
+      "path": "server/router/api-router.go",
+      "bytes": 39277,
+      "sha256": "6f1f802f3cbcbfd7c445a148eac293e2e919e811b6079a1391f22f380975c134"
+    }
+  ],
+  "test_files": [
+    {
+      "path": "server/model/ztapi_cash_margin_policy_20261030_test.go",
+      "bytes": 7963,
+      "sha256": "968583d78a4e7d51889a4a8dab54abd202ba887644c650924b4b77fedd0cdf99"
+    },
+    {
+      "path": "server/model/ztapi_cash_margin_repricing_20261030_test.go",
+      "bytes": 10709,
+      "sha256": "436b38ef898e29ba5fba9084b4cd536f0802336ca41a92f251842bc2b229a4e2"
+    },
+    {
+      "path": "server/controller/ztapi_cash_margin_20261030_test.go",
+      "bytes": 4372,
+      "sha256": "64e26d48a6ad35449346dcfa68ad546e4565f62338821f0d6405e25b2c7af49e"
+    },
+    {
+      "path": "server/controller/ztapi_cash_margin_reader_20261030_test.go",
+      "bytes": 6012,
+      "sha256": "d1e75121e60f7a02b6b06a91d00bbb61d0958c7565615ce2c9be3174ce68d4f2"
+    }
+  ],
+  "scope": {
+    "models": [
+      {
+        "model": "zt-gemini-3-flash-preview",
+        "base_source_reference": 1386,
+        "procurement_resource": "enterprise",
+        "allowed_channel_ids": [
+          1
+        ],
+        "target_margin": "0.20",
+        "policy": "cash_enterprise_20_20261030"
+      },
+      {
+        "model": "zt-gemini-3.1-pro-preview",
+        "base_source_reference": 1387,
+        "procurement_resource": "enterprise",
+        "allowed_channel_ids": [
+          2
+        ],
+        "target_margin": "0.30",
+        "policy": "cash_pool_30_20261030"
+      },
+      {
+        "model": "zt-kimi-k2.7-code",
+        "base_source_reference": 1393,
+        "procurement_resource": "pool",
+        "allowed_channel_ids": [
+          2
+        ],
+        "target_margin": "0.30",
+        "policy": "cash_pool_30_20261030"
+      }
+    ],
+    "production_writes": false,
+    "paid_calls": 0,
+    "deployment": false,
+    "business_scope": "Only the three allowlisted models; no finance or relay source changes; preserve existing dirty work.",
+    "note": "Hashes are full current shared-worktree file contents, including preexisting GLM53 edits. They are not a claim that all git diff hunks belong to this task. Compare against the parent GLM53-image source baseline."
+  },
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/api/models/ztapi/cash-margin-20261030/preview",
+      "permission": "model.read"
+    },
+    {
+      "method": "POST",
+      "path": "/api/models/ztapi/cash-margin-20261030/apply",
+      "permission": "model.write",
+      "confirm": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/models/ztapi/cash-margin-20261030/restore",
+      "permission": "model.write",
+      "confirm": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/models/ztapi/cash-margin-20261030/downgrade-status",
+      "permission": "model.read"
+    }
+  ],
+  "schema_changes": [
+    {
+      "table": "ztapi_model_price_sources",
+      "field": "cash_margin_base_source_id",
+      "type": "int64",
+      "not_null": true,
+      "default": 0,
+      "index": true,
+      "existing_data_repricing": false
+    }
+  ],
+  "verification": {
+    "focused": {
+      "command": "go test ./model ./controller -run '^TestCashMargin20261030' -count=1",
+      "result": "passed",
+      "top_level_tests": 13,
+      "packages": [
+        "model",
+        "controller"
+      ]
+    },
+    "package_regression": {
+      "command": "go test ./model ./controller ./router -count=1 -p 1",
+      "result": "passed",
+      "seconds": {
+        "model": 188.818,
+        "controller": 18.243,
+        "router": 1.194
+      }
+    },
+    "full_short": {
+      "command": "go test -short ./... -count=1 -p 2 -timeout 5m",
+      "result": "failed_model_package_timeout_300s",
+      "observed_running_test": "TestZTAPIMediaPublicationRequiresSameVideoContractAcrossEligibleChannels",
+      "note": "Do not claim the full repository suite is green. Model full package regression passed separately. No unrelated media source was changed to address the timeout."
+    },
+    "whitespace_check": {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "note": "Existing finance install.py line-ending warning; not modified by this task."
+    },
+    "old_image_startup": "Not executed in this task; parent must run its isolated old-image compatibility check."
+  },
+  "rollback": {
+    "historical_rows_mutated": false,
+    "creates_new_old_policy_source": true,
+    "creates_new_old_policy_snapshot": true,
+    "bound_policy_after_restore": "quote_frozen_retail_20261019",
+    "latest_source_policy_after_restore": "quote_frozen_retail_20261019",
+    "must_quiesce_admissions_and_drain_before_check": true,
+    "guard_blocks": [
+      "active new-policy publication",
+      "reserved/pending or other nonterminal new-policy/source request",
+      "ambiguous unsettled snapshot",
+      "database read failure"
+    ],
+    "required_guard_response": {
+      "http_status": 200,
+      "can_downgrade": true
+    },
+    "warning": "The read-only guard is observational, not an admission fence. Keep the compatible reader while new-policy pending requests remain."
+  },
+  "documentation": [
+    "docs/superpowers/plans/2026-10-30-scoped-cash-margin.md",
+    "docs/superpowers/plans/2026-10-30-scoped-cash-margin-handoff.md"
+  ]
+}
