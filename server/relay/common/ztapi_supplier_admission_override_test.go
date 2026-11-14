@@ -36,3 +36,28 @@ func TestSupplierAdmissionOverrideCannotChangeBilledSKU(t *testing.T) {
 		})
 	}
 }
+
+func TestFableOverridePreservesBilledModel(t *testing.T) {
+	for _, policy := range []string{"reduction_15_12_20261107", "referral_floor_10_20261107"} {
+		t.Run(policy, func(t *testing.T) {
+			info := &RelayInfo{
+				ChannelMeta:              &ChannelMeta{UpstreamModelName: "claude-fable-5-hc"},
+				ZTAPIPublicationSnapshot: &ZTAPIPublicationSnapshot{SourceModel: "claude-fable-5", PricePolicy: policy},
+			}
+			for _, body := range []string{
+				`{"model":"claude-fable-5-hc","messages":[]}`,
+				`{"model":"claude-fable-5-hc","input":"hello"}`,
+			} {
+				info.ParamOverride = map[string]interface{}{"model": "claude-fable-5-1"}
+				_, err := ApplyParamOverrideWithRelayInfo([]byte(body), info)
+				require.Error(t, err)
+				info.ParamOverride = map[string]interface{}{"operations": []map[string]interface{}{{"mode": "delete", "path": "model"}}}
+				_, err = ApplyParamOverrideWithRelayInfo([]byte(body), info)
+				require.Error(t, err)
+				info.ParamOverride = map[string]interface{}{"temperature": 0.5}
+				_, err = ApplyParamOverrideWithRelayInfo([]byte(body), info)
+				require.NoError(t, err)
+			}
+		})
+	}
+}

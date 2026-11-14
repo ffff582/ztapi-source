@@ -25,7 +25,16 @@ func ApplyZTAPIXcloudPublication20261114(c *gin.Context) {
 		c.JSON(400, gin.H{"success": false, "message": "请确认 Xcloud 模型、原报价版本和验收编号。"})
 		return
 	}
-	snapshot, err := model.ApplyZTAPIXcloudPublicationWithGate20261114(c.GetInt("id"), req.ZTAPIXcloudPublication20261114, func(tx *gorm.DB) error {
+	snapshot, err := model.ApplyZTAPIXcloudPublicationWithGate20261114(c.GetInt("id"), req.ZTAPIXcloudPublication20261114, requireProtectedPublicationCost(c))
+	if err != nil {
+		respondZTAPICashMarginError20261030(c, err)
+		return
+	}
+	common.ApiSuccess(c, snapshot)
+}
+
+func requireProtectedPublicationCost(c *gin.Context) func(*gorm.DB) error {
+	return func(tx *gorm.DB) error {
 		input, blockers, err := model.ProductionZTAPIReferralReadiness(c.Request.Context(), tx, time.Now().UTC())
 		if err != nil || len(blockers) != 0 || !input.PlatformFeeKnown {
 			return errors.New("prospective catalog has no matching protected cost evidence")
@@ -35,12 +44,7 @@ func ApplyZTAPIXcloudPublication20261114(c *gin.Context) {
 			return errors.New("prospective catalog failed the referral price floor")
 		}
 		return nil
-	})
-	if err != nil {
-		respondZTAPICashMarginError20261030(c, err)
-		return
 	}
-	common.ApiSuccess(c, snapshot)
 }
 
 func RestoreZTAPIXcloudPublication20261114(c *gin.Context) {

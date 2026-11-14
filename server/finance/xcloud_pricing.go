@@ -4,9 +4,11 @@ package finance
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/shopspring/decimal"
 )
 
@@ -122,21 +124,55 @@ func EstimateXcloudUsage(sourceModel string, dimensions []UsageDimension) (Xclou
 	return XcloudUsageEstimate{SourceModel: sourceModel, CostUSDT: "0"}, fmt.Errorf("%w: historical group and tier unavailable", ErrXcloudQuoteMissing)
 }
 
-func EstimateXcloudUsageForGroup(sourceModel, group, tier string, dimensions []UsageDimension) (XcloudUsageEstimate, error) {
-	zero := XcloudUsageEstimate{SourceModel: sourceModel, CostUSDT: "0"}
-	if len(dimensions) == 0 {
-		return zero, errors.New("Xcloud usage dimensions are missing")
+// Resolve only policies that pin both the supplier fee and the allowed routes.
+// Current channel labels and the latest quote cannot prove historical cost.
+func estimateFrozenXcloudUsage(s Settlement, channelID int, baseURL string, dimensions []UsageDimension) (XcloudUsageEstimate, error) {
+	var snapshot struct {
+		SourceModel        string
+		PricePolicy        string
+		PriceSourceID      int64
+		PriceSourceVersion uint64
+		AllowedChannelIDs  []int
 	}
-	var quote XcloudPublicQuote
-	ok := false
-	for _, candidate := range XcloudPublicQuotes() {
-		if candidate.SourceModel == strings.TrimSpace(sourceModel) && candidate.Group == group && candidate.Tier == tier {
-			quote, ok = candidate, true
-			break
+	if strings.TrimRight(baseURL, "/") != "https://www.xcloudtoken.com" ||
+		common.RejectDuplicateJsonObjectMembers(strings.NewReader(s.PriceSnapshotJSON)) != nil ||
+		common.UnmarshalJsonStr(s.PriceSnapshotJSON, &snapshot) != nil {
+		return XcloudUsageEstimate{}, ErrXcloudQuoteMissing
+	}
+	switch snapshot.PricePolicy {
+	case "xcloud_verified_20261114":
+		switch snapshot.SourceModel {
+		case "claude-sonnet-5":
+			if channelID == 4 && snapshot.PriceSourceID == 1885 && snapshot.PriceSourceVersion == 37 && slices.Equal(snapshot.AllowedChannelIDs, []int{2, 4}) {
+				return estimateXcloudQuote(xcloudQuote(snapshot.SourceModel, "claude-max", "base", "2", "10", "0.2", "0", "2.5", "4"), dimensions)
+			}
+		case "deepseek-v4.1-flash":
+			if channelID == 8 && snapshot.PriceSourceID == 1886 && snapshot.PriceSourceVersion == 2 && slices.Equal(snapshot.AllowedChannelIDs, []int{8}) {
+				return estimateXcloudQuote(xcloudQuote(snapshot.SourceModel, "国产分组", "base", "0.084", "0.3", "0.0018", "0", "0", "0"), dimensions)
+			}
+		}
+	case "xcloud_glm53_20261030":
+		if snapshot.SourceModel == "glm-5.3" && channelID == 8 && snapshot.PriceSourceID == 1844 &&
+			snapshot.PriceSourceVersion == 5 && slices.Equal(snapshot.AllowedChannelIDs, []int{8}) {
+			return estimateXcloudQuote(xcloudQuote(snapshot.SourceModel, "国产分组", "固定", "4.8", "16.8", "1.2", "0", "0", "0"), dimensions)
 		}
 	}
-	if !ok {
-		return zero, fmt.Errorf("%w: %s", ErrXcloudQuoteMissing, strings.TrimSpace(sourceModel))
+	return XcloudUsageEstimate{}, ErrXcloudQuoteMissing
+}
+
+func EstimateXcloudUsageForGroup(sourceModel, group, tier string, dimensions []UsageDimension) (XcloudUsageEstimate, error) {
+	for _, quote := range XcloudPublicQuotes() {
+		if quote.SourceModel == strings.TrimSpace(sourceModel) && quote.Group == group && quote.Tier == tier {
+			return estimateXcloudQuote(quote, dimensions)
+		}
+	}
+	return XcloudUsageEstimate{SourceModel: sourceModel, CostUSDT: "0"}, fmt.Errorf("%w: %s", ErrXcloudQuoteMissing, strings.TrimSpace(sourceModel))
+}
+
+func estimateXcloudQuote(quote XcloudPublicQuote, dimensions []UsageDimension) (XcloudUsageEstimate, error) {
+	zero := XcloudUsageEstimate{SourceModel: quote.SourceModel, CostUSDT: "0"}
+	if len(dimensions) == 0 {
+		return zero, errors.New("Xcloud usage dimensions are missing")
 	}
 	seen := make(map[string]struct{}, len(dimensions))
 	cost := decimal.Zero
@@ -159,7 +195,7 @@ func EstimateXcloudUsageForGroup(sourceModel, group, tier string, dimensions []U
 		}
 		price, supported := xcloudDimensionPrice(quote, name)
 		if !supported {
-			return zero, fmt.Errorf("%w: %s/%s", ErrXcloudQuoteMissing, sourceModel, name)
+			return zero, fmt.Errorf("%w: %s/%s", ErrXcloudQuoteMissing, quote.SourceModel, name)
 		}
 		cost = cost.Add(decimal.NewFromInt(dimension.Quantity).Div(decimal.NewFromInt(1_000_000)).Mul(price))
 	}

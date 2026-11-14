@@ -1,7 +1,9 @@
 package finance
 
 import (
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -124,4 +126,88 @@ func TestSettlementUsageDimensionsReportPreservesUnitsAndHistoricalFailClosed(t 
 	require.Empty(t, r.Estimates[0].Dimensions, "a malformed later dimension must not leave a partial rollup")
 	require.Nil(t, r.EstimatedCost)
 	require.Contains(t, r.EstimateIssues, Issue{Code: "xcloud_usage_missing", Ref: "r1", UserID: 1})
+}
+
+func TestFinanceUsesExactFrozenXcloudQuoteAndActualChannel(t *testing.T) {
+	for _, tc := range []struct {
+		name, model, policy, routes, want string
+		channel                           int
+		priceID, priceVersion             int
+	}{
+		{"sonnet current", "claude-sonnet-5", "xcloud_verified_20261114", "[2,4]", "0.008050", 4, 1885, 37},
+		{"deepseek current", "deepseek-v4.1-flash", "xcloud_verified_20261114", "[8]", "0.000276", 8, 1886, 2},
+		{"glm current", "glm-5.3", "xcloud_glm53_20261030", "[8]", "0.015900", 8, 1844, 5},
+		{"unknown policy", "claude-sonnet-5", "legacy", "[2,4]", "", 4, 1885, 37},
+		{"unexpected group", "claude-sonnet-5", "xcloud_verified_20261114", "[2,6]", "", 6, 1885, 37},
+		{"extra route", "claude-sonnet-5", "xcloud_verified_20261114", "[2,4,6]", "", 4, 1885, 37},
+		{"wrong frozen source", "claude-sonnet-5", "xcloud_verified_20261114", "[2,4]", "", 4, 1886, 37},
+		{"unknown source version", "claude-sonnet-5", "xcloud_verified_20261114", "[2,4]", "", 4, 1885, 38},
+		{"not in frozen cohort", "claude-opus-5-5", "xcloud_verified_20261114", "[6]", "", 6, 1885, 37},
+		{"yunxin fallback", "claude-sonnet-5", "xcloud_verified_20261114", "[2,4]", "", 2, 1885, 37},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := fixture()
+			s.Channels = []Channel{
+				{ID: 2, Name: "Yunxin", BaseURL: "https://ai.yunxinapi.com/hub"},
+				{ID: 4, Name: "Xcloud", BaseURL: "https://www.xcloudtoken.com"},
+				{ID: 6, Name: "Xcloud", BaseURL: "https://www.xcloudtoken.com"},
+				{ID: 8, Name: "Xcloud", BaseURL: "https://www.xcloudtoken.com"},
+			}
+			s.Attempts[0].ChannelID = tc.channel
+			if tc.channel == 2 {
+				s.Attempts[0].ChannelID = 4
+				s.Attempts = append(s.Attempts, Attempt{SettlementID: 1, Attempt: 2, ChannelID: 2,
+					CreatedAt: moment("2026-11-14T00:00:03Z")})
+				s.Settlements[0].FinalAttempt = 2
+			}
+			s.Settlements[0].PriceSnapshotJSON = fmt.Sprintf(`{"SourceModel":%q,"PricePolicy":%q,"PriceSourceID":%d,"PriceSourceVersion":%d,"AllowedChannelIDs":%s}`, tc.model, tc.policy, tc.priceID, tc.priceVersion, tc.routes)
+			s.Settlements[0].ChargeDimensionsJSON = `[{"dimension":"input_tokens","units":"3000"},{"dimension":"output_tokens","units":"1000"},{"dimension":"cache_read","units":"500"}]`
+			s.Settlements[0].CompletedAt = moment("2026-11-14T00:01:00Z").Unix()
+			s.Attempts[0].CreatedAt = moment("2026-11-14T00:00:02Z")
+			for i := range s.Ledgers {
+				s.Ledgers[i].CreatedAt = moment("2026-11-14T00:00:00Z").Add(time.Duration(i) * time.Second)
+			}
+			r, err := Calculate(s, facts()[:1], "2026-11", moment("2026-11-15T00:00:00Z"))
+			require.NoError(t, err)
+			require.Nil(t, r.ActualCost, "a frozen quote is not supplier actual")
+			if tc.channel == 2 {
+				require.Len(t, r.Estimates, 1)
+				require.Equal(t, 4, r.Estimates[0].ChannelID, "do not use the primary quote for the Yunxin attempt")
+				require.False(t, r.Estimates[0].Complete)
+				require.Empty(t, r.Estimates[0].CostUSDT)
+				return
+			}
+			require.Len(t, r.Estimates, 1)
+			if tc.want == "" {
+				require.False(t, r.Estimates[0].Complete)
+				return
+			}
+			require.True(t, r.Estimates[0].Complete)
+			require.True(t, r.Estimates[0].IsEstimate)
+			require.Equal(t, tc.want, r.Estimates[0].CostUSDT)
+		})
+	}
+}
+
+func TestFinanceXcloudEstimateWithholdsProfitWhenEarlierAttemptIsUnpriced(t *testing.T) {
+	s := fixture()
+	s.Channels = []Channel{
+		{ID: 2, Name: "Yunxin", BaseURL: "https://ai.yunxinapi.com/hub"},
+		{ID: 4, Name: "Xcloud", BaseURL: "https://www.xcloudtoken.com"},
+	}
+	s.Settlements[0].PriceSnapshotJSON = `{"SourceModel":"claude-sonnet-5","PricePolicy":"xcloud_verified_20261114","PriceSourceID":1885,"AllowedChannelIDs":[2,4]}`
+	s.Settlements[0].ChargeDimensionsJSON = `[{"dimension":"input_tokens","units":"3000"},{"dimension":"output_tokens","units":"1000"}]`
+	s.Attempts[0].ChannelID = 4
+	s.Attempts = append(s.Attempts, Attempt{SettlementID: 1, Attempt: 2, ChannelID: 2, CreatedAt: s.Attempts[0].CreatedAt.Add(time.Second)})
+	s.Settlements[0].FinalAttempt = 2
+	r := calculate(t, s, facts()[:1])
+	require.Len(t, r.Estimates, 1)
+	row := r.Estimates[0]
+	require.Equal(t, 4, row.ChannelID)
+	require.False(t, row.Complete)
+	require.Empty(t, row.Dimensions, "the final supplier's usage must not price the first attempt")
+	require.Empty(t, row.GrossProfitUSDT)
+	require.Nil(t, r.EstimatedCost)
+	require.Nil(t, r.EstimatedGrossProfit)
+	require.Contains(t, r.EstimateIssues, Issue{Code: "xcloud_earlier_attempt_unpriced", Ref: "r1", UserID: 1})
 }

@@ -65,6 +65,7 @@ type ztapiModelProbeResult struct {
 	UpstreamStatusCode               int
 	UpstreamRequestID                string
 	UpstreamErrorMetadata            string
+	FableRouteFingerprint            string
 }
 
 type ztapiUpstreamFailureEvidence struct {
@@ -1117,6 +1118,13 @@ func runZTAPIModelVerificationProbes(ctx context.Context, channel *model.Channel
 		result.StatusCategory = "configuration"
 		return result, errors.New("managed verification channel credential is unavailable")
 	}
+	if sourceModel == "claude-fable-5" {
+		result.FableRouteFingerprint, err = model.ZTAPIFableVerificationRouteFingerprint(channel, upstreamModel)
+		if err != nil {
+			result.StatusCategory = "configuration"
+			return result, err
+		}
+	}
 	client := &http.Client{Timeout: ztapiVerificationRequestTimeoutForModel(sourceModel)}
 	if modality == model.ZTAPIModalityVideo {
 		result.StreamingRequired = false
@@ -1278,6 +1286,7 @@ func VerifyZTAPIModel(
 		UpstreamStatusCode:               result.UpstreamStatusCode,
 		UpstreamRequestID:                result.UpstreamRequestID,
 		UpstreamErrorMetadata:            result.UpstreamErrorMetadata,
+		FableRouteFingerprint:            result.FableRouteFingerprint,
 	}
 	if err := model.DB.Create(verification).Error; err != nil {
 		return nil, err

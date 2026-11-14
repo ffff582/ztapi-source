@@ -148,3 +148,36 @@ func TestGLM53FlashEnterpriseFinalRouteGuard(t *testing.T) {
 		})
 	}
 }
+
+func TestFable5FinalRouteGuardUsesFrozenAllowedChannels(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		channel        int
+		base, physical string
+		allowed        []int
+		ok             bool
+	}{
+		{"primary", 4, "https://www.xcloudtoken.com", "claude-fable-5", []int{4}, true},
+		{"reviewed backup", 2, "https://ai.yunxinapi.com/hub", "claude-fable-5-hc", []int{2, 4}, true},
+		{"disabled backup", 2, "https://ai.yunxinapi.com/hub", "claude-fable-5-hc", []int{4}, false},
+		{"different physical model", 2, "https://ai.yunxinapi.com/hub", "claude-fable-5-1", []int{2, 4}, false},
+		{"different supplier", 4, "https://example.invalid", "claude-fable-5", []int{2, 4}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			info := &relaycommon.RelayInfo{
+				OriginModelName: "claude-fable-5",
+				ChannelMeta:     &relaycommon.ChannelMeta{ChannelId: tc.channel, ChannelBaseUrl: tc.base, UpstreamModelName: tc.physical},
+				ZTAPIPublicationSnapshot: &relaycommon.ZTAPIPublicationSnapshot{
+					SourceModel: "claude-fable-5", PricePolicy: string(model.ZTAPIPricePolicyReduction20261107), AllowedChannelIDs: tc.allowed,
+				},
+			}
+			err := ModelMappedHelper(c, info, &dto.GeneralOpenAIRequest{})
+			if tc.ok {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
+}

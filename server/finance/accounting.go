@@ -330,12 +330,13 @@ func (r *replay) buildXcloudEstimates(s Snapshot, names, baseURLs map[int]string
 	}
 	rows := map[estimateKey]*SupplierEstimateRow{}
 	costs := map[estimateKey]decimal.Decimal{}
-	imageSales := map[estimateKey]bool{}
+	settlementsByID := map[uint]Settlement{}
 	complete := true
 	for _, settlement := range r.settlements {
 		if hostedToolName(settlement) != "" {
 			continue
 		}
+		settlementsByID[settlement.ID] = settlement
 		if settlement.Status != "settled" || settlement.CompletedAt <= 0 || !r.inMonth(time.Unix(settlement.CompletedAt, 0)) || time.Unix(settlement.CompletedAt, 0).After(cutoff) {
 			continue
 		}
@@ -344,6 +345,8 @@ func (r *replay) buildXcloudEstimates(s Snapshot, names, baseURLs map[int]string
 		estimatePrefix := "xcloud"
 		supplier, ok := xcloudChannels[channelID]
 		if !ok && !imageSale {
+			// The report totals are not a subset subtotal.
+			complete = false
 			continue
 		}
 		if imageSale {
@@ -352,7 +355,6 @@ func (r *replay) buildXcloudEstimates(s Snapshot, names, baseURLs map[int]string
 		}
 		sourceModel := settlementSourceModel(settlement)
 		key := estimateKey{channel: channelID, model: sourceModel}
-		imageSales[key] = imageSales[key] || imageSale
 		row := rows[key]
 		if row == nil {
 			row = &SupplierEstimateRow{ChannelID: channelID, Supplier: supplier, SourceModel: sourceModel, Dimensions: map[string]int64{}, Complete: true}
@@ -386,7 +388,7 @@ func (r *replay) buildXcloudEstimates(s Snapshot, names, baseURLs map[int]string
 		if imageSale {
 			estimate, err = estimateImageSaleUsage(settlement, dimensions)
 		} else {
-			estimate, err = EstimateXcloudUsage(sourceModel, dimensions)
+			estimate, err = estimateFrozenXcloudUsage(settlement, channelID, baseURLs[channelID], dimensions)
 		}
 		if err != nil {
 			row.Complete = false
@@ -400,6 +402,29 @@ func (r *replay) buildXcloudEstimates(s Snapshot, names, baseURLs map[int]string
 		value, _ := decimal.NewFromString(estimate.CostUSDT)
 		costs[key] = costs[key].Add(value)
 	}
+	for _, attempt := range s.Attempts {
+		settlement, known := settlementsByID[attempt.SettlementID]
+		if !known || attempt.Attempt == settlement.FinalAttempt ||
+			attempt.CreatedAt.IsZero() || !r.inMonth(attempt.CreatedAt) || attempt.CreatedAt.After(cutoff) {
+			continue
+		}
+		// Final-response usage is not evidence of the earlier supplier debit.
+		complete = false
+		supplier, xcloud := xcloudChannels[attempt.ChannelID]
+		key := estimateKey{channel: attempt.ChannelID, model: settlementSourceModel(settlement)}
+		row := rows[key]
+		if row == nil && xcloud {
+			row = &SupplierEstimateRow{ChannelID: key.channel, Supplier: supplier, SourceModel: key.model, Dimensions: map[string]int64{}}
+			rows[key] = row
+		}
+		if row != nil {
+			row.Complete = false
+			row.Requests++
+		}
+		if xcloud {
+			r.estimateIssue("xcloud_earlier_attempt_unpriced", settlement.RequestID, settlement.UserID)
+		}
+	}
 	if len(rows) == 0 {
 		return
 	}
@@ -407,7 +432,7 @@ func (r *replay) buildXcloudEstimates(s Snapshot, names, baseURLs map[int]string
 	for key, row := range rows {
 		rowCost := costs[key]
 		row.CostUSDT = fixed(rowCost)
-		if imageSales[key] && !row.Complete {
+		if !row.Complete {
 			row.CostUSDT = ""
 		}
 		revenue := r.revenueByChannelModel[key.channel][key.model]

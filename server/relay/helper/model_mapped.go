@@ -33,6 +33,10 @@ func ModelMappedHelper(c *gin.Context, info *common.RelayInfo, request dto.Reque
 		case string(model.ZTAPIPricePolicyXcloud20261114):
 			err = model.ValidateZTAPIXcloudRoute20261114(info.ZTAPIPublicationSnapshot.SourceModel,
 				info.ChannelId, info.ChannelBaseUrl, info.UpstreamModelName)
+		case string(model.ZTAPIPricePolicyReduction20261107), string(model.ZTAPIPricePolicyReferralFloor20261107):
+			if info.ZTAPIPublicationSnapshot.SourceModel == "claude-fable-5" {
+				err = model.ValidateZTAPIFablePublishedRoute(info.ChannelId, info.ChannelBaseUrl, info.UpstreamModelName, info.ZTAPIPublicationSnapshot.AllowedChannelIDs)
+			}
 		}
 	}()
 	if info.ChannelMeta == nil {

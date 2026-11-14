@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "7d6ddb215e7ff9f024d66fd1ab14a1a17bf57684",
+  "release_commit": "83e4fe4391480336506e30331a979413dcd565c3",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-7d6ddb215e7ff9f024d66fd1ab14a1a17bf57684",
+  "source_tag": "production-83e4fe4391480336506e30331a979413dcd565c3",
   "files": [
     {
       "path": ".dockerignore",
@@ -31,8 +31,8 @@
     },
     {
       "path": ".github/workflows/ztapi-financial-ci.yml",
-      "sha256": "75a9a48f39ac9961fe3eb758ec9b98975108db5548f6b9efec73869d93ab65d0",
-      "size": 16644
+      "sha256": "3cbed65155e33d0f95d8c062cd10689a2c243fbf16a1587f510e7f95cd3daeaf",
+      "size": 16953
     },
     {
       "path": ".github/workflows/ztapi-production-alert-acceptance.yml",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "7944ecd14880137ed77bb2528a28cbdc9d09063deaae176f18158a8f9e16809c",
+      "sha256": "26eb1927159a12a516d36c0854233b091f790e1cb984864eeca0c803bc5810f0",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "d31b506b85b2e54fe5e5ac6abfc20bbd570dc59eb7a06e326061608e319270e1",
+      "sha256": "589324db926cbd155f798257deba40e9b0709640a23c51d12f92a5c93a14aa4c",
       "size": 942
     },
     {
@@ -1806,8 +1806,13 @@
     },
     {
       "path": "server/controller/ztapi_fable_route.go",
-      "sha256": "4cf01d473ed36b56d2440ff8e1081174ecd88360a6738f5fe368af207c74d988",
-      "size": 908
+      "sha256": "a06976dcb9f70492c96f21e48e00183574d3fac80206aa813d31d3059d2e7a9f",
+      "size": 2168
+    },
+    {
+      "path": "server/controller/ztapi_fable_route_test.go",
+      "sha256": "553943655cd9ac2a516832a3d096cc54d5475d19b86f7c53d74580f815cd23ee",
+      "size": 1872
     },
     {
       "path": "server/controller/ztapi_fx.go",
@@ -2076,8 +2081,8 @@
     },
     {
       "path": "server/controller/ztapi_xcloud_publication_20261114.go",
-      "sha256": "7d17daaa75a2f481b50a4407e3ba127b087eac9a0383d7cd559110718127478f",
-      "size": 2601
+      "sha256": "776c76fb490ee7a2e89b905a48404ef95e24df7e679d8f3d82ba3a677146337d",
+      "size": 2723
     },
     {
       "path": "server/docker-compose.dev.yml",
@@ -2376,8 +2381,8 @@
     },
     {
       "path": "server/finance/accounting.go",
-      "sha256": "beea3b20544f0d3d4dfff5518cdb6ecc6c7e98dc58238db5d0f6a4849b6e6b3c",
-      "size": 38737
+      "sha256": "472bd5580c0ef42b71698223612bfa40454bc4a1a7bafa1efe5efc40974fd63d",
+      "size": 39722
     },
     {
       "path": "server/finance/accounting_test.go",
@@ -2516,8 +2521,8 @@
     },
     {
       "path": "server/finance/settlement_usage_dimensions_test.go",
-      "sha256": "8cd0662b7e05948b827a4296a7ccec10056c11c2e5f4cf086e27d015d57c6d88",
-      "size": 7356
+      "sha256": "a153a3ea568f94e574e72b2c12e999541e55d3a9b40227af916c84d092b97092",
+      "size": 11841
     },
     {
       "path": "server/finance/source.go",
@@ -2576,8 +2581,8 @@
     },
     {
       "path": "server/finance/xcloud_pricing.go",
-      "sha256": "e148900db059cea08144e6c121d0cfbbb117655747f089e96ae88c12cd7fc52c",
-      "size": 7380
+      "sha256": "879f9a22a6b189be789537c7405095e814f87b98f224e5bd6821a484b10b1e25",
+      "size": 9457
     },
     {
       "path": "server/finance/xcloud_pricing_test.go",
@@ -3495,6 +3500,11 @@
       "size": 7570
     },
     {
+      "path": "server/model/ztapi_fable_backup_cost.go",
+      "sha256": "94ea02ee797f4eaf91bbb02f08171a517e5eb27e98eb1a41bd2f78c3f1423cb0",
+      "size": 7199
+    },
+    {
       "path": "server/model/ztapi_fable_cache_pricing.go",
       "sha256": "14dbc4c1bdfa6639ba4a55c0703308b085f97ba8cdc173011846892aedfc6da6",
       "size": 11294
@@ -3511,13 +3521,13 @@
     },
     {
       "path": "server/model/ztapi_fable_route.go",
-      "sha256": "7ff936ff6dcd527f8ea625f37aba6c1339895f0a99ec293902681e8b010f24cf",
-      "size": 2759
+      "sha256": "dec572385d4ec02f60f0ebcdddff9dbee9d36a4f49f99cc077adb24bf9208b36",
+      "size": 9425
     },
     {
       "path": "server/model/ztapi_fable_route_test.go",
-      "sha256": "eaf64668143c0772df2973a0a39beec9b8e59e7ce00fd6f49c2dfb6193336a96",
-      "size": 1813
+      "sha256": "a8cfc0e1cc43e422ec221e6d931ce92cfe4706aa16b5d7223b4ed5595613144c",
+      "size": 13025
     },
     {
       "path": "server/model/ztapi_finance_alert.go",
@@ -3726,8 +3736,8 @@
     },
     {
       "path": "server/model/ztapi_model_evidence.go",
-      "sha256": "e7bf2b211af8771a6a7e00a6a3be6b4b3b33df30b0429330f92fea053137bb03",
-      "size": 49984
+      "sha256": "dcde4e71819266ecffd6e2bb9b6823c8f1343eeac80b4b619c09edf4fd71d7f8",
+      "size": 50071
     },
     {
       "path": "server/model/ztapi_model_evidence_test.go",
@@ -5401,8 +5411,8 @@
     },
     {
       "path": "server/relay/common/override.go",
-      "sha256": "bab174a009c984c4cbfc34c2b6bd963c322941c341420708be5609f0a453a9d1",
-      "size": 60957
+      "sha256": "96fa17ef97de6446194003d5757d4502a1ab193fca3a84eed99e0d7e0689ffe8",
+      "size": 61263
     },
     {
       "path": "server/relay/common/override_test.go",
@@ -5606,8 +5616,8 @@
     },
     {
       "path": "server/relay/common/ztapi_supplier_admission_override_test.go",
-      "sha256": "de7fabe4a0e76f263b84932de761537317073be8ecb1c6d11304cc7fbd89317f",
-      "size": 1593
+      "sha256": "686093e269d0a0e1796dc40a13e0e65fb2b66aeab5bf0ccea75360ba59937003",
+      "size": 2710
     },
     {
       "path": "server/relay/common/ztapi_token_tier.go",
@@ -5706,8 +5716,8 @@
     },
     {
       "path": "server/relay/helper/model_mapped.go",
-      "sha256": "31653b34aae778bfaa0c817f96e1bd943a41468a75cda69c456a9baaf2efb539",
-      "size": 3402
+      "sha256": "3f089793228a942714cc39706fdb797bb44b3684331564e1a13c2d650832b5d3",
+      "size": 3745
     },
     {
       "path": "server/relay/helper/openai_image_request_test.go",
@@ -5821,8 +5831,8 @@
     },
     {
       "path": "server/relay/helper/ztapi_supplier_admission_mapping_test.go",
-      "sha256": "f61ac0bf64ad21859cb3ed06f34c582f2c1d23d308f5bbaa2c02238b4c38e7b6",
-      "size": 6403
+      "sha256": "81d2d5572771e3fc53e844370b4e20f23096d8bb1ccbf66d1c34565ff161f642",
+      "size": 7775
     },
     {
       "path": "server/relay/helper/ztapi_video_price_test.go",
@@ -5951,8 +5961,8 @@
     },
     {
       "path": "server/router/api-router.go",
-      "sha256": "2134b03e0e0ea9395c5d00241ee9e2c5efb19e90422128356d9848762c9fb2c6",
-      "size": 44539
+      "sha256": "84e540a557a712c6607d6a13deac9ef7921e301fc2219d24bdf15e4ecf5f9b78",
+      "size": 44709
     },
     {
       "path": "server/router/auth_refresh_rate_limit_test.go",
@@ -6756,8 +6766,8 @@
     },
     {
       "path": "server/service/ztapi_model_verifier.go",
-      "sha256": "c831aad963cf2301beeda6f296c33e77cf1ed25677ab47cbd6a8e10d1f81292a",
-      "size": 55120
+      "sha256": "3cd2ad4b055d35e28c5ef4d89f42cf405bf7b3c20cbbdfc702a180d32a2eb79c",
+      "size": 55462
     },
     {
       "path": "server/service/ztapi_model_verifier_test.go",

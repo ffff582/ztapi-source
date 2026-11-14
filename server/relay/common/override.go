@@ -197,8 +197,7 @@ func ApplyParamOverrideWithRelayInfo(jsonData []byte, info *RelayInfo) ([]byte, 
 	if err != nil {
 		return nil, err
 	}
-	if info != nil && info.ZTAPIPublicationSnapshot != nil &&
-		info.ZTAPIPublicationSnapshot.PricePolicy == types.ZTAPISupplierAdmissionPricePolicy20261019 {
+	if requiresFrozenUpstreamModel(info) {
 		if info.ChannelMeta == nil || info.UpstreamModelName == "" {
 			return nil, errors.New("supplier_admission_model_override_forbidden")
 		}
@@ -225,6 +224,16 @@ func ApplyParamOverrideWithRelayInfo(jsonData []byte, info *RelayInfo) ([]byte, 
 		}
 	}
 	return result, nil
+}
+
+func requiresFrozenUpstreamModel(info *RelayInfo) bool {
+	if info == nil || info.ZTAPIPublicationSnapshot == nil {
+		return false
+	}
+	snapshot := info.ZTAPIPublicationSnapshot
+	return snapshot.PricePolicy == types.ZTAPISupplierAdmissionPricePolicy20261019 ||
+		(snapshot.SourceModel == "claude-fable-5" &&
+			(snapshot.PricePolicy == "reduction_15_12_20261107" || snapshot.PricePolicy == "referral_floor_10_20261107"))
 }
 
 func shouldEnableParamOverrideAudit(paramOverride map[string]interface{}) bool {

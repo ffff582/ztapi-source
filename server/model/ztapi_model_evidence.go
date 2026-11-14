@@ -735,6 +735,7 @@ type ZTAPIModelVerification struct {
 	UpstreamErrorMetadata            string `json:"upstream_error_metadata,omitempty" gorm:"-"`
 	OperatorID                       int    `json:"operator_id" gorm:"not null"`
 	VerifiedAt                       int64  `json:"verified_at" gorm:"bigint;not null;index"`
+	FableRouteFingerprint            string `json:"-" gorm:"size:64;not null;default:''"`
 }
 
 func (ZTAPIModelVerification) TableName() string { return "ztapi_model_verifications" }
