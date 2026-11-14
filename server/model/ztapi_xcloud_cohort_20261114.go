@@ -23,6 +23,8 @@ type ztapiXcloudCohortQuote20261114 struct {
 	groupedCredits      []string
 	previousRetail      []string
 	backupCell          string
+	longCredits         []string
+	longRetail          []string
 }
 
 var ztapiXcloudDraftClaude20261114 = map[string]struct {
@@ -52,16 +54,22 @@ func ztapiXcloudQuote20261114(source string) (ztapiXcloudCohortQuote20261114, er
 	switch source {
 	case "claude-haiku-4-5-20251001":
 		return ztapiXcloudCohortQuote20261114{49, 4, 0, source, "zt-claude-haiku-4.5", ZTAPIProviderAnthropic, "claude-max", "",
-			claudeDimensions, []string{"1", "5", "0.1", "1.25", "2"}, []string{"0.78", "3.9", "0.078", "0.975", "1.56"}, ""}, nil
+			claudeDimensions, []string{"1", "5", "0.1", "1.25", "2"}, []string{"0.78", "3.9", "0.078", "0.975", "1.56"}, "", nil, nil}, nil
 	case "claude-fable-5-1":
 		return ztapiXcloudCohortQuote20261114{97, 4, 0, source, "zt-claude-fable-5-1", ZTAPIProviderAnthropic, "claude-max", "",
-			claudeDimensions, []string{"10", "50", "0.25", "12.5", "20"}, []string{"8.19", "40.95", "0.39", "7.7206", "12.3530"}, ""}, nil
+			claudeDimensions, []string{"10", "50", "0.25", "12.5", "20"}, []string{"8.19", "40.95", "0.39", "7.7206", "12.3530"}, "", nil, nil}, nil
 	case "claude-sonnet-5":
 		return ztapiXcloudCohortQuote20261114{55, 4, 2, source, "zt-claude-sonnet-5", ZTAPIProviderAnthropic, "claude-max", "claude-sonnet-5-hc",
-			claudeDimensions, []string{"2", "10", "0.2", "2.5", "4"}, []string{"1.0018", "6.4853", "0.139", "1.7603", "2.5015"}, ""}, nil
+			claudeDimensions, []string{"2", "10", "0.2", "2.5", "4"}, []string{"1.0018", "6.4853", "0.139", "1.7603", "2.5015"}, "", nil, nil}, nil
 	case "deepseek-v4.1-flash":
 		return ztapiXcloudCohortQuote20261114{156, 8, 0, source, "zt-deepseek-v4.1-flash", ZTAPIProviderDeepSeek, "cn", "",
-			dimensions, []string{"0.084", "0.3", "0.0018"}, []string{"0.06552", "0.234", "0.00234"}, ""}, nil
+			dimensions, []string{"0.084", "0.3", "0.0018"}, []string{"0.06552", "0.234", "0.00234"}, "", nil, nil}, nil
+	case "gpt-6-sol":
+		return ztapiXcloudCohortQuote20261114{136, 6, 2, source, "zt-gpt-6-sol", ZTAPIProviderOpenAI, "new-vip", source + "-hc",
+			append(dimensions, ZTAPIBillingDimensionCacheWrite), []string{"3.6", "18", "0.36", "4.5"}, []string{"1.56", "7.8", "0.156", "1.95"}, "E19", nil, []string{"3.12", "11.7", "0.312", "3.9"}}, nil
+	case "gpt-6-astra":
+		return ztapiXcloudCohortQuote20261114{103, 6, 2, source, "zt-gpt-6-astra", ZTAPIProviderOpenAI, "new-vip", source + "-hc",
+			append(dimensions, ZTAPIBillingDimensionCacheWrite), []string{"18", "90", "1.8", "22.5"}, []string{"7.8", "39", "0.78", "9.75"}, "E21", []string{"36", "135", "3.6", "45"}, []string{"15.6", "58.5", "1.56", "19.5"}}, nil
 	default:
 		return ztapiXcloudCohortQuote20261114{}, errors.New("model is outside the verified Xcloud cohort")
 	}
@@ -124,42 +132,84 @@ func buildZTAPIXcloudSource20261114(source string, operator int) (ZTAPIModelPric
 		QuotationEffectiveAt: 1794593243, SourceDocumentChecksum: ztapiXcloudEvidence20261114, OperatorID: operator,
 	}
 	clearZTAPIPriceSourceCosts(&target)
-	var backupCosts map[string]*big.Rat
-	if q.backup != 0 {
-		backupCosts, err = ztapiXcloudBackupCosts20261114(q)
-		if err != nil {
-			return target, err
-		}
+	rules := []ztapiABFrozenSaleRule{{Conditions: []string{}, Sale: map[string]string{}}}
+	if len(q.longRetail) != 0 {
+		rules[0].Conditions = []string{"\u8f93\u5165\u957f\u5ea6\u2264272K"}
+		rules = append(rules, ztapiABFrozenSaleRule{Conditions: []string{"\u8f93\u5165\u957f\u5ea6>272K"}, Sale: map[string]string{}})
 	}
-	sale := make(map[string]string, len(q.dimensions))
-	for i, dimension := range q.dimensions {
-		cash := decimal.RequireFromString(q.groupedCredits[i]).Mul(decimal.RequireFromString("0.5"))
-		ceiling := cash.Rat()
+	costs := make(map[string]decimal.Decimal, len(q.dimensions))
+	for tier := range rules {
+		var backupCosts map[string]*big.Rat
 		if q.backup != 0 {
-			backup := backupCosts[dimension]
-			if backup == nil || backup.Sign() <= 0 {
-				return target, errors.New("missing verified Yunxin backup price dimension")
-			}
-			if backup.Cmp(ceiling) > 0 {
-				ceiling = backup
+			backupCosts, err = ztapiXcloudBackupTierCosts20261114(q, tier)
+			if err != nil {
+				return target, err
 			}
 		}
-		floor, err := ztapiReductionSale20261107(ceiling, "0.15")
-		if err != nil {
-			return target, err
+		credits, retail := q.groupedCredits, q.previousRetail
+		if tier > 0 {
+			retail = q.longRetail
+			if len(q.longCredits) != 0 {
+				credits = q.longCredits
+			}
 		}
-		sale[dimension] = decimal.Max(decimal.RequireFromString(floor), decimal.RequireFromString(q.previousRetail[i])).StringFixed(10)
-		if err := assignZTAPIPriceSourceCost(&target, dimension, cash); err != nil {
+		for i, dimension := range q.dimensions {
+			cash := decimal.RequireFromString(credits[i]).Mul(decimal.RequireFromString("0.5"))
+			ceiling := cash.Rat()
+			if q.backup != 0 {
+				backup := backupCosts[dimension]
+				if backup == nil || backup.Sign() <= 0 {
+					return target, errors.New("missing verified Yunxin backup price dimension")
+				}
+				if backup.Cmp(ceiling) > 0 {
+					ceiling = backup
+				}
+			}
+			floor, err := ztapiReductionSale20261107(ceiling, "0.15")
+			if err != nil {
+				return target, err
+			}
+			rules[tier].Sale[dimension] = decimal.Max(decimal.RequireFromString(floor), decimal.RequireFromString(retail[i])).StringFixed(10)
+			if tier == 0 || cash.GreaterThan(costs[dimension]) {
+				costs[dimension] = cash
+			}
+		}
+	}
+	for dimension, cost := range costs {
+		if err := assignZTAPIPriceSourceCost(&target, dimension, cost); err != nil {
 			return target, err
 		}
 	}
-	rules, err := common.Marshal([]ztapiABFrozenSaleRule{{Conditions: []string{}, Sale: sale}})
-	target.TokenPriceRulesJSON = string(rules)
+	rawRules, err := common.Marshal(rules)
+	target.TokenPriceRulesJSON = string(rawRules)
 	return target, err
 }
 
 func ztapiXcloudBackupCosts20261114(q ztapiXcloudCohortQuote20261114) (map[string]*big.Rat, error) {
+	return ztapiXcloudBackupTierCosts20261114(q, 0)
+}
+
+func ztapiXcloudBackupTierCosts20261114(q ztapiXcloudCohortQuote20261114, tier int) (map[string]*big.Rat, error) {
 	costs := make(map[string]*big.Rat, len(q.dimensions))
+	if len(q.longRetail) != 0 {
+		_, row, found := ztapiSupplierAdmissionPriceForSource20261019(q.source)
+		if !found || q.backup != 2 || row.Cell != q.backupCell || len(row.Tiers) != 2 || tier < 0 || tier >= len(row.Tiers) || len(row.Tiers[tier]) != 4 {
+			return nil, errors.New("Yunxin tiered quotation changed")
+		}
+		fraction, ok := new(big.Rat).SetString(row.Fraction)
+		if !ok || fraction.Sign() <= 0 || fraction.Cmp(big.NewRat(1, 1)) > 0 {
+			return nil, errors.New("invalid Yunxin tiered purchase fraction")
+		}
+		dimensions := []string{ZTAPIBillingDimensionInputTokens, ZTAPIBillingDimensionCacheRead, ZTAPIBillingDimensionCacheWrite, ZTAPIBillingDimensionOutputTokens}
+		for i, dimension := range dimensions {
+			price, ok := new(big.Rat).SetString(row.Tiers[tier][i])
+			if !ok || price.Sign() <= 0 {
+				return nil, errors.New("invalid Yunxin tiered purchase price")
+			}
+			costs[dimension] = price.Mul(price, fraction).Mul(price, big.NewRat(67208, 66300))
+		}
+		return costs, nil
+	}
 	if q.backupCell == "" {
 		_, _, _, rows, err := ztapiReductionApproval20261107(q.id)
 		if err != nil {
@@ -220,8 +270,13 @@ func ztapiXcloudRules20261114(source *ZTAPIModelPriceSource) (map[string]decimal
 		return nil, err
 	}
 	sale := make(map[string]decimal.Decimal, len(rules[0].Sale))
-	for dimension, value := range rules[0].Sale {
-		sale[dimension] = decimal.RequireFromString(value)
+	for _, rule := range rules {
+		for dimension, value := range rule.Sale {
+			price := decimal.RequireFromString(value)
+			if old, found := sale[dimension]; !found || price.GreaterThan(old) {
+				sale[dimension] = price
+			}
+		}
 	}
 	return sale, nil
 }

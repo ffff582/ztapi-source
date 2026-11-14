@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "9c4f66becf41b64198804faf2afe2a033c4861cf",
+  "release_commit": "411558f73dcfb8360c0a571a7d7153eca679c9d9",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-9c4f66becf41b64198804faf2afe2a033c4861cf",
+  "source_tag": "production-411558f73dcfb8360c0a571a7d7153eca679c9d9",
   "files": [
     {
       "path": ".dockerignore",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "968a3bb83fafb10d840c1a63012e46887f9b1cf9f6a2d35c7d744ddb8d48bca9",
+      "sha256": "576ecfeed286bc39110c1c4e80b1ecfa50aa0b179b02547f384ab4f208c8cdfe",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "78c34b0f07c39c009751d24a32bd2b9418428c72d22ae17d5632ee7300dbc11a",
+      "sha256": "4013967d69b417f8e76cd377e088fdb6b8dfc5074a5f0a37fe4a8c9f24a951f0",
       "size": 942
     },
     {
@@ -4221,13 +4221,13 @@
     },
     {
       "path": "server/model/ztapi_xcloud_cohort_20261114.go",
-      "sha256": "02c945c73d74f00a49e44c391d8befb133c34ca2494110d720af289215653e84",
-      "size": 10808
+      "sha256": "7bbdc74a033ea54510c68b2dc4881da188f2e7d4556dbc234d15182da4d0dc70",
+      "size": 13536
     },
     {
       "path": "server/model/ztapi_xcloud_cohort_20261114_test.go",
-      "sha256": "ffe2d369274fb2b6127b4c84ff3fc3455035124915a4273a9d2a7054d9a9d834",
-      "size": 11664
+      "sha256": "a4c154e31f15892bcacce54df1d411846f1a1830f5bca4ecc494451d2dbf56ac",
+      "size": 15698
     },
     {
       "path": "server/model/ztapi_xcloud_glm53.go",

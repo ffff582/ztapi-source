@@ -5,9 +5,59 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
+
+func TestZTAPIXcloud20261114GPTFrozenTiers(t *testing.T) {
+	for _, tc := range []struct {
+		model                      string
+		id                         int
+		cashInput, cashOutput      string
+		input, output, read, write [2]string
+	}{
+		{"gpt-6-sol", 136, "1.8000000000", "9.0000000000", [2]string{"2.2236000000", "3.1200000000"}, [2]string{"11.1177000000", "11.7000000000"}, [2]string{"0.2224000000", "0.3120000000"}, [2]string{"2.7795000000", "3.9000000000"}},
+		{"gpt-6-astra", 103, "18.0000000000", "67.5000000000", [2]string{"11.1177000000", "22.2353000000"}, [2]string{"55.5883000000", "83.3824000000"}, [2]string{"1.1118000000", "2.2236000000"}, [2]string{"13.8971000000", "27.7942000000"}},
+	} {
+		t.Run(tc.model, func(t *testing.T) {
+			source, err := buildZTAPIXcloudSource20261114(tc.model, 9)
+			require.NoError(t, err)
+			require.Equal(t, tc.id, source.ModelConfigID)
+			preview, err := BuildZTAPIModelPricePreview(&source)
+			require.NoError(t, err)
+			require.Equal(t, tc.cashInput, preview.InputCostUSDPerMillion)
+			require.Equal(t, tc.cashOutput, preview.OutputCostUSDPerMillion)
+			require.Equal(t, tc.input[1], preview.InputSaleUSDPerMillion)
+			var rules []ztapiABFrozenSaleRule
+			require.NoError(t, common.UnmarshalJsonStr(source.TokenPriceRulesJSON, &rules))
+			require.Len(t, rules, 2)
+			snapshot := &relaycommon.ZTAPIPublicationSnapshot{PriceSourceID: 1, PriceSourceVersion: 1, BillingDimensions: preview.BillingDimensions, SaleUSD: preview.SaleUSD, TokenPriceRulesJSON: source.TokenPriceRulesJSON}
+			for tier, input := range []int{272000, 272001} {
+				usage := &dto.Usage{PromptTokens: input, CompletionTokens: 4}
+				usage.PromptTokensDetails.CachedTokens = 9
+				usage.PromptTokensDetails.CachedCreationTokens = 6
+				selected, _, err := relaycommon.SelectZTAPIFrozenTokenTier(snapshot, usage)
+				require.NoError(t, err)
+				require.Equal(t, map[string]string{"input_tokens": tc.input[tier], "output_tokens": tc.output[tier], "cache_read": tc.read[tier], "cache_write": tc.write[tier]}, selected.SaleUSD)
+				proof := relaycommon.ValidateZTAPIUsageDimensions(nil, &relaycommon.RelayInfo{ZTAPIPublicationSnapshot: selected}, usage)
+				require.False(t, proof.Pending, "%+v", proof)
+				counts := map[string]int64{}
+				for _, d := range proof.Dimensions {
+					counts[d.Dimension] = d.Quantity
+				}
+				require.Equal(t, map[string]int64{"input_tokens": int64(input - 15), "output_tokens": 4, "cache_read": 9, "cache_write": 6}, counts)
+			}
+			require.NoError(t, ValidateZTAPIXcloudRoute20261114(tc.model, 6, "https://www.xcloudtoken.com", tc.model))
+			require.NoError(t, ValidateZTAPIXcloudRoute20261114(tc.model, 2, "https://ai.yunxinapi.com/hub", tc.model+"-hc"))
+			require.Error(t, ValidateZTAPIXcloudRoute20261114(tc.model, 7, "https://www.xcloudtoken.com", tc.model))
+			source.TokenPriceRulesJSON = `[{"conditions":[],"sale":{"input_tokens":"0.01"}}]`
+			require.Error(t, ValidateZTAPIModelPriceSource(&source))
+		})
+	}
+}
 
 func TestZTAPIXcloud20261114ExactRetailAndCosts(t *testing.T) {
 	cases := []struct {
@@ -68,9 +118,19 @@ func TestZTAPIXcloud20261114PublishDraftAndRestore(t *testing.T) {
 			"cache_write_5m": "4.8750000000", "cache_write_1h": "7.8000000000",
 		})
 	})
+	t.Run("sol", func(t *testing.T) {
+		testZTAPIXcloud20261114PublishDraftAndRestore(t, "gpt-6-sol", []int{2, 6}, "gpt-6-sol-hc",
+			map[string]string{"input_tokens": "2.2236000000", "output_tokens": "11.1177000000", "cache_read": "0.2224000000", "cache_write": "2.7795000000"},
+			map[string]string{"input_tokens": "3.1200000000", "output_tokens": "11.7000000000", "cache_read": "0.3120000000", "cache_write": "3.9000000000"})
+	})
+	t.Run("astra", func(t *testing.T) {
+		testZTAPIXcloud20261114PublishDraftAndRestore(t, "gpt-6-astra", []int{2, 6}, "gpt-6-astra-hc",
+			map[string]string{"input_tokens": "11.1177000000", "output_tokens": "55.5883000000", "cache_read": "1.1118000000", "cache_write": "13.8971000000"},
+			map[string]string{"input_tokens": "22.2353000000", "output_tokens": "83.3824000000", "cache_read": "2.2236000000", "cache_write": "27.7942000000"})
+	})
 }
 
-func testZTAPIXcloud20261114PublishDraftAndRestore(t *testing.T, source string, expectedChannels []int, backupPhysical string, expectedPrices map[string]string) {
+func testZTAPIXcloud20261114PublishDraftAndRestore(t *testing.T, source string, expectedChannels []int, backupPhysical string, expectedPrices ...map[string]string) {
 	t.Helper()
 	f := setupZTAPIPublicationGateFixture(t)
 	q, err := ztapiXcloudQuote20261114(source)
@@ -158,8 +218,10 @@ func testZTAPIXcloud20261114PublishDraftAndRestore(t *testing.T, source string, 
 	require.NoError(t, err)
 	require.Len(t, publicCatalog, 1, "a verified Xcloud model must survive the public quotation gate")
 	require.Equal(t, q.public, publicCatalog[0].ModelName)
-	require.Len(t, publicCatalog[0].TokenPriceRules, 1)
-	require.Equal(t, expectedPrices, publicCatalog[0].TokenPriceRules[0].SaleUSD)
+	require.Len(t, publicCatalog[0].TokenPriceRules, len(expectedPrices))
+	for i, prices := range expectedPrices {
+		require.Equal(t, prices, publicCatalog[0].TokenPriceRules[i].SaleUSD)
+	}
 	resolved, ok := ResolveZTAPIPublicAlias(q.public)
 	require.True(t, ok)
 	require.Equal(t, q.source, resolved)
