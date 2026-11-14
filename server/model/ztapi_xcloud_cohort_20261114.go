@@ -26,6 +26,10 @@ type ztapiXcloudCohortQuote20261114 struct {
 func ztapiXcloudQuote20261114(source string) (ztapiXcloudCohortQuote20261114, error) {
 	dimensions := []string{ZTAPIBillingDimensionInputTokens, ZTAPIBillingDimensionOutputTokens, ZTAPIBillingDimensionCacheRead}
 	switch source {
+	case "claude-fable-5-1":
+		return ztapiXcloudCohortQuote20261114{97, 4, source, "zt-claude-fable-5-1", ZTAPIProviderAnthropic, "claude-max", "",
+			append(dimensions, ZTAPIBillingDimensionCacheWrite5m, ZTAPIBillingDimensionCacheWrite1h),
+			[]string{"10", "50", "0.25", "12.5", "20"}, []string{"8.19", "40.95", "0.39", "7.7206", "12.3530"}}, nil
 	case "claude-sonnet-5":
 		return ztapiXcloudCohortQuote20261114{55, 4, source, "zt-claude-sonnet-5", ZTAPIProviderAnthropic, "claude-max", "claude-sonnet-5-hc",
 			append(dimensions, ZTAPIBillingDimensionCacheWrite5m, ZTAPIBillingDimensionCacheWrite1h),

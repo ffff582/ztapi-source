@@ -36,7 +36,7 @@ func IsZTAPIXcloudCohort20261114(source string) bool {
 }
 
 func CheckZTAPIXcloudDowngrade20261114() (ZTAPICashMarginDowngrade20261030, error) {
-	return checkZTAPIPolicyDowngrade20261107([]string{string(ZTAPIPricePolicyXcloud20261114)}, []string{"zt-claude-sonnet-5", "zt-deepseek-v4.1-flash"})
+	return checkZTAPIPolicyDowngrade20261107([]string{string(ZTAPIPricePolicyXcloud20261114)}, []string{"zt-claude-fable-5-1", "zt-claude-sonnet-5", "zt-deepseek-v4.1-flash"})
 }
 
 func RecordZTAPIXcloudDiscovery20261114(source string, id int, visible []string, operator int, fetchedAt time.Time) (*ZTAPIDiscoveryResult, error) {

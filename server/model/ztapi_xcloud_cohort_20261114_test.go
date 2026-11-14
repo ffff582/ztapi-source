@@ -17,6 +17,7 @@ func TestZTAPIXcloud20261114ExactRetailAndCosts(t *testing.T) {
 	}{
 		{"claude-sonnet-5", "1.0000000000", "1.2353000000", "6.4853000000", "0.1390000000", "1.7603000000", "2.5015000000"},
 		{"deepseek-v4.1-flash", "0.0420000000", "0.0655200000", "0.2340000000", "0.0023400000", "", ""},
+		{"claude-fable-5-1", "5.0000000000", "8.1900000000", "40.9500000000", "0.3900000000", "7.7206000000", "12.3530000000"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.model, func(t *testing.T) {
@@ -39,8 +40,23 @@ func TestZTAPIXcloud20261114ExactRetailAndCosts(t *testing.T) {
 }
 
 func TestZTAPIXcloud20261114PublishDraftAndRestore(t *testing.T) {
+	t.Run("deepseek", func(t *testing.T) {
+		testZTAPIXcloud20261114PublishDraftAndRestore(t, "deepseek-v4.1-flash", 8, map[string]string{
+			"input_tokens": "0.0655200000", "output_tokens": "0.2340000000", "cache_read": "0.0023400000",
+		})
+	})
+	t.Run("fable", func(t *testing.T) {
+		testZTAPIXcloud20261114PublishDraftAndRestore(t, "claude-fable-5-1", 4, map[string]string{
+			"input_tokens": "8.1900000000", "output_tokens": "40.9500000000", "cache_read": "0.3900000000",
+			"cache_write_5m": "7.7206000000", "cache_write_1h": "12.3530000000",
+		})
+	})
+}
+
+func testZTAPIXcloud20261114PublishDraftAndRestore(t *testing.T, source string, expectedChannel int, expectedPrices map[string]string) {
+	t.Helper()
 	f := setupZTAPIPublicationGateFixture(t)
-	q, err := ztapiXcloudQuote20261114("deepseek-v4.1-flash")
+	q, err := ztapiXcloudQuote20261114(source)
 	require.NoError(t, err)
 	url, priority := "https://www.xcloudtoken.com", int64(30)
 	channel := f.channel
@@ -49,9 +65,11 @@ func TestZTAPIXcloud20261114PublishDraftAndRestore(t *testing.T) {
 	require.NoError(t, channel.AddAbilities(f.db))
 	config := f.config
 	config.ID, config.SourceModel, config.PublicName = q.id, q.source, &q.public
+	config.ProviderFamily = q.family
 	require.NoError(t, f.db.Create(&config).Error)
 	identity := f.identity
 	identity.ModelConfigID, identity.PublicName = config.ID, q.public
+	identity.ProviderFamily = q.family
 	require.NoError(t, f.db.Create(&identity).Error)
 	previous := f.price
 	previous.ID, previous.ModelConfigID, previous.SourceModel = 0, q.id, q.source
@@ -82,7 +100,7 @@ func TestZTAPIXcloud20261114PublishDraftAndRestore(t *testing.T) {
 	require.EqualValues(t, 1, sources)
 	result, err := ApplyZTAPIXcloudPublication20261114(9, req)
 	require.NoError(t, err)
-	require.Equal(t, []int{8}, result.ChannelIDs())
+	require.Equal(t, []int{expectedChannel}, result.ChannelIDs())
 	require.Equal(t, "xcloud_verified_20261114", result.PricePolicy)
 	publications, err := loadZTAPIActivePublications(f.db)
 	require.NoError(t, err)
@@ -95,9 +113,7 @@ func TestZTAPIXcloud20261114PublishDraftAndRestore(t *testing.T) {
 	require.Len(t, publicCatalog, 1, "a verified Xcloud-only model must survive the public quotation gate")
 	require.Equal(t, q.public, publicCatalog[0].ModelName)
 	require.Len(t, publicCatalog[0].TokenPriceRules, 1)
-	require.Equal(t, map[string]string{
-		"input_tokens": "0.0655200000", "output_tokens": "0.2340000000", "cache_read": "0.0023400000",
-	}, publicCatalog[0].TokenPriceRules[0].SaleUSD)
+	require.Equal(t, expectedPrices, publicCatalog[0].TokenPriceRules[0].SaleUSD)
 	resolved, ok := ResolveZTAPIPublicAlias(q.public)
 	require.True(t, ok)
 	require.Equal(t, q.source, resolved)
@@ -117,6 +133,10 @@ func TestZTAPIXcloud20261114RouteRequiresExactSupplierProduct(t *testing.T) {
 	require.NoError(t, ValidateZTAPIXcloudRoute20261114("deepseek-v4.1-flash", 8, "https://www.xcloudtoken.com", "deepseek-v4.1-flash"))
 	require.Error(t, ValidateZTAPIXcloudRoute20261114("deepseek-v4.1-flash", 8, "https://www.xcloudtoken.com", "deepseek-v4-flash"))
 	require.Error(t, ValidateZTAPIXcloudRoute20261114("deepseek-v4.1-flash", 2, "https://ai.yunxinapi.com/hub", "deepseek-v4.1-flash"))
+	require.NoError(t, ValidateZTAPIXcloudRoute20261114("claude-fable-5-1", 4, "https://www.xcloudtoken.com", "claude-fable-5-1"))
+	require.Error(t, ValidateZTAPIXcloudRoute20261114("claude-fable-5-1", 4, "https://www.xcloudtoken.com", "claude-fable-5"))
+	require.Error(t, ValidateZTAPIXcloudRoute20261114("claude-fable-5-1", 6, "https://www.xcloudtoken.com", "claude-fable-5-1"))
+	require.Error(t, ValidateZTAPIXcloudRoute20261114("claude-fable-5-1", 2, "https://ai.yunxinapi.com/hub", "claude-fable-5-1"))
 }
 
 func TestZTAPIXcloud20261114PriceImportRequiresControlledPublisher(t *testing.T) {
