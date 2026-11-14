@@ -36,7 +36,11 @@ func IsZTAPIXcloudCohort20261114(source string) bool {
 }
 
 func CheckZTAPIXcloudDowngrade20261114() (ZTAPICashMarginDowngrade20261030, error) {
-	return checkZTAPIPolicyDowngrade20261107([]string{string(ZTAPIPricePolicyXcloud20261114)}, []string{"zt-claude-fable-5-1", "zt-claude-sonnet-5", "zt-deepseek-v4.1-flash"})
+	names := []string{"zt-claude-fable-5-1", "zt-claude-sonnet-5", "zt-deepseek-v4.1-flash"}
+	for _, draft := range ztapiXcloudDraftClaude20261114 {
+		names = append(names, draft.public)
+	}
+	return checkZTAPIPolicyDowngrade20261107([]string{string(ZTAPIPricePolicyXcloud20261114)}, names)
 }
 
 func RecordZTAPIXcloudDiscovery20261114(source string, id int, visible []string, operator int, fetchedAt time.Time) (*ZTAPIDiscoveryResult, error) {
@@ -107,7 +111,7 @@ func ztapiXcloudEvidenceTx20261114(tx *gorm.DB, config ZTAPIModelConfig, q ztapi
 		}
 		allowed[id], priorities[id] = struct{}{}, channel.GetPriority()
 	}
-	if q.backupModel != "" && priorities[q.primary] <= priorities[2] {
+	if q.backup != 0 && priorities[q.primary] <= priorities[q.backup] {
 		return ztapiPublicationEvidence{}, errors.New("Xcloud primary does not outrank the Yunxin backup")
 	}
 	var primary ZTAPIModelVerification
@@ -119,6 +123,15 @@ func ztapiXcloudEvidenceTx20261114(tx *gorm.DB, config ZTAPIModelConfig, q ztapi
 		return ztapiPublicationEvidence{}, errors.New("latest Xcloud route verification does not match")
 	}
 	if previous == nil {
+		if q.backup != 0 {
+			var backup ZTAPIModelVerification
+			if err := tx.Where("model_config_id = ? AND channel_id = ?", q.id, q.backup).Order("verified_at DESC, id DESC").First(&backup).Error; err != nil {
+				return ztapiPublicationEvidence{}, err
+			}
+			if backup.VerifiedAt < cutoff || backup.VerifiedAt > common.GetTimestamp() || !ztapiXcloudCohortVerified(backup, config, q.backup) {
+				return ztapiPublicationEvidence{}, errors.New("latest Yunxin backup verification is missing, stale or failed")
+			}
+		}
 		blockers, evidence, err := ztapiPublicationBlockersTx(tx, &config)
 		if err == nil && len(blockers) > 0 {
 			err = &ZTAPIPublicationBlockedError{Blockers: blockers}
@@ -131,12 +144,12 @@ func ztapiXcloudEvidenceTx20261114(tx *gorm.DB, config ZTAPIModelConfig, q ztapi
 	// The price-only update preserves the previously published backup. Require
 	// current discovery and no newer failed verification before retaining it.
 	var backup ZTAPIModelVerification
-	if err := tx.Where("model_config_id = ? AND channel_id = ?", q.id, 2).Order("verified_at DESC, id DESC").First(&backup).Error; err != nil {
+	if err := tx.Where("model_config_id = ? AND channel_id = ?", q.id, q.backup).Order("verified_at DESC, id DESC").First(&backup).Error; err != nil {
 		return ztapiPublicationEvidence{}, err
 	}
 	var originalIDs []int64
 	if common.UnmarshalJsonStr(previous.VerificationIDs, &originalIDs) != nil || !slices.Contains(originalIDs, backup.ID) ||
-		!ztapiXcloudCohortVerified(backup, config, 2) {
+		!ztapiXcloudCohortVerified(backup, config, q.backup) {
 		return ztapiPublicationEvidence{}, errors.New("existing Yunxin backup is no longer verified")
 	}
 	routes, err := ztapiPublicationRouteIDsByGroupTx(tx, &config, allowed)
@@ -186,7 +199,7 @@ func ApplyZTAPIXcloudPublicationWithGate20261114(operator int, req ZTAPIXcloudPu
 func applyZTAPIXcloudPublication20261114(operator int, req ZTAPIXcloudPublication20261114, check func(*gorm.DB) error) (*ZTAPIModelPublicationSnapshot, error) {
 	q, err := ztapiXcloudQuote20261114(req.SourceModel)
 	if err != nil || DB == nil || operator <= 0 || req.Version == 0 || req.SourceID <= 0 || req.VerificationID <= 0 ||
-		(q.backupModel == "" && req.SnapshotID != 0) || (q.backupModel != "" && req.SnapshotID <= 0) {
+		(q.source == "claude-sonnet-5" && req.SnapshotID <= 0) || (q.source != "claude-sonnet-5" && req.SnapshotID != 0) {
 		return nil, errors.New("explicit Xcloud publication baseline is required")
 	}
 	var result *ZTAPIModelPublicationSnapshot

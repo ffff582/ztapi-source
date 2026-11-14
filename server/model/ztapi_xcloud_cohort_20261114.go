@@ -7,44 +7,71 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/shopspring/decimal"
 )
 
-const ZTAPIPricePolicyXcloud20261114 ZTAPIPricePolicy = "xcloud_verified_20261114"
+const ZTAPIPricePolicyXcloud20261114 ZTAPIPricePolicy = types.ZTAPIXcloudPricePolicy20261114
 const ztapiXcloudEvidence20261114 = "8228ef012920100ba179100034279bdc555ae10e4a37dea863d81cfbf7072fcb"
 
 type ztapiXcloudCohortQuote20261114 struct {
-	id, primary    int
-	source, public string
-	family, group  string
-	backupModel    string
-	dimensions     []string
-	groupedCredits []string
-	previousRetail []string
+	id, primary, backup int
+	source, public      string
+	family, group       string
+	backupModel         string
+	dimensions          []string
+	groupedCredits      []string
+	previousRetail      []string
+	backupCell          string
+}
+
+var ztapiXcloudDraftClaude20261114 = map[string]struct {
+	id, backup   int
+	public, cell string
+}{
+	"claude-haiku-4-5-20251001": {49, 1, "zt-claude-haiku-4.5", "D142"},
+	"claude-opus-4-6":           {50, 2, "zt-claude-opus-4.6", "E34"},
+	"claude-opus-4-7":           {51, 2, "zt-claude-opus-4.7", "E33"},
+	"claude-opus-4-8":           {52, 2, "zt-claude-opus-4.8", "E32"},
+	"claude-sonnet-4-6":         {54, 2, "zt-claude-sonnet-4.6", "E29"},
 }
 
 func ztapiXcloudQuote20261114(source string) (ztapiXcloudCohortQuote20261114, error) {
 	dimensions := []string{ZTAPIBillingDimensionInputTokens, ZTAPIBillingDimensionOutputTokens, ZTAPIBillingDimensionCacheRead}
+	claudeDimensions := append(dimensions[:len(dimensions):len(dimensions)], ZTAPIBillingDimensionCacheWrite5m, ZTAPIBillingDimensionCacheWrite1h)
+	if draft, ok := ztapiXcloudDraftClaude20261114[source]; ok {
+		q := ztapiXcloudCohortQuote20261114{id: draft.id, primary: 4, backup: draft.backup, source: source, public: draft.public,
+			family: ZTAPIProviderAnthropic, group: "claude-max", backupModel: source + "-hc", backupCell: draft.cell,
+			dimensions: claudeDimensions, groupedCredits: []string{"5", "25", "0.5", "6.25", "10"}, previousRetail: []string{"3.9", "19.5", "0.39", "4.875", "7.8"}}
+		switch source {
+		case "claude-haiku-4-5-20251001":
+			q.backupModel = source
+			q.groupedCredits = []string{"1", "5", "0.1", "1.25", "2"}
+			q.previousRetail = []string{"0.78", "3.9", "0.078", "0.975", "1.56"}
+		case "claude-sonnet-4-6":
+			q.groupedCredits = []string{"3", "15", "0.3", "3.75", "6"}
+			q.previousRetail = []string{"2.34", "11.7", "0.234", "2.925", "4.68"}
+		}
+		return q, nil
+	}
 	switch source {
 	case "claude-fable-5-1":
-		return ztapiXcloudCohortQuote20261114{97, 4, source, "zt-claude-fable-5-1", ZTAPIProviderAnthropic, "claude-max", "",
-			append(dimensions, ZTAPIBillingDimensionCacheWrite5m, ZTAPIBillingDimensionCacheWrite1h),
-			[]string{"10", "50", "0.25", "12.5", "20"}, []string{"8.19", "40.95", "0.39", "7.7206", "12.3530"}}, nil
+		return ztapiXcloudCohortQuote20261114{97, 4, 0, source, "zt-claude-fable-5-1", ZTAPIProviderAnthropic, "claude-max", "",
+			claudeDimensions, []string{"10", "50", "0.25", "12.5", "20"}, []string{"8.19", "40.95", "0.39", "7.7206", "12.3530"}, ""}, nil
 	case "claude-sonnet-5":
-		return ztapiXcloudCohortQuote20261114{55, 4, source, "zt-claude-sonnet-5", ZTAPIProviderAnthropic, "claude-max", "claude-sonnet-5-hc",
-			append(dimensions, ZTAPIBillingDimensionCacheWrite5m, ZTAPIBillingDimensionCacheWrite1h),
-			[]string{"2", "10", "0.2", "2.5", "4"}, []string{"1.0018", "6.4853", "0.139", "1.7603", "2.5015"}}, nil
+		return ztapiXcloudCohortQuote20261114{55, 4, 2, source, "zt-claude-sonnet-5", ZTAPIProviderAnthropic, "claude-max", "claude-sonnet-5-hc",
+			claudeDimensions, []string{"2", "10", "0.2", "2.5", "4"}, []string{"1.0018", "6.4853", "0.139", "1.7603", "2.5015"}, ""}, nil
 	case "deepseek-v4.1-flash":
-		return ztapiXcloudCohortQuote20261114{156, 8, source, "zt-deepseek-v4.1-flash", ZTAPIProviderDeepSeek, "cn", "",
-			dimensions, []string{"0.084", "0.3", "0.0018"}, []string{"0.06552", "0.234", "0.00234"}}, nil
+		return ztapiXcloudCohortQuote20261114{156, 8, 0, source, "zt-deepseek-v4.1-flash", ZTAPIProviderDeepSeek, "cn", "",
+			dimensions, []string{"0.084", "0.3", "0.0018"}, []string{"0.06552", "0.234", "0.00234"}, ""}, nil
 	default:
 		return ztapiXcloudCohortQuote20261114{}, errors.New("model is outside the verified Xcloud cohort")
 	}
 }
 
 func (q ztapiXcloudCohortQuote20261114) channels() []int {
-	if q.backupModel != "" {
-		return []int{2, q.primary}
+	if q.backup != 0 {
+		return []int{q.backup, q.primary}
 	}
 	return []int{q.primary}
 }
@@ -56,7 +83,7 @@ func ValidateZTAPIXcloudRoute20261114(source string, channelID int, baseURL, phy
 	}
 	baseURL = strings.TrimRight(baseURL, "/")
 	if (channelID == q.primary && baseURL == "https://www.xcloudtoken.com" && physical == source) ||
-		(q.backupModel != "" && channelID == 2 && baseURL == "https://ai.yunxinapi.com/hub" && physical == q.backupModel) {
+		(q.backup != 0 && channelID == q.backup && baseURL == "https://ai.yunxinapi.com/hub" && physical == q.backupModel) {
 		return nil
 	}
 	return errors.New("xcloud quotation does not match the channel and physical model")
@@ -99,9 +126,9 @@ func buildZTAPIXcloudSource20261114(source string, operator int) (ZTAPIModelPric
 		QuotationEffectiveAt: 1794593243, SourceDocumentChecksum: ztapiXcloudEvidence20261114, OperatorID: operator,
 	}
 	clearZTAPIPriceSourceCosts(&target)
-	var yunxinRows []ZTAPIPriceReductionDimension20261107
-	if q.backupModel != "" {
-		_, _, _, yunxinRows, err = ztapiReductionApproval20261107(q.id)
+	var backupCosts map[string]*big.Rat
+	if q.backup != 0 {
+		backupCosts, err = ztapiXcloudBackupCosts20261114(q)
 		if err != nil {
 			return target, err
 		}
@@ -110,16 +137,8 @@ func buildZTAPIXcloudSource20261114(source string, operator int) (ZTAPIModelPric
 	for i, dimension := range q.dimensions {
 		cash := decimal.RequireFromString(q.groupedCredits[i]).Mul(decimal.RequireFromString("0.5"))
 		ceiling := cash.Rat()
-		if q.backupModel != "" {
-			var backup *big.Rat
-			for _, row := range yunxinRows {
-				if row.Dimension == dimension && row.Tier == "1" && row.SourceModel == source {
-					if err := checkXcloudBackupQuote20261114(row); err != nil {
-						return target, err
-					}
-					backup, _ = new(big.Rat).SetString(row.YunxinCost)
-				}
-			}
+		if q.backup != 0 {
+			backup := backupCosts[dimension]
 			if backup == nil || backup.Sign() <= 0 {
 				return target, errors.New("missing verified Yunxin backup price dimension")
 			}
@@ -139,6 +158,60 @@ func buildZTAPIXcloudSource20261114(source string, operator int) (ZTAPIModelPric
 	rules, err := common.Marshal([]ztapiABFrozenSaleRule{{Conditions: []string{}, Sale: sale}})
 	target.TokenPriceRulesJSON = string(rules)
 	return target, err
+}
+
+func ztapiXcloudBackupCosts20261114(q ztapiXcloudCohortQuote20261114) (map[string]*big.Rat, error) {
+	costs := make(map[string]*big.Rat, len(q.dimensions))
+	if q.backupCell == "" {
+		_, _, _, rows, err := ztapiReductionApproval20261107(q.id)
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			if row.SourceModel == q.source && row.Tier == "1" {
+				if err := checkXcloudBackupQuote20261114(row); err != nil {
+					return nil, err
+				}
+				costs[row.Dimension], _ = new(big.Rat).SetString(row.YunxinCost)
+			}
+		}
+		return costs, nil
+	}
+	var native map[string]string
+	fraction := big.NewRat(1, 1)
+	if q.backup == 1 {
+		workbook, err := ZTAPIQuotationABEntries()
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range workbook.Entries {
+			if row.QuotationCell == q.backupCell && row.ModelCode == "zq-c-h45" && row.Grade == "A" && row.Active && row.PricingBasis &&
+				len(row.TokenPriceRules) == 1 && len(row.TokenPriceRules[0].Conditions) == 0 && row.TokenPriceRules[0].Currency == "USD" {
+				native = row.TokenPriceRules[0].Cost
+				break
+			}
+		}
+	} else {
+		row, err := ztapiSupplierPriceEntryFor20261019(q.source)
+		if err != nil {
+			return nil, err
+		}
+		if row.QuotationCell != q.backupCell || row.Grade != "B" || row.Currency != "USD" || len(row.Rules) != 1 || len(row.Rules[0].Conditions) != 0 {
+			return nil, errors.New("Yunxin pool quotation changed")
+		}
+		native = row.Rules[0].Official
+		fraction, _ = new(big.Rat).SetString(row.Fraction)
+	}
+	// Use the same cash conversion as the frozen Yunxin purchase evidence.
+	fx := big.NewRat(67208, 66300)
+	for _, dimension := range q.dimensions {
+		price, ok := new(big.Rat).SetString(native[dimension])
+		if !ok || price.Sign() <= 0 || fraction == nil || fraction.Sign() <= 0 {
+			return nil, errors.New("missing verified Yunxin backup price dimension")
+		}
+		costs[dimension] = price.Mul(price, fraction).Mul(price, fx)
+	}
+	return costs, nil
 }
 
 func checkXcloudBackupQuote20261114(row ZTAPIPriceReductionDimension20261107) error {

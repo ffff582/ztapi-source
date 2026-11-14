@@ -20,6 +20,8 @@ func TestSupplierAdmissionOverrideCannotChangeBilledSKU(t *testing.T) {
 		{"uppercase_alias", "supplier_admission_20261019", map[string]interface{}{"MODEL": "gpt-6-sol-hc"}, true},
 		{"exact_model", "supplier_admission_20261019", map[string]interface{}{"model": "gpt-6.1-sol-hc"}, false},
 		{"other_parameter", "supplier_admission_20261019", map[string]interface{}{"temperature": 0.5}, false},
+		{"xcloud_model_change", "xcloud_verified_20261114", map[string]interface{}{"model": "gpt-6-sol"}, true},
+		{"xcloud_exact_model", "xcloud_verified_20261114", map[string]interface{}{"model": "gpt-6.1-sol-hc"}, false},
 		{"legacy_unchanged", "", map[string]interface{}{"model": "legacy-private-model"}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

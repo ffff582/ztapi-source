@@ -232,6 +232,7 @@ func requiresFrozenUpstreamModel(info *RelayInfo) bool {
 	}
 	snapshot := info.ZTAPIPublicationSnapshot
 	return snapshot.PricePolicy == types.ZTAPISupplierAdmissionPricePolicy20261019 ||
+		snapshot.PricePolicy == types.ZTAPIXcloudPricePolicy20261114 ||
 		(snapshot.SourceModel == "claude-fable-5" &&
 			(snapshot.PricePolicy == "reduction_15_12_20261107" || snapshot.PricePolicy == "referral_floor_10_20261107"))
 }
