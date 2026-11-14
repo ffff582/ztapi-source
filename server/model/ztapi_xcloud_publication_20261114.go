@@ -36,7 +36,8 @@ func IsZTAPIXcloudCohort20261114(source string) bool {
 }
 
 func CheckZTAPIXcloudDowngrade20261114() (ZTAPICashMarginDowngrade20261030, error) {
-	names := []string{"zt-claude-fable-5-1", "zt-claude-sonnet-5", "zt-deepseek-v4.1-flash"}
+	names := []string{"zt-claude-fable-5-1", "zt-claude-sonnet-5", "zt-deepseek-v4.1-flash", "zt-claude-haiku-4.5",
+		"zt-gpt-6-sol", "zt-gpt-6-astra", "zt-gpt-5.6-sol", "zt-gpt-5.6-terra"}
 	for _, draft := range ztapiXcloudDraftClaude20261114 {
 		names = append(names, draft.public)
 	}

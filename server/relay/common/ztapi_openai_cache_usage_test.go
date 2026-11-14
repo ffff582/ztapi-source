@@ -8,6 +8,7 @@ import (
 
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 )
 
@@ -42,6 +43,52 @@ func TestOpenAICacheUsageNormalizesDocumentedWriteFields(t *testing.T) {
 			require.Equal(t, int64(20), usageDimension(t, result, "cache_read").Quantity)
 			require.Equal(t, int64(30), usageDimension(t, result, "cache_write").Quantity)
 			require.Len(t, result.Dimensions, 4, "aliases must not create additional charges")
+		})
+	}
+}
+
+func TestXcloudGPTPlusReceiptBuckets(t *testing.T) {
+	// The quantities come from Xcloud's short-probe ledger, not a captured
+	// HTTP body. Replay the documented OpenAI shape to check the metering math.
+	for _, tc := range []struct {
+		model, mode             string
+		input, output, cached   int
+		inputRate, outputRate   string
+		writeRate, billedCredit string
+	}{
+		{"gpt-5.6-sol", "non_stream", 18488, 5, 0, "5", "30", "6.25", "0.092590"},
+		{"gpt-5.6-sol", "stream", 18488, 5, 18332, "5", "30", "6.25", "0.092590"},
+		{"gpt-5.6-terra", "non_stream", 4410, 5, 3299, "2.5", "15", "3.125", "0.011100"},
+		{"gpt-5.6-terra", "stream", 4410, 5, 3345, "2.5", "15", "3.125", "0.011100"},
+	} {
+		t.Run(tc.model+"/"+tc.mode, func(t *testing.T) {
+			info := quotedUsageInfo()
+			info.IsStream = tc.mode == "stream"
+			info.ChannelMeta = &ChannelMeta{ChannelId: 7, ChannelBaseUrl: "https://www.xcloudtoken.com", UpstreamModelName: tc.model}
+			info.ZTAPIPublicationSnapshot.SourceModel = tc.model
+			info.ZTAPIPublicationSnapshot.BillingDimensions = []string{"input_tokens", "output_tokens", "cache_read", "cache_write"}
+			info.ZTAPIPublicationSnapshot.SaleUSD = map[string]string{
+				"input_tokens": tc.inputRate, "output_tokens": tc.outputRate,
+				"cache_read": tc.inputRate, "cache_write": tc.writeRate,
+			}
+			raw := []byte(fmt.Sprintf(`{"usage":{"input_tokens":%d,"output_tokens":%d,"input_tokens_details":{"cached_tokens":%d}}}`, tc.input, tc.output, tc.cached))
+			usage := ObserveZTAPIOpenAIUsage(nil, info, raw)
+			require.NotNil(t, usage)
+			result := ValidateZTAPIUsageDimensions(nil, info, usage)
+			require.False(t, result.Pending, "%+v", result)
+			require.Equal(t, int64(tc.input-tc.cached), usageDimension(t, result, "input_tokens").Quantity)
+			require.Equal(t, int64(tc.output), usageDimension(t, result, "output_tokens").Quantity)
+			if tc.cached > 0 {
+				require.Equal(t, int64(tc.cached), usageDimension(t, result, "cache_read").Quantity)
+				require.Len(t, result.Dimensions, 3)
+			} else {
+				require.Len(t, result.Dimensions, 2)
+			}
+			billed := decimal.Zero
+			for _, dimension := range result.Dimensions {
+				billed = billed.Add(decimal.RequireFromString(dimension.UnitPriceUSD).Mul(decimal.NewFromInt(dimension.Quantity)))
+			}
+			require.Equal(t, tc.billedCredit, billed.StringFixed(6))
 		})
 	}
 }

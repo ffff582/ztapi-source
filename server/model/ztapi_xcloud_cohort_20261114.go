@@ -70,6 +70,12 @@ func ztapiXcloudQuote20261114(source string) (ztapiXcloudCohortQuote20261114, er
 	case "gpt-6-astra":
 		return ztapiXcloudCohortQuote20261114{103, 6, 2, source, "zt-gpt-6-astra", ZTAPIProviderOpenAI, "new-vip", source + "-hc",
 			append(dimensions, ZTAPIBillingDimensionCacheWrite), []string{"18", "90", "1.8", "22.5"}, []string{"7.8", "39", "0.78", "9.75"}, "E21", []string{"36", "135", "3.6", "45"}, []string{"15.6", "58.5", "1.56", "19.5"}}, nil
+	case "gpt-5.6-sol":
+		return ztapiXcloudCohortQuote20261114{82, 7, 2, source, "zt-gpt-5.6-sol", ZTAPIProviderOpenAI, "gpt-plus", source + "-hc",
+			append(dimensions, ZTAPIBillingDimensionCacheWrite), []string{"5", "30", "5", "6.25"}, []string{"3.12", "15.6", "3.12", "3.9"}, "E23", nil, []string{"6.24", "23.4", "6.24", "7.8"}}, nil
+	case "gpt-5.6-terra":
+		return ztapiXcloudCohortQuote20261114{84, 7, 2, source, "zt-gpt-5.6-terra", ZTAPIProviderOpenAI, "gpt-plus", source + "-hc",
+			append(dimensions, ZTAPIBillingDimensionCacheWrite), []string{"2.5", "15", "2.5", "3.125"}, []string{"1.56", "9.36", "1.56", "1.95"}, "E22", nil, []string{"3.12", "14.04", "3.12", "3.9"}}, nil
 	default:
 		return ztapiXcloudCohortQuote20261114{}, errors.New("model is outside the verified Xcloud cohort")
 	}

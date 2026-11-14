@@ -128,11 +128,22 @@ func TestZTAPIXcloud20261114PublishDraftAndRestore(t *testing.T) {
 			map[string]string{"input_tokens": "11.1177000000", "output_tokens": "55.5883000000", "cache_read": "1.1118000000", "cache_write": "13.8971000000"},
 			map[string]string{"input_tokens": "22.2353000000", "output_tokens": "83.3824000000", "cache_read": "2.2236000000", "cache_write": "27.7942000000"})
 	})
+	t.Run("gpt56-sol", func(t *testing.T) {
+		testZTAPIXcloud20261114PublishDraftAndRestore(t, "gpt-5.6-sol", []int{2, 7}, "gpt-5.6-sol-hc",
+			map[string]string{"input_tokens": "3.1200000000", "output_tokens": "18.5295000000", "cache_read": "3.1200000000", "cache_write": "3.9000000000"},
+			map[string]string{"input_tokens": "6.2400000000", "output_tokens": "23.4000000000", "cache_read": "6.2400000000", "cache_write": "7.8000000000"})
+	})
+	t.Run("gpt56-terra", func(t *testing.T) {
+		testZTAPIXcloud20261114PublishDraftAndRestore(t, "gpt-5.6-terra", []int{2, 7}, "gpt-5.6-terra-hc",
+			map[string]string{"input_tokens": "1.5600000000", "output_tokens": "9.3600000000", "cache_read": "1.5600000000", "cache_write": "1.9500000000"},
+			map[string]string{"input_tokens": "3.1200000000", "output_tokens": "14.0400000000", "cache_read": "3.1200000000", "cache_write": "3.9000000000"})
+	})
 }
 
 func testZTAPIXcloud20261114PublishDraftAndRestore(t *testing.T, source string, expectedChannels []int, backupPhysical string, expectedPrices ...map[string]string) {
 	t.Helper()
 	f := setupZTAPIPublicationGateFixture(t)
+	require.NoError(t, f.db.AutoMigrate(&ZTAPIRequestSettlement{}))
 	q, err := ztapiXcloudQuote20261114(source)
 	require.NoError(t, err)
 	url, priority := "https://www.xcloudtoken.com", int64(30)
@@ -225,12 +236,19 @@ func testZTAPIXcloud20261114PublishDraftAndRestore(t *testing.T, source string, 
 	resolved, ok := ResolveZTAPIPublicAlias(q.public)
 	require.True(t, ok)
 	require.Equal(t, q.source, resolved)
+	downgrade, err := CheckZTAPIXcloudDowngrade20261114()
+	require.NoError(t, err)
+	require.False(t, downgrade.CanDowngrade)
+	require.Contains(t, downgrade.ActiveModels, q.public)
 	_, err = ApplyZTAPIXcloudPublication20261114(9, req)
 	require.ErrorIs(t, err, ErrZTAPIModelVersionConflict)
 	require.NoError(t, RestoreZTAPIXcloudPublication20261114(9, q.source, result.ModelVersion, result.ID))
 	require.NoError(t, f.db.First(&config, q.id).Error)
 	require.False(t, config.Published)
 	require.NoError(t, f.db.First(&ZTAPIModelPublicationSnapshot{}, result.ID).Error, "in-flight snapshots remain readable")
+	downgrade, err = CheckZTAPIXcloudDowngrade20261114()
+	require.NoError(t, err)
+	require.True(t, downgrade.CanDowngrade)
 }
 
 func TestZTAPIXcloud20261114RouteRequiresExactSupplierProduct(t *testing.T) {
