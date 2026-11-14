@@ -29,11 +29,10 @@ var ztapiXcloudDraftClaude20261114 = map[string]struct {
 	id, backup   int
 	public, cell string
 }{
-	"claude-haiku-4-5-20251001": {49, 1, "zt-claude-haiku-4.5", "D142"},
-	"claude-opus-4-6":           {50, 2, "zt-claude-opus-4.6", "E34"},
-	"claude-opus-4-7":           {51, 2, "zt-claude-opus-4.7", "E33"},
-	"claude-opus-4-8":           {52, 2, "zt-claude-opus-4.8", "E32"},
-	"claude-sonnet-4-6":         {54, 2, "zt-claude-sonnet-4.6", "E29"},
+	"claude-opus-4-6":   {50, 2, "zt-claude-opus-4.6", "E34"},
+	"claude-opus-4-7":   {51, 2, "zt-claude-opus-4.7", "E33"},
+	"claude-opus-4-8":   {52, 2, "zt-claude-opus-4.8", "E32"},
+	"claude-sonnet-4-6": {54, 2, "zt-claude-sonnet-4.6", "E29"},
 }
 
 func ztapiXcloudQuote20261114(source string) (ztapiXcloudCohortQuote20261114, error) {
@@ -44,10 +43,6 @@ func ztapiXcloudQuote20261114(source string) (ztapiXcloudCohortQuote20261114, er
 			family: ZTAPIProviderAnthropic, group: "claude-max", backupModel: source + "-hc", backupCell: draft.cell,
 			dimensions: claudeDimensions, groupedCredits: []string{"5", "25", "0.5", "6.25", "10"}, previousRetail: []string{"3.9", "19.5", "0.39", "4.875", "7.8"}}
 		switch source {
-		case "claude-haiku-4-5-20251001":
-			q.backupModel = source
-			q.groupedCredits = []string{"1", "5", "0.1", "1.25", "2"}
-			q.previousRetail = []string{"0.78", "3.9", "0.078", "0.975", "1.56"}
 		case "claude-sonnet-4-6":
 			q.groupedCredits = []string{"3", "15", "0.3", "3.75", "6"}
 			q.previousRetail = []string{"2.34", "11.7", "0.234", "2.925", "4.68"}
@@ -55,6 +50,9 @@ func ztapiXcloudQuote20261114(source string) (ztapiXcloudCohortQuote20261114, er
 		return q, nil
 	}
 	switch source {
+	case "claude-haiku-4-5-20251001":
+		return ztapiXcloudCohortQuote20261114{49, 4, 0, source, "zt-claude-haiku-4.5", ZTAPIProviderAnthropic, "claude-max", "",
+			claudeDimensions, []string{"1", "5", "0.1", "1.25", "2"}, []string{"0.78", "3.9", "0.078", "0.975", "1.56"}, ""}, nil
 	case "claude-fable-5-1":
 		return ztapiXcloudCohortQuote20261114{97, 4, 0, source, "zt-claude-fable-5-1", ZTAPIProviderAnthropic, "claude-max", "",
 			claudeDimensions, []string{"10", "50", "0.25", "12.5", "20"}, []string{"8.19", "40.95", "0.39", "7.7206", "12.3530"}, ""}, nil
@@ -177,35 +175,18 @@ func ztapiXcloudBackupCosts20261114(q ztapiXcloudCohortQuote20261114) (map[strin
 		}
 		return costs, nil
 	}
-	var native map[string]string
-	fraction := big.NewRat(1, 1)
-	if q.backup == 1 {
-		workbook, err := ZTAPIQuotationABEntries()
-		if err != nil {
-			return nil, err
-		}
-		for _, row := range workbook.Entries {
-			if row.QuotationCell == q.backupCell && row.ModelCode == "zq-c-h45" && row.Grade == "A" && row.Active && row.PricingBasis &&
-				len(row.TokenPriceRules) == 1 && len(row.TokenPriceRules[0].Conditions) == 0 && row.TokenPriceRules[0].Currency == "USD" {
-				native = row.TokenPriceRules[0].Cost
-				break
-			}
-		}
-	} else {
-		row, err := ztapiSupplierPriceEntryFor20261019(q.source)
-		if err != nil {
-			return nil, err
-		}
-		if row.QuotationCell != q.backupCell || row.Grade != "B" || row.Currency != "USD" || len(row.Rules) != 1 || len(row.Rules[0].Conditions) != 0 {
-			return nil, errors.New("Yunxin pool quotation changed")
-		}
-		native = row.Rules[0].Official
-		fraction, _ = new(big.Rat).SetString(row.Fraction)
+	row, err := ztapiSupplierPriceEntryFor20261019(q.source)
+	if err != nil {
+		return nil, err
 	}
+	if q.backup != 2 || row.QuotationCell != q.backupCell || row.Grade != "B" || row.Currency != "USD" || len(row.Rules) != 1 || len(row.Rules[0].Conditions) != 0 {
+		return nil, errors.New("Yunxin pool quotation changed")
+	}
+	fraction, _ := new(big.Rat).SetString(row.Fraction)
 	// Use the same cash conversion as the frozen Yunxin purchase evidence.
 	fx := big.NewRat(67208, 66300)
 	for _, dimension := range q.dimensions {
-		price, ok := new(big.Rat).SetString(native[dimension])
+		price, ok := new(big.Rat).SetString(row.Rules[0].Official[dimension])
 		if !ok || price.Sign() <= 0 || fraction == nil || fraction.Sign() <= 0 {
 			return nil, errors.New("missing verified Yunxin backup price dimension")
 		}

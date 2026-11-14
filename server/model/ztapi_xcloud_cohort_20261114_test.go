@@ -18,7 +18,7 @@ func TestZTAPIXcloud20261114ExactRetailAndCosts(t *testing.T) {
 		{"claude-sonnet-5", "1.0000000000", "1.2353000000", "6.4853000000", "0.1390000000", "1.7603000000", "2.5015000000"},
 		{"deepseek-v4.1-flash", "0.0420000000", "0.0655200000", "0.2340000000", "0.0023400000", "", ""},
 		{"claude-fable-5-1", "5.0000000000", "8.1900000000", "40.9500000000", "0.3900000000", "7.7206000000", "12.3530000000"},
-		{"claude-haiku-4-5-20251001", "0.5000000000", "1.0519000000", "5.2593000000", "0.1052000000", "1.3149000000", "2.1038000000"},
+		{"claude-haiku-4-5-20251001", "0.5000000000", "0.7800000000", "3.9000000000", "0.0780000000", "0.9750000000", "1.5600000000"},
 		{"claude-opus-4-6", "2.5000000000", "3.9000000000", "19.5000000000", "0.3900000000", "4.8750000000", "7.8000000000"},
 		{"claude-opus-4-7", "2.5000000000", "3.9000000000", "19.5000000000", "0.3900000000", "4.8750000000", "7.8000000000"},
 		{"claude-opus-4-8", "2.5000000000", "3.9000000000", "19.5000000000", "0.3900000000", "4.8750000000", "7.8000000000"},
@@ -57,9 +57,9 @@ func TestZTAPIXcloud20261114PublishDraftAndRestore(t *testing.T) {
 		})
 	})
 	t.Run("haiku", func(t *testing.T) {
-		testZTAPIXcloud20261114PublishDraftAndRestore(t, "claude-haiku-4-5-20251001", []int{1, 4}, "claude-haiku-4-5-20251001", map[string]string{
-			"input_tokens": "1.0519000000", "output_tokens": "5.2593000000", "cache_read": "0.1052000000",
-			"cache_write_5m": "1.3149000000", "cache_write_1h": "2.1038000000",
+		testZTAPIXcloud20261114PublishDraftAndRestore(t, "claude-haiku-4-5-20251001", []int{4}, "", map[string]string{
+			"input_tokens": "0.7800000000", "output_tokens": "3.9000000000", "cache_read": "0.0780000000",
+			"cache_write_5m": "0.9750000000", "cache_write_1h": "1.5600000000",
 		})
 	})
 	t.Run("opus", func(t *testing.T) {
@@ -183,7 +183,8 @@ func TestZTAPIXcloud20261114RouteRequiresExactSupplierProduct(t *testing.T) {
 	require.Error(t, ValidateZTAPIXcloudRoute20261114("claude-fable-5-1", 4, "https://www.xcloudtoken.com", "claude-fable-5"))
 	require.Error(t, ValidateZTAPIXcloudRoute20261114("claude-fable-5-1", 6, "https://www.xcloudtoken.com", "claude-fable-5-1"))
 	require.Error(t, ValidateZTAPIXcloudRoute20261114("claude-fable-5-1", 2, "https://ai.yunxinapi.com/hub", "claude-fable-5-1"))
-	require.NoError(t, ValidateZTAPIXcloudRoute20261114("claude-haiku-4-5-20251001", 1, "https://ai.yunxinapi.com/hub", "claude-haiku-4-5-20251001"))
+	require.NoError(t, ValidateZTAPIXcloudRoute20261114("claude-haiku-4-5-20251001", 4, "https://www.xcloudtoken.com", "claude-haiku-4-5-20251001"))
+	require.Error(t, ValidateZTAPIXcloudRoute20261114("claude-haiku-4-5-20251001", 1, "https://ai.yunxinapi.com/hub", "claude-haiku-4-5-20251001"))
 	require.Error(t, ValidateZTAPIXcloudRoute20261114("claude-haiku-4-5-20251001", 2, "https://ai.yunxinapi.com/hub", "claude-haiku-4-5-20251001-hc"))
 	require.NoError(t, ValidateZTAPIXcloudRoute20261114("claude-opus-4-8", 2, "https://ai.yunxinapi.com/hub", "claude-opus-4-8-hc"))
 	require.Error(t, ValidateZTAPIXcloudRoute20261114("claude-opus-4-8", 1, "https://ai.yunxinapi.com/hub", "claude-opus-4-8-hc"))
