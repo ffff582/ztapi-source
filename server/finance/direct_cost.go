@@ -3,9 +3,17 @@ package finance
 import (
 	"crypto/sha256"
 	"fmt"
+	"regexp"
+	"slices"
 	"strings"
 	"time"
+
+	"github.com/QuantumNous/new-api/common"
 )
+
+const directDiagnosticApprovalEnv = "FINANCE_DIRECT_DIAGNOSTIC_APPROVAL_SHA256"
+
+var directDiagnosticID = regexp.MustCompile(`^[a-zA-Z0-9_-]{8,128}$`)
 
 func directCostRef(c *DirectCost) string {
 	// A duplicate bill ID is rejected even when supplier or account labels differ.
@@ -29,7 +37,18 @@ func directVerificationMatches(s Snapshot, c *DirectCost) bool {
 }
 
 func validateDirectCost(c *DirectCost, now time.Time) error {
-	if c == nil || c.VerificationID <= 0 || c.ChannelID <= 0 || c.OccurredAt.IsZero() || c.OccurredAt.After(now) {
+	if c == nil || c.ChannelID <= 0 || c.OccurredAt.IsZero() || c.OccurredAt.After(now) {
+		return ErrInvalid
+	}
+	if c.Diagnostic == nil {
+		if c.VerificationID <= 0 {
+			return ErrInvalid
+		}
+	} else if c.VerificationID != 0 || c.Supplier != "Xcloud" || c.Currency != "XCLOUD_CREDIT" || c.Rate != "0.5" ||
+		c.Model == "" || c.InputTokens == nil || *c.InputTokens <= 0 ||
+		c.OutputTokens == nil || *c.OutputTokens <= 0 || c.InputTokenScope == "" || c.InputTokenScope == "unknown" ||
+		!directDiagnosticID.MatchString(c.BillID) || !directDiagnosticID.MatchString(c.Diagnostic.RequestID) ||
+		!directIdentityPattern.MatchString(c.Diagnostic.EvidenceSHA256) {
 		return ErrInvalid
 	}
 	if len(c.Model) > 128 || strings.TrimSpace(c.Model) != c.Model {
@@ -59,7 +78,7 @@ func validateDirectCost(c *DirectCost, now time.Time) error {
 	if c.Currency != "XCLOUD_CREDIT" && c.Currency != "USDT" && c.Currency != "USD" && c.Currency != "CNY" {
 		return ErrInvalid
 	}
-	if _, err := money(c.Amount, "USDT", "1"); err != nil {
+	if amount, err := money(c.Amount, "USDT", "1"); err != nil || c.Diagnostic != nil && !amount.IsPositive() {
 		return ErrInvalid
 	}
 	if c.Rate != "" {
@@ -89,6 +108,42 @@ func validateDirectCost(c *DirectCost, now time.Time) error {
 		return ErrInvalid
 	}
 	return nil
+}
+
+func directDiagnosticDigest(c *DirectCost) string {
+	if c == nil || c.Diagnostic == nil {
+		return ""
+	}
+	canonical := *c
+	canonical.OccurredAt = c.OccurredAt.UTC()
+	canonical.Coverage, canonical.CoverageEvidence, canonical.MonthCostFactID = "unknown", "", 0
+	body, err := common.Marshal(canonical)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%x", sha256.Sum256(append([]byte("ztapi-direct-diagnostic-v1\n"), body...)))
+}
+
+func directDiagnosticCoverageMatches(c *DirectCost, invoice *Cost) bool {
+	if invoice == nil || !invoice.Complete || invoice.Month != c.OccurredAt.In(shanghai).Format("2006-01") ||
+		invoice.ChannelID != c.ChannelID || !strings.EqualFold(invoice.Supplier, c.Supplier) {
+		return false
+	}
+	excluded := slices.Contains(invoice.ExcludedDirectBillRefs, directCostRef(c))
+	return c.Coverage == "included" && !excluded && c.CoverageEvidence == invoice.Evidence ||
+		c.Coverage == "extra" && excluded && c.CoverageEvidence != invoice.Evidence
+}
+
+func directDiagnosticApproved(s Snapshot, c *DirectCost, approved string) bool {
+	if !directIdentityPattern.MatchString(approved) || directDiagnosticDigest(c) != approved {
+		return false
+	}
+	for _, channel := range s.Channels {
+		if channel.ID == c.ChannelID {
+			return strings.TrimSuffix(channel.BaseURL, "/") == "https://www.xcloudtoken.com"
+		}
+	}
+	return false
 }
 
 func normalizeDirectCost(c *DirectCost) {

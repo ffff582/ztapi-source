@@ -9,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+	"os"
 	"reflect"
 	"regexp"
 	"strings"
@@ -234,6 +235,10 @@ func (s *Store) Append(ctx context.Context, in Submission, operator int, now tim
 	if e := validateSubmission(in, now); e != nil {
 		return Fact{}, e
 	}
+	if c := in.DirectCost; c != nil && c.Diagnostic != nil && in.PreviousID == 0 &&
+		(c.Coverage != "unknown" || os.Getenv(directDiagnosticApprovalEnv) != directDiagnosticDigest(c)) {
+		return Fact{}, ErrInvalid
+	}
 	var payload any = in.Funding
 	if in.Kind == "cost" {
 		payload = in.Cost
@@ -285,6 +290,31 @@ func (s *Store) Append(ctx context.Context, in Submission, operator int, now tim
 		}
 		if latest.ID != in.PreviousID {
 			return ErrConflict
+		}
+		if latest.ID != 0 && in.Kind == "direct_cost" {
+			var previous DirectCost
+			if common.UnmarshalJsonStr(latest.Payload, &previous) != nil ||
+				(previous.Diagnostic == nil) != (in.DirectCost.Diagnostic == nil) {
+				return ErrConflict
+			}
+			if previous.Diagnostic != nil {
+				if directDiagnosticDigest(&previous) != directDiagnosticDigest(in.DirectCost) {
+					return ErrConflict
+				}
+				var row factRecord
+				monthRef := fmt.Sprintf("%s:%d", in.DirectCost.OccurredAt.In(shanghai).Format("2006-01"), in.DirectCost.ChannelID)
+				err = tx.Where("kind = ? AND ref = ?", "cost", monthRef).Order("id DESC").Take(&row).Error
+				if errors.Is(err, gorm.ErrRecordNotFound) || err == nil && row.ID != in.DirectCost.MonthCostFactID {
+					return ErrConflict
+				}
+				if err != nil {
+					return err
+				}
+				var invoice Cost
+				if common.UnmarshalJsonStr(row.Payload, &invoice) != nil || !directDiagnosticCoverageMatches(in.DirectCost, &invoice) {
+					return ErrConflict
+				}
+			}
 		}
 		if latest.ID != 0 && in.Kind == "test_cost" {
 			var previous TestCost

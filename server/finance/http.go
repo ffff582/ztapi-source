@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/service"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -185,7 +186,18 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			failure(w, 503, "finance_source_unavailable")
 			return
 		}
-		if !validSourceReference(source, in) {
+		sourceMatches := validSourceReference(source, in)
+		if in.DirectCost != nil && in.DirectCost.Diagnostic != nil {
+			if user.Role != common.RoleRootUser {
+				failure(w, 403, "finance_write_denied")
+				return
+			}
+			// Append independently checks the previous diagnostic and the
+			// current complete invoice for a coverage-only revision.
+			sourceMatches = in.PreviousID > 0 ||
+				directDiagnosticApproved(source, in.DirectCost, os.Getenv(directDiagnosticApprovalEnv))
+		}
+		if !sourceMatches {
 			failure(w, 400, "financial_source_mismatch")
 			return
 		}
@@ -341,7 +353,7 @@ func exportReport(w http.ResponseWriter, r Report) {
 		row(c.RequestID, strconv.Itoa(c.Attempt), strconv.Itoa(c.ChannelID), c.Model, count(c.InputTokens), count(c.OutputTokens), c.InputTokenScope, count(c.CacheReadTokens), count(c.CacheWrite5mTokens), count(c.CacheWrite1hTokens), c.AttemptAt.In(shanghai).Format(time.RFC3339), c.Status, c.Coverage, c.Amount, c.Refund, c.Currency, c.Rate, c.NetUSDT, c.NetCredit, c.Evidence, c.CoverageEvidence, factID, c.SupplierBillID, c.RateEvidence, c.RefundEvidence, c.SourceRef, c.CallID)
 	}
 	row()
-	row("direct_supplier", "direct_account", "direct_bill_id", "verification_id", "channel_id", "model", "input_tokens", "output_tokens", "input_token_scope", "cache_read", "cache_write_5m", "cache_write_1h", "occurred_at", "amount", "currency", "rate", "rate_evidence", "net_USDT", "evidence", "link_evidence", "coverage", "coverage_evidence", "month_cost_fact_id", "identity", "fact_id")
+	row("direct_supplier", "direct_account", "direct_bill_id", "verification_id", "channel_id", "model", "input_tokens", "output_tokens", "input_token_scope", "cache_read", "cache_write_5m", "cache_write_1h", "occurred_at", "amount", "currency", "rate", "rate_evidence", "net_USDT", "evidence", "link_evidence", "coverage", "coverage_evidence", "month_cost_fact_id", "identity", "fact_id", "diagnostic_request_id", "diagnostic_evidence_sha256")
 	for _, c := range r.DirectCosts {
 		input, output := "", ""
 		if c.InputTokens != nil {
@@ -360,7 +372,13 @@ func exportReport(w http.ResponseWriter, r Report) {
 		if scope == "" {
 			scope = "unknown"
 		}
-		row(c.Supplier, c.Account, c.BillID, strconv.FormatInt(c.VerificationID, 10), strconv.Itoa(c.ChannelID), c.Model, input, output, scope, count(c.CacheRead), count(c.CacheWrite5m), count(c.CacheWrite1h), c.OccurredAt.In(shanghai).Format(time.RFC3339), c.Amount, c.Currency, c.Rate, c.RateEvidence, c.NetUSDT, c.Evidence, c.LinkEvidence, c.Coverage, c.CoverageEvidence, strconv.FormatUint(uint64(c.MonthCostFactID), 10), c.Ref, strconv.FormatUint(uint64(c.FactID), 10))
+		verification := strconv.FormatInt(c.VerificationID, 10)
+		diagnosticID, evidenceSHA := "", ""
+		if c.Diagnostic != nil {
+			verification = ""
+			diagnosticID, evidenceSHA = c.Diagnostic.RequestID, c.Diagnostic.EvidenceSHA256
+		}
+		row(c.Supplier, c.Account, c.BillID, verification, strconv.Itoa(c.ChannelID), c.Model, input, output, scope, count(c.CacheRead), count(c.CacheWrite5m), count(c.CacheWrite1h), c.OccurredAt.In(shanghai).Format(time.RFC3339), c.Amount, c.Currency, c.Rate, c.RateEvidence, c.NetUSDT, c.Evidence, c.LinkEvidence, c.Coverage, c.CoverageEvidence, strconv.FormatUint(uint64(c.MonthCostFactID), 10), c.Ref, strconv.FormatUint(uint64(c.FactID), 10), diagnosticID, evidenceSHA)
 	}
 	row()
 	row("xcloud_estimate_model", "channel_id", "requests", "revenue_USDT", "estimated_cost_USDT", "estimated_gross_profit_USDT", "quote_discount", "complete", "source_url")

@@ -153,6 +153,13 @@ type DirectCost struct {
 	Coverage         string    `json:"coverage"`
 	CoverageEvidence string    `json:"coverage_evidence"`
 	MonthCostFactID  uint      `json:"month_cost_fact_id"`
+
+	Diagnostic *DirectCostDiagnostic `json:"diagnostic,omitempty"`
+}
+
+type DirectCostDiagnostic struct {
+	RequestID      string `json:"request_id"`
+	EvidenceSHA256 string `json:"evidence_sha256"`
 }
 
 type DirectCostRow struct {

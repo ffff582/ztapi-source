@@ -1027,7 +1027,10 @@ func Calculate(s Snapshot, facts []Fact, month string, now time.Time) (Report, e
 				overlap = true
 			}
 		}
-		if !directVerificationMatches(s, &c) {
+		// A standalone diagnostic was authorized at append time; its durable
+		// cost receipt is not a managed verification or a customer settlement.
+		lineage := c.Diagnostic != nil || directVerificationMatches(s, &c)
+		if !lineage {
 			overlap = true
 			complete = false
 			r.issue("direct_cost_lineage_missing", f.Ref, 0)
@@ -1042,7 +1045,7 @@ func Calculate(s Snapshot, facts []Fact, month string, now time.Time) (Report, e
 			}
 			net, _ := money(c.Amount, currency, c.Rate)
 			row.NetUSDT = fixed(net)
-			if directVerificationMatches(s, &c) {
+			if lineage {
 				directConfirmed = directConfirmed.Add(net)
 			}
 			matched := false

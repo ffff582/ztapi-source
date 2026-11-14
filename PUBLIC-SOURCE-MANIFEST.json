@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "e6f93949e8ee15fc92e6929a985443456bad2ae6",
+  "release_commit": "9d77e688522a7013bdebd266cc26b0078fb65053",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-e6f93949e8ee15fc92e6929a985443456bad2ae6",
+  "source_tag": "production-9d77e688522a7013bdebd266cc26b0078fb65053",
   "files": [
     {
       "path": ".dockerignore",
@@ -31,8 +31,8 @@
     },
     {
       "path": ".github/workflows/ztapi-financial-ci.yml",
-      "sha256": "2c8e6f91290fdf4ee9ea358f4b1b4a317af8e7780327149f05077a0734f8e137",
-      "size": 17000
+      "sha256": "6bfa1c7989c2a62c705da98e8990e2252bd2f79618d3653f301cef1e219d870c",
+      "size": 17026
     },
     {
       "path": ".github/workflows/ztapi-production-alert-acceptance.yml",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "4c8ce67df555d856564946ba0268840cc03a47c5dba92aa20576ac5e12debe60",
+      "sha256": "c2327fff03641667f76bea09893b1fad8695dca8e1c9ac4277c547b3a8820be1",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "efcc63f393a7245963c732c38f33b243d0881cbced27ebc7b0383e20930f82bd",
+      "sha256": "51cca854a9ed49b808350d199a5e57bcc7e9a99b4a624d71add5a39b28b5365a",
       "size": 942
     },
     {
@@ -2381,8 +2381,8 @@
     },
     {
       "path": "server/finance/accounting.go",
-      "sha256": "a85249739419acc57af423df39a3543cee6b12b292c52743c8a55c12b56cc6ae",
-      "size": 40283
+      "sha256": "f62833a83ba309ade6712149cf08cc685f2d450ca77e653f3e7cb9c7b1c20c99",
+      "size": 40448
     },
     {
       "path": "server/finance/accounting_test.go",
@@ -2431,13 +2431,18 @@
     },
     {
       "path": "server/finance/direct_cost.go",
-      "sha256": "c11477a59c369ac6ec28baf630ccd4538b9d09a3715bb3d1c189eb08661b238f",
-      "size": 2771
+      "sha256": "ca98a96421f78a309eb38576e4fc46a1c3631301d7926315a31f3ab960fe778e",
+      "size": 4922
     },
     {
       "path": "server/finance/direct_cost_test.go",
       "sha256": "6ed57c25cf3f638f39dd69e367c623a8c61c3d90c9f3e74533a44648a2dc41d6",
       "size": 23343
+    },
+    {
+      "path": "server/finance/direct_diagnostic_test.go",
+      "sha256": "1e62b7386e52a4d4d7be0cd8b03fae6762f8510e47a697880ac5bf32151340bd",
+      "size": 6434
     },
     {
       "path": "server/finance/hosted_tool.go",
@@ -2451,8 +2456,8 @@
     },
     {
       "path": "server/finance/http.go",
-      "sha256": "c8f34af8a5b8b837762ebaded26b6d9bcbd5a9631fee8adb41a9cfcff34b1ab0",
-      "size": 14576
+      "sha256": "1be7fc8903a4fdd6a18e0ad06a2f9758c6693208e0fc9fe76f8641fb3f33c51f",
+      "size": 15328
     },
     {
       "path": "server/finance/http_test.go",
@@ -2541,8 +2546,8 @@
     },
     {
       "path": "server/finance/store.go",
-      "sha256": "5f47fe5fb79123857caacecbcf7c0ab293da2d32c90422f95388555e2b67bc41",
-      "size": 13240
+      "sha256": "dacbc2d13c640567687617cbb3db417111b2772ac4a898d8c80cc87ee1f38bcd",
+      "size": 14450
     },
     {
       "path": "server/finance/store_test.go",
@@ -2576,8 +2581,8 @@
     },
     {
       "path": "server/finance/types.go",
-      "sha256": "5ef47866b562224fd2b714bf2ff657bd7a7b0ec8f5224ebd00ec81d79b7a8db7",
-      "size": 11664
+      "sha256": "60566c084887133ce97c85c5a6f6f041d24e8cba866c3d233c325745f2628bff",
+      "size": 11858
     },
     {
       "path": "server/finance/xcloud_cohort_estimate_test.go",
