@@ -9,11 +9,13 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/shopspring/decimal"
 )
 
 const XcloudPricingURL = "https://www.xcloudtoken.com/pricing"
 const XcloudSupplierDiscountFactor = "0.5"
+const yunxinPoolURL = "https://ai.yunxinapi.com/hub"
 
 var ErrXcloudQuoteMissing = errors.New("xcloud public quote is missing")
 
@@ -126,17 +128,42 @@ func EstimateXcloudUsage(sourceModel string, dimensions []UsageDimension) (Xclou
 
 // Resolve only policies that pin both the supplier fee and the allowed routes.
 // Current channel labels and the latest quote cannot prove historical cost.
-func estimateFrozenXcloudUsage(s Settlement, channelID int, baseURL string, dimensions []UsageDimension) (XcloudUsageEstimate, error) {
-	var snapshot struct {
-		SourceModel        string
-		PricePolicy        string
-		PriceSourceID      int64
-		PriceSourceVersion uint64
-		AllowedChannelIDs  []int
+type frozenXcloudSource struct {
+	SourceModel, PublicName, PricePolicy, TokenPriceRulesJSON string
+	PublicationID                                             int
+	PriceSourceID                                             int64
+	PriceSourceVersion                                        uint64
+	AllowedChannelIDs                                         []int
+}
+
+func readFrozenXcloudSource(s Settlement) (frozenXcloudSource, bool) {
+	var snapshot frozenXcloudSource
+	valid := len(s.PriceSnapshotJSON) <= 64<<10 && common.RejectDuplicateJsonObjectMembers(strings.NewReader(s.PriceSnapshotJSON)) == nil &&
+		common.UnmarshalJsonStr(s.PriceSnapshotJSON, &snapshot) == nil
+	return snapshot, valid
+}
+
+func estimateFrozenXcloudUsage(s Settlement, channelID int, baseURL string, dimensions []UsageDimension, sources map[int64]model.ZTAPIModelPriceSource) (XcloudUsageEstimate, error) {
+	snapshot, valid := readFrozenXcloudSource(s)
+	if !valid {
+		return XcloudUsageEstimate{}, ErrXcloudQuoteMissing
 	}
-	if strings.TrimRight(baseURL, "/") != "https://www.xcloudtoken.com" ||
-		common.RejectDuplicateJsonObjectMembers(strings.NewReader(s.PriceSnapshotJSON)) != nil ||
-		common.UnmarshalJsonStr(s.PriceSnapshotJSON, &snapshot) != nil {
+	baseURL = strings.TrimRight(baseURL, "/")
+	if source, ok := sources[snapshot.PriceSourceID]; ok && snapshot.PricePolicy == string(model.ZTAPIPricePolicyXcloud20261114) {
+		if source.ID <= 0 || source.Version == 0 || source.Version != snapshot.PriceSourceVersion ||
+			source.CreatedAt <= 0 || s.CreatedAt.IsZero() || source.CreatedAt > s.CreatedAt.Unix() ||
+			source.SourceModel != snapshot.SourceModel || source.ModelConfigID != snapshot.PublicationID ||
+			snapshot.PublicName != s.PublicModel || source.TokenPriceRulesJSON != snapshot.TokenPriceRulesJSON {
+			// These historical snapshots predate the stricter projection. Keep
+			// their existing exact-ID path, not a model-wide fallback.
+			if snapshot.PriceSourceID != 1885 && snapshot.PriceSourceID != 1886 {
+				return XcloudUsageEstimate{}, ErrXcloudQuoteMissing
+			}
+		} else {
+			return estimateCohortQuote(snapshot, source, channelID, baseURL, dimensions)
+		}
+	}
+	if baseURL != "https://www.xcloudtoken.com" {
 		return XcloudUsageEstimate{}, ErrXcloudQuoteMissing
 	}
 	switch snapshot.PricePolicy {
@@ -158,6 +185,27 @@ func estimateFrozenXcloudUsage(s Settlement, channelID int, baseURL string, dime
 		}
 	}
 	return XcloudUsageEstimate{}, ErrXcloudQuoteMissing
+}
+
+func estimateCohortQuote(snapshot frozenXcloudSource, source model.ZTAPIModelPriceSource, channelID int, baseURL string, dimensions []UsageDimension) (XcloudUsageEstimate, error) {
+	usage := make(map[string]int64, len(dimensions))
+	for _, d := range dimensions {
+		if _, exists := usage[d.Dimension]; exists {
+			return XcloudUsageEstimate{}, ErrXcloudQuoteMissing
+		}
+		usage[d.Dimension] = d.Quantity
+	}
+	cost, err := model.ZTAPIXcloudQuotedCost20261114(&source, snapshot.PublicName, snapshot.AllowedChannelIDs, channelID, baseURL, usage)
+	if err != nil {
+		return XcloudUsageEstimate{}, err
+	}
+	result := XcloudUsageEstimate{SourceModel: snapshot.SourceModel, CostUSDT: cost.String(), IsEstimate: true}
+	if baseURL == yunxinPoolURL {
+		result.SourceURL = yunxinPoolURL
+	} else {
+		result.SourceURL, result.DiscountFactor = XcloudPricingURL, XcloudSupplierDiscountFactor
+	}
+	return result, nil
 }
 
 func EstimateXcloudUsageForGroup(sourceModel, group, tier string, dimensions []UsageDimension) (XcloudUsageEstimate, error) {

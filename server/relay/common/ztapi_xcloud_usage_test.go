@@ -1,10 +1,52 @@
 package common
 
 import (
+	"fmt"
 	"testing"
 
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 )
+
+func TestXcloudNewVIPClaude55LedgerDimensions(t *testing.T) {
+	// Ledger quantities replayed in the existing embedded Claude wire shape.
+	// This does not assert that the supplier returned this exact HTTP body.
+	for _, tc := range []struct {
+		model, mode string
+		read, write int
+		rates       [4]string
+		credits     string
+	}{
+		{"claude-opus-5-5", "nonstream", 24805, 6978, [4]string{"7.2", "36", "0.36", "9"}, "0.071854"},
+		{"claude-opus-5-5", "stream", 12283, 6072, [4]string{"7.2", "36", "0.36", "9"}, "0.059192"},
+		{"claude-sonnet-5-5", "nonstream", 14727, 4100, [4]string{"3.6", "3.6", "0.18", "4.5"}, "0.021118"},
+		{"claude-sonnet-5-5", "stream", 13157, 6040, [4]string{"3.6", "3.6", "0.18", "4.5"}, "0.029566"},
+	} {
+		t.Run(tc.model+"/"+tc.mode, func(t *testing.T) {
+			info := quotedUsageInfo()
+			info.IsStream = tc.mode == "stream"
+			info.ChannelMeta = &ChannelMeta{ChannelId: 6, ChannelBaseUrl: "https://www.xcloudtoken.com", UpstreamModelName: tc.model}
+			info.ZTAPIPublicationSnapshot.SourceModel = tc.model
+			dims := []string{"input_tokens", "output_tokens", "cache_read", "cache_write_5m", "cache_write_1h"}
+			info.ZTAPIPublicationSnapshot.BillingDimensions = dims
+			for _, d := range dims {
+				info.ZTAPIPublicationSnapshot.SaleUSD[d] = "1"
+			}
+			ledger := fmt.Sprintf(`{"usage":{"prompt_tokens":%d,"completion_tokens":3,"total_tokens":%d,"billing_usage":{"source":"claude_messages","semantic":"anthropic","claude_usage":{"input_tokens":2,"output_tokens":3,"cache_read_input_tokens":%d,"cache_creation_input_tokens":%d,"cache_creation":{"ephemeral_5m_input_tokens":%d,"ephemeral_1h_input_tokens":0}}}}}`, 2+tc.read+tc.write, 5+tc.read+tc.write, tc.read, tc.write, tc.write)
+			usage := ObserveZTAPIOpenAIUsage(nil, info, []byte(ledger))
+			require.NotNil(t, usage)
+			result := ValidateZTAPIUsageDimensions(nil, info, usage)
+			require.False(t, result.Pending, "%+v", result)
+			require.Len(t, result.Dimensions, 4)
+			credits := decimal.Zero
+			for i, q := range []int64{2, 3, int64(tc.read), int64(tc.write)} {
+				require.Equal(t, q, usageDimension(t, result, dims[i]).Quantity)
+				credits = credits.Add(decimal.NewFromInt(q).Mul(decimal.RequireFromString(tc.rates[i])).Shift(-6))
+			}
+			require.True(t, credits.Sub(decimal.RequireFromString(tc.credits)).Abs().LessThanOrEqual(decimal.New(1, -6)))
+		})
+	}
+}
 
 func TestOpenAIUsageRejectsEmbeddedClaudeReceiptWhenAliasesConflict(t *testing.T) {
 	info := quotedUsageInfo()

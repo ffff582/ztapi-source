@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/shopspring/decimal"
 	"math"
 	"regexp"
@@ -324,6 +325,10 @@ func (r *replay) buildXcloudEstimates(s Snapshot, names, baseURLs map[int]string
 			xcloudChannels[channel.ID] = channel.Name
 		}
 	}
+	sources := make(map[int64]model.ZTAPIModelPriceSource, len(s.XcloudPriceSources))
+	for _, source := range s.XcloudPriceSources {
+		sources[source.ID] = source
+	}
 	type estimateKey struct {
 		channel int
 		model   string
@@ -344,6 +349,12 @@ func (r *replay) buildXcloudEstimates(s Snapshot, names, baseURLs map[int]string
 		imageSale := isImageSaleSettlement(settlement)
 		estimatePrefix := "xcloud"
 		supplier, ok := xcloudChannels[channelID]
+		if !ok && channelID == 2 && strings.TrimRight(baseURLs[channelID], "/") == yunxinPoolURL {
+			frozen, valid := readFrozenXcloudSource(settlement)
+			if valid && frozen.PricePolicy == string(model.ZTAPIPricePolicyXcloud20261114) && sources[frozen.PriceSourceID].ID > 0 {
+				supplier, ok, estimatePrefix = names[channelID], true, "yunxin"
+			}
+		}
 		if !ok && !imageSale {
 			// The report totals are not a subset subtotal.
 			complete = false
@@ -388,7 +399,7 @@ func (r *replay) buildXcloudEstimates(s Snapshot, names, baseURLs map[int]string
 		if imageSale {
 			estimate, err = estimateImageSaleUsage(settlement, dimensions)
 		} else {
-			estimate, err = estimateFrozenXcloudUsage(settlement, channelID, baseURLs[channelID], dimensions)
+			estimate, err = estimateFrozenXcloudUsage(settlement, channelID, baseURLs[channelID], dimensions, sources)
 		}
 		if err != nil {
 			row.Complete = false

@@ -37,7 +37,7 @@ func IsZTAPIXcloudCohort20261114(source string) bool {
 
 func CheckZTAPIXcloudDowngrade20261114() (ZTAPICashMarginDowngrade20261030, error) {
 	names := []string{"zt-claude-fable-5-1", "zt-claude-sonnet-5", "zt-deepseek-v4.1-flash", "zt-claude-haiku-4.5",
-		"zt-gpt-6-sol", "zt-gpt-6-astra", "zt-gpt-5.6-sol", "zt-gpt-5.6-terra"}
+		"zt-gpt-6-sol", "zt-gpt-6-astra", "zt-gpt-5.6-sol", "zt-gpt-5.6-terra", "zt-claude-opus-5.5", "zt-claude-sonnet-5.5"}
 	for _, draft := range ztapiXcloudDraftClaude20261114 {
 		names = append(names, draft.public)
 	}
@@ -123,7 +123,7 @@ func ztapiXcloudEvidenceTx20261114(tx *gorm.DB, config ZTAPIModelConfig, q ztapi
 		!ztapiXcloudCohortVerified(primary, config, q.primary) {
 		return ztapiPublicationEvidence{}, errors.New("latest Xcloud route verification does not match")
 	}
-	if previous == nil {
+	if previous == nil || q.source == "claude-opus-5-5" {
 		if q.backup != 0 {
 			var backup ZTAPIModelVerification
 			if err := tx.Where("model_config_id = ? AND channel_id = ?", q.id, q.backup).Order("verified_at DESC, id DESC").First(&backup).Error; err != nil {
@@ -197,10 +197,28 @@ func ApplyZTAPIXcloudPublicationWithGate20261114(operator int, req ZTAPIXcloudPu
 	return applyZTAPIXcloudPublication20261114(operator, req, check)
 }
 
+func ztapiXcloudPreviousPublication20261114(q ztapiXcloudCohortQuote20261114, old *ZTAPIModelPublicationSnapshot, source *ZTAPIModelPriceSource) bool {
+	if old == nil || source == nil || old.SourceModel != q.source || old.PublicName != q.public ||
+		old.ModelConfigID != q.id || old.Protocol != ZTAPIProtocolOpenAICompatible || old.ProviderFamily != q.family ||
+		old.CacheWritePricingMode != "" {
+		return false
+	}
+	switch q.source {
+	case "claude-sonnet-5":
+		return reflect.DeepEqual(old.ChannelIDs(), q.channels()) && isZTAPIDatedRetailPolicy20261107(source.PricePolicy)
+	case "claude-opus-5-5":
+		return reflect.DeepEqual(old.ChannelIDs(), []int{q.backup}) &&
+			source.PricePolicy == string(ZTAPIPricePolicySupplierAdmission20261019) && source.QuotationCell == q.backupCell
+	default:
+		return false
+	}
+}
+
 func applyZTAPIXcloudPublication20261114(operator int, req ZTAPIXcloudPublication20261114, check func(*gorm.DB) error) (*ZTAPIModelPublicationSnapshot, error) {
 	q, err := ztapiXcloudQuote20261114(req.SourceModel)
+	requiresSnapshot := q.source == "claude-sonnet-5" || q.source == "claude-opus-5-5"
 	if err != nil || DB == nil || operator <= 0 || req.Version == 0 || req.SourceID <= 0 || req.VerificationID <= 0 ||
-		(q.source == "claude-sonnet-5" && req.SnapshotID <= 0) || (q.source != "claude-sonnet-5" && req.SnapshotID != 0) {
+		req.SnapshotID < 0 || requiresSnapshot != (req.SnapshotID > 0) {
 		return nil, errors.New("explicit Xcloud publication baseline is required")
 	}
 	var result *ZTAPIModelPublicationSnapshot
@@ -232,12 +250,10 @@ func applyZTAPIXcloudPublication20261114(operator int, req ZTAPIXcloudPublicatio
 			if err := tx.First(previous, current.PublicationSnapshotID).Error; err != nil {
 				return err
 			}
-			if previous.PriceSourceID != priorSource.ID || previous.ModelVersion != current.Version || previous.ModelConfigID != current.ID ||
-				previous.SourceModel != current.SourceModel || previous.PublicName != current.PublicNameValue() ||
-				previous.Protocol != current.Protocol || previous.ProviderFamily != current.ProviderFamily || previous.EnabledGroups != current.EnabledGroups ||
-				!reflect.DeepEqual(previous.ChannelIDs(), q.channels()) || !isZTAPIDatedRetailPolicy20261107(priorSource.PricePolicy) ||
+			if previous.PriceSourceID != priorSource.ID || previous.ModelVersion != current.Version || previous.EnabledGroups != current.EnabledGroups ||
+				!ztapiXcloudPreviousPublication20261114(q, previous, &priorSource) ||
 				!ztapiPublicationPriceBasisPermittedTx(tx, &priorSource) {
-				return errors.New("active Sonnet publication differs from the reviewed price-only baseline")
+				return errors.New("active publication differs from the reviewed Xcloud transition baseline")
 			}
 		}
 		target, err := buildZTAPIXcloudSource20261114(q.source, operator)
@@ -355,9 +371,9 @@ func RestoreZTAPIXcloudPublication20261114(operator int, source string, version 
 			if err := tx.First(&old, audit.Original.PublicationSnapshotID).Error; err != nil {
 				return err
 			}
-			if old.ModelVersion != audit.Original.Version || old.ModelConfigID != q.id || old.PriceSourceID != originalSourceID ||
-				!reflect.DeepEqual(old.ChannelIDs(), q.channels()) || !ztapiPublicationPriceBasisPermittedTx(tx, &prior) {
-				return errors.New("original Sonnet publication cannot be restored")
+			if old.ModelVersion != audit.Original.Version || old.PriceSourceID != originalSourceID || old.EnabledGroups != audit.OriginalGroups ||
+				!ztapiXcloudPreviousPublication20261114(q, &old, &prior) || !ztapiPublicationPriceBasisPermittedTx(tx, &prior) {
+				return errors.New("original Xcloud transition publication cannot be restored")
 			}
 			old.ID, old.ModelVersion, old.PriceSourceID, old.CreatedAt = 0, version+1, prior.ID, now
 			if err := tx.Create(&old).Error; err != nil {

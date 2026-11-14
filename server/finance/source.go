@@ -5,12 +5,25 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"gorm.io/gorm"
 	"sync"
 	"time"
+
+	mysqldriver "github.com/go-sql-driver/mysql"
+	"gorm.io/gorm"
 )
 
 const snapshotLimit = 50000
+
+const xcloudPriceSourceColumns = "id,version,created_at,model_config_id,source_model,resource_type,price_policy,sale_multiplier," +
+	"cash_margin_base_source_id,token_price_rules_json,media_price_contract_json,spend_tier,billing_dimensions,currency," +
+	"input_per_million,output_per_million,cache_read_per_million,cache_write_per_million,cache_write5m_per_million,cache_write1h_per_million," +
+	"image_unit_cost,audio_unit_cost,request_unit_cost,cny_per_usd,fx_mode,platform_cny_per_unit,upstream_cny_per_usd," +
+	"quotation_effective_at,source_document_checksum,quotation_grade,quotation_cell,official_price_cell,quotation_model_code,operator_id"
+
+func isFinanceReadPermissionError(err error) bool {
+	var mysqlErr *mysqldriver.MySQLError
+	return errors.As(err, &mysqlErr) && (mysqlErr.Number == 1142 || mysqlErr.Number == 1143)
+}
 
 type Source interface {
 	Load(context.Context, time.Time) (Snapshot, error)
@@ -76,6 +89,16 @@ func (r *Reader) Load(ctx context.Context, before time.Time) (Snapshot, error) {
 		}
 		if e := bounded(tx, "channels", "id,name,base_url", &s.Channels, ""); e != nil {
 			return e
+		}
+		if tx.Migrator().HasTable("ztapi_model_price_sources") {
+			if e := bounded(tx, "ztapi_model_price_sources", xcloudPriceSourceColumns, &s.XcloudPriceSources,
+				"price_policy = ? AND created_at < ?", "xcloud_verified_20261114", before.Unix()); e != nil {
+				// An older column grant must not take the existing report offline.
+				if !isFinanceReadPermissionError(e) {
+					return e
+				}
+				s.XcloudPriceSources = nil
+			}
 		}
 		if e := bounded(tx, "ztapi_model_verifications", "id,channel_id,model_config_id,verified_at", &s.Verifications, "verified_at < ?", before.Unix()); e != nil {
 			return e

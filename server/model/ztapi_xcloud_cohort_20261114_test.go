@@ -73,6 +73,8 @@ func TestZTAPIXcloud20261114ExactRetailAndCosts(t *testing.T) {
 		{"claude-opus-4-7", "2.5000000000", "3.9000000000", "19.5000000000", "0.3900000000", "4.8750000000", "7.8000000000"},
 		{"claude-opus-4-8", "2.5000000000", "3.9000000000", "19.5000000000", "0.3900000000", "4.8750000000", "7.8000000000"},
 		{"claude-sonnet-4-6", "1.5000000000", "2.3400000000", "11.7000000000", "0.2340000000", "2.9250000000", "4.6800000000"},
+		{"claude-opus-5-5", "3.6000000000", "4.4471000000", "22.2353000000", "0.2224000000", "5.5589000000", "8.8942000000"},
+		{"claude-sonnet-5-5", "1.8000000000", "2.2236000000", "7.8000000000", "0.1112000000", "2.7795000000", "4.4471000000"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.model, func(t *testing.T) {
@@ -90,7 +92,7 @@ func TestZTAPIXcloud20261114ExactRetailAndCosts(t *testing.T) {
 			require.Error(t, ValidateZTAPIModelPriceSource(&source))
 		})
 	}
-	_, err := buildZTAPIXcloudSource20261114("claude-opus-5-5", 9)
+	_, err := buildZTAPIXcloudSource20261114("kimi-k3", 9)
 	require.Error(t, err)
 }
 
@@ -138,6 +140,16 @@ func TestZTAPIXcloud20261114PublishDraftAndRestore(t *testing.T) {
 			map[string]string{"input_tokens": "1.5600000000", "output_tokens": "9.3600000000", "cache_read": "1.5600000000", "cache_write": "1.9500000000"},
 			map[string]string{"input_tokens": "3.1200000000", "output_tokens": "14.0400000000", "cache_read": "3.1200000000", "cache_write": "3.9000000000"})
 	})
+	t.Run("sonnet55", func(t *testing.T) {
+		testZTAPIXcloud20261114PublishDraftAndRestore(t, "claude-sonnet-5-5", []int{2, 6}, "claude-sonnet-5-5-hc",
+			map[string]string{"input_tokens": "2.2236000000", "output_tokens": "7.8000000000", "cache_read": "0.1112000000",
+				"cache_write_5m": "2.7795000000", "cache_write_1h": "4.4471000000"})
+	})
+	t.Run("opus55", func(t *testing.T) {
+		testZTAPIXcloud20261114PublishDraftAndRestore(t, "claude-opus-5-5", []int{2, 6}, "claude-opus-5-5-hc",
+			map[string]string{"input_tokens": "4.4471000000", "output_tokens": "22.2353000000", "cache_read": "0.2224000000",
+				"cache_write_5m": "5.5589000000", "cache_write_1h": "8.8942000000"})
+	})
 }
 
 func testZTAPIXcloud20261114PublishDraftAndRestore(t *testing.T, source string, expectedChannels []int, backupPhysical string, expectedPrices ...map[string]string) {
@@ -161,11 +173,21 @@ func testZTAPIXcloud20261114PublishDraftAndRestore(t *testing.T, source string, 
 	require.NoError(t, f.db.Create(&identity).Error)
 	previous := f.price
 	previous.ID, previous.ModelConfigID, previous.SourceModel = 0, q.id, q.source
+	if source == "claude-opus-5-5" {
+		previous, err = BuildZTAPISupplierAdmissionTextPriceSource20261019("Claude Opus 5.5", q.id, 9, 1794593243, platformFXParamsForTest("6.63", "6.7208"))
+		require.NoError(t, err)
+		previous.Version = 1
+		preview, err := BuildZTAPIModelPricePreview(&previous)
+		require.NoError(t, err)
+		require.NoError(t, applyZTAPICommercialPreview(&config, preview))
+	}
 	require.NoError(t, f.db.Create(&previous).Error)
 	v := f.verification
 	v.ID, v.ModelConfigID, v.ChannelID = 0, q.id, channel.Id
 	require.NoError(t, f.db.Create(&v).Error)
 	req := ZTAPIXcloudPublication20261114{SourceModel: q.source, Version: config.Version, SourceID: previous.ID, VerificationID: v.ID}
+	var original *ZTAPIModelPublicationSnapshot
+	var originalPublicPrices []ZTAPIPublicTokenPriceRule
 	_, err = ApplyZTAPIXcloudPublication20261114(9, req)
 	require.Error(t, err, "fresh discovery is required")
 	var sources int64
@@ -190,6 +212,24 @@ func testZTAPIXcloud20261114PublishDraftAndRestore(t *testing.T, source string, 
 		backupV := v
 		backupV.ID, backupV.ChannelID, backupV.VerifiedAt = 0, backup.Id, time.Now().Add(-48*time.Hour).Unix()
 		require.NoError(t, f.db.Create(&backupV).Error)
+		if source == "claude-opus-5-5" {
+			original, err = createZTAPIModelPublicationSnapshotTx(f.db, &config, config.Version, ztapiPublicationEvidence{
+				PriceSourceID: previous.ID, AllowedChannelIDs: []int{backup.Id}, VerificationIDs: []int64{backupV.ID},
+				IdentityUpdatedAt: identity.UpdatedAt,
+			})
+			require.NoError(t, err)
+			config.Published, config.PublicationSnapshotID = true, original.ID
+			require.NoError(t, f.db.Save(&config).Error)
+			rows, err := loadZTAPIQuotedPublications(f.db)
+			require.NoError(t, err)
+			public := buildZTAPIPublicCatalog(rows)
+			require.Len(t, public, 1)
+			originalPublicPrices = public[0].TokenPriceRules
+			require.NotEmpty(t, originalPublicPrices)
+			_, err = ApplyZTAPIXcloudPublication20261114(9, req)
+			require.Error(t, err, "an in-place migration requires the old snapshot ID")
+			req.SnapshotID = original.ID
+		}
 		_, err = ApplyZTAPIXcloudPublication20261114(9, req)
 		require.Error(t, err, "stale backup cannot publish")
 		require.NoError(t, f.db.Model(&backupV).Update("verified_at", time.Now().Unix()).Error)
@@ -210,11 +250,15 @@ func testZTAPIXcloud20261114PublishDraftAndRestore(t *testing.T, source string, 
 		require.NoError(t, err)
 		require.Len(t, publications, 1)
 		require.Equal(t, q.public, publications[0].PublicName)
+		require.Equal(t, expectedChannels, publications[0].AllowedChannelIDs)
 		return blocked
 	})
 	require.ErrorIs(t, err, blocked)
 	require.NoError(t, f.db.Model(&ZTAPIModelPriceSource{}).Where("model_config_id = ?", q.id).Count(&sources).Error)
 	require.EqualValues(t, 1, sources)
+	var saved ZTAPIModelConfig
+	require.NoError(t, f.db.First(&saved, q.id).Error)
+	require.Equal(t, config.PublicationSnapshotID, saved.PublicationSnapshotID)
 	result, err := ApplyZTAPIXcloudPublication20261114(9, req)
 	require.NoError(t, err)
 	require.Equal(t, expectedChannels, result.ChannelIDs())
@@ -244,7 +288,20 @@ func testZTAPIXcloud20261114PublishDraftAndRestore(t *testing.T, source string, 
 	require.ErrorIs(t, err, ErrZTAPIModelVersionConflict)
 	require.NoError(t, RestoreZTAPIXcloudPublication20261114(9, q.source, result.ModelVersion, result.ID))
 	require.NoError(t, f.db.First(&config, q.id).Error)
-	require.False(t, config.Published)
+	if original == nil {
+		require.False(t, config.Published)
+	} else {
+		require.True(t, config.Published, "rollback must not remove an existing model")
+		var restored ZTAPIModelPublicationSnapshot
+		require.NoError(t, f.db.First(&restored, config.PublicationSnapshotID).Error)
+		require.Equal(t, original.ChannelIDs(), restored.ChannelIDs())
+		require.Equal(t, original.TokenPriceRulesJSON, restored.TokenPriceRulesJSON)
+		rows, err := loadZTAPIQuotedPublications(f.db)
+		require.NoError(t, err)
+		public := buildZTAPIPublicCatalog(rows)
+		require.Len(t, public, 1)
+		require.Equal(t, originalPublicPrices, public[0].TokenPriceRules)
+	}
 	require.NoError(t, f.db.First(&ZTAPIModelPublicationSnapshot{}, result.ID).Error, "in-flight snapshots remain readable")
 	downgrade, err = CheckZTAPIXcloudDowngrade20261114()
 	require.NoError(t, err)
@@ -268,6 +325,12 @@ func TestZTAPIXcloud20261114RouteRequiresExactSupplierProduct(t *testing.T) {
 	require.Error(t, ValidateZTAPIXcloudRoute20261114("claude-haiku-4-5-20251001", 2, "https://ai.yunxinapi.com/hub", "claude-haiku-4-5-20251001-hc"))
 	require.NoError(t, ValidateZTAPIXcloudRoute20261114("claude-opus-4-8", 2, "https://ai.yunxinapi.com/hub", "claude-opus-4-8-hc"))
 	require.Error(t, ValidateZTAPIXcloudRoute20261114("claude-opus-4-8", 1, "https://ai.yunxinapi.com/hub", "claude-opus-4-8-hc"))
+	for _, source := range []string{"claude-opus-5-5", "claude-sonnet-5-5"} {
+		require.NoError(t, ValidateZTAPIXcloudRoute20261114(source, 6, "https://www.xcloudtoken.com", source))
+		require.Error(t, ValidateZTAPIXcloudRoute20261114(source, 4, "https://www.xcloudtoken.com", source))
+		require.NoError(t, ValidateZTAPIXcloudRoute20261114(source, 2, "https://ai.yunxinapi.com/hub", source+"-hc"))
+		require.Error(t, ValidateZTAPIXcloudRoute20261114(source, 2, "https://ai.yunxinapi.com/hub", source))
+	}
 }
 
 func TestZTAPIXcloud20261114PriceImportRequiresControlledPublisher(t *testing.T) {

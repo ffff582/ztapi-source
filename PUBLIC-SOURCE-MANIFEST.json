@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "76eb896048ee080c2495a60066e1e97dbc5d09d1",
+  "release_commit": "e6f93949e8ee15fc92e6929a985443456bad2ae6",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-76eb896048ee080c2495a60066e1e97dbc5d09d1",
+  "source_tag": "production-e6f93949e8ee15fc92e6929a985443456bad2ae6",
   "files": [
     {
       "path": ".dockerignore",
@@ -31,8 +31,8 @@
     },
     {
       "path": ".github/workflows/ztapi-financial-ci.yml",
-      "sha256": "3cbed65155e33d0f95d8c062cd10689a2c243fbf16a1587f510e7f95cd3daeaf",
-      "size": 16953
+      "sha256": "2c8e6f91290fdf4ee9ea358f4b1b4a317af8e7780327149f05077a0734f8e137",
+      "size": 17000
     },
     {
       "path": ".github/workflows/ztapi-production-alert-acceptance.yml",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "2e66e66a9d8c9156b54960bb1566b514577e030691da99768625abd20f0f54f1",
+      "sha256": "4c8ce67df555d856564946ba0268840cc03a47c5dba92aa20576ac5e12debe60",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "1035e62d60d5e572f1fb730ddff024f32e398c849cf7f6fc26a59eb8f09d950a",
+      "sha256": "efcc63f393a7245963c732c38f33b243d0881cbced27ebc7b0383e20930f82bd",
       "size": 942
     },
     {
@@ -2381,8 +2381,8 @@
     },
     {
       "path": "server/finance/accounting.go",
-      "sha256": "472bd5580c0ef42b71698223612bfa40454bc4a1a7bafa1efe5efc40974fd63d",
-      "size": 39722
+      "sha256": "a85249739419acc57af423df39a3543cee6b12b292c52743c8a55c12b56cc6ae",
+      "size": 40283
     },
     {
       "path": "server/finance/accounting_test.go",
@@ -2526,8 +2526,8 @@
     },
     {
       "path": "server/finance/source.go",
-      "sha256": "6b4f5b57baa5ca5c43c00ece683272033980cc310cf39e5b543786e743a39ce6",
-      "size": 4122
+      "sha256": "72542df3e93830f6799de1bb76ea98ef631d76563199cbccac007ec7ffff3efe",
+      "size": 5434
     },
     {
       "path": "server/finance/source_test.go",
@@ -2576,13 +2576,18 @@
     },
     {
       "path": "server/finance/types.go",
-      "sha256": "fb0987d5c051c3b66dff1f154db5231b06d737cab6bae69e9868e4866651a4d0",
-      "size": 11562
+      "sha256": "5ef47866b562224fd2b714bf2ff657bd7a7b0ec8f5224ebd00ec81d79b7a8db7",
+      "size": 11664
+    },
+    {
+      "path": "server/finance/xcloud_cohort_estimate_test.go",
+      "sha256": "ab487b3e5fc4a682c1f687a779a76148cf833aa97e67008f9e25c10387b3495e",
+      "size": 5312
     },
     {
       "path": "server/finance/xcloud_pricing.go",
-      "sha256": "879f9a22a6b189be789537c7405095e814f87b98f224e5bd6821a484b10b1e25",
-      "size": 9457
+      "sha256": "e27ff44ad65aff9c184be2ae2f42b9fd992c7e9c68b3ebaf80adbee826ad4770",
+      "size": 11887
     },
     {
       "path": "server/finance/xcloud_pricing_test.go",
@@ -4221,13 +4226,13 @@
     },
     {
       "path": "server/model/ztapi_xcloud_cohort_20261114.go",
-      "sha256": "1c937d2c17318aeedeb7e41c8f75791f9665b178fdae5322fccb19b4e313ed65",
-      "size": 14217
+      "sha256": "d8824b9c2dfca9f5ae94cbef3474387c21727baa27d7931e75f25c2305b54f02",
+      "size": 17820
     },
     {
       "path": "server/model/ztapi_xcloud_cohort_20261114_test.go",
-      "sha256": "dafe8f0e975a7e0f3dc498ec8f7539099b6f548b35861d7a31e1ff6a56125058",
-      "size": 16945
+      "sha256": "7d81e8357e39e285ce9f7c8be8a1f5448bbcfdd2b58a1accd8c9a801a6a30f57",
+      "size": 20543
     },
     {
       "path": "server/model/ztapi_xcloud_glm53.go",
@@ -4241,8 +4246,8 @@
     },
     {
       "path": "server/model/ztapi_xcloud_publication_20261114.go",
-      "sha256": "8a32edd022ca4ce15e285c85ba96111c40f5fd0950dcd23291526d2af1161a8c",
-      "size": 18162
+      "sha256": "7a40c885d0ceb68787804699f7c1082f53397c24579081aae9d5df116df33c5b",
+      "size": 18827
     },
     {
       "path": "server/model/ztapi_xcloud_routing_test.go",
@@ -5661,8 +5666,8 @@
     },
     {
       "path": "server/relay/common/ztapi_xcloud_usage_test.go",
-      "sha256": "c628827e88b4ecbd84d2bb227ae93c477cc68de6251537738232f6d8e3c80d17",
-      "size": 15996
+      "sha256": "0169f0489a96281899c69e5a16e4a3d785e3467b97ea48e92ace944c5ea1b44f",
+      "size": 18382
     },
     {
       "path": "server/relay/common_handler/rerank.go",

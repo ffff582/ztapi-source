@@ -263,7 +263,7 @@ jobs:
 
       - name: Verify frozen Xcloud quotes and supplier attribution
         working-directory: server
-        run: go test ./finance -run '^TestFinance(UsesExactFrozenXcloudQuoteAndActualChannel|XcloudEstimateWithholdsProfitWhenEarlierAttemptIsUnpriced)$' -count=1
+        run: go test ./finance -run '^TestFinance(UsesExactFrozenXcloudQuoteAndActualChannel|XcloudEstimateWithholdsProfitWhenEarlierAttemptIsUnpriced|XcloudCohortUsesHistoricalQuoteAndWinningRoute)$' -count=1
 
       - name: Stop isolated cached MySQL
         if: always()

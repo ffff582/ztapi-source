@@ -4,6 +4,7 @@ package finance
 import (
 	"time"
 
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/support"
 )
 
@@ -74,6 +75,7 @@ type Snapshot struct {
 	Charges             []Charge
 	Refunds             []Refund
 	Verifications       []Verification
+	XcloudPriceSources  []model.ZTAPIModelPriceSource `json:"-"`
 }
 type Verification struct {
 	ID            int64

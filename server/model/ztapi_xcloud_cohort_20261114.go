@@ -4,6 +4,7 @@ import (
 	"errors"
 	"math/big"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -61,6 +62,12 @@ func ztapiXcloudQuote20261114(source string) (ztapiXcloudCohortQuote20261114, er
 	case "claude-sonnet-5":
 		return ztapiXcloudCohortQuote20261114{55, 4, 2, source, "zt-claude-sonnet-5", ZTAPIProviderAnthropic, "claude-max", "claude-sonnet-5-hc",
 			claudeDimensions, []string{"2", "10", "0.2", "2.5", "4"}, []string{"1.0018", "6.4853", "0.139", "1.7603", "2.5015"}, "", nil, nil}, nil
+	case "claude-opus-5-5":
+		return ztapiXcloudCohortQuote20261114{126, 6, 2, source, "zt-claude-opus-5.5", ZTAPIProviderAnthropic, "new-vip", source + "-hc",
+			claudeDimensions, []string{"7.2", "36", "0.36", "9", "14.4"}, []string{"3.12", "15.6", "0.156", "3.9", "6.24"}, "E30", nil, nil}, nil
+	case "claude-sonnet-5-5":
+		return ztapiXcloudCohortQuote20261114{128, 6, 2, source, "zt-claude-sonnet-5.5", ZTAPIProviderAnthropic, "new-vip", source + "-hc",
+			claudeDimensions, []string{"3.6", "3.6", "0.18", "4.5", "7.2"}, []string{"1.56", "7.8", "0.078", "1.95", "3.12"}, "E28", nil, nil}, nil
 	case "deepseek-v4.1-flash":
 		return ztapiXcloudCohortQuote20261114{156, 8, 0, source, "zt-deepseek-v4.1-flash", ZTAPIProviderDeepSeek, "cn", "",
 			dimensions, []string{"0.084", "0.3", "0.0018"}, []string{"0.06552", "0.234", "0.00234"}, "", nil, nil}, nil
@@ -123,6 +130,11 @@ func ztapiXcloudChannelPhysical20261114(channel *Channel, source string) (string
 }
 
 func buildZTAPIXcloudSource20261114(source string, operator int) (ZTAPIModelPriceSource, error) {
+	return ZTAPIXcloudPriceEvidence20261114(source, operator)
+}
+
+// ZTAPIXcloudPriceEvidence20261114 constructs the deterministic quote, not a publication.
+func ZTAPIXcloudPriceEvidence20261114(source string, operator int) (ZTAPIModelPriceSource, error) {
 	q, err := ztapiXcloudQuote20261114(source)
 	if err != nil || operator <= 0 {
 		return ZTAPIModelPriceSource{}, errors.New("verified Xcloud model and operator required")
@@ -197,16 +209,22 @@ func ztapiXcloudBackupCosts20261114(q ztapiXcloudCohortQuote20261114) (map[strin
 
 func ztapiXcloudBackupTierCosts20261114(q ztapiXcloudCohortQuote20261114, tier int) (map[string]*big.Rat, error) {
 	costs := make(map[string]*big.Rat, len(q.dimensions))
-	if len(q.longRetail) != 0 {
+	admissionClaude := q.source == "claude-opus-5-5" || q.source == "claude-sonnet-5-5"
+	if len(q.longRetail) != 0 || admissionClaude {
 		_, row, found := ztapiSupplierAdmissionPriceForSource20261019(q.source)
-		if !found || q.backup != 2 || row.Cell != q.backupCell || len(row.Tiers) != 2 || tier < 0 || tier >= len(row.Tiers) || len(row.Tiers[tier]) != 4 {
+		dimensions := []string{ZTAPIBillingDimensionInputTokens, ZTAPIBillingDimensionCacheRead, ZTAPIBillingDimensionCacheWrite, ZTAPIBillingDimensionOutputTokens}
+		tierCount := 2
+		if admissionClaude {
+			tierCount = 1
+			dimensions = []string{ZTAPIBillingDimensionInputTokens, ZTAPIBillingDimensionCacheRead, ZTAPIBillingDimensionCacheWrite5m, ZTAPIBillingDimensionCacheWrite1h, ZTAPIBillingDimensionOutputTokens}
+		}
+		if !found || q.backup != 2 || row.Cell != q.backupCell || len(row.Tiers) != tierCount || tier < 0 || tier >= len(row.Tiers) || len(row.Tiers[tier]) != len(dimensions) {
 			return nil, errors.New("Yunxin tiered quotation changed")
 		}
 		fraction, ok := new(big.Rat).SetString(row.Fraction)
 		if !ok || fraction.Sign() <= 0 || fraction.Cmp(big.NewRat(1, 1)) > 0 {
 			return nil, errors.New("invalid Yunxin tiered purchase fraction")
 		}
-		dimensions := []string{ZTAPIBillingDimensionInputTokens, ZTAPIBillingDimensionCacheRead, ZTAPIBillingDimensionCacheWrite, ZTAPIBillingDimensionOutputTokens}
 		for i, dimension := range dimensions {
 			price, ok := new(big.Rat).SetString(row.Tiers[tier][i])
 			if !ok || price.Sign() <= 0 {
@@ -285,6 +303,68 @@ func ztapiXcloudRules20261114(source *ZTAPIModelPriceSource) (map[string]decimal
 		}
 	}
 	return sale, nil
+}
+
+// ZTAPIXcloudQuotedCost20261114 prices the actual channel using only the
+// approved immutable price source, never the retail rate or latest catalog.
+func ZTAPIXcloudQuotedCost20261114(source *ZTAPIModelPriceSource, public string, channels []int, channel int, baseURL string, usage map[string]int64) (decimal.Decimal, error) {
+	if source == nil {
+		return decimal.Zero, errors.New("missing frozen Xcloud source")
+	}
+	q, err := ztapiXcloudQuote20261114(source.SourceModel)
+	if err != nil || public != q.public || !reflect.DeepEqual(channels, q.channels()) || len(usage) == 0 {
+		return decimal.Zero, errors.New("Xcloud quote does not match the frozen route set")
+	}
+	if _, err := ztapiXcloudRules20261114(source); err != nil {
+		return decimal.Zero, err
+	}
+	baseURL = strings.TrimRight(baseURL, "/")
+	backup := q.backup != 0 && channel == q.backup && baseURL == "https://ai.yunxinapi.com/hub"
+	if !backup && (channel != q.primary || baseURL != "https://www.xcloudtoken.com") {
+		return decimal.Zero, errors.New("Xcloud quote does not match the actual supplier")
+	}
+	tier := 0
+	if len(q.longRetail) != 0 {
+		prompt := decimal.NewFromInt(usage[ZTAPIBillingDimensionInputTokens]).Add(decimal.NewFromInt(usage[ZTAPIBillingDimensionCacheRead])).Add(decimal.NewFromInt(usage[ZTAPIBillingDimensionCacheWrite]))
+		if prompt.GreaterThan(decimal.NewFromInt(272000)) {
+			tier = 1
+		}
+	}
+	credits := q.groupedCredits
+	if tier > 0 && len(q.longCredits) != 0 {
+		credits = q.longCredits
+	}
+	var backupCosts map[string]*big.Rat
+	if backup {
+		backupCosts, err = ztapiXcloudBackupTierCosts20261114(q, tier)
+		if err != nil {
+			return decimal.Zero, err
+		}
+	}
+	cost := new(big.Rat)
+	for i, d := range q.dimensions {
+		quantity, ok := usage[d]
+		if !ok {
+			continue
+		}
+		if quantity < 0 {
+			return decimal.Zero, errors.New("negative supplier usage")
+		}
+		rate := decimal.RequireFromString(credits[i]).Shift(-6).Div(decimal.NewFromInt(2)).Rat()
+		if backup {
+			if backupCosts[d] == nil {
+				return decimal.Zero, errors.New("missing quoted Yunxin cost")
+			}
+			rate = new(big.Rat).Quo(backupCosts[d], big.NewRat(1_000_000, 1))
+		}
+		cost.Add(cost, rate.Mul(rate, big.NewRat(quantity, 1)))
+	}
+	for d := range usage {
+		if !slices.Contains(q.dimensions, d) {
+			return decimal.Zero, errors.New("unquoted supplier usage")
+		}
+	}
+	return decimal.NewFromBigRat(cost, 16), nil
 }
 
 func ztapiValidateXcloudSnapshot20261114(source *ZTAPIModelPriceSource, snapshot *ZTAPIModelPublicationSnapshot) error {
