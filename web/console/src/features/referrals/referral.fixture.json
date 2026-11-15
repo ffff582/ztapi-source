@@ -1,0 +1,27 @@
+{
+  "campaign": {
+    "enabled": true,
+    "accepting_invites": true,
+    "started_at": "2026-11-08T00:00:00Z",
+    "rate": "0.05",
+    "freeze_days": 7,
+    "term_months": 12,
+    "minimum_withdrawal": "20.000000",
+    "network": "TRC20",
+    "blocked_reasons": []
+  },
+  "invite_code": "zt-ref-abc",
+  "invite_url": "/register?invite=zt-ref-abc",
+  "summary": {
+    "invited_count": 3,
+    "total_commission": "150.123456",
+    "frozen_commission": "30.000000",
+    "available_commission": "50.123456",
+    "withdrawal_reserved": "40.000000",
+    "paid_commission": "30.000000",
+    "manual_loss": "0.000000"
+  },
+  "commissions": [],
+  "withdrawals": [],
+  "server_time": "2026-11-08T08:00:00Z"
+}
