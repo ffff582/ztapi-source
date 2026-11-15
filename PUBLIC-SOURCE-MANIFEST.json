@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "79243ddf6a7d0bdf534ff3cdf3f66e9d68b8b94c",
+  "release_commit": "d57e00183ca5bc7fff3c5b0b789a8d890fab2ebc",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-79243ddf6a7d0bdf534ff3cdf3f66e9d68b8b94c",
+  "source_tag": "production-d57e00183ca5bc7fff3c5b0b789a8d890fab2ebc",
   "files": [
     {
       "path": ".dockerignore",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "c58c4c719e22e5a3e7a31d6e0a6dd86b6c23ba7d632e3f76862da233f14ac632",
+      "sha256": "dce6648354c5d27f3dbc85fe9f7325d477a3f5143834065516a35acd34b21718",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "45a56d1989729c0ba3816a5fea4ae346294c51f7f32c0acdcc2bb87bc626b5b8",
+      "sha256": "da8325e4ec24e37afb359df82a0022c47f978b3a76fff54b1fec447781b649df",
       "size": 942
     },
     {
@@ -6176,8 +6176,8 @@
     },
     {
       "path": "server/router/ztapi_workbench_native_relay_test.go",
-      "sha256": "33fe85856c99d2df12b5e1ef172226d5a2a7eaf212789e0bd6cb7c0bebe3fd0b",
-      "size": 48495
+      "sha256": "1db331cda314bd838a75425f7ba8190d42719f1f8d9b67bd8aff47341f188523",
+      "size": 49754
     },
     {
       "path": "server/router/ztapi_workbench_nginx_fixture_test.go",
@@ -6705,6 +6705,16 @@
       "size": 53991
     },
     {
+      "path": "server/service/ztapi_billing_response_id.go",
+      "sha256": "0fda56eb3b59aceb3579fe3fd3964cafde95b97328cbba22f655b88424b5fec9",
+      "size": 541
+    },
+    {
+      "path": "server/service/ztapi_billing_response_id_test.go",
+      "sha256": "3013b770ea1afc6396f8c62aa4c40451d60d2c27ec4e1ec856ebfc465c3c7409",
+      "size": 1668
+    },
+    {
       "path": "server/service/ztapi_captcha.go",
       "sha256": "e13877459c8e73fa6ed16763212fe562930cc263864c99c3a08a757ecd497b58",
       "size": 7037
@@ -6766,8 +6776,8 @@
     },
     {
       "path": "server/service/ztapi_durable_billing.go",
-      "sha256": "95afd332c8ed36b872156a0f84f0ad0b081f0f961513f8688d8c2bb07b6705d9",
-      "size": 15945
+      "sha256": "ba9f1a6f2a6635671d9aea986396690456842583695b45f57a2afda4578b1177",
+      "size": 16287
     },
     {
       "path": "server/service/ztapi_durable_billing_test.go",

@@ -33,21 +33,27 @@ import (
 )
 
 // Check the configured supplier identity before forwarding to a local fixture.
-type workbenchGLM53Fixture struct {
+type workbenchXcloudLoopback struct {
 	target *url.URL
 	local  partialImageLoopbackTransport
+	path   string
 }
 
-func (f workbenchGLM53Fixture) RoundTrip(req *http.Request) (*http.Response, error) {
-	if req.URL.String() != "https://www.xcloudtoken.com/v1/responses" {
+func (f workbenchXcloudLoopback) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Method != http.MethodPost || req.URL.String() != "https://www.xcloudtoken.com"+f.path {
 		f.local.blocked.Add(1)
-		return nil, errors.New("unexpected GLM-5.3 test destination")
+		return nil, errors.New("unexpected Xcloud loopback test destination")
 	}
 	copyReq := req.Clone(req.Context())
 	copyURL := *req.URL
 	copyURL.Scheme, copyURL.Host = f.target.Scheme, f.target.Host
 	copyReq.URL, copyReq.Host = &copyURL, f.target.Host
-	return f.local.RoundTrip(copyReq)
+	resp, err := f.local.RoundTrip(copyReq)
+	if resp != nil {
+		// Preserve the virtual supplier identity while all HTTP stays on loopback.
+		resp.Request = req
+	}
+	return resp, err
 }
 
 func TestZTAPIWorkbenchNativeRelayLoopback(t *testing.T) {
@@ -116,6 +122,13 @@ func testZTAPIWorkbenchRelayLoopback(t *testing.T, source, upstreamPath, mode st
 	proofScenario := strings.TrimPrefix(mode, "rc10-first-party-proof-")
 	if proofScenario == mode {
 		proofScenario = ""
+	}
+	xcloudReceipt := firstPartyProof && source == "claude-fable-5" && proofScenario == "long"
+	supplierID := func(hit int32) string {
+		if xcloudReceipt {
+			return fmt.Sprintf("%027dAaBbCcDdEeFf", hit)
+		}
+		return fmt.Sprintf("resp_r36_loopback_%d", hit)
 	}
 	rc10Proof := firstPartyProof || mode == "rc10-proof"
 	pilotMode := ""
@@ -201,10 +214,14 @@ func testZTAPIWorkbenchRelayLoopback(t *testing.T, source, upstreamPath, mode st
 			w.WriteHeader(400)
 			return
 		}
-		id := fmt.Sprintf("resp_r36_loopback_%d", hit)
+		id := supplierID(hit)
 		measured.Store(id, outboundSize{len(b), max(request.MaxOutput, request.MaxTokens, request.MaxCompletions)})
 		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("X-Request-ID", id)
+		if xcloudReceipt {
+			w.Header().Set(common.RequestIdKey, id)
+		} else {
+			w.Header().Set("X-Request-ID", id)
+		}
 		wire := string(b)
 		if strings.Contains(wire, "r37-flow-fixture") || strings.Contains(wire, "r37-child-fixture") ||
 			strings.Contains(wire, "This is a small synthetic addition bug.") || strings.Contains(wire, "r37-short-child-") ||
@@ -263,10 +280,10 @@ func testZTAPIWorkbenchRelayLoopback(t *testing.T, source, upstreamPath, mode st
 	transport := &http.Transport{Proxy: nil}
 	guard := partialImageLoopbackTransport{url: upstream.URL, base: transport, blocked: &blocked}
 	httpClient.Transport = guard
-	if source == "glm-5.3" {
+	if source == "glm-5.3" || xcloudReceipt {
 		target, err := url.Parse(upstream.URL)
 		require.NoError(t, err)
-		httpClient.Transport = workbenchGLM53Fixture{target: target, local: guard}
+		httpClient.Transport = workbenchXcloudLoopback{target: target, local: guard, path: upstreamPath}
 	}
 	t.Cleanup(func() { httpClient.Transport = oldTransport; transport.CloseIdleConnections() })
 	user := model.User{Username: "r36-native", AffCode: "r36-native", Status: common.UserStatusEnabled, Role: common.RoleCommonUser, Group: "default", Quota: 1000000}
@@ -287,7 +304,7 @@ func testZTAPIWorkbenchRelayLoopback(t *testing.T, source, upstreamPath, mode st
 	}
 	require.NoError(t, db.Create(&key).Error)
 	baseURL := upstream.URL + upstreamPrefix
-	if source == "glm-5.3" {
+	if source == "glm-5.3" || xcloudReceipt {
 		baseURL = "https://www.xcloudtoken.com"
 	}
 	channel := model.Channel{Id: channelID, Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled, Name: "r36-loopback-only", Key: "synthetic-not-a-provider-key", BaseURL: &baseURL, Models: source, Group: "default"}
@@ -663,7 +680,10 @@ func testZTAPIWorkbenchRelayLoopback(t *testing.T, source, upstreamPath, mode st
 			require.NoError(t, db.Where("settlement_id = ?", row.ID).Take(&attempt).Error)
 			require.Equal(t, channel.Id, attempt.ChannelID)
 			require.Equal(t, upstreamPath, attempt.Protocol)
-			require.Equal(t, "resp_r36_loopback_1", attempt.UpstreamRequestID)
+			require.Equal(t, supplierID(1), attempt.UpstreamRequestID)
+			if xcloudReceipt {
+				require.NotEqual(t, attempt.UpstreamRequestID, headers.Get(common.RequestIdKey))
+			}
 			require.Equal(t, 200, attempt.HTTPStatus)
 			if accountFlow {
 				t.Run("reconcile-snapshot", func(t *testing.T) {
@@ -688,6 +708,9 @@ func testZTAPIWorkbenchRelayLoopback(t *testing.T, source, upstreamPath, mode st
 					receiptFile := filepath.Join(snapshotDir, "synthetic-receipt.json")
 					require.NoError(t, os.WriteFile(receiptFile, raw, 0600))
 					auditor := os.Getenv("R37_RC10_TASK_AUDITOR")
+					if xcloudReceipt {
+						require.NotEmpty(t, auditor, "RC18 requires the single-receipt snapshot audit too")
+					}
 					if auditor == "" {
 						t.Skip("requires the desktop acceptance receipt auditor")
 					}
@@ -952,6 +975,9 @@ func testZTAPIWorkbenchRelayLoopback(t *testing.T, source, upstreamPath, mode st
 				auditor := filepath.Join("..", "..", "reconcile-acceptance.mjs")
 				if rc10Proof {
 					runner, auditor = os.Getenv("R37_RC10_TASK_RUNNER"), os.Getenv("R37_RC10_TASK_AUDITOR")
+					if xcloudReceipt {
+						runner, auditor = os.Getenv("R37_RC18_TASK_RUNNER"), os.Getenv("R37_RC18_TASK_AUDITOR")
+					}
 					require.True(t, filepath.IsAbs(runner) && filepath.IsAbs(auditor))
 					if source == "claude-fable-5" {
 						username, quota = "r37-fable-qa", 500000
@@ -999,6 +1025,7 @@ func testZTAPIWorkbenchRelayLoopback(t *testing.T, source, upstreamPath, mode st
 				var outbound []outboundSize
 				route := map[string]any{"channelId": channel.Id, "supplier": "synthetic", "group": "default", "model": supplierModel, "unit": "fixture-credits"}
 				var receipts []map[string]any
+				seenSupplierIDs := make(map[string]bool)
 				for _, row := range rows {
 					require.Equal(t, model.ZTAPISettlementSettled, row.Status)
 					require.Equal(t, public, row.PublicModel)
@@ -1007,6 +1034,12 @@ func testZTAPIWorkbenchRelayLoopback(t *testing.T, source, upstreamPath, mode st
 					require.Len(t, attempts, 1)
 					attempt := attempts[0]
 					require.Equal(t, upstreamPath, attempt.Protocol)
+					if xcloudReceipt {
+						require.Equal(t, channel.Id, attempt.ChannelID)
+						require.NotEmpty(t, attempt.UpstreamRequestID)
+						require.False(t, seenSupplierIDs[attempt.UpstreamRequestID], "one supplier receipt per dispatch")
+						seenSupplierIDs[attempt.UpstreamRequestID] = true
+					}
 					measurement, ok := measured.Load(attempt.UpstreamRequestID)
 					require.True(t, ok)
 					outbound = append(outbound, measurement.(outboundSize))

@@ -292,6 +292,14 @@ func ObserveZTAPIBillingResponse(info *relaycommon.RelayInfo, response *http.Res
 				break
 			}
 		}
+		if req := response.Request; id == "" && s.row.WorkbenchTaskID != "" && req != nil && req.URL != nil && req.URL.User == nil {
+			u := req.URL
+			alias := ztapiXcloudWorkbenchRequestID(req.Method, u.Scheme, u.Host, u.EscapedPath(),
+				response.Header.Values(common.RequestIdKey))
+			if safeUpstreamRequestID(alias) {
+				id = alias
+			}
+		}
 	}
 	return model.RecordZTAPIRequestAttemptResponse(s.row.OperationID, s.attempt.Attempt, s.attempt.ChannelID, response.StatusCode, id)
 }
