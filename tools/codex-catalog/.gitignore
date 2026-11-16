@@ -1,0 +1,5 @@
+/.cache/
+/.tmp/
+/codex-catalog
+/codex-catalog.exe
+/coverage.out

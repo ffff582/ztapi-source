@@ -1,0 +1,118 @@
+name: ZTAPI Production Alert Acceptance
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ztapi-production-alert-acceptance
+  cancel-in-progress: false
+
+jobs:
+  verify_production_alert:
+    name: Verify deployed Telegram outbox delivery
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    env:
+      ZTAPI_ADMIN_USERNAME: ${{ secrets.ZTAPI_ADMIN_USERNAME }}
+      ZTAPI_ADMIN_PASSWORD: ${{ secrets.ZTAPI_ADMIN_PASSWORD }}
+    steps:
+      - name: Trigger and verify production-code alert
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+
+          test -n "$ZTAPI_ADMIN_USERNAME"
+          test -n "$ZTAPI_ADMIN_PASSWORD"
+
+          login_file="$RUNNER_TEMP/ztapi-admin-login.json"
+          login_status=$(curl --silent --show-error --max-time 30 \
+            --output "$login_file" --write-out '%{http_code}' \
+            --header 'Content-Type: application/json' \
+            --data-binary "$(jq -nc \
+              --arg username "$ZTAPI_ADMIN_USERNAME" \
+              --arg password "$ZTAPI_ADMIN_PASSWORD" \
+              '{username:$username,password:$password}')" \
+            https://admin.ztapi.vip/api/auth/login)
+          test "$login_status" = 200
+          jq -e '.success == true and .data.user.role == 100' "$login_file" >/dev/null
+
+          admin_access_token=$(jq -er '.data.access_token' "$login_file")
+          admin_user_id=$(jq -er '.data.user.id' "$login_file")
+          echo "::add-mask::$admin_access_token"
+          rm -f "$login_file"
+
+          operation_id=$(cat /proc/sys/kernel/random/uuid)
+          create_file="$RUNNER_TEMP/ztapi-alert-create.json"
+          create_status=$(curl --silent --show-error --max-time 30 \
+            --output "$create_file" --write-out '%{http_code}' \
+            --header 'Content-Type: application/json' \
+            --header "Authorization: Bearer $admin_access_token" \
+            --header "New-API-User: $admin_user_id" \
+            --data-binary "$(jq -nc --arg operation_id "$operation_id" '{operation_id:$operation_id}')" \
+            https://admin.ztapi.vip/api/models/ztapi/health/test-alert)
+          test "$create_status" = 200
+          jq -e --arg operation_id "$operation_id" \
+            '.success == true and .data.operation_id == $operation_id and .data.kind == "alert_test"' \
+            "$create_file" >/dev/null
+
+          receipt_file="$RUNNER_TEMP/ztapi-telegram-production-path-receipt.json"
+          poll_file="$RUNNER_TEMP/ztapi-alert-poll.json"
+          for attempt in $(seq 1 40); do
+            poll_status=$(curl --silent --show-error --max-time 30 \
+              --output "$poll_file" --write-out '%{http_code}' \
+              --header "Authorization: Bearer $admin_access_token" \
+              --header "New-API-User: $admin_user_id" \
+              "https://admin.ztapi.vip/api/models/ztapi/health/test-alert/$operation_id")
+            test "$poll_status" = 200
+            status=$(jq -er '.data.status' "$poll_file")
+            if [ "$status" = done ]; then
+              jq -e '
+                .data as $d
+                | ($d.delivery_receipt | fromjson) as $receipt
+                | {
+                    operation_id: $d.operation_id,
+                    outbox_id: $d.id,
+                    status: $d.status,
+                    attempts: $d.attempts,
+                    telegram_message_id: $receipt.result.message_id,
+                    telegram_delivery_timestamp: $receipt.result.date,
+                    delivered_at: $d.delivered_at,
+                    last_error: $d.last_error
+                  }
+                | select(
+                    .status == "done"
+                    and .outbox_id > 0
+                    and .attempts > 0
+                    and .telegram_message_id > 0
+                    and .telegram_delivery_timestamp >= 0
+                    and .delivered_at > 0
+                    and .last_error == ""
+                  )' "$poll_file" >"$receipt_file"
+              break
+            fi
+            test "$status" = pending -o "$status" = leased
+            sleep 5
+          done
+
+          test -s "$receipt_file"
+          echo 'Production-code Telegram receipt:'
+          cat "$receipt_file"
+          {
+            echo '### Production-code Telegram receipt'
+            echo '```json'
+            cat "$receipt_file"
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Upload redacted receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: ztapi-telegram-production-path-receipt
+          path: ${{ runner.temp }}/ztapi-telegram-production-path-receipt.json
+          if-no-files-found: error
+          retention-days: 30
