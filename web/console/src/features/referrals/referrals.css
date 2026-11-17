@@ -1,0 +1,80 @@
+.referral-page, .referral-page * { min-width: 0; letter-spacing: 0; }
+.referral-page { gap: 22px; color: var(--text); font-size: 14px; line-height: 1.6; }
+.referral-page h1 { margin: 0; font-size: 26px; line-height: 1.4; }
+.referral-page h2 { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font-size: 16px; line-height: 1.5; }
+.referral-page p { margin: 8px 0; overflow-wrap: anywhere; }
+.referral-page a { color: var(--brand); }
+.referral-page :focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
+.referral-heading, .referral-record-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.referral-heading p { margin: 3px 0 0; }
+.referral-section { padding-top: 18px; border-top: 1px solid var(--border); }
+.referral-muted { color: var(--text-2); font-size: 13px; }
+.referral-error { color: var(--danger); }
+.referral-warning { border-left: 3px solid var(--warning); padding: 6px 10px; color: var(--text-2); background: var(--surface-2); }
+.referral-notice { border-left: 3px solid var(--success); padding: 8px 12px; background: var(--surface-2); }
+.referral-notice.referral-error { border-color: var(--danger); }
+.referral-campaign-status { font-weight: 600; }
+.referral-blocks { padding-left: 20px; overflow-wrap: anywhere; }
+.referral-metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 18px; margin: 16px 0; }
+.referral-metrics dt { color: var(--text-2); font-size: 13px; }
+.referral-metrics dt small { display: block; font-size: 11px; }
+.referral-metrics dd { margin: 5px 0 0; font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.referral-invitation { display: grid; gap: 6px; max-width: 760px; margin-top: 16px; }
+.referral-invitation > label { font-size: 13px; }
+.referral-invite-row { display: grid; grid-template-columns: minmax(0, 1fr) 36px; align-items: center; gap: 8px; }
+.referral-invitation input, .referral-fields input { width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid var(--border-2); border-radius: 6px; background: var(--input); color: var(--text); font: inherit; }
+.referral-invitation input { font-size: 13px; }
+.referral-icon { display: inline-grid; place-items: center; width: 36px; height: 36px; flex: 0 0 36px; padding: 0; border: 1px solid var(--border); border-radius: 6px; color: var(--text-2); background: var(--surface); cursor: pointer; }
+.referral-icon:hover:not(:disabled) { color: var(--text); background: var(--surface-2); }
+.referral-icon:disabled, .referral-command:disabled, .referral-form fieldset:disabled { opacity: .55; cursor: default; }
+.referral-command { display: inline-flex; align-items: center; justify-content: center; gap: 8px; max-width: 100%; min-height: 38px; padding: 8px 12px; border: 1px solid transparent; border-radius: 6px; background: var(--action); color: var(--action-ink); font: inherit; font-size: 13px; line-height: 1.5; white-space: normal; overflow-wrap: anywhere; cursor: pointer; }
+.referral-command > svg { flex: 0 0 16px; }
+.referral-command:hover:not(:disabled) { background: var(--action-hover); }
+.referral-command--secondary { border-color: var(--border-2); background: var(--surface); color: var(--text-2); }
+.referral-command--secondary:hover:not(:disabled) { background: var(--surface-2); }
+.referral-pagination, .referral-retry { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+.referral-pagination > span { margin-right: auto; font-size: 12px; color: var(--text-2); overflow-wrap: anywhere; }
+.referral-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; }
+.referral-table th { color: var(--text-2); font-weight: 500; text-align: left; }
+.referral-table th, .referral-table td { padding: 10px 8px; vertical-align: top; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.referral-table th:first-child, .referral-table td:first-child { padding-left: 0; }
+.referral-table th:last-child, .referral-table td:last-child { padding-right: 0; }
+.referral-table small { display: block; margin-top: 5px; color: var(--text-2); font-size: 11px; }
+.referral-form fieldset { border: 0; padding: 0; margin: 0; }
+.referral-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 20px; max-width: 840px; }
+.referral-fields label { display: grid; align-content: start; gap: 6px; font-size: 13px; }
+.referral-form .referral-command { margin-top: 8px; }
+.referral-withdrawals { list-style: none; margin: 0; padding: 0; }
+.referral-withdrawals > li { padding: 16px 0; border-bottom: 1px solid var(--border); }
+.referral-record-heading { justify-content: flex-start; flex-wrap: wrap; font-size: 13px; }
+.referral-record-heading > time { margin-left: auto; color: var(--text-2); font-size: 12px; }
+.referral-status { overflow-wrap: anywhere; }
+.referral-status--paid { color: var(--success); }
+.referral-status--submitted_unknown, .referral-status--manual_review { color: var(--warning); }
+.referral-record-amounts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; max-width: 720px; margin: 12px 0; }
+.referral-record-amounts dt, .referral-record-details dt { color: var(--text-2); font-size: 12px; }
+.referral-record-amounts dd { font-variant-numeric: tabular-nums; }
+.referral-record-amounts dd, .referral-record-details dd { margin: 4px 0 0; overflow-wrap: anywhere; }
+.referral-record-details { display: grid; gap: 10px; font-size: 13px; }
+.referral-record-details code { font-family: var(--font-mono); font-size: 12px; overflow-wrap: anywhere; }
+.referral-acknowledgement { display: flex; align-items: flex-start; gap: 8px; margin: 12px 0; font-size: 13px; overflow-wrap: anywhere; }
+.referral-acknowledgement input { flex: 0 0 16px; width: 16px; height: 16px; margin-top: 3px; accent-color: var(--action); }
+.referral-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.referral-spinner { animation: referral-spin 1s linear infinite; }
+@keyframes referral-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .referral-spinner { animation: none; } }
+@media (max-width: 1000px) { .referral-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 760px) {
+  .referral-page h1 { font-size: 24px; }
+  .referral-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 12px; }
+  .referral-metrics dd { font-size: 18px; }
+  .referral-fields, .referral-record-amounts { grid-template-columns: minmax(0, 1fr); }
+  .referral-record-amounts > div { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+  .referral-record-amounts dd { margin: 0; text-align: right; }
+  .referral-record-heading > time { width: 100%; margin-left: 0; }
+  .referral-table thead { display: none; }
+  .referral-table, .referral-table tbody, .referral-table tr, .referral-table td { display: block; }
+  .referral-table tr { padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .referral-table td, .referral-table td:first-child, .referral-table td:last-child { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 10px; padding: 5px 0; border: 0; }
+  .referral-table td::before { content: attr(data-label); color: var(--text-2); }
+}
