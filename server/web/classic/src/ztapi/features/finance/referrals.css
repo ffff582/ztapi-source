@@ -1,0 +1,34 @@
+.referral-page { min-width: 0; }
+.referral-page h2, .referral-summary h2 { margin: 0; font-size: 16px; letter-spacing: 0; }
+.referral-admin-summary { padding-block: 16px; }
+.referral-admin-summary dl { padding-block: 12px; }
+.referral-admin-summary dd { overflow-wrap: anywhere; }
+.referral-summary, .referral-readiness { padding-block: 20px; border-bottom: 1px solid #dce2e8; }
+.referral-readiness h2 { margin-bottom: 12px; }
+.referral-readiness li { overflow-wrap: anywhere; }
+.referral-blocked { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 26px; padding-left: 20px; }
+.referral-blocked small, .referral-worker-error small { display: block; margin-top: 4px; color: #647180; }
+.referral-worker-error { max-width: 100%; overflow-wrap: anywhere; }
+.referral-page .finance-table-wrap { max-width: 100%; }
+.referral-page table { min-width: 1080px; }
+.referral-page .referral-identity { min-width: 160px; max-width: 240px; white-space: normal; overflow-wrap: anywhere; }
+.referral-row-actions { display: flex; gap: 6px; min-height: 36px; }
+.referral-row-actions button { width: 36px; height: 36px; padding: 0; flex-shrink: 0; }
+.referral-filters label { display: flex; align-items: center; gap: 8px; }
+.referral-dialog label { display: flex; flex-direction: column; gap: 6px; margin-block: 12px; }
+.referral-dialog fieldset { border: 0; padding: 0; min-width: 0; }
+.referral-dialog textarea { min-height: 76px; max-width: 100%; resize: vertical; padding: 8px; border: 1px solid #c6d0da; border-radius: 5px; font: inherit; }
+.referral-amounts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.referral-amounts > div { min-width: 0; }
+.referral-amounts > div:last-child { grid-column: 1 / -1; }
+.referral-amounts dt { color: #647180; }
+.referral-amounts dd { margin: 6px 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.referral-summary .finance-secondary > div { min-width: 0; flex-wrap: wrap; }
+.referral-summary dd, .referral-summary p { overflow-wrap: anywhere; }
+@media (max-width: 540px) {
+  .referral-blocked { grid-template-columns: minmax(0, 1fr); }
+  .referral-amounts { grid-template-columns: minmax(0, 1fr); }
+  .referral-dialog footer { gap: 8px; }
+  .referral-dialog footer button { white-space: normal; }
+  .referral-page .finance-status { flex-wrap: wrap; }
+}

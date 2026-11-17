@@ -1,0 +1,2334 @@
+:root {
+  color: #172033;
+  background: #f4f6f8;
+  font-family: Inter, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  min-width: 320px;
+  background: #f4f6f8;
+}
+button,
+input,
+select {
+  font: inherit;
+}
+.ztapi-admin-app {
+  min-height: 100vh;
+}
+.ztapi-admin-sidebar {
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: 20;
+  display: flex;
+  width: 240px;
+  flex-direction: column;
+  border-right: 1px solid #dce2e8;
+  background: #ffffff;
+}
+.ztapi-admin-brand {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  padding: 20px;
+  color: #0c3c56;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+.ztapi-admin-brand-mark {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  place-items: center;
+  border-radius: 6px;
+  color: #ffffff;
+  background: #087ea4;
+}
+.ztapi-admin-brand-mark svg {
+  width: 18px;
+  height: 18px;
+}
+.ztapi-admin-navigation {
+  display: grid;
+  gap: 2px;
+  padding: 4px 10px;
+}
+.ztapi-admin-nav-link {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  gap: 10px;
+  overflow: hidden;
+  padding: 0 10px;
+  border-radius: 6px;
+  color: #536170;
+  font-size: 14px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.ztapi-admin-nav-link:hover {
+  color: #075d7d;
+  background: #edf7fa;
+}
+.ztapi-admin-nav-link.is-active {
+  color: #075d7d;
+  background: #dff2f7;
+  font-weight: 600;
+}
+.ztapi-admin-nav-link svg {
+  flex: 0 0 auto;
+}
+.ztapi-admin-header {
+  position: fixed;
+  top: 0;
+  right: 0;
+  left: 240px;
+  z-index: 10;
+  display: flex;
+  height: 56px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 22px;
+  border-bottom: 1px solid #dce2e8;
+  background: #ffffff;
+}
+.ztapi-admin-environment {
+  padding: 3px 8px;
+  border: 1px solid #b9dbe5;
+  border-radius: 6px;
+  color: #075d7d;
+  background: #eff9fb;
+  font-size: 12px;
+  line-height: 18px;
+}
+.ztapi-admin-header-actions,
+.ztapi-admin-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ztapi-admin-control {
+  position: relative;
+}
+.ztapi-admin-icon-button,
+.ztapi-admin-account-button,
+.ztapi-admin-account-menu button {
+  border: 0;
+  border-radius: 6px;
+  color: #425264;
+  background: transparent;
+  cursor: pointer;
+}
+.ztapi-admin-icon-button {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+}
+.ztapi-admin-icon-button:hover,
+.ztapi-admin-account-button:hover {
+  background: #edf1f4;
+}
+.ztapi-admin-account-button {
+  display: flex;
+  max-width: 168px;
+  min-height: 34px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+}
+.ztapi-admin-account-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ztapi-admin-account-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  min-width: 190px;
+  padding: 6px;
+  border: 1px solid #dce2e8;
+  border-radius: 6px;
+  color: #425264;
+  background: #ffffff;
+  box-shadow: 0 8px 18px rgb(23 32 51 / 12%);
+  font-size: 13px;
+}
+.ztapi-admin-account-menu {
+  display: grid;
+  gap: 2px;
+}
+.ztapi-admin-account-menu a,
+.ztapi-admin-account-menu button {
+  display: block;
+  width: 100%;
+  padding: 8px;
+  color: #425264;
+  font-size: 13px;
+  text-align: left;
+  text-decoration: none;
+}
+.ztapi-admin-account-menu a:hover,
+.ztapi-admin-account-menu button:hover {
+  color: #075d7d;
+  background: #edf7fa;
+}
+.ztapi-admin-menu-toggle {
+  display: none;
+}
+.ztapi-admin-content {
+  min-height: 100vh;
+  margin-left: 240px;
+  padding: 80px 32px 32px;
+}
+.ztapi-admin-page,
+.ztapi-admin-not-found,
+.ztapi-admin-login {
+  width: min(100%, 1120px);
+}
+.ztapi-admin-page h1,
+.ztapi-admin-not-found h1,
+.ztapi-admin-login h1 {
+  margin: 0;
+  color: #172033;
+  font-size: 22px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+.ztapi-admin-page p,
+.ztapi-admin-not-found p {
+  margin: 8px 0 0;
+  color: #687687;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.ztapi-admin-login {
+  margin: 72px auto;
+}
+.ztapi-admin-login form {
+  display: grid;
+  width: min(100%, 360px);
+  gap: 8px;
+  margin-top: 20px;
+}
+.ztapi-admin-login input {
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid #bfc9d4;
+  border-radius: 6px;
+  color: #172033;
+  background: #ffffff;
+}
+.ztapi-admin-login button {
+  min-height: 38px;
+  border: 0;
+  border-radius: 6px;
+  color: #ffffff;
+  background: #087ea4;
+  cursor: pointer;
+}
+.ztapi-admin-login button:hover {
+  background: #066887;
+}
+.ztapi-admin-login [role='alert'] {
+  margin: 0;
+  color: #b42318;
+  font-size: 13px;
+}
+.ztapi-admin-drawer-layer {
+  display: none;
+}
+@media (max-width: 768px) {
+  .ztapi-admin-sidebar {
+    display: none;
+  }
+  .ztapi-admin-header {
+    left: 0;
+    padding: 0 12px;
+  }
+  .ztapi-admin-menu-toggle {
+    display: grid;
+  }
+  .ztapi-admin-environment {
+    margin-right: auto;
+  }
+  .ztapi-admin-content {
+    margin-left: 0;
+    padding: 72px 16px 24px;
+  }
+  .ztapi-admin-drawer-layer {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    display: block;
+  }
+  .ztapi-admin-drawer-backdrop {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    border: 0;
+    background: rgb(23 32 51 / 36%);
+  }
+  .ztapi-admin-drawer {
+    position: relative;
+    display: flex;
+    width: min(82vw, 288px);
+    min-height: 100%;
+    flex-direction: column;
+    border-right: 1px solid #dce2e8;
+    background: #ffffff;
+  }
+  .ztapi-admin-drawer-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-right: 10px;
+  }
+}
+@media (max-width: 390px) {
+  .ztapi-admin-account-button {
+    max-width: 92px;
+  }
+  .ztapi-admin-environment {
+    padding-right: 5px;
+    padding-left: 5px;
+  }
+  .ztapi-admin-content {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+}
+@media (max-width: 340px) {
+  .ztapi-admin-environment {
+    display: none;
+  }
+  .ztapi-admin-header {
+    gap: 4px;
+    justify-content: flex-start;
+  }
+  .ztapi-admin-header-actions {
+    margin-left: auto;
+  }
+}
+
+.ztapi-overview-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.ztapi-overview-refresh,
+.ztapi-overview-error button {
+  min-height: 34px;
+  border: 1px solid #087ea4;
+  border-radius: 6px;
+  color: #075d7d;
+  background: #ffffff;
+  cursor: pointer;
+}
+.ztapi-overview-refresh {
+  padding: 0 10px;
+}
+.ztapi-overview-stat-band {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  margin-top: 20px;
+  border: 1px solid #dce2e8;
+  border-radius: 6px;
+  background: #ffffff;
+}
+.ztapi-overview-stat {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  padding: 14px;
+  border-right: 1px solid #e5eaef;
+}
+.ztapi-overview-stat:last-child {
+  border-right: 0;
+}
+.ztapi-overview-stat strong {
+  overflow: hidden;
+  color: #172033;
+  font-size: 20px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+}
+.ztapi-overview-stat span,
+.ztapi-overview-list small,
+.ztapi-overview-empty-list {
+  color: #687687;
+  font-size: 12px;
+}
+.ztapi-overview-empty {
+  margin-top: 16px !important;
+}
+.ztapi-overview-panel {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid #dce2e8;
+  border-radius: 6px;
+  background: #ffffff;
+}
+.ztapi-overview-panel h2 {
+  margin: 0;
+  color: #172033;
+  font-size: 14px;
+  font-weight: 650;
+}
+.ztapi-overview-chart {
+  margin-top: 16px;
+}
+.ztapi-overview-chart dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 14px 0 0;
+}
+.ztapi-overview-chart dl div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ztapi-overview-chart dt {
+  color: #687687;
+  font-size: 13px;
+}
+.ztapi-overview-chart dd {
+  margin: 0;
+  color: #172033;
+  font-size: 18px;
+  font-weight: 650;
+}
+.ztapi-overview-chart-points {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+.ztapi-overview-chart-point {
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr) 86px;
+  align-items: center;
+  gap: 10px;
+  color: #687687;
+  font-size: 12px;
+}
+.ztapi-overview-chart-point strong {
+  color: #425264;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: right;
+}
+.ztapi-overview-chart-track {
+  display: grid;
+  gap: 3px;
+}
+.ztapi-overview-chart-track i {
+  display: block;
+  min-width: 0;
+  height: 5px;
+  border-radius: 3px;
+}
+.ztapi-overview-chart-track .is-requests {
+  background: #087ea4;
+}
+.ztapi-overview-chart-track .is-quota {
+  background: #c28f33;
+}
+.ztapi-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+.ztapi-overview-list {
+  display: grid;
+  gap: 0;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.ztapi-overview-list li {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-top: 1px solid #edf1f4;
+  color: #425264;
+  font-size: 13px;
+}
+.ztapi-overview-list small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ztapi-overview-empty-list {
+  margin: 12px 0 0 !important;
+}
+.ztapi-overview-skeleton-band,
+.ztapi-overview-skeleton-main {
+  border-radius: 6px;
+  background: #e7edf1;
+}
+.ztapi-overview-skeleton-band {
+  height: 78px;
+}
+.ztapi-overview-skeleton-main {
+  height: 248px;
+  margin-top: 16px;
+}
+.ztapi-overview-error [role='alert'] {
+  color: #b42318;
+}
+@media (max-width: 1024px) {
+  .ztapi-overview-stat-band {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .ztapi-overview-stat:nth-child(3n) {
+    border-right: 0;
+  }
+  .ztapi-overview-stat:nth-child(-n + 3) {
+    border-bottom: 1px solid #e5eaef;
+  }
+}
+@media (max-width: 600px) {
+  .ztapi-overview-heading {
+    display: grid;
+  }
+  .ztapi-overview-refresh {
+    width: fit-content;
+  }
+  .ztapi-overview-stat-band,
+  .ztapi-overview-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ztapi-overview-stat:nth-child(n) {
+    border-right: 1px solid #e5eaef;
+    border-bottom: 1px solid #e5eaef;
+  }
+  .ztapi-overview-stat:nth-child(2n) {
+    border-right: 0;
+  }
+  .ztapi-overview-stat:nth-last-child(-n + 2) {
+    border-bottom: 0;
+  }
+  .ztapi-overview-chart dl {
+    grid-template-columns: 1fr;
+  }
+  .ztapi-overview-chart-point {
+    grid-template-columns: 72px minmax(0, 1fr);
+  }
+  .ztapi-overview-chart-point strong {
+    grid-column: 2;
+    text-align: left;
+  }
+  .ztapi-overview-grid {
+    gap: 12px;
+  }
+}
+
+.ztapi-channel-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.ztapi-channel-primary-button,
+.ztapi-channel-secondary-button,
+.ztapi-channel-search button,
+.ztapi-channel-empty button {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.ztapi-channel-primary-button {
+  border: 1px solid #087ea4;
+  color: #ffffff;
+  background: #087ea4;
+}
+.ztapi-channel-primary-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+.ztapi-channel-secondary-button,
+.ztapi-channel-empty button {
+  border: 1px solid #bfc9d4;
+  color: #425264;
+  background: #ffffff;
+}
+.ztapi-channel-readonly {
+  padding: 4px 8px;
+  border: 1px solid #d4dbe2;
+  border-radius: 6px;
+  color: #687687;
+  background: #ffffff;
+  font-size: 12px;
+}
+.ztapi-channel-search {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  width: min(100%, 620px);
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
+  padding-left: 10px;
+  border: 1px solid #bfc9d4;
+  border-radius: 6px;
+  background: #ffffff;
+}
+.ztapi-channel-search input {
+  min-width: 0;
+  height: 38px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+}
+.ztapi-channel-search button {
+  min-height: 38px;
+  border: 0;
+  border-left: 1px solid #dce2e8;
+  border-radius: 0 5px 5px 0;
+  color: #075d7d;
+  background: #eff9fb;
+}
+.ztapi-channel-notice,
+.ztapi-channel-empty {
+  margin-top: 14px !important;
+  padding: 10px 12px;
+  border: 1px solid #dce2e8;
+  border-radius: 6px;
+  background: #ffffff;
+}
+.ztapi-channel-discovery-comparison {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) repeat(3, auto);
+  align-items: center;
+  gap: 8px 16px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid #b8d4dd;
+  border-radius: 6px;
+  color: #425264;
+  background: #f2f9fb;
+  font-size: 13px;
+}
+.ztapi-channel-discovery-comparison strong {
+  color: #173748;
+}
+.ztapi-channel-discovery-comparison small {
+  grid-column: 1 / -1;
+  color: #6b7b88;
+}
+.ztapi-channel-table {
+  margin-top: 16px;
+  overflow: hidden;
+  border: 1px solid #dce2e8;
+  border-radius: 6px;
+  background: #ffffff;
+}
+.ztapi-channel-row {
+  display: grid;
+  grid-template-columns:
+    minmax(160px, 1.35fr) 86px 82px minmax(140px, 1fr)
+    minmax(132px, 0.9fr) 142px;
+  min-height: 58px;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  border-top: 1px solid #edf1f4;
+  color: #425264;
+  font-size: 13px;
+}
+.ztapi-channel-table.is-readonly .ztapi-channel-row {
+  grid-template-columns:
+    minmax(160px, 1.35fr) 86px 82px minmax(140px, 1fr)
+    minmax(132px, 0.9fr);
+}
+.ztapi-channel-row:first-child {
+  border-top: 0;
+}
+.ztapi-channel-table-head {
+  min-height: 40px;
+  color: #687687;
+  background: #f7f9fa;
+  font-size: 12px;
+  font-weight: 600;
+}
+.ztapi-channel-name {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+.ztapi-channel-name strong,
+.ztapi-channel-name small,
+.ztapi-channel-models > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ztapi-channel-name strong {
+  color: #172033;
+  font-weight: 650;
+}
+.ztapi-channel-name small {
+  color: #7a8795;
+}
+.ztapi-channel-models {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+.ztapi-channel-models small {
+  color: #087053;
+  font-size: 11px;
+}
+.ztapi-channel-status {
+  width: fit-content;
+  padding: 2px 7px;
+  border-radius: 5px;
+  color: #8b3a32;
+  background: #fdf0ee;
+  font-size: 12px;
+}
+.ztapi-channel-status.is-enabled {
+  color: #216e4e;
+  background: #eaf6f0;
+}
+.ztapi-channel-actions {
+  display: flex;
+  gap: 4px;
+}
+.ztapi-channel-actions button,
+.ztapi-channel-icon-button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  color: #425264;
+  background: transparent;
+  cursor: pointer;
+}
+.ztapi-channel-actions button:hover,
+.ztapi-channel-icon-button:hover {
+  color: #075d7d;
+  background: #edf7fa;
+}
+.ztapi-channel-dialog-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+.ztapi-channel-dialog-backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  border: 0;
+  background: rgb(23 32 51 / 42%);
+}
+.ztapi-channel-dialog {
+  position: relative;
+  width: min(100%, 520px);
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  border: 1px solid #dce2e8;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 18px 50px rgb(23 32 51 / 20%);
+}
+.ztapi-channel-dialog header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 15px 18px;
+  border-bottom: 1px solid #e5eaef;
+}
+.ztapi-channel-dialog h2 {
+  margin: 0;
+  color: #172033;
+  font-size: 17px;
+}
+.ztapi-channel-dialog form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 13px 14px;
+  padding: 18px;
+}
+.ztapi-channel-dialog label {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  color: #425264;
+  font-size: 13px;
+}
+.ztapi-channel-dialog label:nth-of-type(n + 3) {
+  grid-column: 1 / -1;
+}
+.ztapi-channel-dialog input,
+.ztapi-channel-dialog select {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 9px;
+  border: 1px solid #bfc9d4;
+  border-radius: 6px;
+  color: #172033;
+  background: #ffffff;
+}
+.ztapi-channel-form-hint {
+  grid-column: 1 / -1;
+  margin: -6px 0 0 !important;
+  font-size: 12px !important;
+}
+.ztapi-channel-dialog footer {
+  display: flex;
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 3px;
+}
+@media (max-width: 1080px) {
+  .ztapi-channel-row {
+    grid-template-columns:
+      minmax(150px, 1fr) 80px 78px minmax(115px, 0.8fr)
+      130px;
+  }
+  .ztapi-channel-row > :nth-child(4) {
+    display: none;
+  }
+}
+@media (max-width: 720px) {
+  .ztapi-channel-heading {
+    display: grid;
+  }
+  .ztapi-channel-primary-button {
+    width: fit-content;
+  }
+  .ztapi-channel-table-head {
+    display: none;
+  }
+  .ztapi-channel-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    padding: 12px;
+  }
+  .ztapi-channel-row > :nth-child(n) {
+    display: block;
+  }
+  .ztapi-channel-row > :nth-child(3),
+  .ztapi-channel-row > :nth-child(4),
+  .ztapi-channel-row > :nth-child(5) {
+    grid-column: 1;
+  }
+  .ztapi-channel-row > :nth-child(2),
+  .ztapi-channel-actions {
+    grid-column: 2;
+    grid-row: auto;
+  }
+  .ztapi-channel-table.is-readonly .ztapi-channel-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .ztapi-channel-actions {
+    justify-content: flex-end;
+  }
+  .ztapi-channel-discovery-comparison {
+    grid-template-columns: 1fr;
+  }
+  .ztapi-channel-discovery-comparison small {
+    grid-column: 1;
+  }
+}
+@media (max-width: 480px) {
+  .ztapi-channel-dialog form {
+    grid-template-columns: 1fr;
+  }
+  .ztapi-channel-dialog label:nth-of-type(n) {
+    grid-column: 1;
+  }
+  .ztapi-channel-form-hint,
+  .ztapi-channel-dialog footer {
+    grid-column: 1;
+  }
+}
+
+/* ZTAPI user and staff operations */
+.ztapi-users-page {
+  color: #172033;
+}
+.ztapi-user-page-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+.ztapi-user-page-heading h1 {
+  margin: 5px 0 4px;
+  font-size: 24px;
+  letter-spacing: 0;
+}
+.ztapi-user-page-heading p,
+.ztapi-user-drawer header p,
+.ztapi-user-modal header p {
+  margin: 0;
+  color: #6d7988;
+  font-size: 13px;
+}
+.ztapi-user-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #087ea4;
+  font-size: 12px;
+  font-weight: 650;
+}
+.ztapi-user-search {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  width: min(100%, 640px);
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  padding-left: 10px;
+  border: 1px solid #bfc9d4;
+  border-radius: 6px;
+  background: #ffffff;
+}
+.ztapi-user-search input {
+  min-width: 0;
+  height: 40px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+}
+.ztapi-user-search button {
+  height: 40px;
+  padding: 0 14px;
+  border: 0;
+  border-left: 1px solid #dce2e8;
+  border-radius: 0 5px 5px 0;
+  color: #075d7d;
+  background: #eff9fb;
+  cursor: pointer;
+}
+.ztapi-user-state,
+.ztapi-user-empty {
+  margin: 16px 0 0;
+  color: #6d7988;
+}
+.ztapi-user-error {
+  margin: 0;
+  color: #b42318;
+  font-size: 13px;
+}
+.ztapi-user-table,
+.ztapi-staff-table {
+  margin-top: 16px;
+  overflow: hidden;
+  border: 1px solid #dce2e8;
+  border-radius: 6px;
+  background: #ffffff;
+}
+.ztapi-user-row,
+.ztapi-staff-row {
+  display: grid;
+  min-height: 58px;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  border-top: 1px solid #edf1f4;
+  color: #425264;
+  font-size: 13px;
+}
+.ztapi-user-row {
+  grid-template-columns:
+    minmax(170px, 1.4fr) 92px 72px minmax(90px, 0.7fr)
+    minmax(120px, 0.8fr) 40px;
+}
+.ztapi-staff-row {
+  grid-template-columns: minmax(190px, 1.4fr) 120px 90px 40px;
+}
+.ztapi-user-row:first-child,
+.ztapi-staff-row:first-child {
+  border-top: 0;
+}
+.ztapi-user-table-head {
+  min-height: 40px;
+  color: #687687;
+  background: #f7f9fa;
+  font-size: 12px;
+  font-weight: 650;
+}
+.ztapi-user-identity {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+.ztapi-user-identity strong,
+.ztapi-user-identity small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ztapi-user-identity strong {
+  color: #172033;
+}
+.ztapi-user-identity small {
+  color: #7a8795;
+}
+.ztapi-user-row .is-enabled,
+.ztapi-staff-row .is-enabled {
+  color: #216e4e;
+}
+.ztapi-user-row .is-disabled,
+.ztapi-staff-row .is-disabled {
+  color: #8b3a32;
+}
+.ztapi-user-icon-button {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  color: #425264;
+  background: transparent;
+  cursor: pointer;
+}
+.ztapi-user-icon-button:hover {
+  color: #075d7d;
+  background: #edf7fa;
+}
+.ztapi-user-drawer-layer,
+.ztapi-user-modal-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  justify-content: flex-end;
+}
+.ztapi-user-modal-layer {
+  z-index: 80;
+  align-items: center;
+  justify-content: center;
+}
+.ztapi-user-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  border: 0;
+  background: rgb(23 32 51 / 44%);
+}
+.ztapi-user-drawer,
+.ztapi-user-modal {
+  position: relative;
+  overflow: auto;
+  background: #ffffff;
+  box-shadow: -14px 0 36px rgb(23 32 51 / 16%);
+}
+.ztapi-user-drawer {
+  width: min(100%, 620px);
+  height: 100%;
+  border-left: 1px solid #dce2e8;
+}
+.ztapi-user-modal {
+  width: min(calc(100% - 32px), 500px);
+  max-height: calc(100% - 32px);
+  border: 1px solid #dce2e8;
+  border-radius: 8px;
+  box-shadow: 0 18px 48px rgb(23 32 51 / 24%);
+}
+.ztapi-user-drawer > header,
+.ztapi-user-modal > header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 16px 18px;
+  border-bottom: 1px solid #e5eaef;
+  background: #ffffff;
+}
+.ztapi-user-drawer h2,
+.ztapi-user-modal h3 {
+  margin: 0 0 3px;
+  font-size: 18px;
+  letter-spacing: 0;
+}
+.ztapi-user-drawer-state,
+.ztapi-user-drawer-body,
+.ztapi-user-modal form {
+  padding: 18px;
+}
+.ztapi-user-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid #dce2e8;
+  border-radius: 6px;
+  background: #dce2e8;
+}
+.ztapi-user-detail-grid > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  padding: 10px 12px;
+  background: #ffffff;
+}
+.ztapi-user-detail-grid dt {
+  color: #7a8795;
+  font-size: 12px;
+}
+.ztapi-user-detail-grid dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #172033;
+  font-size: 13px;
+}
+.ztapi-user-remark {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-left: 3px solid #8bbac9;
+  color: #425264;
+  background: #f4f8fa;
+  font-size: 13px;
+}
+.ztapi-user-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+.ztapi-user-primary-button,
+.ztapi-user-secondary-button,
+.ztapi-user-danger-button {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.ztapi-user-primary-button {
+  border: 1px solid #087ea4;
+  color: #ffffff;
+  background: #087ea4;
+}
+.ztapi-user-secondary-button {
+  border: 1px solid #bfc9d4;
+  color: #425264;
+  background: #ffffff;
+}
+.ztapi-user-danger-button {
+  border: 1px solid #b42318;
+  color: #ffffff;
+  background: #b42318;
+}
+.ztapi-user-primary-button:disabled,
+.ztapi-user-danger-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.ztapi-user-inline-form,
+.ztapi-user-modal form {
+  display: grid;
+  gap: 13px;
+}
+.ztapi-user-inline-form {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid #e7c777;
+  border-radius: 6px;
+  background: #fff9e8;
+}
+.ztapi-user-inline-form label,
+.ztapi-user-modal form > label {
+  display: grid;
+  gap: 5px;
+  color: #425264;
+  font-size: 13px;
+}
+.ztapi-user-inline-form textarea,
+.ztapi-user-modal textarea,
+.ztapi-user-modal input,
+.ztapi-user-modal select {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 9px;
+  border: 1px solid #bfc9d4;
+  border-radius: 6px;
+  color: #172033;
+  background: #ffffff;
+}
+.ztapi-user-inline-form textarea,
+.ztapi-user-modal textarea {
+  min-height: 76px;
+  resize: vertical;
+}
+.ztapi-user-inline-form > div,
+.ztapi-user-modal footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.ztapi-user-form-note {
+  margin: 0;
+  color: #6d7988;
+  font-size: 12px;
+}
+.ztapi-role-impact {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid #acd2dc;
+  border-radius: 6px;
+  color: #075d7d;
+  background: #eff9fb;
+}
+.ztapi-role-impact p {
+  margin: 0;
+  font-size: 13px;
+}
+.ztapi-user-ledger {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #e5eaef;
+}
+.ztapi-user-ledger h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+.ztapi-user-ledger-list {
+  display: grid;
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid #dce2e8;
+  border-radius: 6px;
+  background: #dce2e8;
+}
+.ztapi-user-ledger-list article {
+  display: grid;
+  grid-template-columns: 72px 1fr auto;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 10px 12px;
+  background: #ffffff;
+  font-size: 13px;
+}
+.ztapi-user-ledger-list article strong {
+  color: #087ea4;
+}
+.ztapi-user-ledger-list article p {
+  grid-column: 2 / -1;
+  margin: 0;
+  color: #425264;
+}
+.ztapi-user-ledger-list article time {
+  color: #7a8795;
+  font-size: 12px;
+}
+@media (max-width: 900px) {
+  .ztapi-user-row {
+    grid-template-columns:
+      minmax(160px, 1.3fr) 88px 70px minmax(100px, 0.8fr)
+      40px;
+  }
+  .ztapi-user-row > :nth-child(4) {
+    display: none;
+  }
+}
+@media (max-width: 640px) {
+  .ztapi-user-table-head,
+  .ztapi-staff-row > :nth-child(3) {
+    display: none;
+  }
+  .ztapi-user-row,
+  .ztapi-staff-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 7px;
+    padding: 12px;
+  }
+  .ztapi-user-row > :nth-child(2),
+  .ztapi-user-row > :nth-child(3),
+  .ztapi-user-row > :nth-child(5),
+  .ztapi-staff-row > :nth-child(2) {
+    grid-column: 1;
+  }
+  .ztapi-user-row > :last-child,
+  .ztapi-staff-row > :last-child {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .ztapi-user-detail-grid {
+    grid-template-columns: 1fr;
+  }
+  .ztapi-user-ledger-list article {
+    grid-template-columns: 68px 1fr;
+  }
+  .ztapi-user-ledger-list article time,
+  .ztapi-user-ledger-list article p {
+    grid-column: 2;
+  }
+}
+
+.ztapi-model-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.ztapi-model-readonly,
+.ztapi-model-preview-summary,
+.ztapi-model-notice,
+.ztapi-model-empty {
+  border: 1px solid #dce2e8;
+  border-radius: 6px;
+  background: #ffffff;
+}
+.ztapi-model-readonly {
+  padding: 4px 8px;
+  color: #687687;
+  font-size: 12px;
+}
+.ztapi-model-preview-summary {
+  margin-top: 18px;
+  padding: 10px 12px;
+  color: #425264;
+  font-size: 13px;
+}
+.ztapi-model-preview-heading,
+.ztapi-model-preview-row {
+  display: grid;
+  align-items: center;
+  gap: 10px;
+}
+.ztapi-model-preview-heading {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.ztapi-model-preview-list {
+  margin-top: 10px;
+  border-top: 1px solid #e6ebef;
+}
+.ztapi-model-preview-row {
+  grid-template-columns: minmax(130px, 1fr) 80px minmax(180px, 1fr) minmax(
+      120px,
+      0.8fr
+    );
+  min-height: 36px;
+  border-bottom: 1px solid #eef1f4;
+}
+.ztapi-model-preview-row:last-child {
+  border-bottom: 0;
+}
+.ztapi-model-preview-summary strong {
+  color: #172033;
+  font-weight: 650;
+}
+.ztapi-model-preview-summary span {
+  color: #7a8795;
+  font-size: 12px;
+}
+.ztapi-model-search {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  width: min(100%, 620px);
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding-left: 10px;
+  border: 1px solid #bfc9d4;
+  border-radius: 6px;
+  background: #ffffff;
+}
+.ztapi-model-search input {
+  min-width: 0;
+  height: 38px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+}
+.ztapi-model-search button {
+  min-height: 38px;
+  padding: 0 12px;
+  border: 0;
+  border-left: 1px solid #dce2e8;
+  border-radius: 0 5px 5px 0;
+  color: #075d7d;
+  background: #eff9fb;
+  cursor: pointer;
+}
+.ztapi-model-notice,
+.ztapi-model-empty {
+  margin-top: 14px !important;
+  padding: 10px 12px;
+}
+.ztapi-model-empty button {
+  min-height: 32px;
+  margin-top: 8px;
+  border: 1px solid #087ea4;
+  border-radius: 6px;
+  color: #075d7d;
+  background: #ffffff;
+  cursor: pointer;
+}
+.ztapi-model-table {
+  margin-top: 16px;
+  overflow: hidden;
+  border: 1px solid #dce2e8;
+  border-radius: 6px;
+  background: #ffffff;
+}
+.ztapi-model-row {
+  display: grid;
+  grid-template-columns:
+    minmax(170px, 1.35fr) 72px minmax(112px, 0.8fr) minmax(150px, 1fr)
+    112px 76px 34px;
+  min-height: 58px;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 12px;
+  border-top: 1px solid #edf1f4;
+  color: #425264;
+  font-size: 13px;
+}
+.ztapi-model-table.is-readonly .ztapi-model-row {
+  grid-template-columns:
+    minmax(170px, 1.35fr) 72px minmax(112px, 0.8fr) minmax(150px, 1fr)
+    112px 76px;
+}
+.ztapi-model-row:first-child {
+  border-top: 0;
+}
+.ztapi-model-table-head {
+  min-height: 40px;
+  color: #687687;
+  background: #f7f9fa;
+  font-size: 12px;
+  font-weight: 600;
+}
+.ztapi-model-name {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+.ztapi-model-name strong,
+.ztapi-model-name small,
+.ztapi-model-prices {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ztapi-model-name strong {
+  color: #172033;
+  font-weight: 650;
+}
+.ztapi-model-name small {
+  color: #7a8795;
+}
+.ztapi-model-ready,
+.ztapi-model-published {
+  color: #216e4e;
+}
+.ztapi-model-blocked,
+.ztapi-model-draft {
+  color: #8b3a32;
+}
+.ztapi-model-icon-button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  color: #425264;
+  background: transparent;
+  cursor: pointer;
+}
+.ztapi-model-icon-button:hover {
+  color: #075d7d;
+  background: #edf7fa;
+}
+.ztapi-model-dialog-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  justify-content: flex-end;
+}
+.ztapi-model-dialog-backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  border: 0;
+  background: rgb(23 32 51 / 42%);
+}
+.ztapi-model-dialog {
+  position: relative;
+  width: min(100%, 620px);
+  height: 100%;
+  overflow: auto;
+  border-left: 1px solid #dce2e8;
+  background: #ffffff;
+  box-shadow: -14px 0 36px rgb(23 32 51 / 16%);
+}
+.ztapi-model-dialog header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 16px 18px;
+  border-bottom: 1px solid #e5eaef;
+  background: #ffffff;
+}
+.ztapi-model-dialog h2 {
+  margin: 0;
+  color: #172033;
+  font-size: 17px;
+}
+.ztapi-model-dialog header p {
+  margin: 3px 0 0;
+  font-size: 12px;
+}
+.ztapi-model-dialog form {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+.ztapi-model-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 13px 14px;
+}
+.ztapi-model-form-grid label,
+.ztapi-model-switch,
+.ztapi-model-warning label {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  color: #425264;
+  font-size: 13px;
+}
+.ztapi-model-wide-field {
+  grid-column: 1 / -1;
+}
+.ztapi-model-form-grid input,
+.ztapi-model-form-grid select {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 9px;
+  border: 1px solid #bfc9d4;
+  border-radius: 6px;
+  color: #172033;
+  background: #ffffff;
+}
+.ztapi-model-form-grid small {
+  color: #7a8795;
+}
+.ztapi-model-commercial-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #dce2e8;
+  border-radius: 6px;
+  color: #425264;
+  background: #f7f9fa;
+  font-size: 13px;
+}
+.ztapi-model-commercial-summary .is-ready {
+  color: #216e4e;
+}
+.ztapi-model-commercial-summary .is-blocked {
+  color: #8b3a32;
+}
+.ztapi-model-switch,
+.ztapi-model-warning label {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+}
+.ztapi-model-warning,
+.ztapi-model-conflict {
+  padding: 10px 12px;
+  border: 1px solid #e7c777;
+  border-radius: 6px;
+  background: #fff9e8;
+}
+.ztapi-model-warning p,
+.ztapi-model-conflict p,
+.ztapi-model-form-error {
+  margin: 0 0 8px !important;
+  color: #8a5b12 !important;
+  font-size: 13px !important;
+}
+.ztapi-model-conflict button {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #c28f33;
+  border-radius: 6px;
+  color: #6f4b11;
+  background: #ffffff;
+  cursor: pointer;
+}
+.ztapi-model-form-error {
+  color: #b42318 !important;
+}
+.ztapi-model-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 2px;
+}
+.ztapi-model-primary-button,
+.ztapi-model-secondary-button {
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.ztapi-model-primary-button {
+  border: 1px solid #087ea4;
+  color: #ffffff;
+  background: #087ea4;
+}
+.ztapi-model-primary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.ztapi-model-secondary-button {
+  border: 1px solid #bfc9d4;
+  color: #425264;
+  background: #ffffff;
+}
+@media (max-width: 1100px) {
+  .ztapi-model-row {
+    grid-template-columns:
+      minmax(150px, 1.2fr) 70px minmax(110px, 0.8fr)
+      minmax(140px, 1fr) 76px 34px;
+  }
+  .ztapi-model-row > :nth-child(5) {
+    display: none;
+  }
+}
+@media (max-width: 760px) {
+  .ztapi-model-heading,
+  .ztapi-model-preview-summary,
+  .ztapi-model-commercial-summary {
+    display: grid;
+  }
+  .ztapi-model-table-head {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .ztapi-model-preview-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .ztapi-model-preview-row > :nth-child(n + 3) {
+    grid-column: 1 / -1;
+  }
+  .ztapi-model-row,
+  .ztapi-model-table.is-readonly .ztapi-model-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    padding: 12px;
+  }
+  .ztapi-model-row > :nth-child(n) {
+    display: block;
+  }
+  .ztapi-model-row > :nth-child(2),
+  .ztapi-model-row > :nth-child(3),
+  .ztapi-model-row > :nth-child(4),
+  .ztapi-model-row > :nth-child(5),
+  .ztapi-model-row > :nth-child(6) {
+    grid-column: 1;
+  }
+  .ztapi-model-row > :last-child {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .ztapi-model-dialog {
+    width: min(100%, 560px);
+  }
+}
+
+.ztapi-model-state-summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(96px, 1fr));
+  gap: 0;
+  margin-top: 18px;
+  overflow: hidden;
+  border: 1px solid #d5dde5;
+  border-radius: 6px;
+  background: #ffffff;
+}
+.ztapi-model-state-summary button {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px;
+  border: 0;
+  border-right: 1px solid #e3e8ed;
+  color: #536272;
+  background: #ffffff;
+  cursor: pointer;
+}
+.ztapi-model-state-summary button:last-child {
+  border-right: 0;
+}
+.ztapi-model-state-summary button.is-active {
+  color: #075d7d;
+  background: #eef8fa;
+  box-shadow: inset 0 -2px #087ea4;
+}
+.ztapi-model-state-summary strong {
+  color: #172033;
+  font-size: 16px;
+}
+.ztapi-model-filterbar {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) repeat(3, minmax(150px, 0.35fr));
+  align-items: end;
+  gap: 10px;
+  margin-top: 14px;
+}
+.ztapi-model-filterbar > label:not(.ztapi-model-search) {
+  display: grid;
+  gap: 4px;
+  color: #687687;
+  font-size: 12px;
+}
+.ztapi-model-filterbar select {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 9px;
+  border: 1px solid #bfc9d4;
+  border-radius: 6px;
+  color: #172033;
+  background: #ffffff;
+}
+.ztapi-model-filterbar .ztapi-model-search {
+  width: 100%;
+  margin-top: 0;
+  box-sizing: border-box;
+  grid-template-columns: 18px minmax(0, 1fr);
+}
+.ztapi-model-evidence-row {
+  grid-template-columns:
+    minmax(170px, 1.25fr) minmax(125px, 0.75fr) 82px minmax(100px, 0.65fr)
+    minmax(150px, 0.9fr) minmax(170px, 1.2fr) 34px;
+}
+.ztapi-model-evidence-table.is-readonly .ztapi-model-evidence-row {
+  grid-template-columns:
+    minmax(170px, 1.25fr) minmax(125px, 0.75fr) 82px minmax(100px, 0.65fr)
+    minmax(150px, 0.9fr) minmax(170px, 1.2fr);
+}
+.ztapi-model-provider-cell {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+.ztapi-model-provider-cell strong {
+  color: #263445;
+  font-weight: 600;
+}
+.ztapi-model-provider-cell small {
+  overflow: hidden;
+  color: #7a8795;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ztapi-model-workflow-badge {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 24px;
+  align-items: center;
+  padding: 0 7px;
+  border: 1px solid #cbd5df;
+  border-radius: 4px;
+  color: #536272;
+  background: #f7f9fa;
+  font-size: 12px;
+}
+.ztapi-model-workflow-badge.is-priced,
+.ztapi-model-workflow-badge.is-verified {
+  border-color: #91c5b0;
+  color: #216e4e;
+  background: #f0f8f4;
+}
+.ztapi-model-workflow-badge.is-published {
+  border-color: #7fb8ca;
+  color: #075d7d;
+  background: #eef8fa;
+}
+.ztapi-model-blocker-summary {
+  overflow: hidden;
+  color: #7b4d24;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ztapi-model-workflow-dialog {
+  width: min(100%, 760px);
+}
+.ztapi-media-contract-dialog {
+  width: min(100%, 680px);
+}
+.ztapi-media-contract-body {
+  padding: 0 18px 28px;
+}
+.ztapi-media-contract-body > [role='status'],
+.ztapi-media-contract-body > [role='alert'] {
+  margin: 18px 0;
+}
+.ztapi-media-contract-section {
+  padding: 20px 0;
+  border-bottom: 1px solid #e3e8ed;
+}
+.ztapi-media-contract-section h3 {
+  margin: 0 0 14px;
+  color: #172033;
+  font-size: 14px;
+  letter-spacing: 0;
+}
+.ztapi-media-contract-section dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 22px;
+  margin: 0;
+}
+.ztapi-media-contract-section dl > div {
+  min-width: 0;
+}
+.ztapi-media-contract-section dt {
+  margin-bottom: 4px;
+  color: #748191;
+  font-size: 12px;
+}
+.ztapi-media-contract-section dd {
+  margin: 0;
+  color: #263445;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.ztapi-media-contract-code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+.ztapi-media-contract-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 18px !important;
+}
+.ztapi-media-contract-actions .ztapi-model-primary-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ztapi-model-workflow-body {
+  padding: 0 18px 28px;
+}
+.ztapi-model-workflow-section {
+  padding: 20px 0 22px;
+  border-bottom: 1px solid #e3e8ed;
+}
+.ztapi-model-workflow-section:last-of-type {
+  border-bottom: 0;
+}
+.ztapi-model-workflow-section form {
+  padding: 14px 0 0;
+}
+.ztapi-model-workflow-title {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+}
+.ztapi-model-workflow-title > span {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border: 1px solid #8dbdcb;
+  border-radius: 50%;
+  color: #075d7d;
+  background: #eef8fa;
+  font-size: 12px;
+  font-weight: 700;
+}
+.ztapi-model-workflow-title h3 {
+  margin: 1px 0 0;
+  color: #172033;
+  font-size: 15px;
+  letter-spacing: 0;
+}
+.ztapi-model-workflow-title p {
+  margin: 4px 0 0;
+  color: #748191;
+  font-size: 12px;
+}
+.ztapi-model-confirm,
+.ztapi-model-verification-row label,
+.ztapi-model-workflow-section > form > label:not(.ztapi-model-switch) {
+  display: grid;
+  gap: 5px;
+  color: #425264;
+  font-size: 13px;
+}
+.ztapi-model-confirm {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+}
+.ztapi-model-confirm input,
+.ztapi-model-switch input {
+  width: 16px;
+  height: 16px;
+}
+.ztapi-model-inline-actions,
+.ztapi-model-verification-row {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+}
+.ztapi-model-verification-row {
+  padding-top: 14px;
+}
+.ztapi-model-verification-row label {
+  flex: 1;
+}
+.ztapi-model-verification-row select,
+.ztapi-model-workflow-section > form > label > input {
+  width: 100%;
+  min-height: 38px;
+  box-sizing: border-box;
+  padding: 0 9px;
+  border: 1px solid #bfc9d4;
+  border-radius: 6px;
+  color: #172033;
+  background: #ffffff;
+}
+.ztapi-model-secondary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.ztapi-model-secondary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.ztapi-model-price-preview {
+  display: grid;
+  grid-template-columns: auto 1fr 1fr;
+  gap: 12px;
+  padding: 10px 12px;
+  border-left: 3px solid #087ea4;
+  color: #425264;
+  background: #f3f8fa;
+  font-size: 13px;
+}
+.ztapi-model-blocker-list {
+  display: grid;
+  gap: 6px;
+  margin: 14px 0 0;
+  padding: 10px 12px 10px 30px;
+  border-left: 3px solid #c27b37;
+  color: #74491f;
+  background: #fff8ef;
+  font-size: 13px;
+}
+.ztapi-model-gate-ready {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border-left: 3px solid #2f8b64;
+  color: #216e4e;
+  background: #f0f8f4;
+  font-size: 13px;
+}
+.ztapi-model-audit {
+  margin-top: 18px;
+  border-top: 1px solid #dce2e8;
+}
+.ztapi-model-audit > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 0 8px;
+}
+.ztapi-model-audit h2 {
+  margin: 0;
+  color: #263445;
+  font-size: 14px;
+  letter-spacing: 0;
+}
+.ztapi-model-audit > p {
+  color: #748191;
+  font-size: 13px;
+}
+.ztapi-model-audit-list {
+  border: 1px solid #dce2e8;
+  border-radius: 6px;
+  background: #ffffff;
+}
+.ztapi-model-audit-list > div {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(130px, 0.8fr) 90px 130px;
+  gap: 10px;
+  padding: 9px 12px;
+  border-top: 1px solid #edf1f4;
+  color: #647182;
+  font-size: 12px;
+}
+.ztapi-model-audit-list > div:first-child {
+  border-top: 0;
+}
+.ztapi-model-audit-list strong {
+  overflow: hidden;
+  color: #263445;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 1180px) {
+  .ztapi-model-filterbar {
+    grid-template-columns: minmax(240px, 1fr) repeat(3, minmax(130px, 0.4fr));
+  }
+  .ztapi-model-evidence-row,
+  .ztapi-model-evidence-table.is-readonly .ztapi-model-evidence-row {
+    grid-template-columns:
+      minmax(170px, 1.3fr) minmax(120px, 0.8fr)
+      82px minmax(100px, 0.7fr) minmax(160px, 1.1fr) 34px;
+  }
+  .ztapi-model-evidence-row > :nth-child(5) {
+    display: none;
+  }
+}
+@media (max-width: 1024px) {
+  .ztapi-model-state-summary {
+    grid-template-columns: repeat(5, minmax(92px, 1fr));
+    overflow-x: auto;
+  }
+  .ztapi-model-filterbar {
+    grid-template-columns: 1fr 1fr;
+  }
+  .ztapi-model-filterbar .ztapi-model-search {
+    grid-column: 1 / -1;
+  }
+  .ztapi-model-evidence-row,
+  .ztapi-model-evidence-table.is-readonly .ztapi-model-evidence-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .ztapi-model-workflow-dialog {
+    width: 100%;
+  }
+  .ztapi-media-contract-dialog {
+    width: 100%;
+  }
+  .ztapi-media-contract-section dl {
+    grid-template-columns: 1fr;
+  }
+  .ztapi-model-form-grid {
+    grid-template-columns: 1fr;
+  }
+  .ztapi-model-wide-field {
+    grid-column: 1;
+  }
+  .ztapi-model-inline-actions,
+  .ztapi-model-verification-row,
+  .ztapi-model-price-preview {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+  .ztapi-model-audit-list > div {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.ztapi-ops-page {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+.ztapi-ops-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.ztapi-ops-heading h1,
+.ztapi-settings-section h2 {
+  margin: 0;
+  letter-spacing: 0;
+}
+.ztapi-ops-heading p {
+  margin: 6px 0 0;
+  color: #617083;
+}
+.ztapi-ops-actions,
+.ztapi-ops-row-actions {
+  display: flex;
+  gap: 8px;
+}
+.ztapi-ops-heading button,
+.ztapi-ops-actions button,
+.ztapi-ops-row-actions button,
+.ztapi-settings-section button {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 12px;
+  border: 1px solid #c5ced8;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+}
+.ztapi-ops-filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(130px, 1fr)) auto;
+  align-items: end;
+  gap: 12px;
+}
+.ztapi-ops-filters label,
+.ztapi-settings-section label,
+.ztapi-ops-dialog label {
+  display: grid;
+  gap: 6px;
+  color: #445160;
+  font-size: 13px;
+}
+.ztapi-ops-filters input,
+.ztapi-ops-filters select,
+.ztapi-settings-section input,
+.ztapi-settings-section textarea,
+.ztapi-ops-dialog textarea {
+  width: 100%;
+  min-height: 38px;
+  box-sizing: border-box;
+  border: 1px solid #bdc7d2;
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: #fff;
+  color: #17212b;
+}
+.ztapi-ops-primary {
+  min-height: 38px;
+  border: 1px solid #087ea4 !important;
+  border-radius: 6px;
+  padding: 0 14px;
+  color: #fff;
+  background: #087ea4 !important;
+  cursor: pointer;
+}
+.ztapi-ops-primary:disabled,
+.ztapi-settings-section button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.ztapi-ops-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid #d8dee5;
+  border-radius: 6px;
+  background: #fff;
+}
+.ztapi-ops-table {
+  width: 100%;
+  min-width: 920px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.ztapi-ops-table th,
+.ztapi-ops-table td {
+  padding: 11px 12px;
+  border-bottom: 1px solid #e5e9ee;
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+}
+.ztapi-ops-table th {
+  color: #536170;
+  background: #f5f7f9;
+  font-weight: 600;
+}
+.ztapi-ops-empty {
+  margin: 0;
+  padding: 28px;
+  text-align: center;
+  color: #6c7885;
+}
+.ztapi-ops-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  color: #617083;
+  font-size: 13px;
+}
+.ztapi-ops-pagination button {
+  min-height: 34px;
+  padding: 0 11px;
+  border: 1px solid #c5ced8;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+}
+.ztapi-ops-pagination button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.ztapi-ops-notice {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #90c6d7;
+  border-radius: 6px;
+  background: #eef9fc;
+}
+.ztapi-ops-error {
+  color: #b42318;
+}
+.ztapi-ops-backdrop {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgb(16 24 40 / 42%);
+}
+.ztapi-ops-dialog {
+  width: min(480px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  box-sizing: border-box;
+  padding: 20px;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 20px 48px rgb(15 23 42 / 24%);
+}
+.ztapi-ops-dialog h2 {
+  margin: 0 0 8px;
+  letter-spacing: 0;
+}
+.ztapi-ops-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+.ztapi-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px 28px;
+}
+.ztapi-settings-section {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding-block: 8px 20px;
+  border-bottom: 1px solid #d9dee5;
+}
+.ztapi-settings-section button {
+  justify-self: start;
+}
+.ztapi-settings-section textarea {
+  min-height: 110px;
+  resize: vertical;
+}
+.ztapi-settings-toggle {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+}
+.ztapi-settings-toggle input {
+  width: 18px;
+  min-height: 18px;
+}
+.ztapi-payment-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ztapi-settings-change {
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr);
+  gap: 8px 12px;
+}
+.ztapi-settings-change dt {
+  color: #637082;
+}
+.ztapi-settings-change dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 900px) {
+  .ztapi-ops-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ztapi-ops-filters button {
+    width: 100%;
+  }
+}
+@media (max-width: 520px) {
+  .ztapi-ops-heading {
+    display: grid;
+  }
+  .ztapi-ops-actions {
+    width: 100%;
+  }
+  .ztapi-ops-actions button {
+    flex: 1;
+  }
+  .ztapi-ops-filters,
+  .ztapi-settings-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ztapi-ops-dialog footer {
+    display: grid;
+  }
+  .ztapi-ops-dialog footer button {
+    width: 100%;
+  }
+}
+@media (max-width: 480px) {
+  .ztapi-model-form-grid {
+    grid-template-columns: 1fr;
+  }
+  .ztapi-model-wide-field {
+    grid-column: 1;
+  }
+}
