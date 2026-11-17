@@ -71,6 +71,10 @@ func loadZTAPIPublicationSnapshotForPin(publicName, sourceModel, group string, p
 	if publication.SourceModel != sourceModel {
 		return nil, errors.New("ZTAPI publication changed during authorization")
 	}
+	return snapshotZTAPIPublicationForPin(publication, publicName, group, pin)
+}
+
+func snapshotZTAPIPublicationForPin(publication *model.ZTAPIRuntimePublication, publicName, group string, pin workbenchPublicationPin) (*relaycommon.ZTAPIPublicationSnapshot, error) {
 	groups := publication.Groups
 	if !ztapiSnapshotGroupAllowed(groups, group) {
 		return nil, model.ErrZTAPIModelGroupForbidden
@@ -90,14 +94,19 @@ func LoadZTAPIWorkbenchPublication(c *gin.Context, public string) (*relaycommon.
 	if group == "" || group == "auto" {
 		return nil, model.ErrZTAPIModelGroupForbidden
 	}
-	identity, err := model.ResolveZTAPIRequestIdentity(public, group)
+	// Workbench requires an exact public alias; resolving source aliases would
+	// repeat the full price-evidence check before fetching the same publication.
+	if err := model.CheckZTAPIHealthModelAvailable(public); err != nil {
+		return nil, err
+	}
+	publication, err := model.GetZTAPIRuntimePublication(public)
 	if err != nil {
 		return nil, err
 	}
-	if identity.PublicName != public {
+	if publication.PublicName != public {
 		return nil, model.ErrZTAPIModelNotPublic
 	}
-	return loadZTAPIPublicationSnapshotForPin(public, identity.SourceModel, group, workbenchPin(c))
+	return snapshotZTAPIPublicationForPin(publication, public, group, workbenchPin(c))
 }
 
 func ztapiPublicationSnapshotFromRuntime(publication model.ZTAPIRuntimePublication, group string) *relaycommon.ZTAPIPublicationSnapshot {

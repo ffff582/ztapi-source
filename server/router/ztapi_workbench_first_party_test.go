@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func TestZTAPIWorkbenchFirstPartyRouter(t *testing.T) {
@@ -151,8 +153,19 @@ func TestZTAPIWorkbenchFirstPartyRouter(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, code)
 	code, _ = do(engine, "GET", directory, "", other)
 	require.Equal(t, http.StatusForbidden, code)
+	_, err = model.ListZTAPIPublicCatalog()
+	require.NoError(t, err)
+	var quotePasses atomic.Int32
+	const countQuotePasses = "workbench_test:quote_passes"
+	require.NoError(t, db.Callback().Row().After("gorm:row").Register(countQuotePasses, func(tx *gorm.DB) {
+		if strings.Contains(tx.Statement.SQL.String(), "AS snapshot_price_policy") {
+			quotePasses.Add(1)
+		}
+	}))
+	t.Cleanup(func() { require.NoError(t, db.Callback().Row().Remove(countQuotePasses)) })
 	code, body = do(engine, "GET", directory, "", access)
 	require.Equal(t, http.StatusOK, code)
+	require.EqualValues(t, 3, quotePasses.Load(), "one catalog read and one fresh validation per allowed model")
 	for _, name := range []string{gpt, claude} {
 		require.Contains(t, body, name)
 	}
@@ -223,8 +236,12 @@ func TestZTAPIWorkbenchFirstPartyRouter(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, code)
 	code, _ = do(engine, "POST", keyRoute, policy("zt-gpt-4.1"), access)
 	require.Equal(t, http.StatusForbidden, code)
+	_, err = model.ListZTAPIPublicCatalog()
+	require.NoError(t, err)
+	quotePasses.Store(0)
 	code, body = do(engine, "POST", keyRoute, policy(gpt), access)
 	require.Equal(t, http.StatusOK, code, body)
+	require.EqualValues(t, 2, quotePasses.Load(), "one workbench model check and one generic key restriction check")
 	var issued struct {
 		Data struct {
 			ID  int

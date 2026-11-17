@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "d57e00183ca5bc7fff3c5b0b789a8d890fab2ebc",
+  "release_commit": "fc0b8865066b8ad8acf4f3e0793774b6e6187008",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-d57e00183ca5bc7fff3c5b0b789a8d890fab2ebc",
+  "source_tag": "production-fc0b8865066b8ad8acf4f3e0793774b6e6187008",
   "files": [
     {
       "path": ".dockerignore",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "dce6648354c5d27f3dbc85fe9f7325d477a3f5143834065516a35acd34b21718",
+      "sha256": "f736de32cf711c88310c5c3d15eb9ec8982698fade7425de9db688b0448fbcc3",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "da8325e4ec24e37afb359df82a0022c47f978b3a76fff54b1fec447781b649df",
+      "sha256": "14b1bdf6bd7d48c036334bd65155465c186232e783821a8d53cda0d09bf416d0",
       "size": 942
     },
     {
@@ -2796,8 +2796,8 @@
     },
     {
       "path": "server/middleware/distributor.go",
-      "sha256": "f4268ff9599b42021078ee9a0840bcadce5c8770d9d00d4af71e86cecd7148dc",
-      "size": 30622
+      "sha256": "c6c35579dbc6bf82e74a65bbfc307582ab5f7e3399eec701bd14e6932c84bacf",
+      "size": 31117
     },
     {
       "path": "server/middleware/distributor_quotation_race_test.go",
@@ -6156,8 +6156,8 @@
     },
     {
       "path": "server/router/ztapi_workbench_acceptance.go",
-      "sha256": "76dadb50d390cefa265185b1f3f6e32023f864d3164ca43bf8f2a1d1eca475e5",
-      "size": 11614
+      "sha256": "f671177657833759c2402f2500d70c5ca963e76741830b931146288b26d758a3",
+      "size": 11287
     },
     {
       "path": "server/router/ztapi_workbench_acceptance_test.go",
@@ -6171,8 +6171,8 @@
     },
     {
       "path": "server/router/ztapi_workbench_first_party_test.go",
-      "sha256": "9bfb394c03ec5e0a9bdd26d35324f5bf489643d8b9ca2e33acb7694ca4dc647b",
-      "size": 14396
+      "sha256": "85fc3bf1da67c656973de8a492acb18833d14ea1312affc7c915bd64533ef516",
+      "size": 15194
     },
     {
       "path": "server/router/ztapi_workbench_native_relay_test.go",

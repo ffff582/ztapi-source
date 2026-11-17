@@ -86,20 +86,15 @@ func (p workbenchAcceptancePolicy) usableModel(c *gin.Context, id, group string)
 	if !ok || group == "" || group == "auto" {
 		return false
 	}
-	pub, err := model.GetZTAPIRuntimePublication(id)
-	if err != nil || pub.PublicName != id || pub.Modality != model.ZTAPIModalityText || pub.Version != pin.Version ||
-		pub.SnapshotID != pin.SnapshotID || !slices.Contains(pub.AllowedChannelIDs, pin.ChannelID) ||
-		!model.IsChannelEnabledForGroupModel(group, pub.SourceModel, pin.ChannelID) {
+	common.SetContextKey(c, constant.ContextKeyUsingGroup, group)
+	middleware.PinZTAPIWorkbenchPublication(c, id, pin.Version, pin.SnapshotID, pin.ChannelID)
+	snapshot, err := middleware.LoadZTAPIWorkbenchPublication(c, id)
+	if err != nil || snapshot.Modality != model.ZTAPIModalityText ||
+		!model.IsChannelEnabledForGroupModel(group, snapshot.SourceModel, pin.ChannelID) {
 		return false
 	}
 	channel, err := model.GetChannelById(pin.ChannelID, false)
 	if err != nil || channel.Status != common.ChannelStatusEnabled {
-		return false
-	}
-	common.SetContextKey(c, constant.ContextKeyUsingGroup, group)
-	middleware.PinZTAPIWorkbenchPublication(c, id, pin.Version, pin.SnapshotID, pin.ChannelID)
-	snapshot, err := middleware.LoadZTAPIWorkbenchPublication(c, id)
-	if err != nil || snapshot.Version != pin.Version || !slices.Equal(snapshot.AllowedChannelIDs, []int{pin.ChannelID}) {
 		return false
 	}
 	_, err = service.ZTAPIWorkbenchQuote(snapshot, 1024, 2048)
