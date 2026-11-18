@@ -74,6 +74,9 @@ func TestZTAPIWorkbenchNativeRelayLoopback(t *testing.T) {
 	t.Run("first-party-claude", func(t *testing.T) {
 		testZTAPIWorkbenchRelayLoopback(t, "claude-sonnet-5", "/v1/chat/completions", "first-party")
 	})
+	t.Run("first-party-xcloud-fable-receipt", func(t *testing.T) {
+		testZTAPIWorkbenchRelayLoopback(t, "claude-fable-5", "/v1/chat/completions", "first-party-xcloud-receipt")
+	})
 }
 
 func TestZTAPIRc10NativeTaskProof(t *testing.T) {
@@ -123,10 +126,12 @@ func testZTAPIWorkbenchRelayLoopback(t *testing.T, source, upstreamPath, mode st
 	if proofScenario == mode {
 		proofScenario = ""
 	}
-	xcloudReceipt := firstPartyProof && source == "claude-fable-5" && proofScenario == "long"
+	xcloudNativeProof := firstPartyProof && source == "claude-fable-5" && proofScenario == "long"
+	firstPartyReceipt := mode == "first-party-xcloud-receipt"
+	xcloudReceipt := xcloudNativeProof || firstPartyReceipt
 	supplierID := func(hit int32) string {
 		if xcloudReceipt {
-			return fmt.Sprintf("%027dAaBbCcDdEeFf", hit)
+			return fmt.Sprintf("%027dAaB9CcDdE8Ff", hit)
 		}
 		return fmt.Sprintf("resp_r36_loopback_%d", hit)
 	}
@@ -135,7 +140,7 @@ func testZTAPIWorkbenchRelayLoopback(t *testing.T, source, upstreamPath, mode st
 	if strings.HasPrefix(mode, "pilot-") {
 		pilotMode = mode
 	}
-	if firstPartyProof || pilotMode != "" {
+	if firstPartyProof || pilotMode != "" || firstPartyReceipt {
 		mode = "first-party"
 	} else if rc10Proof {
 		mode = "acceptance"
@@ -221,6 +226,9 @@ func testZTAPIWorkbenchRelayLoopback(t *testing.T, source, upstreamPath, mode st
 			w.Header().Set(common.RequestIdKey, id)
 		} else {
 			w.Header().Set("X-Request-ID", id)
+		}
+		if firstPartyReceipt {
+			id = fmt.Sprintf("chatcmpl_fixture_%d", hit)
 		}
 		wire := string(b)
 		if strings.Contains(wire, "r37-flow-fixture") || strings.Contains(wire, "r37-child-fixture") ||
@@ -708,7 +716,7 @@ func testZTAPIWorkbenchRelayLoopback(t *testing.T, source, upstreamPath, mode st
 					receiptFile := filepath.Join(snapshotDir, "synthetic-receipt.json")
 					require.NoError(t, os.WriteFile(receiptFile, raw, 0600))
 					auditor := os.Getenv("R37_RC10_TASK_AUDITOR")
-					if xcloudReceipt {
+					if xcloudNativeProof {
 						require.NotEmpty(t, auditor, "RC18 requires the single-receipt snapshot audit too")
 					}
 					if auditor == "" {

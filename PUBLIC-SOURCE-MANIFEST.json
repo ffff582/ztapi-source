@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "fc0b8865066b8ad8acf4f3e0793774b6e6187008",
+  "release_commit": "b7b8567af6f1dc31ed2d0dc0e0e94af4b8387530",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-fc0b8865066b8ad8acf4f3e0793774b6e6187008",
+  "source_tag": "production-b7b8567af6f1dc31ed2d0dc0e0e94af4b8387530",
   "files": [
     {
       "path": ".dockerignore",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "f736de32cf711c88310c5c3d15eb9ec8982698fade7425de9db688b0448fbcc3",
+      "sha256": "9b58ed7302585b905fb34f6942f8054e7d5862c1d45b8e14bba434d096f98b17",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "14b1bdf6bd7d48c036334bd65155465c186232e783821a8d53cda0d09bf416d0",
+      "sha256": "dcbf403cb47ef2f9df28a7260b721855abe1f1d03685653ddc4342c232da79db",
       "size": 942
     },
     {
@@ -6176,8 +6176,8 @@
     },
     {
       "path": "server/router/ztapi_workbench_native_relay_test.go",
-      "sha256": "1db331cda314bd838a75425f7ba8190d42719f1f8d9b67bd8aff47341f188523",
-      "size": 49754
+      "sha256": "4762b4b1c62957656774f736053592a3f563013a213122ae0be02f3b8b89cc4c",
+      "size": 50153
     },
     {
       "path": "server/router/ztapi_workbench_nginx_fixture_test.go",
@@ -6706,13 +6706,13 @@
     },
     {
       "path": "server/service/ztapi_billing_response_id.go",
-      "sha256": "0fda56eb3b59aceb3579fe3fd3964cafde95b97328cbba22f655b88424b5fec9",
-      "size": 541
+      "sha256": "3e722ea295aa2cbd97917623a9386b1f7379d639aec926b1f304443a34d905b6",
+      "size": 649
     },
     {
       "path": "server/service/ztapi_billing_response_id_test.go",
-      "sha256": "3013b770ea1afc6396f8c62aa4c40451d60d2c27ec4e1ec856ebfc465c3c7409",
-      "size": 1668
+      "sha256": "7a22e46ea7507a2c3c39948e76966aeb14556abd034db8cf3f7e9f2a35df7a6c",
+      "size": 2161
     },
     {
       "path": "server/service/ztapi_captcha.go",

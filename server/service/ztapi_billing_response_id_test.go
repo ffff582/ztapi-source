@@ -5,9 +5,10 @@ import (
 	"testing"
 )
 
-func TestZTAPIBillingResponseID(t *testing.T) {
+func TestZTAPIWorkbenchXcloudBillingResponseID(t *testing.T) {
 	// Previously matched Xcloud bills have 27 decimal digits and 12 letters.
 	xcID := strings.Repeat("7", 27) + "aBcDeFgHiJkL"
+	mixedID := "202611180423471234567890123" + "a9d6c4mQceWJ"
 	const origin = "www.xcloudtoken.com"
 	const chat = "/v1/chat/completions"
 	for _, tc := range []struct {
@@ -15,6 +16,10 @@ func TestZTAPIBillingResponseID(t *testing.T) {
 		alias                                  []string
 	}{
 		{"xcloud alias", "POST", "https", origin, chat, xcID, []string{xcID}},
+		{"alphanumeric Xcloud suffix", "POST", "https", origin, chat, mixedID, []string{mixedID}},
+		{"no letter in Xcloud suffix", "POST", "https", origin, chat, "", []string{strings.Repeat("7", 39)}},
+		{"short Xcloud suffix", "POST", "https", origin, chat, "", []string{mixedID[:len(mixedID)-1]}},
+		{"Xcloud alias with non-ASCII letter", "POST", "https", origin, chat, "", []string{mixedID[:len(mixedID)-1] + "\u00c9"}},
 		{"responses alias", "POST", "https", origin, "/v1/responses", xcID, []string{xcID}},
 		{"duplicate header", "POST", "https", origin, chat, "", []string{xcID, xcID}},
 		{"secret-like value", "POST", "https", origin, chat, "", []string{"sk-zt-synthetic-only"}},
