@@ -650,9 +650,14 @@ func testZTAPIWorkbenchRelayLoopback(t *testing.T, source, upstreamPath, mode st
 		status, _, _ := post(relayPath, task, hold, strings.Replace(body, input, "changed", 1))
 		require.Equal(t, 409, status)
 		if upstreamPrefix == "" {
+			want := model.ErrZTAPISettlementInvalid
+			if pilotConfig != nil {
+				// A claim without the bound pilot batch fails before protocol validation.
+				want = model.ErrZTAPISettlementConflict
+			}
 			_, err := model.ClaimZTAPIWorkbenchNativeAttempt(task, user.Id, key.Id, hold, channel.Id,
 				common.HashZTAPIKey(channel.Key), "/hub/v1/responses")
-			require.ErrorIs(t, err, model.ErrZTAPISettlementInvalid)
+			require.ErrorIs(t, err, want)
 		}
 		before := hits.Load()
 		status, headers, raw := post(relayPath, task, hold, body)

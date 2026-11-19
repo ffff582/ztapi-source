@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "b7b8567af6f1dc31ed2d0dc0e0e94af4b8387530",
+  "release_commit": "a1b547e5c417c23b76092eaff436e7d74688d3b0",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-b7b8567af6f1dc31ed2d0dc0e0e94af4b8387530",
+  "source_tag": "production-a1b547e5c417c23b76092eaff436e7d74688d3b0",
   "files": [
     {
       "path": ".dockerignore",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "9b58ed7302585b905fb34f6942f8054e7d5862c1d45b8e14bba434d096f98b17",
+      "sha256": "e16a0af3ff17410280fbb9fe64d858efc8ba8d73fd3f7639465c15e2b6f97e7c",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "dcbf403cb47ef2f9df28a7260b721855abe1f1d03685653ddc4342c232da79db",
+      "sha256": "d4503cd5177001172185c6ffb75519e71d207827b5c4ec69f87e3d76e0cb3ce6",
       "size": 942
     },
     {
@@ -6176,8 +6176,8 @@
     },
     {
       "path": "server/router/ztapi_workbench_native_relay_test.go",
-      "sha256": "4762b4b1c62957656774f736053592a3f563013a213122ae0be02f3b8b89cc4c",
-      "size": 50153
+      "sha256": "8844e1ce713a5917bdb277b31eba4b807fea4a937f4ba9dd89a65253b3b4c73b",
+      "size": 50324
     },
     {
       "path": "server/router/ztapi_workbench_nginx_fixture_test.go",
