@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -182,26 +183,60 @@ func workbenchPilotSchemaReady(db *gorm.DB) bool {
 	return true
 }
 
-func mountWorkbenchPilotFile(r gin.IRouter, path string) error {
+func readWorkbenchPilotFile(path string) (workbenchPilotConfig, error) {
 	const maxConfig = 32 << 10
+	var config workbenchPilotConfig
 	stat, err := os.Stat(path)
 	if err != nil || !stat.Mode().IsRegular() || stat.Size() > maxConfig {
-		return errors.New("invalid workbench pilot file")
+		return config, errors.New("invalid workbench pilot file")
 	}
 	file, err := os.Open(path)
 	if err != nil {
-		return err
+		return config, err
 	}
 	defer file.Close()
 	raw, err := io.ReadAll(io.LimitReader(file, maxConfig+1))
 	if err != nil || len(raw) > maxConfig {
-		return errors.New("invalid workbench pilot file size")
+		return config, errors.New("invalid workbench pilot file size")
 	}
-	var config workbenchPilotConfig
 	if common.RejectDuplicateJsonObjectMembers(bytes.NewReader(raw)) != nil ||
 		common.DecodeJsonStrict(bytes.NewReader(raw), &config) != nil || !config.validMode() {
-		return errors.New("invalid workbench pilot settings")
+		return config, errors.New("invalid workbench pilot settings")
 	}
+	return config, nil
+}
+
+func mountWorkbenchPilotFile(r gin.IRouter, path string) error {
+	config, err := readWorkbenchPilotFile(path)
+	if err != nil {
+		return err
+	}
+	return mountWorkbenchPilotConfig(r, config)
+}
+
+// MountZTAPISonnetPilot is the independent test service's only route registration.
+func MountZTAPISonnetPilot(r gin.IRouter, path string, expectedUserID int) error {
+	if expectedUserID <= 0 || !filepath.IsAbs(path) {
+		return errors.New("explicit workbench test account and config required")
+	}
+	config, err := readWorkbenchPilotFile(path)
+	if err != nil {
+		return err
+	}
+	if !config.DispatchEnabled || config.WalletCap == nil || config.FableCap != nil ||
+		len(config.UserIDs) != 1 || config.UserIDs[0] != expectedUserID ||
+		len(config.Models) != 1 || config.Models[0].Model != "zt-claude-sonnet-5" ||
+		config.Models[0].CredentialSHA256 == strings.Repeat("0", 64) {
+		return errors.New("unapproved workbench test account, model or wallet scope")
+	}
+	policy, err := config.fablePolicy()
+	if err != nil || policy.BudgetQuota < config.TaskLimitQuota {
+		return errors.New("invalid workbench test wallet scope")
+	}
+	return mountWorkbenchPilotConfig(r, config)
+}
+
+func mountWorkbenchPilotConfig(r gin.IRouter, config workbenchPilotConfig) error {
 	p, err := newWorkbenchAcceptancePolicy(config.WorkbenchAcceptanceConfig)
 	if err != nil {
 		return err
