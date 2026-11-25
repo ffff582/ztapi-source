@@ -27,6 +27,7 @@ func TestZTAPIWorkbenchWalletPolicyForApprovedNonFableModel(t *testing.T) {
 	bridgePolicy, err := bridge.fablePolicy()
 	require.NoError(t, err)
 	require.Equal(t, "/v1/chat/completions", bridgePolicy.ExpectedUpstreamPath())
+	require.Equal(t, "/v1/chat/completions", bridgePolicy.ExpectedWirePath())
 	require.NotEqual(t, policy.PolicySHA256, bridgePolicy.PolicySHA256)
 	other := cfg
 	other.Models = []WorkbenchAcceptanceModel{{Model: "zt-claude-opus-5", Version: 3, SnapshotID: 32, ChannelID: 2}}
@@ -55,5 +56,39 @@ func TestZTAPIWorkbenchWalletPolicyForApprovedNonFableModel(t *testing.T) {
 			_, err := broken.fablePolicy()
 			require.Error(t, err)
 		})
+	}
+}
+
+func TestZTAPIWorkbenchWalletPolicyBindsHubAndMappedModel(t *testing.T) {
+	cap := workbenchFablePilotCap{BatchID: "10101010-2020-4030-8040-505050505050", ExpiresAt: time.Now().Add(20 * time.Minute).Unix(),
+		BudgetBasis: "ztapi_wallet", MaxRequests: 14, BudgetNanoU: 3_000_000_000,
+		UpstreamProtocol: "chat-completions", UpstreamModel: "claude-opus-5-5-hc"}
+	pin := WorkbenchAcceptanceModel{Model: "zt-claude-opus-5.5", Version: 12, SnapshotID: 1637,
+		ChannelID: 2, UpstreamOrigin: "https://provider.invalid/hub"}
+	makePolicy := func(cap workbenchFablePilotCap, pin WorkbenchAcceptanceModel) workbenchPilotConfig {
+		return workbenchPilotConfig{DispatchEnabled: true, WalletCap: &cap,
+			WorkbenchAcceptanceConfig: WorkbenchAcceptanceConfig{UserIDs: []int{199}, Models: []WorkbenchAcceptanceModel{pin}}}
+	}
+	policy, err := makePolicy(cap, pin).fablePolicy()
+	require.NoError(t, err)
+	require.Equal(t, "/v1/chat/completions", policy.ExpectedUpstreamPath())
+	require.Equal(t, "/hub/v1/chat/completions", policy.ExpectedWirePath())
+	require.Equal(t, cap.UpstreamModel, policy.UpstreamModel)
+	drift := cap
+	drift.UpstreamModel = "claude-opus-5-5"
+	otherPolicy, err := makePolicy(drift, pin).fablePolicy()
+	require.NoError(t, err)
+	require.NotEqual(t, policy.PolicySHA256, otherPolicy.PolicySHA256)
+	for _, origin := range []string{"https://provider.invalid", "https://provider.invalid/other", "https://provider.invalid/%68ub"} {
+		other := pin
+		other.UpstreamOrigin = origin
+		_, err := makePolicy(cap, other).fablePolicy()
+		require.Error(t, err, origin)
+	}
+	for _, mapped := range []string{"", "gpt-5.5", "claude-opus-5-5\nextra"} {
+		other := cap
+		other.UpstreamModel = mapped
+		_, err := makePolicy(other, pin).fablePolicy()
+		require.Error(t, err)
 	}
 }

@@ -8,12 +8,58 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+func TestZTAPIWorkbenchHubOutboundKeepsExactBinding(t *testing.T) {
+	const source, mapped = "claude-opus-5-5", "claude-opus-5-5-hc"
+	const provider = "https://provider.invalid"
+	const endpoint = provider + model.ZTAPIWorkbenchHubChatPath
+	const wire = `{"model":"claude-opus-5-5-hc","messages":[{"role":"user","content":"fixture"}],"stream":true,"stream_options":{"include_usage":true},"max_tokens":256}`
+	row := &model.ZTAPIRequestSettlement{UserID: 199, WorkbenchTaskID: "fixture-task",
+		PublicModel: "zt-claude-opus-5.5", WorkbenchOutboundMax: 1024, WorkbenchOutputMax: 256}
+	pilot := model.ZTAPIWorkbenchPilotPolicy{BatchID: "fixture-batch", PublicModel: row.PublicModel,
+		UserID: row.UserID, ChannelID: 2, UpstreamPath: model.ZTAPIWorkbenchChatPath,
+		WirePath: model.ZTAPIWorkbenchHubChatPath, UpstreamModel: mapped}
+	info := &relaycommon.RelayInfo{
+		Billing: &ztapiDurableBilling{row: row, pilot: pilot}, RelayFormat: types.RelayFormatClaude,
+		ZTAPIPublicationSnapshot: &relaycommon.ZTAPIPublicationSnapshot{SourceModel: source},
+		ChannelMeta: &relaycommon.ChannelMeta{ChannelId: 2, ChannelType: constant.ChannelTypeOpenAI,
+			ChannelBaseUrl: provider + "/hub", UpstreamModelName: mapped},
+	}
+	for _, tc := range []struct {
+		name, target, body, upstream string
+		channel                      int
+		allow                        bool
+	}{
+		{"exact", endpoint, wire, mapped, 2, true},
+		{"other-host", "https://other.invalid" + model.ZTAPIWorkbenchHubChatPath, wire, mapped, 2, false},
+		{"other-path", provider + model.ZTAPIWorkbenchChatPath, wire, mapped, 2, false},
+		{"encoded-path", provider + "/%68ub" + model.ZTAPIWorkbenchChatPath, wire, mapped, 2, false},
+		{"query", endpoint + "?extra=1", wire, mapped, 2, false},
+		{"changed-mapping", endpoint, wire, source, 2, false},
+		{"changed-body-model", endpoint, strings.Replace(wire, mapped, source, 1), mapped, 2, false},
+		{"wrong-channel", endpoint, wire, mapped, 4, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, tc.target, strings.NewReader(tc.body))
+			req.Header.Set("Content-Type", "application/json")
+			info.UpstreamModelName, info.ChannelId = tc.upstream, tc.channel
+			err := CheckZTAPIWorkbenchOutbound(info, req)
+			if tc.allow {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
+}
 
 func TestZTAPIWorkbenchNativeBillingAdoptsHoldAndRecordsSingleAttempt(t *testing.T) {
 	db, user, token := setupServiceTokenQuotaTest(t)

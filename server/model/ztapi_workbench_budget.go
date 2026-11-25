@@ -211,15 +211,17 @@ func ClaimZTAPIWorkbenchDispatch(taskID string, userID, tokenID int, operationID
 func ClaimZTAPIWorkbenchNativeAttempt(taskID string, userID, tokenID int, operationID string, channelID int, credential, path string, pilot ...ZTAPIWorkbenchPilotPolicy) (*ZTAPIRequestAttempt, error) {
 	const yunxinSolPath = "/hub/v1/responses"
 	const messagesPath = ZTAPIWorkbenchMessagesPath
-	if len(pilot) > 1 || channelID <= 0 || !workbenchHashPattern.MatchString(credential) || (path != "/v1/responses" && path != "/v1/chat/completions" && path != yunxinSolPath && path != messagesPath) {
+	if len(pilot) > 1 || channelID <= 0 || !workbenchHashPattern.MatchString(credential) ||
+		(path != "/v1/responses" && path != ZTAPIWorkbenchChatPath && path != yunxinSolPath &&
+			path != messagesPath && path != ZTAPIWorkbenchHubChatPath) {
 		return nil, ErrZTAPISettlementInvalid
 	}
-	if len(pilot) == 0 && path == messagesPath {
+	if len(pilot) == 0 && (path == messagesPath || path == ZTAPIWorkbenchHubChatPath) {
 		return nil, ErrZTAPISettlementConflict
 	}
 	if len(pilot) == 1 {
 		p := pilot[0]
-		if p.UserID != userID || p.ChannelID != channelID || path != p.ExpectedUpstreamPath() {
+		if p.UserID != userID || p.ChannelID != channelID || path != p.ExpectedWirePath() {
 			return nil, ErrZTAPISettlementConflict
 		}
 	}

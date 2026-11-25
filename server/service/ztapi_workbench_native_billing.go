@@ -186,9 +186,13 @@ func CheckZTAPIWorkbenchOutbound(info *relaycommon.RelayInfo, req *http.Request)
 		if chatMode {
 			channel = constant.ChannelTypeOpenAI
 		}
+		expectedModel := source
+		if s.pilot.UpstreamModel != "" {
+			expectedModel = s.pilot.UpstreamModel
+		}
 		if info.RelayFormat != types.RelayFormatClaude || info.ChannelType != channel ||
-			req.URL.Path != path || req.Header.Get("anthropic-beta") != "" ||
-			!strings.HasPrefix(source, "claude-") || upstream != source || s.pilot.PublicModel != s.row.PublicModel {
+			req.URL.Path != s.pilot.ExpectedWirePath() || req.Header.Get("anthropic-beta") != "" ||
+			!strings.HasPrefix(source, "claude-") || upstream != expectedModel || s.pilot.PublicModel != s.row.PublicModel {
 			return model.ErrZTAPISettlementConflict
 		}
 	} else if chatMode {

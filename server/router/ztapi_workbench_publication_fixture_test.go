@@ -44,9 +44,13 @@ func seedWorkbenchRouterPublicModel(t *testing.T, db *gorm.DB, channelID int, so
 		QuotationEffectiveAt: now, SourceDocumentChecksum: model.ZTAPIQuotationSHA256,
 		OperatorID: 1, Version: 1, CreatedAt: now,
 	}
-	if sourceModel == "gpt-6.1-sol" {
+	if sourceModel == "gpt-6.1-sol" || sourceModel == "claude-opus-5-5" {
+		quote := "GPT 6.1 Sol"
+		if sourceModel == "claude-opus-5-5" {
+			quote = "Claude Opus 5.5"
+		}
 		var err error
-		price, err = model.BuildZTAPISupplierAdmissionTextPriceSource20261019("GPT 6.1 Sol", config.ID, 1, now, model.ZTAPIABFXParams{
+		price, err = model.BuildZTAPISupplierAdmissionTextPriceSource20261019(quote, config.ID, 1, now, model.ZTAPIABFXParams{
 			Mode: model.ZTAPIFXModePlatformV1, PlatformRate: decimal.RequireFromString("6.63"), UpstreamUSDRate: decimal.RequireFromString("6.7628"),
 		})
 		require.NoError(t, err)
@@ -57,10 +61,18 @@ func seedWorkbenchRouterPublicModel(t *testing.T, db *gorm.DB, channelID int, so
 		config.OutputPricePerMillion = decimal.RequireFromString(preview.OutputSaleUSDPerMillion).InexactFloat64()
 		input := decimal.RequireFromString(preview.InputCostUSDPerMillion)
 		config.CacheReadRatio = decimal.RequireFromString(preview.CostUSD[model.ZTAPIBillingDimensionCacheRead]).Div(input).Round(8).InexactFloat64()
-		config.CacheCreationRatio = decimal.RequireFromString(preview.CostUSD[model.ZTAPIBillingDimensionCacheWrite]).Div(input).Round(8).InexactFloat64()
+		for dimension, ratio := range map[string]*float64{
+			model.ZTAPIBillingDimensionCacheWrite:   &config.CacheCreationRatio,
+			model.ZTAPIBillingDimensionCacheWrite5m: &config.CacheCreation5mRatio,
+			model.ZTAPIBillingDimensionCacheWrite1h: &config.CacheCreation1hRatio,
+		} {
+			if value, ok := preview.CostUSD[dimension]; ok {
+				*ratio = decimal.RequireFromString(value).Div(input).Round(8).InexactFloat64()
+			}
+		}
 		require.NoError(t, db.Save(&config).Error)
 	}
-	if config.ProviderFamily == model.ZTAPIProviderAnthropic && sourceModel != "claude-fable-5" {
+	if config.ProviderFamily == model.ZTAPIProviderAnthropic && sourceModel != "claude-fable-5" && sourceModel != "claude-opus-5-5" {
 		price.BillingDimensions = `["input_tokens","output_tokens","cache_read"]`
 		price.CacheReadPerMillion = "0.25"
 	}

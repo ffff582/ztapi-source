@@ -86,6 +86,9 @@ func TestZTAPIWorkbenchMessagesPilotLoopback(t *testing.T) {
 	t.Run("chat-conversion", func(t *testing.T) {
 		testZTAPIWorkbenchRelayLoopback(t, "claude-sonnet-5", "/v1/chat/completions", "pilot-messages-chat")
 	})
+	t.Run("chat-conversion-pinned-hub", func(t *testing.T) {
+		testZTAPIWorkbenchRelayLoopback(t, "claude-opus-5-5", "/hub/v1/chat/completions", "pilot-messages-chat")
+	})
 }
 
 func TestZTAPIWorkbenchOfficialClaudeWithChatConversion(t *testing.T) {
@@ -216,6 +219,9 @@ func testZTAPIWorkbenchRelayLoopback(t *testing.T, source, upstreamPath, mode st
 	supplierModel, upstreamPrefix, channelID := source, "", 47
 	if upstreamPath == "/hub/v1/responses" {
 		supplierModel, upstreamPrefix, channelID = "gpt-6.1-sol-hc", "/hub", 2
+	}
+	if upstreamPath == "/hub/v1/chat/completions" {
+		public, supplierModel, upstreamPrefix, channelID = "zt-claude-opus-5.5", "claude-opus-5-5-hc", "/hub", 2
 	}
 	if source == "glm-5.3" {
 		channelID = 8
@@ -551,6 +557,9 @@ func testZTAPIWorkbenchRelayLoopback(t *testing.T, source, upstreamPath, mode st
 				if convertedMessages {
 					pilot.WalletCap.UpstreamProtocol = "chat-completions"
 					pilot.WalletCap.MaxRequests = 5
+					if upstreamPrefix == "/hub" {
+						pilot.WalletCap.UpstreamModel = supplierModel
+					}
 					if sdkProof {
 						pilot.WalletCap.MaxRequests = 7
 					}
@@ -710,6 +719,10 @@ func testZTAPIWorkbenchRelayLoopback(t *testing.T, source, upstreamPath, mode st
 		require.NoError(t, db.Where("operation_id = ?", hold).Take(&row).Error)
 		require.Equal(t, model.ZTAPISettlementSettled, row.Status)
 		require.Positive(t, row.ChargedQuota)
+		var attempt model.ZTAPIRequestAttempt
+		require.NoError(t, db.Where("settlement_id = ?", row.ID).Take(&attempt).Error)
+		require.Equal(t, channelID, attempt.ChannelID)
+		require.Equal(t, upstreamPath, attempt.Protocol)
 		status, _, _ = post(path, task, hold, wire)
 		require.Equal(t, http.StatusConflict, status)
 		require.EqualValues(t, 1, hits.Load())

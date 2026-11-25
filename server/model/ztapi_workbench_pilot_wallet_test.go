@@ -10,17 +10,23 @@ import (
 )
 
 func TestZTAPIWorkbenchPilotWalletCountsPendingAndRefusesOverDebit(t *testing.T) {
-	t.Run("legacy-fable", func(t *testing.T) { verifyWorkbenchPilotWallet(t, "zt-claude-fable-5", "") })
-	t.Run("pinned-sonnet", func(t *testing.T) { verifyWorkbenchPilotWallet(t, "zt-claude-sonnet-5", "zt-claude-sonnet-5") })
+	t.Run("legacy-fable", func(t *testing.T) { verifyWorkbenchPilotWallet(t, "zt-claude-fable-5", "", false) })
+	t.Run("pinned-sonnet", func(t *testing.T) { verifyWorkbenchPilotWallet(t, "zt-claude-sonnet-5", "zt-claude-sonnet-5", false) })
+	t.Run("pinned-mapped-opus", func(t *testing.T) { verifyWorkbenchPilotWallet(t, "zt-claude-opus-5.5", "zt-claude-opus-5.5", true) })
 }
 
-func verifyWorkbenchPilotWallet(t *testing.T, publicModel, pin string) {
+func verifyWorkbenchPilotWallet(t *testing.T, publicModel, pin string, hub bool) {
 	db, input := setupZTAPISettlement(t)
 	require.NoError(t, db.AutoMigrate(&ZTAPIWorkbenchTask{}, &ZTAPIWorkbenchPilotSpend{}, &ZTAPIRequestAttempt{}))
 	input.PublicModel = publicModel
 	policy := ZTAPIWorkbenchPilotPolicy{BatchID: uuid.NewString(), PolicySHA256: strings.Repeat("a", 64),
 		ExpiresAt: time.Now().Add(10 * time.Minute).Unix(), MaxRequests: 14, BudgetQuota: 800,
 		UserID: input.UserID, ChannelID: 4, PublicModel: pin}
+	if hub {
+		policy.UpstreamPath = ZTAPIWorkbenchChatPath
+		policy.WirePath = ZTAPIWorkbenchHubChatPath
+		policy.UpstreamModel = "claude-opus-5-5-hc"
+	}
 	require.NoError(t, db.Model(&Token{}).Where("id = ?", input.TokenID).Updates(map[string]any{
 		"model_limits_enabled": true, "model_limits": input.PublicModel, "expired_time": policy.ExpiresAt,
 	}).Error)
@@ -48,11 +54,14 @@ func verifyWorkbenchPilotWallet(t *testing.T, publicModel, pin string) {
 		_, err := ClaimZTAPIWorkbenchNativeAttempt(task, input.UserID, input.TokenID, first.Settlement.OperationID, 4,
 			strings.Repeat("c", 64), path, policy)
 		require.ErrorIs(t, err, ErrZTAPISettlementConflict)
-		path = "/v1/messages"
+		path = policy.ExpectedWirePath()
 	}
 	_, err := ClaimZTAPIWorkbenchNativeAttempt(task, input.UserID, input.TokenID, first.Settlement.OperationID, 4,
 		strings.Repeat("c", 64), path)
 	require.ErrorIs(t, err, ErrZTAPISettlementConflict)
+	var attempts int64
+	require.NoError(t, db.Model(&ZTAPIRequestAttempt{}).Count(&attempts).Error)
+	require.Zero(t, attempts)
 	_, err = ClaimZTAPIWorkbenchNativeAttempt(task, input.UserID, input.TokenID, first.Settlement.OperationID, 4,
 		strings.Repeat("c", 64), path, policy)
 	require.NoError(t, err)

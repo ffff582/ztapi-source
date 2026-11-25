@@ -41,6 +41,7 @@ type workbenchFablePilotCap struct {
 	MaxRequests      int    `json:"max_requests"`
 	BudgetNanoU      int64  `json:"budget_nano_u"`
 	UpstreamProtocol string `json:"upstream_protocol,omitempty"`
+	UpstreamModel    string `json:"upstream_model,omitempty"`
 }
 
 func (config workbenchPilotConfig) fablePolicy() (model.ZTAPIWorkbenchPilotPolicy, error) {
@@ -76,16 +77,28 @@ func (config workbenchPilotConfig) fablePolicy() (model.ZTAPIWorkbenchPilotPolic
 	}
 	publicModel := ""
 	upstreamPath := ""
+	wirePath := ""
 	if config.WalletCap != nil {
 		publicModel = pin.Model
 		switch cap.UpstreamProtocol {
 		case "":
 		case "chat-completions":
 			upstreamPath = model.ZTAPIWorkbenchChatPath
+			u, err := url.Parse(pin.UpstreamOrigin)
+			if err != nil || u.RawPath != "" {
+				return empty, rejected
+			}
+			switch u.Path {
+			case "":
+			case "/hub":
+				wirePath = model.ZTAPIWorkbenchHubChatPath
+			default:
+				return empty, rejected
+			}
 		default:
 			return empty, rejected
 		}
-	} else if cap.UpstreamProtocol != "" {
+	} else if cap.UpstreamProtocol != "" || cap.UpstreamModel != "" {
 		return empty, rejected
 	}
 	quota, ok := model.ZTAPIWorkbenchPilotWalletQuota(cap.BudgetNanoU)
@@ -107,7 +120,8 @@ func (config workbenchPilotConfig) fablePolicy() (model.ZTAPIWorkbenchPilotPolic
 	}
 	p := model.ZTAPIWorkbenchPilotPolicy{BatchID: cap.BatchID, PolicySHA256: common.HashZTAPIKey(digest),
 		ExpiresAt: cap.ExpiresAt, MaxRequests: cap.MaxRequests, BudgetQuota: quota,
-		UserID: config.UserIDs[0], ChannelID: pin.ChannelID, PublicModel: publicModel, UpstreamPath: upstreamPath}
+		UserID: config.UserIDs[0], ChannelID: pin.ChannelID, PublicModel: publicModel, UpstreamPath: upstreamPath,
+		WirePath: wirePath, UpstreamModel: cap.UpstreamModel}
 	if !p.ValidAt(time.Now()) {
 		return empty, rejected
 	}

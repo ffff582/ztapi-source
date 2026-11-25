@@ -3,6 +3,7 @@ package model
 import (
 	"errors"
 	"math"
+	"regexp"
 	"strings"
 	"time"
 
@@ -26,27 +27,47 @@ type ZTAPIWorkbenchPilotSpend struct {
 }
 
 type ZTAPIWorkbenchPilotPolicy struct {
-	BatchID      string
-	PolicySHA256 string
-	ExpiresAt    int64
-	MaxRequests  int
-	BudgetQuota  int64
-	UserID       int
-	ChannelID    int
-	PublicModel  string // Empty only for the legacy Fable Chat Completions pilot.
-	UpstreamPath string // Empty uses the default for the selected pilot protocol.
+	BatchID       string
+	PolicySHA256  string
+	ExpiresAt     int64
+	MaxRequests   int
+	BudgetQuota   int64
+	UserID        int
+	ChannelID     int
+	PublicModel   string // Empty only for the legacy Fable Chat Completions pilot.
+	UpstreamPath  string // Empty uses the default for the selected pilot protocol.
+	WirePath      string // Optional physical path of a pinned Chat Completions endpoint.
+	UpstreamModel string // Required when a non-default wire path has a pinned mapping.
 }
 
 const (
 	ZTAPIWorkbenchMessagesPath = "/v1/messages"
 	ZTAPIWorkbenchChatPath     = "/v1/chat/completions"
+	ZTAPIWorkbenchHubChatPath  = "/hub/v1/chat/completions"
 )
+
+var workbenchMappedClaudePattern = regexp.MustCompile(`^claude-[a-z0-9][a-z0-9.-]{0,63}$`)
 
 func (p ZTAPIWorkbenchPilotPolicy) ExpectedUpstreamPath() string {
 	if p.PublicModel == "" || p.UpstreamPath == ZTAPIWorkbenchChatPath {
 		return ZTAPIWorkbenchChatPath
 	}
 	return ZTAPIWorkbenchMessagesPath
+}
+
+func (p ZTAPIWorkbenchPilotPolicy) ExpectedWirePath() string {
+	if p.WirePath != "" {
+		return p.WirePath
+	}
+	return p.ExpectedUpstreamPath()
+}
+
+func (p ZTAPIWorkbenchPilotPolicy) validWireBinding() bool {
+	if p.WirePath == "" {
+		return p.UpstreamModel == ""
+	}
+	return p.PublicModel != "" && p.UpstreamPath == ZTAPIWorkbenchChatPath &&
+		p.WirePath == ZTAPIWorkbenchHubChatPath && workbenchMappedClaudePattern.MatchString(p.UpstreamModel)
 }
 
 func (p ZTAPIWorkbenchPilotPolicy) allowsModel(publicModel string) bool {
@@ -82,7 +103,7 @@ func (p ZTAPIWorkbenchPilotPolicy) ValidAt(now time.Time) bool {
 		p.ExpiresAt > now.Unix() && p.ExpiresAt <= now.Add(30*time.Minute).Unix() &&
 		p.MaxRequests > 0 && p.MaxRequests <= ZTAPIWorkbenchFableMaxRequests &&
 		p.BudgetQuota > 0 && p.BudgetQuota <= maxQuota &&
-		p.UserID > 0 && p.ChannelID > 0 &&
+		p.UserID > 0 && p.ChannelID > 0 && p.validWireBinding() &&
 		(p.PublicModel == "" && p.UpstreamPath == "" || strings.HasPrefix(p.PublicModel, "zt-claude-") &&
 			len(p.PublicModel) > len("zt-claude-") && (p.UpstreamPath == "" || p.UpstreamPath == ZTAPIWorkbenchChatPath))
 }
