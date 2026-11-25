@@ -1,0 +1,42 @@
+name: Workbench public download readback
+
+on:
+  push:
+    branches: ['qa/workbench-rc29-public-download']
+    paths: ['.github/workflows/workbench-public-download-check.yml']
+
+permissions: {}
+
+jobs:
+  https-readback:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Verify full public installer and source links from an independent network
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha=d29cbac1f3c245b7f1a928ca44ae557def6bdeabd9e8250bb38a02b9537bedce
+          edition=rc29-opencode-13f76edb
+          origin=https://ztapi.vip
+          curl --fail --silent --show-error --proto '=https' --max-time 20 \
+            "$origin/client/artifacts/windows-beta.json" | jq -e --arg sha "$sha" --arg edition "$edition" \
+            '.schema == "ztapi-workbench-windows-release-v1" and .edition == $edition and .sha256 == $sha and .bytes == 255602652'
+          curl --fail --silent --show-error --proto '=https' --connect-timeout 20 --max-time 420 \
+            --dump-header installer-headers.txt --output workbench.exe \
+            --write-out 'download HTTP %{http_code}, bytes=%{size_download}, seconds=%{time_total}\n' \
+            "$origin/client/artifacts/windows/$sha/ZTAPI-Workbench-$edition.exe"
+          test "$(stat -c %s workbench.exe)" = 255602652
+          printf '%s  workbench.exe\n' "$sha" | sha256sum --check
+          curl --fail --silent --show-error --proto '=https' --max-time 20 \
+            "$origin/client/artifacts/open-source.html" | grep -F "$sha" >/dev/null
+          for entry in \
+            'b8401c98d92adadecd48ebac09807b0a9b1d5bf47707551167b73aac714640d9/workbench-sources-and-notices.zip' \
+            '858e9bdda1157e99f80abb8889af8609649b21021ad8d6d89b28a84fd9a6f939/workbench-native-relink-inputs.zip'; do
+            status=$(curl --fail --silent --show-error --proto '=https' --max-time 20 --range 0-1023 \
+              --max-filesize 1024 --output source-prefix.bin --write-out '%{http_code}' \
+              "$origin/client/artifacts/source/$entry")
+            test "$status" = 206
+            test "$(stat -c %s source-prefix.bin)" = 1024
+          done
+          echo 'Exact full installer and source ranges verified; no model request.'
