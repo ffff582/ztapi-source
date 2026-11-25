@@ -37,6 +37,9 @@ export function createMacSandboxFetch({ request }) {
     const url = new URL(req.url);
     const channel = url.origin === localOrigin && !url.username && !url.password && !url.hash
       ? routes.get(url.pathname + url.search) : null;
+    // The local MCP server is stateless and does not support unsolicited events or session deletion.
+    if (channel === 'projectTool' && ['GET', 'DELETE'].includes(req.method))
+      return new Response(null, { status: 405, headers: { allow: 'POST' } });
     if (!channel || req.method !== 'POST' || req.headers.get('content-type')?.split(';')[0].trim() !== 'application/json')
       throw rejected();
     req.signal.throwIfAborted();

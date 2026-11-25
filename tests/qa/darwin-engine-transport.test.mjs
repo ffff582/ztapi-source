@@ -30,3 +30,13 @@ test('does not forward arbitrary hosts, redirects, oversized bodies, or method o
   await assert.rejects(send(uri, init), /ENGINE_TRANSPORT_UNCONFIRMED/);
   assert.equal(dispatched, 1);
 });
+
+test('MCP session management terminates locally and never dispatches a request', async () => {
+  const send = createMacSandboxFetch({ request() { assert.fail('unexpected dispatch'); } });
+  for (const method of ['GET', 'DELETE']) {
+    const response = await send('http://ztapi-engine.invalid/__ztapi_mcp', { method });
+    assert.equal(response.status, 405);
+    assert.equal(response.headers.get('allow'), 'POST');
+  }
+  await assert.rejects(send('https://example.com/__ztapi_mcp'), /ENGINE_TRANSPORT_REJECTED/);
+});

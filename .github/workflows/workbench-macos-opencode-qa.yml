@@ -7,7 +7,9 @@ on:
       - '.github/workflows/workbench-macos-opencode-qa.yml'
       - 'desktop/macos/opencode-*.mjs'
       - 'desktop/macos/engine-*.mjs'
+      - 'desktop/macos/project-*.mjs'
       - 'tests/qa/darwin-opencode-*'
+      - 'tests/qa/darwin-project-flow.mjs'
 
 permissions:
   contents: read
@@ -54,3 +56,5 @@ jobs:
       - run: node --test tests/qa/darwin-opencode-config.test.mjs
       - name: Exercise the official CLI in a zero-network App Sandbox
         run: node tests/qa/darwin-opencode-smoke.mjs "$RUNNER_TEMP/ztapi-engine/opencode"
+      - name: Exercise the official CLI and native staged project workflow
+        run: node tests/qa/darwin-opencode-smoke.mjs "$RUNNER_TEMP/ztapi-engine/opencode" project
