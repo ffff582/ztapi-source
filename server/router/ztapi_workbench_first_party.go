@@ -31,6 +31,7 @@ type workbenchPilotConfig struct {
 	ReadOnly        bool                    `json:"read_only"`
 	DispatchEnabled bool                    `json:"dispatch_enabled"`
 	OpusBeta        bool                    `json:"opus_beta,omitempty"`
+	AllActiveUsers  bool                    `json:"all_active_users,omitempty"`
 	FableCap        *workbenchFablePilotCap `json:"fable_cap,omitempty"`
 	WalletCap       *workbenchFablePilotCap `json:"wallet_cap,omitempty"`
 }
@@ -255,7 +256,7 @@ func MountZTAPIWorkbenchDedicatedPilot(r gin.IRouter, path string, expectedUserI
 	if err != nil {
 		return err
 	}
-	if config.OpusBeta || !config.DispatchEnabled || config.WalletCap == nil || config.FableCap != nil ||
+	if config.OpusBeta || config.AllActiveUsers || !config.DispatchEnabled || config.WalletCap == nil || config.FableCap != nil ||
 		len(config.UserIDs) != 1 || config.UserIDs[0] != expectedUserID ||
 		len(config.Models) != 1 || config.Models[0].Model != expectedModel ||
 		config.Models[0].CredentialSHA256 == strings.Repeat("0", 64) {
@@ -273,7 +274,7 @@ func MountZTAPIWorkbenchDedicatedPilot(r gin.IRouter, path string, expectedUserI
 	return mountWorkbenchPilotConfig(r, config)
 }
 
-// MountZTAPIWorkbenchOpusBeta uses only the enrolled users' normal wallet
+// MountZTAPIWorkbenchOpusBeta uses only eligible users' normal wallet
 // reservations; a beta config cannot reuse any timed test budget.
 func MountZTAPIWorkbenchOpusBeta(r gin.IRouter, path string) error {
 	if !filepath.IsAbs(path) {
@@ -296,7 +297,10 @@ func MountZTAPIWorkbenchOpusBeta(r gin.IRouter, path string) error {
 }
 
 func mountWorkbenchPilotConfig(r gin.IRouter, config workbenchPilotConfig) error {
-	p, err := newWorkbenchAcceptancePolicy(config.WorkbenchAcceptanceConfig)
+	if config.AllActiveUsers && (!config.OpusBeta || config.WalletCap != nil || config.FableCap != nil) {
+		return errors.New("platform account scope requires dedicated workbench beta without a test budget")
+	}
+	p, err := newWorkbenchAccountPolicy(config.WorkbenchAcceptanceConfig, config.AllActiveUsers)
 	if err != nil {
 		return err
 	}

@@ -93,7 +93,11 @@ func TestZTAPIWorkbenchMessagesPilotLoopback(t *testing.T) {
 }
 
 func TestZTAPIWorkbenchOpusBetaLoopback(t *testing.T) {
-	testZTAPIWorkbenchRelayLoopback(t, "claude-opus-5-5", "/hub/v1/chat/completions", "opus-beta")
+	for _, mode := range []string{"opus-beta", "opus-beta-all-active-users"} {
+		t.Run(mode, func(t *testing.T) {
+			testZTAPIWorkbenchRelayLoopback(t, "claude-opus-5-5", "/hub/v1/chat/completions", mode)
+		})
+	}
 }
 
 func TestZTAPIWorkbenchOfficialClaudeWithChatConversion(t *testing.T) {
@@ -146,7 +150,8 @@ func TestZTAPIWorkbenchFablePilotHardCap(t *testing.T) {
 
 func testZTAPIWorkbenchRelayLoopback(t *testing.T, source, upstreamPath, mode string) {
 	sdkProof := mode == "pilot-messages-sdk"
-	opusBeta := mode == "opus-beta"
+	platformBeta := mode == "opus-beta-all-active-users"
+	opusBeta := mode == "opus-beta" || platformBeta
 	convertedMessages := mode == "pilot-messages-chat" || sdkProof || opusBeta
 	messages := mode == "pilot-messages" || convertedMessages
 	firstPartyProof := strings.HasPrefix(mode, "rc10-first-party-proof")
@@ -581,6 +586,10 @@ func testZTAPIWorkbenchRelayLoopback(t *testing.T, source, upstreamPath, mode st
 				require.NoError(t, db.AutoMigrate(&model.ZTAPIWorkbenchPilotSpend{}))
 			}
 			pilot.OpusBeta = opusBeta
+			if platformBeta {
+				pilot.AllActiveUsers = true
+				pilot.UserIDs = nil
+			}
 			encoded, err := common.Marshal(pilot)
 			require.NoError(t, err)
 			configPath := filepath.Join(t.TempDir(), "pilot.json")
@@ -597,6 +606,20 @@ func testZTAPIWorkbenchRelayLoopback(t *testing.T, source, upstreamPath, mode st
 				}
 				require.Error(t, MountZTAPIWorkbenchDedicatedPilot(gin.New(), configPath, user.Id, public))
 				require.NoError(t, MountZTAPIWorkbenchOpusBeta(engine, configPath))
+				if platformBeta {
+					bad := pilot
+					bad.UserIDs = []int{user.Id}
+					require.Error(t, mountWorkbenchPilotConfig(gin.New(), bad), "all accounts must not override a list")
+					bad = pilot
+					bad.AllActiveUsers = false
+					require.Error(t, mountWorkbenchPilotConfig(gin.New(), bad), "omitting a list is not an opt-in")
+					bad = pilot
+					bad.OpusBeta = false
+					require.Error(t, mountWorkbenchPilotConfig(gin.New(), bad), "older pilots may not admit all accounts")
+					bad = pilot
+					bad.WalletCap = &workbenchFablePilotCap{}
+					require.Error(t, mountWorkbenchPilotConfig(gin.New(), bad), "all accounts cannot share a pilot budget")
+				}
 				drain := pilot
 				drain.DispatchEnabled, drain.DrainOnly = false, true
 				data, err := common.Marshal(drain)
@@ -668,7 +691,50 @@ func testZTAPIWorkbenchRelayLoopback(t *testing.T, source, upstreamPath, mode st
 		require.Contains(t, rec.Body.String(), "ztapi-workbench-messages-v1")
 		require.Contains(t, rec.Body.String(), public)
 		rec = performZTAPIRouterRequest(engine, "GET", catalogPath, "", outside, "127.0.0.1:1100")
-		require.Equal(t, http.StatusForbidden, rec.Code)
+		if platformBeta {
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			require.Contains(t, rec.Body.String(), public)
+			var unlisted model.User
+			require.NoError(t, db.Where("username = ?", "workbench-beta-unlisted").Take(&unlisted).Error)
+			require.NoError(t, db.Model(&unlisted).Update("quota", 13).Error)
+			getSelf := performZTAPIRouterRequest(engine, "GET", "/api/workbench/self", "", outside, "127.0.0.1:1100")
+			require.Equal(t, http.StatusOK, getSelf.Code)
+			require.JSONEq(t, fmt.Sprintf(`{"success":true,"message":"","data":{"id":%d,"quota":13}}`, unlisted.Id), getSelf.Body.String())
+			keyPath := fmt.Sprintf("/api/workbench/keys/%d", key.Id)
+			for _, method := range []string{http.MethodGet, http.MethodDelete} {
+				rec = performZTAPIRouterRequest(engine, method, keyPath, "", outside, "127.0.0.1:1100")
+				require.Equal(t, http.StatusForbidden, rec.Code)
+			}
+			keyPolicy := fmt.Sprintf(`{"name":%q,"status":1,"expired_time":%d,"remain_quota":14,"model_limits_enabled":true,"model_limits":%q}`,
+				"workbench-r37-"+uuid.NewString(), time.Now().Add(5*time.Minute).Unix(), public)
+			rec = performZTAPIRouterRequest(engine, "POST", "/api/workbench/keys", keyPolicy, outside, "127.0.0.1:1100")
+			require.Equal(t, http.StatusForbidden, rec.Code)
+			withinWallet := strings.Replace(keyPolicy, `"remain_quota":14`, `"remain_quota":12`, 1)
+			rec = performZTAPIRouterRequest(engine, "POST", "/api/workbench/keys", withinWallet, outside, "127.0.0.1:1100")
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			var ownKey model.Token
+			require.NoError(t, db.Where("user_id = ? AND workbench_only = ?", unlisted.Id, true).Take(&ownKey).Error)
+			require.Equal(t, 12, ownKey.RemainQuota)
+			ownKeyPath := fmt.Sprintf("/api/workbench/keys/%d", ownKey.Id)
+			rec = performZTAPIRouterRequest(engine, "DELETE", ownKeyPath, "", access, "127.0.0.1:1100")
+			require.Equal(t, http.StatusForbidden, rec.Code)
+			rec = performZTAPIRouterRequest(engine, "DELETE", ownKeyPath, "", outside, "127.0.0.1:1100")
+			require.Equal(t, http.StatusOK, rec.Code)
+			require.NoError(t, db.Model(&unlisted).Updates(map[string]any{"group": "no-project-models", "quota": 1000}).Error)
+			rec = performZTAPIRouterRequest(engine, "GET", catalogPath, "", outside, "127.0.0.1:1100")
+			require.Equal(t, http.StatusOK, rec.Code)
+			require.NotContains(t, rec.Body.String(), public)
+			rec = performZTAPIRouterRequest(engine, "POST", "/api/workbench/keys", keyPolicy, outside, "127.0.0.1:1100")
+			require.Equal(t, http.StatusForbidden, rec.Code)
+			require.NoError(t, db.Model(&unlisted).Update("status", common.UserStatusDisabled).Error)
+			rec = performZTAPIRouterRequest(engine, "GET", catalogPath, "", outside, "127.0.0.1:1100")
+			require.Equal(t, http.StatusUnauthorized, rec.Code)
+			require.NoError(t, db.Model(&unlisted).Updates(map[string]any{"status": common.UserStatusEnabled, "role": common.RoleAdminUser}).Error)
+			rec = performZTAPIRouterRequest(engine, "GET", catalogPath, "", outside, "127.0.0.1:1100")
+			require.Equal(t, http.StatusForbidden, rec.Code)
+		} else {
+			require.Equal(t, http.StatusForbidden, rec.Code)
+		}
 		require.Zero(t, hits.Load())
 	}
 	post := func(path, task, hold, body string) (int, http.Header, string) {

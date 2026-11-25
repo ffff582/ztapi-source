@@ -47,14 +47,21 @@ type WorkbenchAcceptanceModel struct {
 
 type workbenchAcceptancePolicy struct {
 	users               map[int]bool
+	allActiveUsers      bool
 	models              map[string]WorkbenchAcceptanceModel
 	messagesChannelType int
 }
 
 func newWorkbenchAcceptancePolicy(config WorkbenchAcceptanceConfig) (workbenchAcceptancePolicy, error) {
-	p := workbenchAcceptancePolicy{users: make(map[int]bool), models: make(map[string]WorkbenchAcceptanceModel)}
+	return newWorkbenchAccountPolicy(config, false)
+}
+
+func newWorkbenchAccountPolicy(config WorkbenchAcceptanceConfig, allActiveUsers bool) (workbenchAcceptancePolicy, error) {
+	p := workbenchAcceptancePolicy{users: make(map[int]bool), allActiveUsers: allActiveUsers, models: make(map[string]WorkbenchAcceptanceModel)}
+	hasAllowlist := len(config.UserIDs) > 0
+	invalidAccounts := len(config.UserIDs) > 20 || allActiveUsers == hasAllowlist
 	if config.TaskLimitQuota < 1 || config.TaskLimitQuota > workbenchAcceptanceKeyLimit ||
-		len(config.UserIDs) < 1 || len(config.UserIDs) > 20 || (!config.LoginOnly && len(config.Models) < 1) ||
+		invalidAccounts || (!config.LoginOnly && len(config.Models) < 1) ||
 		len(config.Models) > 20 || (config.LoginOnly && (!config.Locked || len(config.Models) != 0)) {
 		return p, errors.New("invalid workbench acceptance bounds")
 	}
@@ -75,7 +82,7 @@ func newWorkbenchAcceptancePolicy(config WorkbenchAcceptanceConfig) (workbenchAc
 }
 
 func (p workbenchAcceptancePolicy) allowedAccount(id int) (*model.User, bool) {
-	if !p.users[id] {
+	if id < 1 || (!p.allActiveUsers && !p.users[id]) {
 		return nil, false
 	}
 	user, err := model.GetUserById(id, false)
