@@ -113,6 +113,10 @@ try {
         serverInfo: { name: 'ztapi-qa-fixture', version: '1.0.0' } };
     } else if (method === 'notifications/initialized' && id === undefined) {
       return { status: 202 };
+    } else if (method === 'notifications/cancelled' && id === undefined) {
+      assert.ok(['number', 'string'].includes(typeof params.requestId));
+      console.error('Synthetic cancellation reason: %s', String(params.reason ?? '').slice(0, 180));
+      return { status: 202 };
     } else if (method === 'tools/list') {
       result = { tools: actions.map(({ name, arguments: args }) => ({ name: name.slice(6), description: name, inputSchema: {
         type: 'object', properties: Object.fromEntries(Object.keys(args).map(key => [key, { type: 'string' }])),
@@ -153,6 +157,8 @@ try {
     assert.match(JSON.stringify(wire.messages), /synthetic Workbench acceptance prompt/);
     if (draft && calls > 1) {
       const receipt = ['ZTAPI_QA_FILE_READ', 'ZTAPI_QA_FILE_STAGED', 'ZTAPI_QA_TESTS_PASSED'][calls - 2];
+      if (!JSON.stringify(wire.messages).includes(receipt))
+        console.error('Synthetic last tool response: %s', JSON.stringify(wire.messages.at(-1)).slice(0, 1400));
       assert.ok(JSON.stringify(wire.messages).includes(receipt), 'Missing synthetic tool receipt: ' + receipt);
     }
     const action = draft ? actions[calls - 1] : undefined;
