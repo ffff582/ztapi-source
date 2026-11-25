@@ -1,12 +1,10 @@
 import assert from 'node:assert/strict';
-import { execFileSync, spawn } from 'node:child_process';
-import { once } from 'node:events';
-import { chmod, copyFile, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
-import { createServer } from 'node:net';
+import { execFileSync } from 'node:child_process';
+import { chmod, copyFile, mkdir, mkdtemp, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { serveEnginePipe } from '../../desktop/macos/engine-pipe.mjs';
+import { invokeMacEngine } from '../../desktop/macos/engine-host.mjs';
 import { createProjectRpc } from '../../desktop/macos/engine-project-rpc.mjs';
 import { createDarwinQaProject } from './darwin-project-flow.mjs';
 
@@ -26,8 +24,7 @@ const mac = join(bundle, 'Contents', 'MacOS');
 const res = join(bundle, 'Contents', 'Resources');
 const host = join(mac, 'ZTAPIOpenCodeQA');
 const id = 'com.ztapi.workbench.qa.opencode';
-let hits = 0, child, closed, projectFixture;
-const listener = createServer(socket => { hits++; socket.end(); });
+let projectFixture;
 const sandbox = '<key>com.apple.security.app-sandbox</key><true/>';
 const plist = body => '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict>' + body + '</dict></plist>';
 const field = (key, val) => `<key>${key}</key><string>${val}</string>`;
@@ -78,23 +75,10 @@ try {
   }
   run('/usr/bin/codesign', ['--force', '--sign', '-', '--entitlements', join(root, 'app.plist'), bundle]);
   run('/usr/bin/codesign', ['--verify', '--deep', '--strict', bundle]);
-  const canary = join(outside, 'file');
-  await writeFile(canary, 'synthetic file outside the sandbox', { flag: 'wx' });
-  listener.listen(0, '127.0.0.1');
-  await once(listener, 'listening');
-  child = spawn(host, [], { detached: true, stdio: ['pipe', 'pipe', 'inherit', 'pipe', 'pipe'],
-    env: { ZTAPI_ENGINE_MODE: mode, ZTAPI_ENGINE_CANARY: canary, ZTAPI_ENGINE_TEST_PORT: String(listener.address().port),
-      ZTAPI_ENGINE_QA_TRACE: '1' } });
-  const kill = () => {
-    if (!child?.pid) return;
-    try { process.kill(-child.pid, 'SIGKILL'); }
-    catch (error) { if (error.code !== 'ESRCH') throw error; }
-  };
-  const alarm = setTimeout(kill, 38_000);
-  closed = once(child, 'close').finally(() => clearTimeout(alarm));
-  child.stdin.on('error', () => {});
-  child.stdin.end('Respond to the synthetic Workbench acceptance prompt.');
-  let out = '', calls = 0;
+  const hostOptions = { host, state: outside, bundleId: id, timeoutMs: 35_000,
+    prompt: 'Respond to the synthetic Workbench acceptance prompt.' };
+  assert.deepEqual(await invokeMacEngine({ ...hostOptions, mode: 'probe' }), { summary: '', frames: 0 });
+  let calls = 0;
   const draft = projectFixture?.project.openDraft();
   const corrected = 'export const sum = (a, b) => a + b;';
   const actions = [
@@ -129,8 +113,7 @@ try {
       return { receipt: 'ZTAPI_QA_TESTS_PASSED' };
     },
   }) : null;
-  child.stdout.on('data', chunk => { out += chunk; if (out.length > 262144) kill(); });
-  const relay = serveEnginePipe(child.stdio[4], child.stdio[3], async ({ channel, body }) => {
+  const dispatch = async ({ channel, body }) => {
     const wire = JSON.parse(body);
     if (channel === 'projectTool') {
       assert.ok(projectRpc);
@@ -151,19 +134,11 @@ try {
     const action = draft ? actions[calls - 1] : undefined;
     if (action) assert.ok(wire.tools.some(tool => tool.name === 'mcp__ztapi_' + action.name));
     return { status: 200, type: 'text/event-stream', body: fixtureMessage(calls, action) };
-  }).catch(err => {
-    console.error('Offline bridge error:', err);
-    child.stdio[3].destroy();
-    child.stdio[4].destroy();
-    throw err;
-  });
-  const [count, [code, signal]] = await Promise.all([relay, closed]);
-  if (code !== 0 || calls !== (draft ? 4 : 1)) console.error(out.slice(0, 8192));
-  assert.equal(code, 0, `Engine exited with ${signal ?? code}; model frames=${calls}; total frames=${count}`);
+  };
+  const result = await invokeMacEngine({ ...hostOptions, mode, dispatch });
   assert.equal(calls, draft ? 4 : 1);
-  assert.equal(hits, 0);
-  const events = out.trim().split(/\r?\n/).map(line => JSON.parse(line));
-  assert.equal(events.filter(event => event.type === 'text').map(event => event.part?.text ?? '').join('').trim(), marker);
+  assert.equal(result.summary, marker);
+  assert.deepEqual(await readdir(outside), []);
   if (draft) {
     assert.deepEqual(invoked, actions.map(action => action.name));
     assert.match(await projectFixture.original(), /a - b/);
@@ -173,19 +148,19 @@ try {
     projectFixture.allowWriteback();
     assert.equal((await project.approve(project.prepareReview().id, ['calc.mjs'])).status, 'committed');
     assert.equal(await projectFixture.original(), corrected);
+  } else {
+    const controller = new AbortController();
+    let cancelledCalls = 0;
+    await assert.rejects(invokeMacEngine({ ...hostOptions, mode, signal: controller.signal, async dispatch() {
+      assert.equal(++cancelledCalls, 1);
+      controller.abort();
+      throw Error('synthetic cancellation');
+    } }), /PROJECT_TASK_CANCELLED/);
+    assert.equal(cancelledCalls, 1);
+    assert.deepEqual(await readdir(outside), []);
   }
   console.log(`OpenCode 1.19.6 verified ${mode} through local sandbox IPC on ${process.arch}; no paid request`);
 } finally {
-  if (child?.pid && child.exitCode === null && child.signalCode === null) {
-    child.stdio[3].destroy();
-    child.stdio[4].destroy();
-    await closed?.catch(() => {});
-  }
-  if (listener.listening) {
-    const done = once(listener, 'close');
-    listener.close();
-    await done;
-  }
   await projectFixture?.dispose();
   const configHome = join(res, 'engine-config');
   await chmod(configHome, 0o755).catch(() => {});
