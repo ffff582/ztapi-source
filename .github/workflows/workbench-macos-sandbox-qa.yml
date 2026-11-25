@@ -32,3 +32,7 @@ jobs:
         run: |
           node --test tests/qa/macos-sandbox-policy.test.mjs
           node tests/qa/macos-sandbox-runtime.mjs "$EXPECTED_ARCH"
+      - name: Read fixture-only kernel diagnostics
+        if: failure()
+        run: |
+          /usr/bin/log show --last 2m --style compact --predicate 'eventMessage CONTAINS "workbench-sandbox-fixture"' | tail -60

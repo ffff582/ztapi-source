@@ -24,6 +24,7 @@ static int connect_local(const char *port) {
 }
 
 int main(int argc, char **argv) {
+    fputs("fixture entered\n", stderr);
     if (argc != 7) return 90;
     int fd = open(argv[1], O_RDONLY);
     char value = 0;
@@ -35,10 +36,12 @@ int main(int argc, char **argv) {
     if (!denied(open(argv[3], O_RDONLY))) return 12;
     if (!denied(open(argv[3], O_WRONLY | O_TRUNC))) return 13;
     if (!denied(open(argv[4], O_WRONLY | O_CREAT, 0600))) return 14;
+    fputs("fixture file boundary checked\n", stderr);
     int broker = connect_local(argv[5]);
     int other = connect_local(argv[6]);
     if (broker != 0 && broker != EPERM && broker != EACCES) return 15;
     if (other != EPERM && other != EACCES) return 16;
+    fputs("fixture network boundary checked\n", stderr);
     char *const other_program[] = { "/usr/bin/true", NULL };
     if (!denied(execv(other_program[0], other_program))) return 17;
     puts(broker == 0 ? "fixture pass; broker allowed" : "fixture pass; broker denied");

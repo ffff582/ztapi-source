@@ -13,7 +13,7 @@ assert.equal(process.platform, 'darwin');
 assert.equal(process.arch, process.argv[2]);
 const root = await realpath(await mkdtemp(join(tmpdir(), 'sandbox qa ')));
 const work = join(root, 'staged project');
-const executable = join(root, 'probe');
+const executable = join(root, 'workbench-sandbox-fixture');
 const original = join(root, 'original');
 const forbidden = join(root, 'outside output');
 const source = fileURLToPath(new URL('./macos-sandbox-fixture.c', import.meta.url));
