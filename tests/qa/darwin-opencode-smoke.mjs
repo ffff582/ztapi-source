@@ -105,6 +105,7 @@ try {
   async function projectTools(body) {
     assert.ok(draft);
     const { method, jsonrpc, id, params } = body;
+    console.error('Synthetic project RPC: %s', method);
     assert.equal(jsonrpc, '2.0');
     let result;
     if (method === 'initialize') {
@@ -152,12 +153,17 @@ try {
     assert.match(JSON.stringify(wire.messages), /synthetic Workbench acceptance prompt/);
     if (draft && calls > 1) {
       const receipt = ['ZTAPI_QA_FILE_READ', 'ZTAPI_QA_FILE_STAGED', 'ZTAPI_QA_TESTS_PASSED'][calls - 2];
-      assert.ok(JSON.stringify(wire.messages).includes(receipt));
+      assert.ok(JSON.stringify(wire.messages).includes(receipt), 'Missing synthetic tool receipt: ' + receipt);
     }
     const action = draft ? actions[calls - 1] : undefined;
     if (action) assert.ok(wire.tools.some(tool => tool.name === action.name));
     return { status: 200, type: 'text/event-stream', body: fixtureMessage(calls, action) };
-  }).catch(err => { kill(); throw err; });
+  }).catch(err => {
+    console.error('Offline bridge error:', err);
+    child.stdio[3].destroy();
+    child.stdio[4].destroy();
+    throw err;
+  });
   const [count, [code, signal]] = await Promise.all([relay, closed]);
   if (code !== 0 || calls !== (draft ? 4 : 1)) console.error(out.slice(0, 8192));
   assert.equal(code, 0, `Engine exited with ${signal ?? code}; model frames=${calls}; total frames=${count}`);
@@ -178,8 +184,8 @@ try {
   console.log(`OpenCode 1.19.6 verified ${mode} through local sandbox IPC on ${process.arch}; no paid request`);
 } finally {
   if (child?.pid && child.exitCode === null && child.signalCode === null) {
-    try { process.kill(-child.pid, 'SIGKILL'); }
-    catch (error) { if (error.code !== 'ESRCH') throw error; }
+    child.stdio[3].destroy();
+    child.stdio[4].destroy();
     await closed?.catch(() => {});
   }
   if (listener.listening) {
