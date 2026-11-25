@@ -57,6 +57,7 @@ test('media commercial CI isolates offline Go fixture writes from the runner dis
   assert.deepEqual(users.map((step) => step.name), [
     'Run offline media Go suites',
     'Run Workbench authorization and settlement regressions',
+    'Verify standalone Sonnet pilot and authorized hard limits',
     'Run hosted tool billing and receipt regressions',
     'Run price reduction and official comparison integrity',
   ]);
@@ -64,6 +65,12 @@ test('media commercial CI isolates offline Go fixture writes from the runner dis
     assert.equal(step.env.TMPDIR, '${{ steps.offline-fixtures.outputs.path }}');
     assert.equal(step.env.GOTMPDIR, '${{ runner.temp }}');
   }
+  const sonnet = users.find((step) => step.name === 'Verify standalone Sonnet pilot and authorized hard limits');
+  assert.equal(sonnet['working-directory'], 'server');
+  assert.equal(sonnet.if, undefined);
+  assert.match(sonnet.run, /go build .* \.\/cmd\/ztapi-workbench-pilot$/m);
+  assert.match(sonnet.run, /go test \.\/router -run '\^TestZTAPISonnetPilotOnlyRoutesAndCaps\$' -count=1 /);
+  assert.match(sonnet.run, /go test \.\/model -run '\^TestRC28SonnetExactTrialLimits\$' -count=1 /);
   const cleanup = job.steps.find((step) => step.name === 'Remove isolated Go fixture storage');
   assert.ok(cleanup, 'temporary fixture storage must be cleaned even on failure');
   assert.match(cleanup.if, /always\(\)/);
