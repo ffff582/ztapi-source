@@ -228,8 +228,22 @@ func mountWorkbenchPilotFile(r gin.IRouter, path string) error {
 	return mountWorkbenchPilotConfig(r, config)
 }
 
-// MountZTAPISonnetPilot is the independent test service's only route registration.
+// MountZTAPISonnetPilot preserves the original dedicated Sonnet policy.
 func MountZTAPISonnetPilot(r gin.IRouter, path string, expectedUserID int) error {
+	return MountZTAPIWorkbenchDedicatedPilot(r, path, expectedUserID, "")
+}
+
+// MountZTAPIWorkbenchDedicatedPilot registers only the named, single-model test service.
+func MountZTAPIWorkbenchDedicatedPilot(r gin.IRouter, path string, expectedUserID int, expectedModel string) error {
+	const sonnet = "zt-claude-sonnet-5"
+	const mappedOpus = "zt-claude-opus-5.5"
+	switch expectedModel {
+	case "", sonnet:
+		expectedModel = sonnet
+	case mappedOpus:
+	default:
+		return errors.New("unapproved dedicated workbench test model")
+	}
 	if expectedUserID <= 0 || !filepath.IsAbs(path) {
 		return errors.New("explicit workbench test account and config required")
 	}
@@ -239,13 +253,18 @@ func MountZTAPISonnetPilot(r gin.IRouter, path string, expectedUserID int) error
 	}
 	if !config.DispatchEnabled || config.WalletCap == nil || config.FableCap != nil ||
 		len(config.UserIDs) != 1 || config.UserIDs[0] != expectedUserID ||
-		len(config.Models) != 1 || config.Models[0].Model != "zt-claude-sonnet-5" ||
+		len(config.Models) != 1 || config.Models[0].Model != expectedModel ||
 		config.Models[0].CredentialSHA256 == strings.Repeat("0", 64) {
 		return errors.New("unapproved workbench test account, model or wallet scope")
 	}
 	policy, err := config.fablePolicy()
 	if err != nil || policy.BudgetQuota < config.TaskLimitQuota {
 		return errors.New("invalid workbench test wallet scope")
+	}
+	if expectedModel == sonnet && policy.WirePath != "" ||
+		expectedModel == mappedOpus && (policy.ExpectedWirePath() != model.ZTAPIWorkbenchHubChatPath ||
+			policy.ChannelID != 2 || policy.UpstreamModel != "claude-opus-5-5-hc") {
+		return errors.New("unapproved dedicated workbench wire binding")
 	}
 	return mountWorkbenchPilotConfig(r, config)
 }

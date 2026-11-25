@@ -78,4 +78,36 @@ func TestZTAPISonnetPilotOnlyRoutesAndCaps(t *testing.T) {
 			require.NotEqual(t, p, route.Path)
 		}
 	}
+
+	t.Run("explicit mapped Opus", func(t *testing.T) {
+		config := seed()
+		config.Models[0].Model = "zt-claude-opus-5.5"
+		config.Models[0].ChannelID = 2
+		config.Models[0].UpstreamOrigin = "http://127.0.0.1:1/hub"
+		config.WalletCap.UpstreamModel = "claude-opus-5-5-hc"
+		path := write(t, config)
+		mapped := gin.New()
+		require.NoError(t, MountZTAPIWorkbenchDedicatedPilot(mapped, path, userID, config.Models[0].Model))
+		rec := performZTAPIRouterRequest(mapped, http.MethodGet, "/.well-known/ztapi-workbench", "", "", "127.0.0.1:1100")
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.Contains(t, rec.Body.String(), `"messages":"wire-bound-v1"`)
+		for _, expectedModel := range []string{"", "zt-claude-sonnet-5", "zt-claude-fable-5"} {
+			other := gin.New()
+			require.Error(t, MountZTAPIWorkbenchDedicatedPilot(other, path, userID, expectedModel))
+			require.Empty(t, other.Routes())
+		}
+		for _, invalidBinding := range []func(*workbenchPilotConfig){
+			func(c *workbenchPilotConfig) { c.WalletCap.UpstreamModel = "claude-opus-5-5" },
+			func(c *workbenchPilotConfig) { c.Models[0].UpstreamOrigin = "http://127.0.0.1:1" },
+			func(c *workbenchPilotConfig) { c.Models[0].ChannelID = 4 },
+		} {
+			candidate := seed()
+			candidate.Models[0] = config.Models[0]
+			candidate.WalletCap.UpstreamModel = config.WalletCap.UpstreamModel
+			invalidBinding(&candidate)
+			other := gin.New()
+			require.Error(t, MountZTAPIWorkbenchDedicatedPilot(other, write(t, candidate), userID, candidate.Models[0].Model))
+			require.Empty(t, other.Routes())
+		}
+	})
 }

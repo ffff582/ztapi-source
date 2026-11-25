@@ -96,7 +96,8 @@ func run() error {
 	}
 	engine.Use(gin.Recovery(), middleware.RequestId(), middleware.I18n())
 	middleware.SetUpLogger(engine)
-	if err := router.MountZTAPISonnetPilot(engine, config.policy, config.userID); err != nil {
+	if err := router.MountZTAPIWorkbenchDedicatedPilot(engine, config.policy, config.userID,
+		os.Getenv("ZTAPI_WORKBENCH_PILOT_MODEL")); err != nil {
 		return errors.New("workbench pilot policy or database schema rejected")
 	}
 	server := &http.Server{Addr: config.listen.String(), Handler: engine, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: time.Minute}
