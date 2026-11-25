@@ -21,10 +21,13 @@ test('test-runner profile has no network rule, even for loopback', () => {
 });
 
 test('loader cache read rule does not open the entire preboot or cryptex volume', () => {
-  const args = seatbeltArgs(base);
+  const cache = '/System/Volumes/Preboot/hash/current/System/Library/dyld';
+  const args = seatbeltArgs({ ...base, loaderCache: cache });
   const policy = args[args.indexOf('-p') + 1];
   assert.ok(policy.includes('(subpath "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld")'));
   assert.ok(!policy.includes('(subpath "/System/Volumes/Preboot")'));
+  assert.ok(args.includes('DYLD_DIR=' + cache));
+  assert.throws(() => seatbeltArgs({ ...base, loaderCache: '/Users/runner' }));
 });
 
 test('missing or overbroad paths and invalid broker ports fail closed', () => {
