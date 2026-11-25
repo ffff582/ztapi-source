@@ -7,9 +7,14 @@ on:
       - '.github/workflows/workbench-macos-project-qa.yml'
       - 'desktop/macos/**'
       - 'tests/qa/darwin-project-*'
+      - 'tests/qa/darwin-engine-*'
 
 permissions:
   contents: read
+
+concurrency:
+  group: workbench-macos-project-qa-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   broker:
