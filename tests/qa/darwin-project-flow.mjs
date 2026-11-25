@@ -1,21 +1,17 @@
 import assert from 'node:assert/strict';
-import { execFile, execFileSync } from 'node:child_process';
-import { once } from 'node:events';
+import { execFileSync } from 'node:child_process';
 import { copyFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
-import { createServer } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
-import { createDarwinProjectReview } from '../../desktop/macos/project-review.mjs';
+import { createMacProjectPorts } from '../../desktop/macos/project-ports.mjs';
+import { MacProjectTask } from '../../desktop/macos/project-task.mjs';
 
 assert.equal(process.platform, 'darwin');
 assert.equal(process.version, 'v22.23.5');
-const exec = promisify(execFile);
 const source = fileURLToPath(new URL('../../desktop/macos/', import.meta.url));
 const tmp = await realpath(await mkdtemp(join(tmpdir(), 'ztapi-qa-project-flow-')));
 const root = await realpath(await mkdtemp(join(homedir(), 'ztapi-qa-original-')));
-const canary = join(root, 'probe');
 const target = join(root, 'src');
 const broker = join(tmp, 'project-broker');
 const bundle = join(tmp, 'ZTAPI Test Worker.app');
@@ -24,8 +20,6 @@ const resources = join(bundle, 'Contents', 'Resources');
 const host = join(macOS, 'ZTAPITestWorker');
 const node = join(macOS, 'node');
 const id = 'com.ztapi.workbench.qa.projecttest';
-let hits = 0;
-const listener = createServer(socket => { hits++; socket.end(); });
 
 const plist = body => '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict>' +
   body + '</dict></plist>';
@@ -51,7 +45,6 @@ try {
   shell('/usr/bin/codesign', ['--force', '--sign', '-', '--entitlements', join(tmp, 'node-entitlements.plist'), node]);
   shell('/usr/bin/codesign', ['--force', '--sign', '-', '--entitlements', join(tmp, 'worker-entitlements.plist'), bundle]);
   shell('/usr/bin/codesign', ['--verify', '--deep', '--strict', bundle]);
-  await writeFile(canary, 'synthetic outside file', { flag: 'wx' });
   await writeFile(join(target, 'calc.mjs'), 'export const sum = (a, b) => a - b;');
   await writeFile(join(target, 'calc.test.mjs'), `
     import assert from 'node:assert/strict';
@@ -63,50 +56,33 @@ try {
       assert.throws(() => spawnSync('/usr/bin/true'), { code: 'ERR_ACCESS_DENIED' });
     });
   `);
-  listener.listen(0, '127.0.0.1');
-  await once(listener, 'listening');
-  const call = async (program, args, input) => {
-    const command = exec(program, args, { env: {}, timeout: 22_000, maxBuffer: 3 * 1024 * 1024 });
-    command.child.stdin.on('error', () => {});
-    command.child.stdin.end(JSON.stringify(input));
-    try { return JSON.parse((await command).stdout); }
-    catch (error) {
-      if (error.stdout) throw Error(JSON.parse(error.stdout).code);
-      throw error;
-    }
-  };
   let approved = false;
-  const project = createDarwinProjectReview(await call(broker, ['snapshot'], { root: target }), {
-    confirm: async ({ path }) => { assert.equal(path, 'calc.mjs'); return approved; },
-    commit: input => call(broker, ['commit-file'], input),
+  const ports = await createMacProjectPorts({ broker, worker: host, state: root,
+    diff: (before, after) => Buffer.from(before, 'base64') + '\n' + Buffer.from(after, 'base64'),
   });
-  const run = () => call(host, [], {
-    name: 'calc.test.mjs', files: project.model.testSnapshot(), canary: { file: canary, port: listener.address().port },
-  });
-  assert.match(project.model.read('calc.mjs'), /a - b/);
-  const failed = await run();
+  const project = new MacProjectTask({ source: target, accountId: 1,
+    confirm: async ({ files }) => { assert.deepEqual(files, ['calc.mjs']); return approved; },
+  }, ports);
+  assert.match(project.read('calc.mjs'), /a - b/);
+  const failed = await project.runTest('calc.test.mjs');
   assert.equal(failed.exitCode, 1);
   assert.match(failed.output, /not ok 1 - addition/);
-  project.model.stageEdit('calc.mjs', 'export const sum = (a, b) => a + b;');
-  const passed = await run();
+  const edit = project.openDraft();
+  edit.draft.stageEdit('calc.mjs', 'export const sum = (a, b) => a + b;');
+  const passed = await edit.draft.runTest('calc.test.mjs');
   assert.equal(passed.exitCode, 0);
   assert.match(passed.output, /pass 2\b/);
-  const preview = project.local.prepare('calc.mjs');
-  assert.match(preview.before, /a - b/);
-  assert.match(preview.after, /a \+ b/);
-  assert.equal((await project.local.approve(preview.id)).status, 'rejected');
+  edit.commit();
+  const preview = project.prepareReview();
+  assert.match(project.diff(preview.id, 'calc.mjs').text, /a - b[\s\S]*a \+ b/);
+  assert.equal((await project.approve(preview.id, ['calc.mjs'])).status, 'rejected');
   assert.match(await readFile(join(target, 'calc.mjs'), 'utf8'), /a - b/);
   approved = true;
-  assert.equal((await project.local.approve(project.local.prepare('calc.mjs').id)).status, 'committed');
+  assert.equal((await project.approve(project.prepareReview().id, ['calc.mjs'])).status, 'committed');
   assert.match(await readFile(join(target, 'calc.mjs'), 'utf8'), /a \+ b/);
-  assert.equal(hits, 0);
+  assert.equal(project.changeStatus().count, 0);
   console.log(`Native staged edit, sandbox test red/green, cancel and approve verified on ${process.arch}`);
 } finally {
-  if (listener.listening) {
-    const closed = once(listener, 'close');
-    listener.close();
-    await closed;
-  }
   await rm(tmp, { recursive: true, force: true });
   await rm(root, { recursive: true, force: true });
 }

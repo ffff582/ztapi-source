@@ -8,6 +8,8 @@ const plugin = new URL('file:///private/tmp/Workbench%20QA.app/Contents/Resource
 test('allows the specified App Sandbox container and one bundled plugin', () => {
   const env = openCodeSandboxEnvironment({ workspace, mode: 'text', containerId, plugin });
   assert.equal(env.HOME, workspace);
+  assert.equal(env.OPENCODE_TEST_HOME, workspace);
+  assert.equal(env.XDG_CONFIG_HOME, '/private/tmp/Workbench QA.app/Contents/Resources/engine-config/');
   assert.deepEqual(JSON.parse(env.OPENCODE_CONFIG_CONTENT).plugin, [plugin.href]);
 });
 test('rejects another container or a plugin outside the application resources', () => {

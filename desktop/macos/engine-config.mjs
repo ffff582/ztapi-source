@@ -1,4 +1,5 @@
 import { posix } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const model = 'ztapi-task-model';
 const transportOrigin = 'http://ztapi-engine.invalid';
@@ -43,8 +44,9 @@ export function openCodeSandboxEnvironment({ workspace, mode, containerId, plugi
   };
   return Object.freeze({
     HOME: workspace,
+    OPENCODE_TEST_HOME: workspace,
     TMPDIR: workspace,
-    XDG_CONFIG_HOME: posix.join(workspace, 'config'),
+    XDG_CONFIG_HOME: plugin ? fileURLToPath(new URL('./engine-config/', plugin), { windows: false }) : posix.join(workspace, 'config'),
     XDG_DATA_HOME: posix.join(workspace, 'data'),
     XDG_STATE_HOME: posix.join(workspace, 'state'),
     XDG_CACHE_HOME: posix.join(workspace, 'cache'),

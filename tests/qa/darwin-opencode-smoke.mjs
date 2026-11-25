@@ -46,6 +46,13 @@ function fixtureMessage() {
 try {
   await mkdir(mac, { recursive: true });
   await mkdir(res);
+  const configHome = join(res, 'engine-config');
+  const config = join(configHome, 'opencode');
+  await mkdir(config, { recursive: true });
+  // OpenCode skips runtime npm installs when the pre-created config directory is read-only.
+  await writeFile(join(config, '.gitignore'), 'node_modules\n', { mode: 0o444, flag: 'wx' });
+  await chmod(config, 0o555);
+  await chmod(configHome, 0o555);
   for (const leaf of ['engine-config.mjs', 'engine-pipe.mjs', 'engine-transport.mjs', 'opencode-pipe-plugin.mjs', 'opencode-launch.mjs']) {
     await copyFile(join(source, leaf), join(res, leaf));
   }
@@ -110,6 +117,9 @@ try {
     listener.close();
     await done;
   }
+  const configHome = join(res, 'engine-config');
+  await chmod(configHome, 0o755).catch(() => {});
+  await chmod(join(configHome, 'opencode'), 0o755).catch(() => {});
   await rm(root, { recursive: true, force: true });
   await rm(outside, { recursive: true, force: true });
 }

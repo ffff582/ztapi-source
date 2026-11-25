@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, lstat, readFile, realpath, rm } from 'node:fs/promises';
+import { access, mkdtemp, lstat, readFile, realpath, rm } from 'node:fs/promises';
+import { constants } from 'node:fs';
 import { connect } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,6 +16,8 @@ async function prepare() {
   const port = Number(process.env.ZTAPI_ENGINE_TEST_PORT);
   if (!canary?.startsWith('/') || !Number.isInteger(port) || port < 1 || port > 65535) throw setupError();
   if (!await readFile(canary).then(() => false, canaryError)) throw setupError();
+  const config = fileURLToPath(new URL('./engine-config/opencode/', import.meta.url));
+  if (!await access(config, constants.W_OK).then(() => false, canaryError)) throw setupError();
   if (!await new Promise(resolve => {
     const probe = connect({ host: '127.0.0.1', port });
     probe.once('connect', () => { probe.destroy(); resolve(false); });
