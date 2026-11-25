@@ -94,6 +94,21 @@ done
 info="$app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier com.ztapi.workbench.macos.beta' "$info"
 /usr/libexec/PlistBuddy -c 'Set :CFBundleName ZTAPI Workbench Beta' "$info"
+
+# Some upstream Electron ZIPs omit signatures on helpers. Sign only the missing
+# or invalid code in the Electron frameworks, never recursively over our workers.
+while IFS= read -r -d '' item; do
+  if [[ -f $item && $(/usr/bin/file -b "$item") != *Mach-O* ]]; then continue; fi
+  if /usr/bin/codesign --verify --strict "$item" 2>/dev/null; then continue; fi
+  if /usr/bin/codesign -d "$item" 2>/dev/null; then
+    /usr/bin/codesign --force --sign - --preserve-metadata=entitlements,flags "$item"
+  else
+    /usr/bin/codesign --force --sign - "$item"
+  fi
+done < <(/usr/bin/find -d "$app/Contents/Frameworks" \( \
+  -type d \( -name '*.app' -o -name '*.framework' -o -name '*.xpc' \) -o \
+  -type f \( -name '*.dylib' -o -path '*/MacOS/*' -o -name 'Electron Framework' \) \) -print0)
+
 /usr/bin/codesign --force --sign - "$app"
 /usr/bin/codesign --verify --deep --strict "$app"
 ln -s /Applications "$work/disk/Applications"
