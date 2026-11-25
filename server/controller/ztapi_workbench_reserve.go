@@ -69,7 +69,11 @@ func reserveZTAPIWorkbench(limit int64, messages bool) gin.HandlerFunc {
 		}
 		if messages {
 			policy := service.ZTAPIWorkbenchPilotPolicies(c)
-			if len(policy) != 1 || policy[0].PublicModel == "" || policy[0].PublicModel != req.Model || len(req.Legs) != 1 {
+			valid := len(policy) == 1 && policy[0].PublicModel != "" && policy[0].PublicModel == req.Model
+			if service.IsZTAPIWorkbenchOpusBeta(c) {
+				valid = len(policy) == 0 && req.Model == model.ZTAPIWorkbenchOpusBetaModel
+			}
+			if !valid || len(req.Legs) != 1 {
 				c.Status(http.StatusForbidden)
 				return
 			}

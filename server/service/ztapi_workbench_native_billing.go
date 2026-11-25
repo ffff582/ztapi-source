@@ -23,6 +23,15 @@ import (
 
 const workbenchRelayHoldKey = "ztapi_workbench_native_hold"
 const workbenchPilotPolicyKey = "ztapi_workbench_native_pilot_policy"
+const workbenchOpusBetaKey = "ztapi_workbench_native_opus_beta"
+
+func BindZTAPIWorkbenchOpusBeta(c *gin.Context) {
+	c.Set(workbenchOpusBetaKey, true)
+}
+
+func IsZTAPIWorkbenchOpusBeta(c *gin.Context) bool {
+	return c.GetBool(workbenchOpusBetaKey)
+}
 
 func BindZTAPIWorkbenchPilotPolicy(c *gin.Context, policy model.ZTAPIWorkbenchPilotPolicy) {
 	c.Set(workbenchPilotPolicyKey, policy)
@@ -85,12 +94,17 @@ func adoptZTAPIWorkbenchHold(c *gin.Context, amount int, info *relaycommon.Relay
 	}
 	policy, _ := c.Get(workbenchPilotPolicyKey)
 	pilot, _ := policy.(model.ZTAPIWorkbenchPilotPolicy)
+	opusBeta := IsZTAPIWorkbenchOpusBeta(c)
 	if bound.messages {
+		valid := pilot.BatchID != "" && pilot.UserID == info.UserId && pilot.PublicModel != "" && pilot.PublicModel == info.OriginModelName
+		if opusBeta {
+			valid = pilot.BatchID == "" && info.OriginModelName == model.ZTAPIWorkbenchOpusBetaModel
+		}
 		if info.RelayFormat != types.RelayFormatClaude || info.RequestURLPath != "/v1/messages" ||
-			pilot.BatchID == "" || pilot.UserID != info.UserId || pilot.PublicModel == "" || pilot.PublicModel != info.OriginModelName {
+			!valid {
 			return workbenchRelayError(http.StatusBadRequest)
 		}
-	} else if info.RelayMode != relayconstant.RelayModeResponses || pilot.PublicModel != "" {
+	} else if info.RelayMode != relayconstant.RelayModeResponses || pilot.PublicModel != "" || opusBeta {
 		return workbenchRelayError(http.StatusBadRequest)
 	}
 	price := info.ZTAPIPublicationSnapshot
@@ -152,7 +166,7 @@ func adoptZTAPIWorkbenchHold(c *gin.Context, amount int, info *relaycommon.Relay
 	info.RequestId = row.RequestID
 	info.FinalPreConsumedQuota = int(row.ReservedQuota)
 	info.BillingSource = BillingSourceWallet
-	info.Billing = &ztapiDurableBilling{row: &row, info: info, pilot: pilot}
+	info.Billing = &ztapiDurableBilling{row: &row, info: info, pilot: pilot, opusBeta: opusBeta}
 	return nil
 }
 
@@ -178,21 +192,29 @@ func CheckZTAPIWorkbenchOutbound(info *relaycommon.RelayInfo, req *http.Request)
 	}
 	chatMode := openaicompat.ShouldResponsesUseChatCompletions(upstream)
 	path := "/v1/responses"
-	messages := s.pilot.PublicModel != ""
+	messages := s.pilot.PublicModel != "" || s.opusBeta
 	if messages {
+		publicModel, expectedModel, wirePath := s.pilot.PublicModel, s.pilot.UpstreamModel, s.pilot.ExpectedWirePath()
 		path = s.pilot.ExpectedUpstreamPath()
+		if s.opusBeta {
+			publicModel, expectedModel = model.ZTAPIWorkbenchOpusBetaModel, model.ZTAPIWorkbenchOpusBetaMapping
+			path, wirePath = model.ZTAPIWorkbenchChatPath, model.ZTAPIWorkbenchHubChatPath
+			if source != model.ZTAPIWorkbenchOpusBetaSource || info.ChannelId != model.ZTAPIWorkbenchOpusBetaChannel ||
+				strings.TrimSuffix(info.ChannelBaseUrl, "/") != model.ZTAPIWorkbenchOpusBetaOrigin || s.pilot.BatchID != "" {
+				return model.ErrZTAPISettlementConflict
+			}
+		}
 		chatMode = path == model.ZTAPIWorkbenchChatPath
 		channel := constant.ChannelTypeAnthropic
 		if chatMode {
 			channel = constant.ChannelTypeOpenAI
 		}
-		expectedModel := source
-		if s.pilot.UpstreamModel != "" {
-			expectedModel = s.pilot.UpstreamModel
+		if expectedModel == "" {
+			expectedModel = source
 		}
 		if info.RelayFormat != types.RelayFormatClaude || info.ChannelType != channel ||
-			req.URL.Path != s.pilot.ExpectedWirePath() || req.Header.Get("anthropic-beta") != "" ||
-			!strings.HasPrefix(source, "claude-") || upstream != expectedModel || s.pilot.PublicModel != s.row.PublicModel {
+			req.URL.Path != wirePath || req.Header.Get("anthropic-beta") != "" ||
+			!strings.HasPrefix(source, "claude-") || upstream != expectedModel || publicModel != s.row.PublicModel {
 			return model.ErrZTAPISettlementConflict
 		}
 	} else if chatMode {
@@ -257,9 +279,9 @@ func CheckZTAPIWorkbenchOutbound(info *relaycommon.RelayInfo, req *http.Request)
 			!messages && (source != "claude-fable-5" || upstream != source || !chatMode || req.URL.Path != "/v1/chat/completions") {
 			return model.ErrZTAPISettlementConflict
 		}
-		if len(data) > 131072 || output > 2048 {
-			return model.ErrZTAPIWorkbenchPilotLimit
-		}
+	}
+	if (s.pilot.BatchID != "" || s.opusBeta) && (len(data) > 131072 || output > 2048) {
+		return model.ErrZTAPIWorkbenchPilotLimit
 	}
 	req.Body = io.NopCloser(bytes.NewReader(data))
 	req.ContentLength = int64(len(data))

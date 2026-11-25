@@ -26,6 +26,7 @@ type pilotSettings struct {
 	policy   string
 	userID   int
 	proxyIPs string
+	opusBeta bool
 }
 
 func settingsFromEnv() (pilotSettings, error) {
@@ -38,15 +39,29 @@ func settingsFromEnv() (pilotSettings, error) {
 		return config, errors.New("a private IPv4 pilot listener is required")
 	}
 	policy := os.Getenv("ZTAPI_WORKBENCH_PILOT_CONFIG")
-	userID, err := strconv.Atoi(os.Getenv("ZTAPI_WORKBENCH_PILOT_USER_ID"))
 	proxies := os.Getenv("ZTAPI_TRUSTED_PROXY_CIDRS")
-	if err != nil || userID < 1 || !filepath.IsAbs(policy) || proxies == "" {
-		return config, errors.New("explicit pilot account, policy file and trusted proxy are required")
+	if !filepath.IsAbs(policy) || proxies == "" {
+		return config, errors.New("explicit workbench policy file and trusted proxy are required")
+	}
+	switch os.Getenv("ZTAPI_WORKBENCH_SERVICE_MODE") {
+	case "", "pilot":
+		config.userID, err = strconv.Atoi(os.Getenv("ZTAPI_WORKBENCH_PILOT_USER_ID"))
+		if err != nil || config.userID < 1 {
+			return config, errors.New("explicit pilot account is required")
+		}
+	case "opus-beta":
+		if os.Getenv("ZTAPI_WORKBENCH_PILOT_USER_ID") != "" || os.Getenv("ZTAPI_WORKBENCH_PILOT_MODEL") != "" {
+			return config, errors.New("workbench beta cannot inherit pilot account or model settings")
+		}
+		config.opusBeta = true
+	default:
+		return config, errors.New("unrecognized workbench service mode")
 	}
 	if _, err := router.ParseTrustedProxyCIDRs(proxies, true); err != nil {
 		return config, errors.New("invalid workbench pilot trusted proxy")
 	}
-	return pilotSettings{listen: listen, policy: policy, userID: userID, proxyIPs: proxies}, nil
+	config.listen, config.policy, config.proxyIPs = listen, policy, proxies
+	return config, nil
 }
 
 func run() error {
@@ -96,8 +111,13 @@ func run() error {
 	}
 	engine.Use(gin.Recovery(), middleware.RequestId(), middleware.I18n())
 	middleware.SetUpLogger(engine)
-	if err := router.MountZTAPIWorkbenchDedicatedPilot(engine, config.policy, config.userID,
-		os.Getenv("ZTAPI_WORKBENCH_PILOT_MODEL")); err != nil {
+	if config.opusBeta {
+		err = router.MountZTAPIWorkbenchOpusBeta(engine, config.policy)
+	} else {
+		err = router.MountZTAPIWorkbenchDedicatedPilot(engine, config.policy, config.userID,
+			os.Getenv("ZTAPI_WORKBENCH_PILOT_MODEL"))
+	}
+	if err != nil {
 		return errors.New("workbench pilot policy or database schema rejected")
 	}
 	server := &http.Server{Addr: config.listen.String(), Handler: engine, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: time.Minute}

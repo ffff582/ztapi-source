@@ -54,8 +54,14 @@ test('financial CI requires the Claude Messages relay and per-model wallet route
   const filter = new RegExp(selection[1]);
   for (const name of [
     'TestZTAPIWorkbenchMessagesPilotLoopback',
+    'TestZTAPIWorkbenchOpusBetaLoopback',
     'TestZTAPIWorkbenchWalletPolicyForApprovedNonFableModel',
   ]) {
     assert.match(name, filter, `${name} must run in financial CI`);
   }
+  const standalone = workflow.jobs['media-commercial-gates'].steps.find(
+    ({ name }) => name === 'Verify standalone Sonnet pilot and authorized hard limits',
+  );
+  assert.ok(standalone && !standalone.if && !standalone['continue-on-error']);
+  assert.match(standalone.run, /go test \.\/cmd\/ztapi-workbench-pilot -count=1/);
 });

@@ -30,6 +30,7 @@ type workbenchPilotConfig struct {
 	DrainOnly       bool                    `json:"drain_only"`
 	ReadOnly        bool                    `json:"read_only"`
 	DispatchEnabled bool                    `json:"dispatch_enabled"`
+	OpusBeta        bool                    `json:"opus_beta,omitempty"`
 	FableCap        *workbenchFablePilotCap `json:"fable_cap,omitempty"`
 	WalletCap       *workbenchFablePilotCap `json:"wallet_cap,omitempty"`
 }
@@ -225,6 +226,9 @@ func mountWorkbenchPilotFile(r gin.IRouter, path string) error {
 	if err != nil {
 		return err
 	}
+	if config.OpusBeta {
+		return errors.New("stable workbench beta requires the dedicated service")
+	}
 	return mountWorkbenchPilotConfig(r, config)
 }
 
@@ -251,7 +255,7 @@ func MountZTAPIWorkbenchDedicatedPilot(r gin.IRouter, path string, expectedUserI
 	if err != nil {
 		return err
 	}
-	if !config.DispatchEnabled || config.WalletCap == nil || config.FableCap != nil ||
+	if config.OpusBeta || !config.DispatchEnabled || config.WalletCap == nil || config.FableCap != nil ||
 		len(config.UserIDs) != 1 || config.UserIDs[0] != expectedUserID ||
 		len(config.Models) != 1 || config.Models[0].Model != expectedModel ||
 		config.Models[0].CredentialSHA256 == strings.Repeat("0", 64) {
@@ -265,6 +269,28 @@ func MountZTAPIWorkbenchDedicatedPilot(r gin.IRouter, path string, expectedUserI
 		expectedModel == mappedOpus && (policy.ExpectedWirePath() != model.ZTAPIWorkbenchHubChatPath ||
 			policy.ChannelID != 2 || policy.UpstreamModel != "claude-opus-5-5-hc") {
 		return errors.New("unapproved dedicated workbench wire binding")
+	}
+	return mountWorkbenchPilotConfig(r, config)
+}
+
+// MountZTAPIWorkbenchOpusBeta uses only the enrolled users' normal wallet
+// reservations; a beta config cannot reuse any timed test budget.
+func MountZTAPIWorkbenchOpusBeta(r gin.IRouter, path string) error {
+	if !filepath.IsAbs(path) {
+		return errors.New("an absolute workbench beta config is required")
+	}
+	config, err := readWorkbenchPilotFile(path)
+	if err != nil {
+		return err
+	}
+	if !config.OpusBeta || config.WalletCap != nil || config.FableCap != nil || len(config.Models) != 1 {
+		return errors.New("an explicit single-model workbench beta scope is required")
+	}
+	pin := config.Models[0]
+	if pin.Model != model.ZTAPIWorkbenchOpusBetaModel || pin.ChannelID != model.ZTAPIWorkbenchOpusBetaChannel ||
+		pin.UpstreamOrigin != model.ZTAPIWorkbenchOpusBetaOrigin || !validWorkbenchDispatchBinding(pin) ||
+		pin.CredentialSHA256 == strings.Repeat("0", 64) {
+		return errors.New("unverified workbench beta channel")
 	}
 	return mountWorkbenchPilotConfig(r, config)
 }
@@ -306,6 +332,9 @@ func mountWorkbenchFirstPartyPilot(r gin.IRouter, config workbenchPilotConfig, p
 			p.messagesChannelType = constant.ChannelTypeOpenAI
 		}
 	}
+	if config.OpusBeta {
+		p.messagesChannelType = constant.ChannelTypeOpenAI
+	}
 	r.GET("/.well-known/ztapi-workbench", workbenchPilotNoStore, func(c *gin.Context) {
 		manifest := gin.H{"protocol": "ztapi-workbench-first-party-v1", "budget": "wire-bound-v1",
 			"dispatch": "enabled", "account_routes": "workbench-v1"}
@@ -330,6 +359,10 @@ func mountWorkbenchFirstPartyPilot(r gin.IRouter, config workbenchPilotConfig, p
 		for _, path := range []string{"/reserve", "/responses", "/release"} {
 			budget.POST("/__workbench_budget"+path, workbenchPilotUnavailable)
 		}
+		if config.OpusBeta {
+			budget.POST("/__workbench_budget/messages/reserve", workbenchPilotUnavailable)
+			budget.POST("/__workbench_budget/messages", workbenchPilotUnavailable)
+		}
 		return
 	}
 	account.POST("/keys", middleware.CriticalRateLimit(), func(c *gin.Context) {
@@ -353,6 +386,9 @@ func mountWorkbenchFirstPartyPilot(r gin.IRouter, config workbenchPilotConfig, p
 		}
 		if fable.BatchID != "" {
 			service.BindZTAPIWorkbenchPilotPolicy(c, fable)
+		}
+		if config.OpusBeta {
+			service.BindZTAPIWorkbenchOpusBeta(c)
 		}
 		p.dispatchGate(c)
 	}

@@ -27,6 +27,7 @@ type ztapiDurableBilling struct {
 	attempt        *model.ZTAPIRequestAttempt
 	safetyOutcome  bool
 	pilot          model.ZTAPIWorkbenchPilotPolicy
+	opusBeta       bool
 }
 
 func newZTAPIDurableBilling(info *relaycommon.RelayInfo, amount int) (*ztapiDurableBilling, *types.NewAPIError) {
@@ -252,11 +253,18 @@ func BeginZTAPIBillingAttempt(info *relaycommon.RelayInfo, path string) error {
 		if info.ZTAPIPublicationSnapshot == nil || !slices.Contains(info.ZTAPIPublicationSnapshot.AllowedChannelIDs, info.ChannelId) {
 			return model.ErrZTAPISettlementConflict
 		}
-		var policy []model.ZTAPIWorkbenchPilotPolicy
-		if s.pilot.BatchID != "" {
-			policy = []model.ZTAPIWorkbenchPilotPolicy{s.pilot}
+		if s.opusBeta {
+			if s.pilot.BatchID != "" {
+				return model.ErrZTAPISettlementConflict
+			}
+			attempt, err = model.ClaimZTAPIWorkbenchOpusBetaAttempt(s.row.WorkbenchTaskID, s.row.UserID, s.row.TokenID, s.row.OperationID, info.ChannelId, credential, path)
+		} else {
+			var policy []model.ZTAPIWorkbenchPilotPolicy
+			if s.pilot.BatchID != "" {
+				policy = []model.ZTAPIWorkbenchPilotPolicy{s.pilot}
+			}
+			attempt, err = model.ClaimZTAPIWorkbenchNativeAttempt(s.row.WorkbenchTaskID, s.row.UserID, s.row.TokenID, s.row.OperationID, info.ChannelId, credential, path, policy...)
 		}
-		attempt, err = model.ClaimZTAPIWorkbenchNativeAttempt(s.row.WorkbenchTaskID, s.row.UserID, s.row.TokenID, s.row.OperationID, info.ChannelId, credential, path, policy...)
 	} else {
 		attempt, err = model.BeginZTAPIRequestAttempt(s.row.OperationID, info.ChannelId, credential, path)
 	}

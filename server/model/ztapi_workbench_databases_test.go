@@ -69,8 +69,9 @@ func TestZTAPIWorkbenchDatabaseConcurrency(t *testing.T) {
 				require.EqualValues(t, 2, count)
 			}
 			for round := 0; round < 5; round++ {
-				t.Run(fmt.Sprint(round), func(t *testing.T) { verifyWorkbenchConcurrentTransactions(t, db) })
+				t.Run(fmt.Sprint(round), func(t *testing.T) { verifyWorkbenchConcurrentTransactions(t, db, false) })
 			}
+			t.Run("opus-beta", func(t *testing.T) { verifyWorkbenchConcurrentTransactions(t, db, true) })
 			t.Run("pilot-hard-cap", func(t *testing.T) {
 				verifyWorkbenchPilotConcurrentCharges(t, db)
 			})
@@ -182,13 +183,16 @@ func workbenchConcurrentActions(n int, f func(int) error) []error {
 	return results
 }
 
-func verifyWorkbenchConcurrentTransactions(t *testing.T, db *gorm.DB) {
+func verifyWorkbenchConcurrentTransactions(t *testing.T, db *gorm.DB, opusBeta bool) {
 	t.Helper()
 	task, hold := uuid.NewString(), uuid.NewString()
 	user := User{Username: "wb" + task[:12], AffCode: task[:7], Status: common.UserStatusEnabled, Role: common.RoleCommonUser, Quota: 1000}
 	require.NoError(t, db.Create(&user).Error)
 	key := Token{UserId: user.Id, KeyHash: strings.ReplaceAll(task, "-", ""), Status: common.TokenStatusEnabled, RemainQuota: 1000,
 		ModelLimitsEnabled: true, ModelLimits: "zt-test", ExpiredTime: time.Now().Add(10 * time.Minute).Unix()}
+	if opusBeta {
+		key.ModelLimits, key.WorkbenchOnly = ZTAPIWorkbenchOpusBetaModel, true
+	}
 	require.NoError(t, db.Create(&key).Error)
 	input := ZTAPIRequestSettlement{OperationID: hold, RequestID: hold, UserID: user.Id, TokenID: key.Id,
 		PublicModel: key.ModelLimits, PriceSnapshotJSON: `{"version":1}`, ReservedQuota: 200}
@@ -220,6 +224,11 @@ func verifyWorkbenchConcurrentTransactions(t *testing.T, db *gorm.DB) {
 	require.Equal(t, 1, success)
 	success = 0
 	for _, err := range workbenchConcurrentActions(8, func(i int) error {
+		if opusBeta {
+			_, err := ClaimZTAPIWorkbenchOpusBetaAttempt(task, user.Id, key.Id, hold, ZTAPIWorkbenchOpusBetaChannel,
+				strings.Repeat("b", 64), ZTAPIWorkbenchHubChatPath)
+			return err
+		}
 		_, err := ClaimZTAPIWorkbenchNativeAttempt(task, user.Id, key.Id, hold, i+1, strings.Repeat("b", 64), "/v1/chat/completions")
 		return err
 	}) {
@@ -239,6 +248,12 @@ func verifyWorkbenchConcurrentTransactions(t *testing.T, db *gorm.DB) {
 	assertZTAPISettlementBalances(t, db, input, 630, 630)
 	var row ZTAPIRequestSettlement
 	require.NoError(t, db.Where("operation_id = ?", hold).Take(&row).Error)
+	if opusBeta {
+		var attempt ZTAPIRequestAttempt
+		require.NoError(t, db.Where("settlement_id = ?", row.ID).Take(&attempt).Error)
+		require.Equal(t, ZTAPIWorkbenchOpusBetaChannel, attempt.ChannelID)
+		require.Equal(t, ZTAPIWorkbenchHubChatPath, attempt.Protocol)
+	}
 	var count int64
 	require.NoError(t, db.Model(&ZTAPIRequestAttempt{}).Where("settlement_id = ?", row.ID).Count(&count).Error)
 	require.EqualValues(t, 1, count)

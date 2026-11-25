@@ -109,7 +109,7 @@ jobs:
           ZTAPI_REQUIRE_REDIS_INTEGRATION: true
         run: |
           go test ./model ./service -run '^TestZTAPIWorkbench' -count=1 -timeout=5m
-          go test ./router -run '^(TestWorkbenchReleaseDisabled(ByDefault|WithWebFallback)|TestZTAPIWorkbench(FirstPartyRouter|FablePilotHardCap|NativeRelayLoopback|MessagesPilotLoopback|WalletPolicyForApprovedNonFableModel|HTTPReplay|AcceptanceSelectedChannelRejectsDrift))$' -count=1 -timeout=5m
+          go test ./router -run '^(TestWorkbenchReleaseDisabled(ByDefault|WithWebFallback)|TestZTAPIWorkbench(FirstPartyRouter|FablePilotHardCap|NativeRelayLoopback|MessagesPilotLoopback|OpusBetaLoopback|WalletPolicyForApprovedNonFableModel|HTTPReplay|AcceptanceSelectedChannelRejectsDrift))$' -count=1 -timeout=5m
 
       - name: Verify standalone Sonnet pilot and authorized hard limits
         working-directory: server
@@ -118,6 +118,7 @@ jobs:
           GOTMPDIR: ${{ runner.temp }}
         run: |
           go build -mod=readonly -trimpath -o "$RUNNER_TEMP/ztapi-workbench-sonnet-pilot" ./cmd/ztapi-workbench-pilot
+          go test ./cmd/ztapi-workbench-pilot -count=1 -timeout=2m
           go test ./router -run '^TestZTAPISonnetPilotOnlyRoutesAndCaps$' -count=1 -v -timeout=2m
           go test ./model -run '^TestRC28SonnetExactTrialLimits$' -count=1 -v -timeout=2m
 

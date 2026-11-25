@@ -209,6 +209,27 @@ func ClaimZTAPIWorkbenchDispatch(taskID string, userID, tokenID int, operationID
 }
 
 func ClaimZTAPIWorkbenchNativeAttempt(taskID string, userID, tokenID int, operationID string, channelID int, credential, path string, pilot ...ZTAPIWorkbenchPilotPolicy) (*ZTAPIRequestAttempt, error) {
+	return claimZTAPIWorkbenchNativeAttempt(taskID, userID, tokenID, operationID, channelID, credential, path, false, pilot)
+}
+
+const (
+	ZTAPIWorkbenchOpusBetaModel   = "zt-claude-opus-5.5"
+	ZTAPIWorkbenchOpusBetaChannel = 2
+	ZTAPIWorkbenchOpusBetaSource  = "claude-opus-5-5"
+	ZTAPIWorkbenchOpusBetaMapping = "claude-opus-5-5-hc"
+	ZTAPIWorkbenchOpusBetaOrigin  = "https://ai.yunxinapi.com/hub"
+)
+
+// ClaimZTAPIWorkbenchOpusBetaAttempt is only for the dedicated beta admission route.
+// It cannot spend or re-dispatch a reservation owned by a timed pilot.
+func ClaimZTAPIWorkbenchOpusBetaAttempt(taskID string, userID, tokenID int, operationID string, channelID int, credential, path string) (*ZTAPIRequestAttempt, error) {
+	if channelID != ZTAPIWorkbenchOpusBetaChannel || path != ZTAPIWorkbenchHubChatPath {
+		return nil, ErrZTAPISettlementConflict
+	}
+	return claimZTAPIWorkbenchNativeAttempt(taskID, userID, tokenID, operationID, channelID, credential, path, true, nil)
+}
+
+func claimZTAPIWorkbenchNativeAttempt(taskID string, userID, tokenID int, operationID string, channelID int, credential, path string, opusBeta bool, pilot []ZTAPIWorkbenchPilotPolicy) (*ZTAPIRequestAttempt, error) {
 	const yunxinSolPath = "/hub/v1/responses"
 	const messagesPath = ZTAPIWorkbenchMessagesPath
 	if len(pilot) > 1 || channelID <= 0 || !workbenchHashPattern.MatchString(credential) ||
@@ -216,7 +237,7 @@ func ClaimZTAPIWorkbenchNativeAttempt(taskID string, userID, tokenID int, operat
 			path != messagesPath && path != ZTAPIWorkbenchHubChatPath) {
 		return nil, ErrZTAPISettlementInvalid
 	}
-	if len(pilot) == 0 && (path == messagesPath || path == ZTAPIWorkbenchHubChatPath) {
+	if len(pilot) == 0 && !opusBeta && (path == messagesPath || path == ZTAPIWorkbenchHubChatPath) {
 		return nil, ErrZTAPISettlementConflict
 	}
 	if len(pilot) == 1 {
@@ -226,9 +247,14 @@ func ClaimZTAPIWorkbenchNativeAttempt(taskID string, userID, tokenID int, operat
 		}
 	}
 	var attempt ZTAPIRequestAttempt
-	err := claimZTAPIWorkbenchDispatch(taskID, userID, tokenID, operationID, pilot, func(tx *gorm.DB, row *ZTAPIRequestSettlement) error {
+	err := claimZTAPIWorkbenchDispatch(taskID, userID, tokenID, operationID, pilot, func(tx *gorm.DB, row *ZTAPIRequestSettlement, user *User, token *Token) error {
 		if path == yunxinSolPath && row.PublicModel != "zt-gpt-6.1-sol" {
 			return ErrZTAPISettlementInvalid
+		}
+		if opusBeta && (row.PublicModel != ZTAPIWorkbenchOpusBetaModel || user.Role != common.RoleCommonUser ||
+			!token.WorkbenchOnly || token.Group != "" || token.CrossGroupRetry ||
+			row.WorkbenchStage != "main" && row.WorkbenchStage != "child") {
+			return ErrZTAPISettlementConflict
 		}
 		attempt = ZTAPIRequestAttempt{SettlementID: row.ID, Attempt: 1, ChannelID: channelID, CredentialVersion: credential, Protocol: path}
 		return tx.Create(&attempt).Error
@@ -239,7 +265,7 @@ func ClaimZTAPIWorkbenchNativeAttempt(taskID string, userID, tokenID int, operat
 	return &attempt, nil
 }
 
-func claimZTAPIWorkbenchDispatch(taskID string, userID, tokenID int, operationID string, pilot []ZTAPIWorkbenchPilotPolicy, recordAttempt func(*gorm.DB, *ZTAPIRequestSettlement) error) error {
+func claimZTAPIWorkbenchDispatch(taskID string, userID, tokenID int, operationID string, pilot []ZTAPIWorkbenchPilotPolicy, recordAttempt func(*gorm.DB, *ZTAPIRequestSettlement, *User, *Token) error) error {
 	if !workbenchTaskPattern.MatchString(taskID) || userID < 1 || tokenID < 1 || operationID == "" || len(operationID) > 64 {
 		return ErrZTAPISettlementInvalid
 	}
@@ -315,7 +341,7 @@ func claimZTAPIWorkbenchDispatch(taskID string, userID, tokenID int, operationID
 			}
 		}
 		if recordAttempt != nil {
-			if err = recordAttempt(tx, row); err != nil {
+			if err = recordAttempt(tx, row, user, token); err != nil {
 				return err
 			}
 		}

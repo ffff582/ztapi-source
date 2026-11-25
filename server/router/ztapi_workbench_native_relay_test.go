@@ -33,16 +33,17 @@ import (
 )
 
 // Check the configured supplier identity before forwarding to a local fixture.
-type workbenchXcloudLoopback struct {
+type workbenchPinnedLoopback struct {
 	target *url.URL
 	local  partialImageLoopbackTransport
+	origin string
 	path   string
 }
 
-func (f workbenchXcloudLoopback) RoundTrip(req *http.Request) (*http.Response, error) {
-	if req.Method != http.MethodPost || req.URL.String() != "https://www.xcloudtoken.com"+f.path {
+func (f workbenchPinnedLoopback) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Method != http.MethodPost || req.URL.String() != f.origin+f.path {
 		f.local.blocked.Add(1)
-		return nil, errors.New("unexpected Xcloud loopback test destination")
+		return nil, errors.New("unexpected workbench loopback test destination")
 	}
 	copyReq := req.Clone(req.Context())
 	copyURL := *req.URL
@@ -89,6 +90,10 @@ func TestZTAPIWorkbenchMessagesPilotLoopback(t *testing.T) {
 	t.Run("chat-conversion-pinned-hub", func(t *testing.T) {
 		testZTAPIWorkbenchRelayLoopback(t, "claude-opus-5-5", "/hub/v1/chat/completions", "pilot-messages-chat")
 	})
+}
+
+func TestZTAPIWorkbenchOpusBetaLoopback(t *testing.T) {
+	testZTAPIWorkbenchRelayLoopback(t, "claude-opus-5-5", "/hub/v1/chat/completions", "opus-beta")
 }
 
 func TestZTAPIWorkbenchOfficialClaudeWithChatConversion(t *testing.T) {
@@ -141,7 +146,8 @@ func TestZTAPIWorkbenchFablePilotHardCap(t *testing.T) {
 
 func testZTAPIWorkbenchRelayLoopback(t *testing.T, source, upstreamPath, mode string) {
 	sdkProof := mode == "pilot-messages-sdk"
-	convertedMessages := mode == "pilot-messages-chat" || sdkProof
+	opusBeta := mode == "opus-beta"
+	convertedMessages := mode == "pilot-messages-chat" || sdkProof || opusBeta
 	messages := mode == "pilot-messages" || convertedMessages
 	firstPartyProof := strings.HasPrefix(mode, "rc10-first-party-proof")
 	proofScenario := strings.TrimPrefix(mode, "rc10-first-party-proof-")
@@ -162,7 +168,7 @@ func testZTAPIWorkbenchRelayLoopback(t *testing.T, source, upstreamPath, mode st
 	if strings.HasPrefix(mode, "pilot-") {
 		pilotMode = mode
 	}
-	if firstPartyProof || pilotMode != "" || firstPartyReceipt {
+	if firstPartyProof || pilotMode != "" || firstPartyReceipt || opusBeta {
 		mode = "first-party"
 	} else if rc10Proof {
 		mode = "acceptance"
@@ -422,10 +428,14 @@ func testZTAPIWorkbenchRelayLoopback(t *testing.T, source, upstreamPath, mode st
 	transport := &http.Transport{Proxy: nil}
 	guard := partialImageLoopbackTransport{url: upstream.URL, base: transport, blocked: &blocked}
 	httpClient.Transport = guard
-	if source == "glm-5.3" || xcloudReceipt {
+	if source == "glm-5.3" || xcloudReceipt || opusBeta {
 		target, err := url.Parse(upstream.URL)
 		require.NoError(t, err)
-		httpClient.Transport = workbenchXcloudLoopback{target: target, local: guard, path: upstreamPath}
+		origin := "https://www.xcloudtoken.com"
+		if opusBeta {
+			origin = strings.TrimSuffix(model.ZTAPIWorkbenchOpusBetaOrigin, "/hub")
+		}
+		httpClient.Transport = workbenchPinnedLoopback{target: target, local: guard, origin: origin, path: upstreamPath}
 	}
 	t.Cleanup(func() { httpClient.Transport = oldTransport; transport.CloseIdleConnections() })
 	user := model.User{Username: "r36-native", AffCode: "r36-native", Status: common.UserStatusEnabled, Role: common.RoleCommonUser, Group: "default", Quota: 1000000}
@@ -448,6 +458,9 @@ func testZTAPIWorkbenchRelayLoopback(t *testing.T, source, upstreamPath, mode st
 	baseURL := upstream.URL + upstreamPrefix
 	if source == "glm-5.3" || xcloudReceipt {
 		baseURL = "https://www.xcloudtoken.com"
+	}
+	if opusBeta {
+		baseURL = model.ZTAPIWorkbenchOpusBetaOrigin
 	}
 	channel := model.Channel{Id: channelID, Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled, Name: "r36-loopback-only", Key: "synthetic-not-a-provider-key", BaseURL: &baseURL, Models: source, Group: "default"}
 	if messages && !convertedMessages {
@@ -496,6 +509,7 @@ func testZTAPIWorkbenchRelayLoopback(t *testing.T, source, upstreamPath, mode st
 
 	engine := gin.New()
 	engine.Use(middleware.RequestId(), middleware.I18n(), middleware.BodyStorageCleanup())
+	var betaDrain *gin.Engine
 	var pilotConfig *workbenchFablePilotCap
 	if accountFlow {
 		var fixtureWalletMu sync.Mutex
@@ -551,7 +565,7 @@ func testZTAPIWorkbenchRelayLoopback(t *testing.T, source, upstreamPath, mode st
 				require.NoError(t, db.AutoMigrate(&model.ZTAPIWorkbenchPilotSpend{}))
 			}
 			pilot := workbenchPilotConfig{WorkbenchAcceptanceConfig: config, DispatchEnabled: true, FableCap: pilotConfig}
-			if messages {
+			if messages && !opusBeta {
 				pilot.WalletCap = &workbenchFablePilotCap{BatchID: uuid.NewString(), ExpiresAt: time.Now().Add(10 * time.Minute).Unix(),
 					BudgetBasis: "ztapi_wallet", MaxRequests: 2, BudgetNanoU: 3_000_000_000}
 				if convertedMessages {
@@ -566,6 +580,7 @@ func testZTAPIWorkbenchRelayLoopback(t *testing.T, source, upstreamPath, mode st
 				}
 				require.NoError(t, db.AutoMigrate(&model.ZTAPIWorkbenchPilotSpend{}))
 			}
+			pilot.OpusBeta = opusBeta
 			encoded, err := common.Marshal(pilot)
 			require.NoError(t, err)
 			configPath := filepath.Join(t.TempDir(), "pilot.json")
@@ -576,6 +591,22 @@ func testZTAPIWorkbenchRelayLoopback(t *testing.T, source, upstreamPath, mode st
 			t.Cleanup(func() { common.IsMasterNode = master })
 			t.Setenv("FRONTEND_BASE_URL", "https://frontend.invalid")
 			SetRouter(engine, ThemeAssets{})
+			if opusBeta {
+				for _, route := range engine.Routes() {
+					require.NotEqual(t, "/__workbench_budget/messages", route.Path)
+				}
+				require.Error(t, MountZTAPIWorkbenchDedicatedPilot(gin.New(), configPath, user.Id, public))
+				require.NoError(t, MountZTAPIWorkbenchOpusBeta(engine, configPath))
+				drain := pilot
+				drain.DispatchEnabled, drain.DrainOnly = false, true
+				data, err := common.Marshal(drain)
+				require.NoError(t, err)
+				drainPath := filepath.Join(t.TempDir(), "drain.json")
+				require.NoError(t, os.WriteFile(drainPath, data, 0600))
+				betaDrain = gin.New()
+				betaDrain.Use(middleware.RequestId(), middleware.I18n(), middleware.BodyStorageCleanup())
+				require.NoError(t, MountZTAPIWorkbenchOpusBeta(betaDrain, drainPath))
+			}
 			if pilotMode == "pilot-missing" || pilotMode == "pilot-expired" {
 				for _, route := range engine.Routes() {
 					require.NotEqual(t, "/__workbench_budget/responses", route.Path)
@@ -618,6 +649,28 @@ func testZTAPIWorkbenchRelayLoopback(t *testing.T, source, upstreamPath, mode st
 		wantCapabilities["messages"] = "wire-bound-v1"
 	}
 	require.Equal(t, wantCapabilities, advertised)
+	if opusBeta {
+		const catalogPath = "/api/workbench/models"
+		seedZTAPIRouterUser(t, "workbench-beta-unlisted", "synthetic-password")
+		login := func(username string) string {
+			t.Helper()
+			rec := performZTAPIRouterRequest(engine, "POST", "/api/auth/login",
+				fmt.Sprintf(`{"username":%q,"password":"synthetic-password"}`, username), "", "127.0.0.1:1100")
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			var response ztAPIRealRouterResponse
+			require.NoError(t, common.Unmarshal(rec.Body.Bytes(), &response))
+			require.NotEmpty(t, response.Data.AccessToken)
+			return "Bearer " + response.Data.AccessToken
+		}
+		access, outside := login(user.Username), login("workbench-beta-unlisted")
+		rec := performZTAPIRouterRequest(engine, "GET", catalogPath, "", access, "127.0.0.1:1100")
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		require.Contains(t, rec.Body.String(), "ztapi-workbench-messages-v1")
+		require.Contains(t, rec.Body.String(), public)
+		rec = performZTAPIRouterRequest(engine, "GET", catalogPath, "", outside, "127.0.0.1:1100")
+		require.Equal(t, http.StatusForbidden, rec.Code)
+		require.Zero(t, hits.Load())
+	}
 	post := func(path, task, hold, body string) (int, http.Header, string) {
 		t.Helper()
 		req, e := http.NewRequest("POST", apiOrigin+path, strings.NewReader(body))
@@ -758,6 +811,27 @@ func testZTAPIWorkbenchRelayLoopback(t *testing.T, source, upstreamPath, mode st
 		require.Equal(t, http.StatusConflict, status)
 		next := reserve(task, wire)
 		status, _, _ = post(path, task, next, wire)
+		if opusBeta {
+			require.Equal(t, http.StatusOK, status)
+			require.EqualValues(t, 6, hits.Load())
+			require.Zero(t, blocked.Load())
+			var admitted model.ZTAPIWorkbenchTask
+			require.NoError(t, db.Where("id = ?", task).Take(&admitted).Error)
+			require.Empty(t, admitted.PilotBatchID)
+			require.EqualValues(t, 500000, admitted.LimitQuota)
+			unused := reserve(task, wire)
+			drained := httptest.NewServer(betaDrain)
+			defer drained.Close()
+			apiOrigin = drained.URL
+			rec := performZTAPIRouterRequest(betaDrain, "GET", "/.well-known/ztapi-workbench", "", "", "127.0.0.1:1100")
+			require.Contains(t, rec.Body.String(), `"dispatch":"locked"`)
+			status, _, _ = post(path, task, unused, wire)
+			require.Equal(t, http.StatusServiceUnavailable, status)
+			status, _, _ = post("/__workbench_budget/release", task, unused, fmt.Sprintf(`{"task":%q,"hold":%q}`, task, unused))
+			require.Equal(t, http.StatusOK, status)
+			require.EqualValues(t, 6, hits.Load())
+			return
+		}
 		require.Equal(t, http.StatusTooManyRequests, status)
 		if convertedMessages {
 			require.EqualValues(t, 5, hits.Load())
