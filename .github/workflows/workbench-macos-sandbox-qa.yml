@@ -41,3 +41,8 @@ jobs:
           for report in "${reports[@]}"; do
             jq -cs 'last | {exception, termination, asi, frames: ((.threads[.faultingThread // 0].frames // [])[0:8] | map(.symbol))}' "$report"
           done
+      - name: Assess App Sandbox for a zero-network test runner
+        if: always() && !cancelled()
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: node tests/qa/macos-sandbox-runtime.mjs "$EXPECTED_ARCH" app-sandbox

@@ -3,7 +3,7 @@ import { execFileSync, execFile } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdtemp, mkdir, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -20,6 +20,7 @@ const source = fileURLToPath(new URL('./macos-sandbox-fixture.c', import.meta.ur
 const servers = [];
 const hit = [0, 0];
 const exec = promisify(execFile);
+const appSandbox = process.argv[3] === 'app-sandbox';
 const systemCacheRoots = ['/System/Cryptexes/OS/System/Library/dyld',
   '/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld', '/System/Library/dyld'];
 
@@ -57,6 +58,29 @@ try {
   execFileSync('/usr/bin/clang', ['-std=c11', '-Wall', '-Werror', source, '-o', executable], { timeout: 45_000 });
   const broker = await listener(0);
   const unrelated = await listener(1);
+  if (appSandbox) {
+    const homeFixture = await mkdtemp(join(homedir(), 'workbench-qa-fixture-'));
+    try {
+      const source = join(homeFixture, 'original');
+      const outside = join(homeFixture, 'outside');
+      const sandbox = join(root, 'sandbox.plist');
+      await writeFile(source, 'synthetic original content', { flag: 'wx' });
+      await writeFile(sandbox, `<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict><key>com.apple.security.app-sandbox</key><true/></dict></plist>`);
+      execFileSync('/usr/bin/codesign', ['--force', '--sign', '-', '--entitlements', sandbox,
+        '--identifier', 'com.ztapi.workbench.sandboxqa', executable], { timeout: 10_000 });
+      const { stdout } = await exec(executable, ['--app-sandbox', source, outside, broker, unrelated], {
+        timeout: 8_000, maxBuffer: 4096,
+      });
+      assert.equal(stdout.trim(), 'fixture pass; App Sandbox temp, file and network boundaries');
+      assert.equal(await readFile(source, 'utf8'), 'synthetic original content');
+      await assert.rejects(readFile(outside), { code: 'ENOENT' });
+      assert.deepEqual(hit, [0, 0]);
+      console.log(`Synthetic App Sandbox test runner verified on darwin/${process.arch}`);
+    } finally {
+      await rm(homeFixture, { recursive: true, force: true });
+    }
+  } else {
   const loaderCache = await sharedCache();
   for (const needsBroker of [true, false]) {
     const { stdout } = await exec('/usr/bin/sandbox-exec', seatbeltArgs({
@@ -73,6 +97,7 @@ try {
   }
   assert.deepEqual(hit, [1, 0]);
   console.log(`Synthetic kernel sandbox verified on darwin/${process.arch}`);
+  }
 } finally {
   for (const server of servers) {
     const closed = once(server, 'close');
