@@ -68,6 +68,10 @@ export function createDarwinProjectReview({ root, rootIdentity, files }, { commi
         else staged.set(path, data);
         revision++;
       },
+      testSnapshot() {
+        safe();
+        return [...base.values()].map(({ path, data }) => ({ path, data: staged.get(path) ?? data }));
+      },
     }),
     local: Object.freeze({
       prepare(path) {
