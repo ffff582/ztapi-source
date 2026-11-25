@@ -1,0 +1,2 @@
+Synthetic package used only to verify DMG build and application startup.
+It is not the ZTAPI Workbench client and is not approved for redistribution.

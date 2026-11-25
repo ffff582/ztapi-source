@@ -1,0 +1,6 @@
+{
+  "name": "ztapi-workbench-mac-packaging-fixture",
+  "version": "0.30.0",
+  "private": true,
+  "main": "desktop/open-code-macos.cjs"
+}
