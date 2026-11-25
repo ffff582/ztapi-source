@@ -50,6 +50,6 @@ jobs:
             console.log(`QA_POLICY_RESULT ${path} ${result.error?.code ?? result.status}`);
           }
           EOF
-      - name: Verify responsiveness and asynchronous macOS-backed session encryption
-        timeout-minutes: 2
-        run: node tests/qa/darwin-driver-probe.mjs "$RUNNER_TEMP/install/ZTAPI Workbench Beta.app" "$RUNNER_TEMP/playwright" keychain-async
+      - name: Verify encryption with an isolated ephemeral keychain on the hosted runner
+        timeout-minutes: 3
+        run: node tests/qa/darwin-disposable-keychain.mjs tests/qa/darwin-driver-probe.mjs "$RUNNER_TEMP/install/ZTAPI Workbench Beta.app" "$RUNNER_TEMP/playwright" keychain-async
