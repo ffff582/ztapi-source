@@ -11,7 +11,7 @@ await assert.rejects(new Promise((resolve, reject) => {
   socket.once('error', reject);
   socket.once('connect', () => { socket.destroy(); resolve(); });
   socket.setTimeout(1500, () => { socket.destroy(); reject(Error('timeout')); });
-}), rejected);
+}), error => rejected(error) || (Boolean(process.versions.bun) && error.code === 'ECONNREFUSED'));
 const input = new Socket({ fd: 3, readable: true, writable: false });
 const output = new Socket({ fd: 4, readable: false, writable: true });
 const request = createEnginePipeClient(input, output);

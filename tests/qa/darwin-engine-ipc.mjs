@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { copyFile, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
-import { createServer } from 'node:net';
+import { createConnection, createServer } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -52,6 +52,14 @@ try {
   await writeFile(canary, 'synthetic');
   listener.listen(0, '127.0.0.1');
   await once(listener, 'listening');
+  const control = async () => {
+    const socket = createConnection({ host: '127.0.0.1', port: listener.address().port });
+    socket.resume();
+    await once(socket, 'end');
+    socket.destroy();
+  };
+  await control();
+  assert.equal(hits, 1);
   child = spawn(host, [], {
     stdio: ['ignore', 'pipe', 'inherit', 'pipe', 'pipe'],
     env: { WORKBENCH_QA_CANARY: canary, WORKBENCH_QA_PORT: String(listener.address().port) },
@@ -71,7 +79,9 @@ try {
   const [count, [code]] = await Promise.all([receipt, done]);
   assert.equal(code, 0);
   assert.equal(count, 2);
-  assert.equal(hits, 0);
+  assert.equal(hits, 1);
+  await control();
+  assert.equal(hits, 2);
   assert.match(stdout, /Restricted model and tool IPC passed/);
   console.log(`Dedicated sandbox engine IPC verified on ${process.arch}/${runtime}; no API request`);
 } finally {
