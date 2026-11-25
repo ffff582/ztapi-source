@@ -1,0 +1,26 @@
+name: Workbench macOS project broker assessment
+
+on:
+  push:
+    branches: ['qa/workbench-macos-sandbox']
+    paths:
+      - '.github/workflows/workbench-macos-project-qa.yml'
+      - 'desktop/macos/**'
+      - 'tests/qa/darwin-project-*'
+
+permissions:
+  contents: read
+
+jobs:
+  broker:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - run: node --test tests/qa/darwin-project-broker.test.mjs
