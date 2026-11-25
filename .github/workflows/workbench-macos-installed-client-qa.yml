@@ -47,8 +47,12 @@ jobs:
           set -euo pipefail
           sha=d29cbac1f3c245b7f1a928ca44ae557def6bdeabd9e8250bb38a02b9537bedce
           file="$RUNNER_TEMP/windows.exe"
-          curl --proto '=https' -fsS --max-time 150 --max-filesize 255602652 \
-            "https://ztapi.vip/client/artifacts/windows/$sha/ZTAPI-Workbench-rc29-opencode-13f76edb.exe" -o "$file"
+          url="https://ztapi.vip/client/artifacts/windows/$sha/ZTAPI-Workbench-rc29-opencode-13f76edb.exe"
+          status=$(curl --proto '=https' --http1.1 -fsS --max-time 16 --max-filesize 32 \
+            --range 0-31 "$url" -o "$RUNNER_TEMP/windows-prefix" -w '%{http_code}')
+          test "$status" == 206
+          test "$(wc -c < "$RUNNER_TEMP/windows-prefix" | tr -d ' ')" == 32
+          curl --proto '=https' --http1.1 -fsS --max-time 150 --max-filesize 255602652 "$url" -o "$file"
           printf '%s  %s\n' "$sha" "$file" | shasum -a 256 -c -
           if ! command -v 7zz >/dev/null && ! command -v 7z >/dev/null; then
             HOMEBREW_NO_AUTO_UPDATE=1 brew install sevenzip
