@@ -36,14 +36,17 @@ async function run() {
       containerId: 'com.ztapi.workbench.qa.opencode',
       plugin: new URL('./opencode-pipe-plugin.mjs', import.meta.url),
     });
-    const child = spawn(binary, ['run', '--format', 'json', '--model', 'ztapi/ztapi-task-model'], {
-      cwd: root, env, stdio: ['inherit', 'inherit', 'inherit', 3, 4],
+    const trace = process.env.ZTAPI_ENGINE_QA_TRACE === '1';
+    const flags = trace ? ['--print-logs', '--log-level', 'DEBUG'] : [];
+    const child = spawn(binary, [...flags, 'run', '--format', 'json', '--model', 'ztapi/ztapi-task-model'], {
+      cwd: root, env: { ...env, ...(trace ? { ZTAPI_ENGINE_QA_TRACE: '1' } : {}) }, stdio: ['inherit', 'inherit', 'inherit', 3, 4],
     });
     const timeout = setTimeout(() => child.kill('SIGKILL'), 30_000);
     const forward = () => child.kill('SIGTERM');
     process.once('SIGTERM', forward);
     try {
       const [code, signal] = await once(child, 'close');
+      if (trace) console.error(`OpenCode QA subprocess stopped: ${signal ?? code}`);
       if (signal || code !== 0) throw Error('MAC_OPENCODE_FAILED');
     } finally {
       clearTimeout(timeout);

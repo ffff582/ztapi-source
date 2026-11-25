@@ -31,7 +31,7 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22.23.5'
-      - run: node --test tests/qa/darwin-project-broker.test.mjs tests/qa/darwin-project-review.test.mjs tests/qa/darwin-project-test-input.test.mjs
+      - run: node --test tests/qa/darwin-project-broker.test.mjs tests/qa/darwin-project-review.test.mjs tests/qa/darwin-project-test-input.test.mjs tests/qa/darwin-project-task.test.mjs
       - name: Run native project flow with the sandboxed test bundle
         run: node tests/qa/darwin-project-flow.mjs
       - run: node --test tests/qa/darwin-engine-pipe.test.mjs tests/qa/darwin-engine-transport.test.mjs tests/qa/darwin-engine-config.test.mjs

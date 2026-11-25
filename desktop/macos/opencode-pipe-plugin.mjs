@@ -4,6 +4,8 @@ import { createEnginePipeClient } from './engine-pipe.mjs';
 import { createMacSandboxFetch } from './engine-transport.mjs';
 
 export default async function pipePlugin() {
+  const trace = process.env.ZTAPI_ENGINE_QA_TRACE === '1';
+  if (trace) console.error('ZTAPI QA plugin initialized');
   if (process.platform !== 'darwin' || !process.versions.bun ||
       !fstatSync(3).isSocket() || !fstatSync(4).isSocket()) throw Error('MAC_ENGINE_SANDBOX_NOT_READY');
   const input = connect({ fd: 3 });
@@ -19,6 +21,7 @@ export default async function pipePlugin() {
       provider.options.fetch = fetch;
       // OpenCode's in-process SDK supplies its own fetch; MCP uses the scoped pipe fetch.
       globalThis.fetch = fetch;
+      if (trace) console.error('ZTAPI QA plugin configured');
     },
     async dispose() {
       input.destroy();

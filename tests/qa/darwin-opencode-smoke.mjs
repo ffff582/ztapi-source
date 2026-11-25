@@ -68,7 +68,8 @@ try {
   listener.listen(0, '127.0.0.1');
   await once(listener, 'listening');
   child = spawn(host, [], { detached: true, stdio: ['pipe', 'pipe', 'inherit', 'pipe', 'pipe'],
-    env: { ZTAPI_ENGINE_MODE: 'text', ZTAPI_ENGINE_CANARY: canary, ZTAPI_ENGINE_TEST_PORT: String(listener.address().port) } });
+    env: { ZTAPI_ENGINE_MODE: 'text', ZTAPI_ENGINE_CANARY: canary, ZTAPI_ENGINE_TEST_PORT: String(listener.address().port),
+      ZTAPI_ENGINE_QA_TRACE: '1' } });
   const kill = () => {
     if (!child?.pid) return;
     try { process.kill(-child.pid, 'SIGKILL'); }
