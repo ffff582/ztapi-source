@@ -5,6 +5,10 @@ const base = `(version 1)
 (allow process-exec (literal (param "PROGRAM")))
 (allow file-read* (literal (param "PROGRAM")))
 (allow file-read* (subpath "/usr/lib") (subpath "/System/Library"))
+(allow file-read* file-map-executable
+    (subpath "/System/Library/dyld")
+    (subpath "/System/Cryptexes/OS/System/Library/dyld")
+    (subpath "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld"))
 (allow file-read* file-write* (subpath (param "WORK")))
 `;
 
