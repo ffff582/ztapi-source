@@ -45,8 +45,8 @@ func validSegment(_ name: String) -> Bool {
     return excluded.firstMatch(in: name, range: NSRange(name.startIndex..., in: name)) == nil
 }
 
-func isType(_ info: stat, _ kind: Int32) -> Bool {
-    info.st_mode & mode_t(S_IFMT) == mode_t(kind)
+func isType(_ info: stat, _ kind: mode_t) -> Bool {
+    info.st_mode & S_IFMT == kind
 }
 
 func identity(_ info: stat) -> String {
