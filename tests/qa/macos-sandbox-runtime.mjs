@@ -55,25 +55,39 @@ try {
   const result = join(work, 'output');
   await writeFile(staged, 'synthetic staged content', { flag: 'wx' });
   await writeFile(original, 'synthetic original content', { flag: 'wx' });
-  execFileSync('/usr/bin/clang', ['-std=c11', '-Wall', '-Werror', source, '-o', executable], { timeout: 45_000 });
   const broker = await listener(0);
   const unrelated = await listener(1);
   if (appSandbox) {
     const homeFixture = await mkdtemp(join(homedir(), 'workbench-qa-fixture-'));
     try {
-      const source = join(homeFixture, 'original');
+      const original = join(homeFixture, 'original');
       const outside = join(homeFixture, 'outside');
       const sandbox = join(root, 'sandbox.plist');
-      await writeFile(source, 'synthetic original content', { flag: 'wx' });
+      const bundle = join(root, 'Workbench Fixture.app');
+      const bundleID = 'com.ztapi.workbench.sandboxqa';
+      const binaryName = 'workbench-sandbox-fixture';
+      const binary = join(bundle, 'Contents', 'MacOS', binaryName);
+      await mkdir(join(bundle, 'Contents', 'MacOS'), { recursive: true });
+      await writeFile(join(bundle, 'Contents', 'Info.plist'), `<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>${bundleID}</string>
+<key>CFBundleExecutable</key><string>${binaryName}</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleName</key><string>Workbench Fixture</string>
+<key>CFBundleVersion</key><string>1</string>
+</dict></plist>`);
+      execFileSync('/usr/bin/clang', ['-std=c11', '-Wall', '-Werror', source, '-o', binary], { timeout: 45_000 });
+      await writeFile(original, 'synthetic original content', { flag: 'wx' });
       await writeFile(sandbox, `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict><key>com.apple.security.app-sandbox</key><true/></dict></plist>`);
       execFileSync('/usr/bin/codesign', ['--force', '--sign', '-', '--entitlements', sandbox,
-        '--identifier', 'com.ztapi.workbench.sandboxqa', executable], { timeout: 10_000 });
-      const { stdout } = await exec(executable, ['--app-sandbox', source, outside, broker, unrelated], {
+        '--identifier', bundleID, bundle], { timeout: 10_000 });
+      execFileSync('/usr/bin/codesign', ['--verify', '--strict', bundle], { timeout: 10_000 });
+      const { stdout } = await exec(binary, ['--app-sandbox', original, outside, broker, unrelated], {
         timeout: 8_000, maxBuffer: 4096,
       });
       assert.equal(stdout.trim(), 'fixture pass; App Sandbox temp, file and network boundaries');
-      assert.equal(await readFile(source, 'utf8'), 'synthetic original content');
+      assert.equal(await readFile(original, 'utf8'), 'synthetic original content');
       await assert.rejects(readFile(outside), { code: 'ENOENT' });
       assert.deepEqual(hit, [0, 0]);
       console.log(`Synthetic App Sandbox test runner verified on darwin/${process.arch}`);
@@ -81,22 +95,23 @@ try {
       await rm(homeFixture, { recursive: true, force: true });
     }
   } else {
-  const loaderCache = await sharedCache();
-  for (const needsBroker of [true, false]) {
-    const { stdout } = await exec('/usr/bin/sandbox-exec', seatbeltArgs({
-      workspace: work, program: executable, args: [staged, result, original, forbidden, broker, unrelated],
-      brokerPort: needsBroker ? Number(broker) : null, loaderCache,
-    }), {
-      cwd: work, env: { HOME: work, TMPDIR: work },
-      timeout: 8_000, maxBuffer: 4096,
-    });
-    assert.equal(stdout.trim(), `fixture pass; broker ${needsBroker ? 'allowed' : 'denied'}`);
-    assert.equal(await readFile(result, 'utf8'), 'ok');
-    assert.equal(await readFile(original, 'utf8'), 'synthetic original content');
-    await assert.rejects(readFile(forbidden), { code: 'ENOENT' });
-  }
-  assert.deepEqual(hit, [1, 0]);
-  console.log(`Synthetic kernel sandbox verified on darwin/${process.arch}`);
+    execFileSync('/usr/bin/clang', ['-std=c11', '-Wall', '-Werror', source, '-o', executable], { timeout: 45_000 });
+    const loaderCache = await sharedCache();
+    for (const needsBroker of [true, false]) {
+      const { stdout } = await exec('/usr/bin/sandbox-exec', seatbeltArgs({
+        workspace: work, program: executable, args: [staged, result, original, forbidden, broker, unrelated],
+        brokerPort: needsBroker ? Number(broker) : null, loaderCache,
+      }), {
+        cwd: work, env: { HOME: work, TMPDIR: work },
+        timeout: 8_000, maxBuffer: 4096,
+      });
+      assert.equal(stdout.trim(), `fixture pass; broker ${needsBroker ? 'allowed' : 'denied'}`);
+      assert.equal(await readFile(result, 'utf8'), 'ok');
+      assert.equal(await readFile(original, 'utf8'), 'synthetic original content');
+      await assert.rejects(readFile(forbidden), { code: 'ENOENT' });
+    }
+    assert.deepEqual(hit, [1, 0]);
+    console.log(`Synthetic kernel sandbox verified on darwin/${process.arch}`);
   }
 } finally {
   for (const server of servers) {
