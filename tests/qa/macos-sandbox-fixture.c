@@ -53,7 +53,7 @@ static int app_sandbox_node_fixture(char **argv) {
         setenv("ZTAPI_QA_NEW_OUTSIDE", argv[5], 1) != 0 ||
         setenv("ZTAPI_QA_PORT", argv[6], 1) != 0 ||
         setenv("TMPDIR", directory, 1) != 0) return 41;
-    char *const args[] = {argv[2], "--test", "--test-isolation=none", argv[3], NULL};
+    char *const args[] = {argv[2], "--test", "--experimental-test-isolation=none", argv[3], NULL};
     execv(args[0], args);
     perror("node fixture exec");
     return 42;
