@@ -12,13 +12,15 @@ await assert.rejects(new Promise((resolve, reject) => {
   socket.once('connect', () => { socket.destroy(); resolve(); });
   socket.setTimeout(1500, () => { socket.destroy(); reject(Error('timeout')); });
 }), error => rejected(error) || (Boolean(process.versions.bun) && error.code === 'ECONNREFUSED'));
-const input = new Socket({ fd: 3, readable: true, writable: false });
-const output = new Socket({ fd: 4, readable: false, writable: true });
+console.error('Sandbox canaries denied; binding inherited descriptors');
+const input = process.versions.bun ? connect({ fd: 3 }) : new Socket({ fd: 3, readable: true, writable: false });
+const output = process.versions.bun ? connect({ fd: 4 }) : new Socket({ fd: 4, readable: false, writable: true });
 const request = createEnginePipeClient(input, output);
 const send = createMacSandboxFetch({ request });
 try {
   const options = body => ({ method: 'POST', headers: { 'content-type': 'application/json' }, body });
   const messages = await send('http://ztapi-engine.invalid/v1/messages', options('{"mode":"synthetic"}'));
+  console.error('Model relay received');
   assert.match(await messages.text(), /message_stop/);
   const tools = await send('http://ztapi-engine.invalid/__ztapi_mcp', options('{"name":"read_fixture"}'));
   assert.deepEqual(await tools.json(), { contents: 'fixture' });

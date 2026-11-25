@@ -76,8 +76,8 @@ try {
     assert.equal(frame.body, '{"name":"read_fixture"}');
     return { status: 200, type: 'application/json', body: '{"contents":"fixture"}' };
   });
-  const [count, [code]] = await Promise.all([receipt, done]);
-  assert.equal(code, 0);
+  const [count, [code, signal]] = await Promise.all([receipt, done]);
+  assert.equal(code, 0, `Sandbox exited with ${signal ?? code}, ${count} frames received`);
   assert.equal(count, 2);
   assert.equal(hits, 1);
   await control();
