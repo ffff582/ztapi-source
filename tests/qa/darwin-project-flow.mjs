@@ -55,9 +55,13 @@ try {
   await writeFile(join(target, 'calc.mjs'), 'export const sum = (a, b) => a - b;');
   await writeFile(join(target, 'calc.test.mjs'), `
     import assert from 'node:assert/strict';
+    import { spawnSync } from 'node:child_process';
     import test from 'node:test';
     import { sum } from './calc.mjs';
     test('addition', () => assert.equal(sum(3, 4), 7));
+    test('project tests cannot start a child process through Node', () => {
+      assert.throws(() => spawnSync('/usr/bin/true'), { code: 'ERR_ACCESS_DENIED' });
+    });
   `);
   listener.listen(0, '127.0.0.1');
   await once(listener, 'listening');
@@ -86,7 +90,7 @@ try {
   project.model.stageEdit('calc.mjs', 'export const sum = (a, b) => a + b;');
   const passed = await run();
   assert.equal(passed.exitCode, 0);
-  assert.match(passed.output, /pass 1\b/);
+  assert.match(passed.output, /pass 2\b/);
   const preview = project.local.prepare('calc.mjs');
   assert.match(preview.before, /a - b/);
   assert.match(preview.after, /a \+ b/);

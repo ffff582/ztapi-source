@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/resource.h>
 #include <unistd.h>
 
 #ifndef ZTAPI_WORKER_ENTRY
@@ -11,6 +12,14 @@
 #ifndef ZTAPI_WORKER_RUNTIME
 #define ZTAPI_WORKER_RUNTIME "node"
 #endif
+
+static int lower_limit(int resource, rlim_t ceiling) {
+    struct rlimit limit;
+    if (getrlimit(resource, &limit) != 0) return -1;
+    if (limit.rlim_cur > ceiling) limit.rlim_cur = ceiling;
+    if (limit.rlim_max > ceiling) limit.rlim_max = ceiling;
+    return setrlimit(resource, &limit);
+}
 
 int main(int argc, char **argv) {
     (void)argv;
@@ -25,6 +34,9 @@ int main(int argc, char **argv) {
         snprintf(worker, sizeof(worker), "%s/../Resources/" ZTAPI_WORKER_ENTRY, directory) >= sizeof(worker)) return 11;
     size_t length = confstr(_CS_DARWIN_USER_TEMP_DIR, tmp, sizeof(tmp));
     if (length < 2 || length > sizeof(tmp) || chdir(tmp) != 0 || setenv("ZTAPI_TEST_TMPDIR", tmp, 1) != 0) return 12;
+    if (strcmp(ZTAPI_WORKER_ENTRY, "project-test-worker.mjs") == 0 &&
+        (lower_limit(RLIMIT_CORE, 0) != 0 || lower_limit(RLIMIT_CPU, 30) != 0 ||
+         lower_limit(RLIMIT_FSIZE, 32 * 1024 * 1024) != 0 || lower_limit(RLIMIT_NOFILE, 128) != 0)) return 14;
     char *const args[] = {node, worker, NULL};
     execv(node, args);
     return 13;
