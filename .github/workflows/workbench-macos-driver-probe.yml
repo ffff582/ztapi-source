@@ -50,6 +50,6 @@ jobs:
             console.log(`QA_POLICY_RESULT ${path} ${result.error?.code ?? result.status}`);
           }
           EOF
-      - name: Verify sandboxed window and macOS-backed synthetic session encryption
+      - name: Verify responsiveness and asynchronous macOS-backed session encryption
         timeout-minutes: 2
-        run: node tests/qa/darwin-driver-probe.mjs "$RUNNER_TEMP/install/ZTAPI Workbench Beta.app" "$RUNNER_TEMP/playwright" keychain
+        run: node tests/qa/darwin-driver-probe.mjs "$RUNNER_TEMP/install/ZTAPI Workbench Beta.app" "$RUNNER_TEMP/playwright" keychain-async

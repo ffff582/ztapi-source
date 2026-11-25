@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 
 assert.equal(process.platform, 'darwin');
 const [bundle, playwright, mode] = process.argv.slice(2);
-assert.ok(mode === undefined || mode === 'keychain');
+assert.ok(mode === undefined || mode === 'keychain' || mode === 'keychain-async');
 const { _electron: electron } = createRequire(import.meta.url)(resolve(playwright));
 const home = await mkdtemp(join(homedir(), 'ztapi-qa-driver-'));
 let stage = 'launch';
@@ -40,6 +40,26 @@ try {
       const encrypted = safeStorage.encryptString(input);
       return !encrypted.includes(input) && safeStorage.decryptString(encrypted) === input;
     }), true);
+  }
+  if (mode === 'keychain-async') {
+    enter('keychain-async-start');
+    await app.evaluate(({ safeStorage }) => {
+      globalThis.qaEncryption = safeStorage.isAsyncEncryptionAvailable().then(async available => {
+        if (!available) return 'unavailable';
+        const input = 'synthetic workbench session check';
+        const encrypted = await safeStorage.encryptStringAsync(input);
+        const decrypted = await safeStorage.decryptStringAsync(encrypted);
+        return !encrypted.includes(input) && decrypted.result === input ? 'round-trip' : 'wrong-result';
+      }).catch(() => 'provider-error');
+    });
+    enter('keychain-async-window-responsive');
+    await page.getByRole('button', { name: 'Fixture', exact: true }).click({ timeout: 5000 });
+    assert.equal(await app.evaluate(() => 42), 42);
+    enter('keychain-async-settlement');
+    const result = await app.evaluate(() => Promise.race([globalThis.qaEncryption,
+      new Promise(resolve => setTimeout(() => resolve('still-pending'), 7000))]));
+    console.log(`QA_KEYCHAIN_ASYNC_RESULT ${result}`);
+    assert.equal(result, 'round-trip');
   }
   enter('close');
   await app.close();
