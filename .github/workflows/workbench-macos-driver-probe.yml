@@ -50,6 +50,6 @@ jobs:
             console.log(`QA_POLICY_RESULT ${path} ${result.error?.code ?? result.status}`);
           }
           EOF
-      - name: Verify Playwright opens and closes a sandboxed window on the installed fixture
+      - name: Verify sandboxed window and macOS-backed synthetic session encryption
         timeout-minutes: 2
-        run: node tests/qa/darwin-driver-probe.mjs "$RUNNER_TEMP/install/ZTAPI Workbench Beta.app" "$RUNNER_TEMP/playwright"
+        run: node tests/qa/darwin-driver-probe.mjs "$RUNNER_TEMP/install/ZTAPI Workbench Beta.app" "$RUNNER_TEMP/playwright" keychain

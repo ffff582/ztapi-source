@@ -5,7 +5,8 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 assert.equal(process.platform, 'darwin');
-const [bundle, playwright] = process.argv.slice(2);
+const [bundle, playwright, mode] = process.argv.slice(2);
+assert.ok(mode === undefined || mode === 'keychain');
 const { _electron: electron } = createRequire(import.meta.url)(resolve(playwright));
 const home = await mkdtemp(join(homedir(), 'ztapi-qa-driver-'));
 let stage = 'launch';
@@ -30,6 +31,16 @@ try {
   enter('main');
   assert.equal(await app.evaluate(({ app: host, BrowserWindow }) =>
     !host.commandLine.hasSwitch('no-sandbox') && BrowserWindow.getAllWindows()[0]?.webContents.getLastWebPreferences().sandbox), true);
+  if (mode === 'keychain') {
+    enter('keychain-availability');
+    assert.equal(await app.evaluate(({ safeStorage }) => safeStorage.isEncryptionAvailable()), true);
+    enter('keychain-round-trip');
+    assert.equal(await app.evaluate(({ safeStorage }) => {
+      const input = 'synthetic workbench session check';
+      const encrypted = safeStorage.encryptString(input);
+      return !encrypted.includes(input) && safeStorage.decryptString(encrypted) === input;
+    }), true);
+  }
   enter('close');
   await app.close();
   app = undefined;
