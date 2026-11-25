@@ -29,3 +29,6 @@ jobs:
       - run: node --test tests/qa/darwin-project-broker.test.mjs tests/qa/darwin-project-review.test.mjs tests/qa/darwin-project-test-input.test.mjs
       - name: Run native project flow with the sandboxed test bundle
         run: node tests/qa/darwin-project-flow.mjs
+      - run: node --test tests/qa/darwin-engine-pipe.test.mjs tests/qa/darwin-engine-transport.test.mjs
+      - name: Verify local IPC from a separate sandboxed engine fixture
+        run: node tests/qa/darwin-engine-ipc.mjs

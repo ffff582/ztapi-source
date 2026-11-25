@@ -5,6 +5,10 @@
 #include <string.h>
 #include <unistd.h>
 
+#ifndef ZTAPI_WORKER_ENTRY
+#define ZTAPI_WORKER_ENTRY "project-test-worker.mjs"
+#endif
+
 int main(int argc, char **argv) {
     (void)argv;
     if (argc != 1) return 10;
@@ -15,7 +19,7 @@ int main(int argc, char **argv) {
     if (last == NULL) return 11;
     *last = '\0';
     if (snprintf(node, sizeof(node), "%s/node", directory) >= sizeof(node) ||
-        snprintf(worker, sizeof(worker), "%s/../Resources/project-test-worker.mjs", directory) >= sizeof(worker)) return 11;
+        snprintf(worker, sizeof(worker), "%s/../Resources/" ZTAPI_WORKER_ENTRY, directory) >= sizeof(worker)) return 11;
     size_t length = confstr(_CS_DARWIN_USER_TEMP_DIR, tmp, sizeof(tmp));
     if (length < 2 || length > sizeof(tmp) || chdir(tmp) != 0 || setenv("ZTAPI_TEST_TMPDIR", tmp, 1) != 0) return 12;
     char *const args[] = {node, worker, NULL};
