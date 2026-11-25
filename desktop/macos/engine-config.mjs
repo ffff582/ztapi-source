@@ -4,10 +4,18 @@ const model = 'ztapi-task-model';
 const transportOrigin = 'http://ztapi-engine.invalid';
 const tools = ['ztapi_read_file', 'ztapi_stage_edit', 'ztapi_run_test', 'ztapi_investigate_in_parallel'];
 
-export function openCodeSandboxEnvironment({ workspace, mode }) {
-  if (typeof workspace !== 'string' || !/^\/private\/(?:tmp|var\/folders)\/(?:[A-Za-z0-9 ._-]+\/)*ztapi-task-[A-Za-z0-9-]+$/.test(workspace) ||
+export function openCodeSandboxEnvironment({ workspace, mode, containerId, plugin }) {
+  const standardTemp = /^\/private\/(?:tmp|var\/folders)\/(?:[A-Za-z0-9 ._-]+\/)*ztapi-task-[A-Za-z0-9-]+$/;
+  const container = /^\/Users\/[^/]+\/Library\/Containers\/([^/]+)\/Data\/tmp\/ztapi-task-[A-Za-z0-9-]+$/;
+  const safeWorkspace = typeof workspace === 'string' && (standardTemp.test(workspace) ||
+    (typeof containerId === 'string' && /^com\.ztapi\.workbench\.[a-z0-9.]+$/.test(containerId) &&
+      container.exec(workspace)?.[1] === containerId));
+  if (!safeWorkspace || /[\x00-\x1f]/.test(workspace) ||
       posix.normalize(workspace) !== workspace || !['text', 'project'].includes(mode))
     throw Error('MAC_ENGINE_SANDBOX_NOT_READY');
+  if (plugin !== undefined && (!(plugin instanceof URL) || plugin.protocol !== 'file:' || plugin.hostname ||
+      plugin.search || plugin.hash || !plugin.pathname.endsWith('.app/Contents/Resources/opencode-pipe-plugin.mjs')))
+    throw Error('MAC_ENGINE_PLUGIN_INVALID');
   const project = mode === 'project';
   const permission = {
     '*': 'deny',
@@ -26,6 +34,7 @@ export function openCodeSandboxEnvironment({ workspace, mode }) {
     model: 'ztapi/' + model,
     small_model: 'ztapi/' + model,
     permission,
+    ...(plugin ? { plugin: [plugin.href] } : {}),
     ...(project ? { mcp: { ztapi: { type: 'remote', url: transportOrigin + '/__ztapi_mcp', oauth: false, timeout: 30000 } } } : {}),
     agent: { title: { disable: true } },
     share: 'disabled',

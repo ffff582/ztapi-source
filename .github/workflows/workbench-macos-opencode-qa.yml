@@ -1,0 +1,56 @@
+name: Workbench macOS real OpenCode offline QA
+
+on:
+  push:
+    branches: ['qa/workbench-macos-sandbox']
+    paths:
+      - '.github/workflows/workbench-macos-opencode-qa.yml'
+      - 'desktop/macos/opencode-*.mjs'
+      - 'desktop/macos/engine-*.mjs'
+      - 'tests/qa/darwin-opencode-*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workbench-macos-opencode-qa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  real-engine:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            asset: opencode-darwin-arm64.zip
+            sha256: c0be3f34dde2fdcb31b25120f303c6ed5b69b828f16e5e0fbecff21a882adda1
+          - runner: macos-15-intel
+            asset: opencode-darwin-x64-baseline.zip
+            sha256: 5f08d3f7d7555fdef8025f57aef89c5bc2448460827d4e225f815a308ce6976b
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.23.5'
+      - name: Verify the first-party OpenCode release asset
+        env:
+          ENGINE_ASSET: ${{ matrix.asset }}
+          ENGINE_SHA: ${{ matrix.sha256 }}
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/ztapi-engine"
+          cd "$RUNNER_TEMP/ztapi-engine"
+          curl --proto '=https' --proto-redir '=https' -fsSL --max-time 75 \
+            "https://github.com/anomalyco/opencode/releases/download/v1.19.6/$ENGINE_ASSET" -o engine.zip
+          printf '%s  engine.zip\n' "$ENGINE_SHA" | shasum -a 256 -c -
+          unzip -p engine.zip opencode >opencode
+          chmod 0755 opencode
+          file opencode
+      - run: node --test tests/qa/darwin-opencode-config.test.mjs
+      - name: Exercise the official CLI in a zero-network App Sandbox
+        run: node tests/qa/darwin-opencode-smoke.mjs "$RUNNER_TEMP/ztapi-engine/opencode"
