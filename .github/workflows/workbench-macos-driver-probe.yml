@@ -1,0 +1,55 @@
+name: Workbench macOS driver control
+
+on:
+  push:
+    branches: ['qa/workbench-macos-driver-probe']
+    paths: ['.github/workflows/workbench-macos-driver-probe.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  driver-probe:
+    runs-on: macos-15
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.23.5'
+      - name: Assemble the public synthetic fixture only
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --proto-redir '=https' -fsSL --max-time 90 https://github.com/electron/electron/releases/download/v45.2.3/electron-v45.2.3-darwin-arm64.zip -o "$RUNNER_TEMP/electron.zip"
+          curl --proto '=https' --proto-redir '=https' -fsSL --max-time 60 https://github.com/anomalyco/opencode/releases/download/v1.19.6/opencode-darwin-arm64.zip -o "$RUNNER_TEMP/engine.zip"
+          bash desktop/macos/build-dmg.sh tests/qa/darwin-packaging-fixture "$RUNNER_TEMP/electron.zip" "$RUNNER_TEMP/engine.zip" "$(command -v node)" "$RUNNER_TEMP/ztapi-dmg"
+          curl --proto '=https' -fsS --max-time 40 https://registry.npmjs.org/playwright-core/-/playwright-core-1.62.0.tgz -o "$RUNNER_TEMP/playwright.tgz"
+          test "$(openssl dgst -sha512 -binary "$RUNNER_TEMP/playwright.tgz" | openssl base64 -A)" == 'nsNRyq0r2zsG8AcRHWknc9QRA5XCueC7gWMrs+Gx2tlZn9hcl8zudfh00lhJPY1DE7NmZ6bDsT9g2yey8mXljA=='
+          mkdir "$RUNNER_TEMP/playwright" "$RUNNER_TEMP/volume" "$RUNNER_TEMP/install" "$RUNNER_TEMP/upstream"
+          tar -xzf "$RUNNER_TEMP/playwright.tgz" --strip-components=1 -C "$RUNNER_TEMP/playwright"
+          ditto -x -k "$RUNNER_TEMP/electron.zip" "$RUNNER_TEMP/upstream"
+          volume="$RUNNER_TEMP/volume"
+          hdiutil attach -quiet -readonly -nobrowse -mountpoint "$volume" "$RUNNER_TEMP/ztapi-dmg/ZTAPI-Workbench-macOS-arm64.dmg"
+          trap 'hdiutil detach -quiet "$volume"' EXIT
+          ditto "$volume/ZTAPI Workbench Beta.app" "$RUNNER_TEMP/install/ZTAPI Workbench Beta.app"
+          codesign --verify --deep --strict "$RUNNER_TEMP/install/ZTAPI Workbench Beta.app"
+      - name: Compare the unmodified upstream and synthetic fixture policy assessments
+        timeout-minutes: 1
+        continue-on-error: true
+        run: |
+          node --input-type=module - <<'EOF'
+          import { spawnSync } from 'node:child_process';
+          import { join } from 'node:path';
+          for (const path of ['upstream/Electron.app', 'install/ZTAPI Workbench Beta.app']) {
+            console.log(`QA_POLICY_START ${path}`);
+            const result = spawnSync('syspolicy_check', ['distribution', join(process.env.RUNNER_TEMP, path)], { timeout: 15000, encoding: 'utf8' });
+            if (result.stdout) console.log(result.stdout);
+            if (result.stderr) console.error(result.stderr);
+            console.log(`QA_POLICY_RESULT ${path} ${result.error?.code ?? result.status}`);
+          }
+          EOF
+      - name: Verify Playwright opens and closes a sandboxed window on the installed fixture
+        timeout-minutes: 2
+        run: node tests/qa/darwin-driver-probe.mjs "$RUNNER_TEMP/install/ZTAPI Workbench Beta.app" "$RUNNER_TEMP/playwright"

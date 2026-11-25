@@ -6,8 +6,14 @@ const { app, BrowserWindow } = require('electron');
 
 app.enableSandbox();
 app.whenReady().then(async () => {
+  const driven = process.argv.includes('--ztapi-qa-driver');
+  const window = new BrowserWindow({ show: driven, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
+  if (driven) {
+    app.on('window-all-closed', () => app.quit());
+    await window.loadURL('data:text/html,%3Ctitle%3EZTAPI%20QA%3C%2Ftitle%3E%3Cbutton%3EFixture%3C%2Fbutton%3E');
+    return;
+  }
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.homedir(), 'ztapi-dmg-qa-')));
-  const window = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
   try {
     await window.loadURL('data:text/html,%3Ctitle%3EZTAPI%20QA%3C%2Ftitle%3E');
     assert.equal(window.webContents.getTitle(), 'ZTAPI QA');

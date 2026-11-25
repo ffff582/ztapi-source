@@ -1,0 +1,47 @@
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join, resolve } from 'node:path';
+
+assert.equal(process.platform, 'darwin');
+const [bundle, playwright] = process.argv.slice(2);
+const { _electron: electron } = createRequire(import.meta.url)(resolve(playwright));
+const home = await mkdtemp(join(homedir(), 'ztapi-qa-driver-'));
+let stage = 'launch';
+let app;
+const watchdog = setTimeout(() => {
+  console.error(`QA_DRIVER_TIMEOUT stage=${stage}`);
+  process.exit(124);
+}, 60_000);
+function enter(next) {
+  stage = next;
+  console.log(`QA_DRIVER_STAGE ${stage}`);
+}
+try {
+  enter('launch');
+  app = await electron.launch({ executablePath: join(bundle, 'Contents/MacOS/Electron'),
+    args: ['--ztapi-qa-driver'], env: { ...process.env, HOME: home }, chromiumSandbox: true, timeout: 20_000 });
+  enter('window');
+  const page = await app.firstWindow({ timeout: 10_000 });
+  enter('renderer');
+  await page.getByRole('button', { name: 'Fixture', exact: true }).waitFor({ timeout: 10_000 });
+  assert.equal(await page.evaluate(() => typeof require), 'undefined');
+  enter('main');
+  assert.equal(await app.evaluate(({ app: host, BrowserWindow }) =>
+    !host.commandLine.hasSwitch('no-sandbox') && BrowserWindow.getAllWindows()[0]?.webContents.getLastWebPreferences().sandbox), true);
+  enter('close');
+  await app.close();
+  app = undefined;
+  enter('passed');
+} catch (error) {
+  console.error(`QA_DRIVER_FAILED stage=${stage}: ${error.name}`);
+  process.exitCode = 1;
+} finally {
+  try {
+    if (app) await app.close();
+    await rm(home, { recursive: true, force: true });
+  } finally {
+    clearTimeout(watchdog);
+  }
+}
