@@ -23,4 +23,4 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
-      - run: node --test tests/qa/darwin-project-broker.test.mjs
+      - run: node --test tests/qa/darwin-project-broker.test.mjs tests/qa/darwin-project-review.test.mjs

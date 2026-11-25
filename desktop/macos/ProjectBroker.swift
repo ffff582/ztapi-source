@@ -268,8 +268,8 @@ func commit(_ request: CommitRequest) throws -> CommitResult {
         removeTemp = true
         throw Failure.changed
     }
-    let committed = try statName(dir, name)
-    guard sameObject(committed, stagedInfo) else { throw Failure.uncertain }
+    guard let committed = try? statName(dir, name), sameObject(committed, stagedInfo),
+          (try? readChecked(temp, committed)) == after else { throw Failure.uncertain }
     guard fsync(dir) == 0, let backup = try? statName(dir, staging),
           identity(backup) == identity(initial), unlinkat(dir, staging, 0) == 0 else { throw Failure.uncertain }
     return CommitResult(status: "committed", file: ProjectFile(path: request.before.path,
