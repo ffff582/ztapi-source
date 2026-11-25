@@ -34,11 +34,15 @@ jobs:
       - run: node --test tests/qa/darwin-project-broker.test.mjs tests/qa/darwin-project-review.test.mjs tests/qa/darwin-project-test-input.test.mjs
       - name: Run native project flow with the sandboxed test bundle
         run: node tests/qa/darwin-project-flow.mjs
-      - run: node --test tests/qa/darwin-engine-pipe.test.mjs tests/qa/darwin-engine-transport.test.mjs
+      - run: node --test tests/qa/darwin-engine-pipe.test.mjs tests/qa/darwin-engine-transport.test.mjs tests/qa/darwin-engine-config.test.mjs
+        if: always() && !cancelled()
       - name: Verify local IPC from a separate sandboxed engine fixture
+        if: always() && !cancelled()
         run: node tests/qa/darwin-engine-ipc.mjs
       - uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76
+        if: always() && !cancelled()
         with:
           bun-version: '1.4.4'
       - name: Verify inherited engine IPC with the pinned Bun runtime
+        if: always() && !cancelled()
         run: node tests/qa/darwin-engine-ipc.mjs "$(command -v bun)"

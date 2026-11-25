@@ -31,7 +31,7 @@ async function proveSandbox({ file, port } = {}) {
 function nodeTest(root, name) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ['--permission', `--allow-fs-read=${root}`, `--allow-fs-write=${root}`,
-      '--test', '--experimental-test-isolation=none', join(root, name)], {
+      join(root, name)], {
       cwd: root, detached: true, env: { HOME: root, TMPDIR: root }, stdio: ['ignore', 'pipe', 'pipe'],
     });
     const chunks = [];
