@@ -22,10 +22,26 @@ jobs:
           curl --fail --silent --show-error --proto '=https' --max-time 20 \
             "$origin/client/artifacts/windows-beta.json" | jq -e --arg sha "$sha" --arg edition "$edition" \
             '.schema == "ztapi-workbench-windows-release-v1" and .edition == $edition and .sha256 == $sha and .bytes == 255602652'
-          curl --fail --silent --show-error --proto '=https' --connect-timeout 20 --max-time 420 \
-            --dump-header installer-headers.txt --output workbench.exe \
-            --write-out 'download HTTP %{http_code}, bytes=%{size_download}, seconds=%{time_total}\n' \
-            "$origin/client/artifacts/windows/$sha/ZTAPI-Workbench-$edition.exe"
+          installer="$origin/client/artifacts/windows/$sha/ZTAPI-Workbench-$edition.exe"
+          bytes=255602652
+          downloaded=0
+          stalled=0
+          for attempt in {1..16}; do
+            if [[ "$downloaded" = "$bytes" ]]; then break; fi
+            code=0
+            curl --ipv4 --http1.1 --fail --silent --show-error --proto '=https' \
+              --connect-timeout 10 --max-time 180 --speed-limit 32768 --speed-time 18 \
+              --continue-at - --output workbench.exe \
+              --write-out 'download HTTP %{http_code}, bytes=%{size_download}, seconds=%{time_total}\n' \
+              "$installer" || code=$?
+            next=0
+            if [[ -f workbench.exe ]]; then next=$(stat -c %s workbench.exe); fi
+            echo "attempt=$attempt curl_exit=$code complete_bytes=$next/$bytes"
+            if [[ "$next" -gt "$bytes" || "$next" -lt "$downloaded" ]]; then exit 1; fi
+            if [[ "$next" -eq "$downloaded" ]]; then stalled=$((stalled + 1)); else stalled=0; fi
+            downloaded=$next
+            if [[ "$stalled" -ge 3 ]]; then break; fi
+          done
           test "$(stat -c %s workbench.exe)" = 255602652
           printf '%s  workbench.exe\n' "$sha" | sha256sum --check
           curl --fail --silent --show-error --proto '=https' --max-time 20 \
