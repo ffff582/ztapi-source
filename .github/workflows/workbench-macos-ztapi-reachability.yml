@@ -1,0 +1,47 @@
+name: Workbench macOS first-party reachability
+
+on:
+  push:
+    branches: ['qa/workbench-macos-sandbox']
+    paths: ['.github/workflows/workbench-macos-ztapi-reachability.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  read-only:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 3
+    steps:
+      - name: Check public capabilities and anonymous auth response without signing in
+        run: |
+          set -euo pipefail
+          origin=https://ztapi.vip
+          dir=$(mktemp -d "$RUNNER_TEMP/workbench-readonly.XXXXXXXX")
+          status=$(curl --proto '=https' --silent --show-error --max-time 12 --max-filesize 4096 \
+            -H 'Accept: application/json' -o "$dir/capabilities" -w '%{http_code}' \
+            "$origin/.well-known/ztapi-workbench")
+          test "$status" == 200
+          python3 - "$dir/capabilities" <<'PY'
+          import json, sys
+          with open(sys.argv[1], encoding="utf-8") as stream:
+              data = json.load(stream)
+          assert data["protocol"] == "ztapi-workbench-first-party-v1"
+          assert data["account_routes"] == "workbench-v1"
+          assert data["budget"] == "wire-bound-v1"
+          assert data["messages"] == "wire-bound-v1"
+          assert data["dispatch"] == "enabled" or data["dispatch"] == "locked" and data["auth"] == "enabled"
+          print("First-party Workbench capabilities are reachable.")
+          PY
+          status=$(curl --proto '=https' --silent --show-error --max-time 12 --max-filesize 4096 \
+            -H 'Accept: application/json' -o "$dir/anonymous" -w '%{http_code}:%{content_type}' \
+            "$origin/api/auth/session")
+          case "$status" in
+            401:application/json*|403:application/json*) ;;
+            *) echo "Anonymous auth response did not match the Workbench contract." >&2; exit 1 ;;
+          esac
+          echo 'Anonymous auth rejected by the JSON endpoint. No login, task, key or charge.'
