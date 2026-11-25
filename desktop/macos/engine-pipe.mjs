@@ -1,5 +1,6 @@
 const frameLimit = 2 * 1024 * 1024;
-const maximum = 32;
+// Includes MCP initialization/list/cancel frames as well as model turns.
+const maximum = 64;
 const unconfirmed = () => Error('ENGINE_PIPE_UNCONFIRMED');
 
 async function* frames(input) {

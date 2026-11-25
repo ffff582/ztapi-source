@@ -3,7 +3,8 @@ import { fileURLToPath } from 'node:url';
 
 const model = 'ztapi-task-model';
 const transportOrigin = 'http://ztapi-engine.invalid';
-const tools = ['ztapi_read_file', 'ztapi_stage_edit', 'ztapi_run_test', 'ztapi_investigate_in_parallel'];
+export const projectToolNamespace = 'mcp__ztapi';
+export const projectToolNames = Object.freeze(['read_file', 'stage_edit', 'run_test', 'investigate_in_parallel']);
 
 export function openCodeSandboxEnvironment({ workspace, mode, containerId, plugin }) {
   const standardTemp = /^\/private\/(?:tmp|var\/folders)\/(?:[A-Za-z0-9 ._-]+\/)*ztapi-task-[A-Za-z0-9-]+$/;
@@ -20,7 +21,7 @@ export function openCodeSandboxEnvironment({ workspace, mode, containerId, plugi
   const project = mode === 'project';
   const permission = {
     '*': 'deny',
-    ...Object.fromEntries(project ? tools.map(name => [name, 'allow']) : []),
+    ...Object.fromEntries(project ? projectToolNames.map(name => [projectToolNamespace + '_' + name, 'allow']) : []),
   };
   const config = {
     enabled_providers: ['ztapi'],
@@ -36,7 +37,9 @@ export function openCodeSandboxEnvironment({ workspace, mode, containerId, plugi
     small_model: 'ztapi/' + model,
     permission,
     ...(plugin ? { plugin: [plugin.href] } : {}),
-    ...(project ? { mcp: { ztapi: { type: 'remote', url: transportOrigin + '/__ztapi_mcp', oauth: false, timeout: 30000 } } } : {}),
+    ...(project ? { mcp: { [projectToolNamespace]: {
+      type: 'remote', url: transportOrigin + '/__ztapi_mcp', oauth: false, timeout: 300000,
+    } } } : {}),
     agent: { title: { disable: true } },
     share: 'disabled',
     snapshot: false,

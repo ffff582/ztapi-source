@@ -12,7 +12,8 @@ test('Mac project engine sees one local provider and a narrow, explicit tool lis
   assert.equal(cfg.permission.bash, undefined);
   assert.equal(cfg.permission['*'], 'deny');
   assert.deepEqual(Object.keys(cfg.permission).filter(x => cfg.permission[x] === 'allow').sort(),
-    ['ztapi_investigate_in_parallel', 'ztapi_read_file', 'ztapi_run_test', 'ztapi_stage_edit']);
+    ['mcp__ztapi_investigate_in_parallel', 'mcp__ztapi_read_file', 'mcp__ztapi_run_test', 'mcp__ztapi_stage_edit']);
+  assert.deepEqual(Object.keys(cfg.mcp), ['mcp__ztapi']);
   assert.equal(env.OPENCODE_DISABLE_PROJECT_CONFIG, '1');
   assert.equal(env.OPENCODE_DISABLE_DEFAULT_PLUGINS, '1');
   assert.equal(env.OPENCODE_DISABLE_LSP_DOWNLOAD, '1');

@@ -7,6 +7,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { serveEnginePipe } from '../../desktop/macos/engine-pipe.mjs';
+import { createProjectRpc } from '../../desktop/macos/engine-project-rpc.mjs';
 import { createDarwinQaProject } from './darwin-project-flow.mjs';
 
 assert.equal(process.platform, 'darwin');
@@ -32,7 +33,7 @@ const plist = body => '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0
 const field = (key, val) => `<key>${key}</key><string>${val}</string>`;
 const run = (bin, args) => execFileSync(bin, args, { timeout: 45_000, stdio: 'inherit' });
 function fixtureMessage(turn, tool) {
-  const block = tool ? { type: 'tool_use', id: 'toolu_ztapi_qa_' + turn, name: tool.name, input: {} }
+  const block = tool ? { type: 'tool_use', id: 'toolu_ztapi_qa_' + turn, name: 'mcp__ztapi_' + tool.name, input: {} }
     : { type: 'text', text: '' };
   const delta = tool ? { type: 'input_json_delta', partial_json: JSON.stringify(tool.arguments) }
     : { type: 'text_delta', text: marker };
@@ -97,58 +98,44 @@ try {
   const draft = projectFixture?.project.openDraft();
   const corrected = 'export const sum = (a, b) => a + b;';
   const actions = [
-    { name: 'ztapi_read_file', arguments: { path: 'calc.mjs' } },
-    { name: 'ztapi_stage_edit', arguments: { path: 'calc.mjs', text: corrected } },
-    { name: 'ztapi_run_test', arguments: { path: 'calc.test.mjs' } },
+    { name: 'read_file', arguments: { path: 'calc.mjs' } },
+    { name: 'stage_edit', arguments: { path: 'calc.mjs', content: corrected } },
+    { name: 'run_test', arguments: { path: 'calc.test.mjs' } },
   ];
   const invoked = [];
-  async function projectTools(body) {
-    assert.ok(draft);
-    const { method, jsonrpc, id, params } = body;
-    console.error('Synthetic project RPC: %s', method);
-    assert.equal(jsonrpc, '2.0');
-    let result;
-    if (method === 'initialize') {
-      result = { protocolVersion: params.protocolVersion, capabilities: { tools: {} },
-        serverInfo: { name: 'ztapi-qa-fixture', version: '1.0.0' } };
-    } else if (method === 'notifications/initialized' && id === undefined) {
-      return { status: 202 };
-    } else if (method === 'notifications/cancelled' && id === undefined) {
-      assert.ok(['number', 'string'].includes(typeof params.requestId));
-      console.error('Synthetic cancellation reason: %s', String(params.reason ?? '').slice(0, 180));
-      return { status: 202 };
-    } else if (method === 'tools/list') {
-      result = { tools: actions.map(({ name, arguments: args }) => ({ name: name.slice(6), description: name, inputSchema: {
-        type: 'object', properties: Object.fromEntries(Object.keys(args).map(key => [key, { type: 'string' }])),
-        required: Object.keys(args), additionalProperties: false,
-      } })) };
-    } else if (method === 'tools/call') {
+  const projectRpc = draft ? createProjectRpc({
+    tools: actions.map(({ name, arguments: args }) => ({ name, description: name, inputSchema: {
+      type: 'object', properties: Object.fromEntries(Object.keys(args).map(key => [key, { type: 'string' }])),
+      required: Object.keys(args), additionalProperties: false,
+    } })),
+    limit: 3,
+    async execute(name, args) {
       const next = actions[invoked.length];
       assert.ok(next);
-      assert.equal('ztapi_' + params.name, next.name);
-      assert.deepEqual(params.arguments, next.arguments);
+      assert.equal(name, next.name);
+      assert.deepEqual(args, next.arguments);
       invoked.push(next.name);
-      let text;
-      if (next.name === 'ztapi_read_file') {
-        assert.match(draft.draft.read(params.arguments.path), /a - b/);
-        text = 'ZTAPI_QA_FILE_READ';
-      } else if (next.name === 'ztapi_stage_edit') {
-        draft.draft.stageEdit(params.arguments.path, params.arguments.text);
-        text = 'ZTAPI_QA_FILE_STAGED';
-      } else {
-        const tested = await draft.draft.runTest(params.arguments.path);
-        assert.equal(tested.exitCode, 0);
-        assert.match(tested.output, /pass 2\b/);
-        text = 'ZTAPI_QA_TESTS_PASSED';
+      if (name === 'read_file') {
+        assert.match(draft.draft.read(args.path), /a - b/);
+        return { receipt: 'ZTAPI_QA_FILE_READ' };
       }
-      result = { content: [{ type: 'text', text }] };
-    } else assert.fail('unexpected project capability');
-    return { status: 200, type: 'application/json', body: JSON.stringify({ jsonrpc, id, result }) };
-  }
+      if (name === 'stage_edit') {
+        draft.draft.stageEdit(args.path, args.content);
+        return { receipt: 'ZTAPI_QA_FILE_STAGED' };
+      }
+      const tested = await draft.draft.runTest(args.path);
+      assert.equal(tested.exitCode, 0);
+      assert.match(tested.output, /pass 2\b/);
+      return { receipt: 'ZTAPI_QA_TESTS_PASSED' };
+    },
+  }) : null;
   child.stdout.on('data', chunk => { out += chunk; if (out.length > 262144) kill(); });
   const relay = serveEnginePipe(child.stdio[4], child.stdio[3], async ({ channel, body }) => {
     const wire = JSON.parse(body);
-    if (channel === 'projectTool') return projectTools(wire);
+    if (channel === 'projectTool') {
+      assert.ok(projectRpc);
+      return projectRpc(body);
+    }
     assert.equal(channel, 'model');
     assert.ok(++calls <= (draft ? 4 : 1));
     assert.equal(wire.model, 'ztapi-task-model');
@@ -162,7 +149,7 @@ try {
       assert.ok(JSON.stringify(wire.messages).includes(receipt), 'Missing synthetic tool receipt: ' + receipt);
     }
     const action = draft ? actions[calls - 1] : undefined;
-    if (action) assert.ok(wire.tools.some(tool => tool.name === action.name));
+    if (action) assert.ok(wire.tools.some(tool => tool.name === 'mcp__ztapi_' + action.name));
     return { status: 200, type: 'text/event-stream', body: fixtureMessage(calls, action) };
   }).catch(err => {
     console.error('Offline bridge error:', err);
