@@ -36,3 +36,8 @@ jobs:
         if: failure()
         run: |
           /usr/bin/log show --last 2m --style compact --predicate 'eventMessage CONTAINS "workbench-sandbox-fixture"' | tail -60
+          shopt -s nullglob
+          reports=("$HOME"/Library/Logs/DiagnosticReports/workbench-sandbox-fixture-*.ips "$HOME"/Library/Logs/DiagnosticReports/.workbench-sandbox-fixture-*.ips)
+          for report in "${reports[@]}"; do
+            jq -cs 'last | {exception, termination, asi, frames: ((.threads[.faultingThread // 0].frames // [])[0:8] | map(.symbol))}' "$report"
+          done
