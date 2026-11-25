@@ -25,7 +25,7 @@ export function seatbeltArgs({ workspace, program, args, brokerPort = null }) {
   const params = ['-D', `WORK=${workspace}`, '-D', `PROGRAM=${program}`];
   let policy = base;
   if (brokerPort !== null) {
-    params.push('-D', `BROKER=127.0.0.1:${brokerPort}`);
+    params.push('-D', `BROKER=localhost:${brokerPort}`);
     policy += '(allow network-outbound (remote ip (param "BROKER")))\n';
   }
   return [...params, '-p', policy, program, ...args];

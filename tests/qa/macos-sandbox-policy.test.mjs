@@ -10,7 +10,7 @@ test('engine profile opens just the pinned executable and exact task broker', ()
   assert.match(policy, /\(deny default\)/);
   assert.match(policy, /\(allow process-exec \(literal \(param "PROGRAM"\)\)\)/);
   assert.match(policy, /\(allow network-outbound \(remote ip \(param "BROKER"\)\)\)/);
-  assert.ok(args.includes('BROKER=127.0.0.1:49623'));
+  assert.ok(args.includes('BROKER=localhost:49623'));
   assert.ok(!policy.includes(base.workspace));
   assert.deepEqual(args.slice(-2), [base.program, '--fixture']);
 });
