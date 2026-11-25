@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync, execFile } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, mkdir, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdtemp, mkdir, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -20,7 +20,8 @@ const source = fileURLToPath(new URL('./macos-sandbox-fixture.c', import.meta.ur
 const servers = [];
 const hit = [0, 0];
 const exec = promisify(execFile);
-const appSandbox = process.argv[3] === 'app-sandbox';
+const appSandbox = process.argv[3] === 'app-sandbox' || process.argv[3] === 'app-sandbox-node';
+const nodeSandbox = process.argv[3] === 'app-sandbox-node';
 const systemCacheRoots = ['/System/Cryptexes/OS/System/Library/dyld',
   '/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld', '/System/Library/dyld'];
 
@@ -67,6 +68,8 @@ try {
       const bundleID = 'com.ztapi.workbench.sandboxqa';
       const binaryName = 'workbench-sandbox-fixture';
       const binary = join(bundle, 'Contents', 'MacOS', binaryName);
+      const node = join(bundle, 'Contents', 'MacOS', 'node');
+      const test = join(bundle, 'Contents', 'Resources', 'calc.test.mjs');
       await mkdir(join(bundle, 'Contents', 'MacOS'), { recursive: true });
       await writeFile(join(bundle, 'Contents', 'Info.plist'), `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict>
@@ -80,17 +83,30 @@ try {
       await writeFile(original, 'synthetic original content', { flag: 'wx' });
       await writeFile(sandbox, `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict><key>com.apple.security.app-sandbox</key><true/></dict></plist>`);
+      if (nodeSandbox) {
+        await mkdir(join(bundle, 'Contents', 'Resources'));
+        await copyFile(fileURLToPath(new URL('./macos-sandbox-project.fixture.mjs', import.meta.url)), test);
+        await copyFile(await realpath(process.execPath), node);
+        const inherit = join(root, 'inherit.plist');
+        await writeFile(inherit, `<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict><key>com.apple.security.app-sandbox</key><true/>
+<key>com.apple.security.inherit</key><true/></dict></plist>`);
+        execFileSync('/usr/bin/codesign', ['--force', '--sign', '-', '--entitlements', inherit, node], { timeout: 15_000 });
+      }
       execFileSync('/usr/bin/codesign', ['--force', '--sign', '-', '--entitlements', sandbox,
-        '--identifier', bundleID, bundle], { timeout: 10_000 });
-      execFileSync('/usr/bin/codesign', ['--verify', '--strict', bundle], { timeout: 10_000 });
-      const { stdout } = await exec(binary, ['--app-sandbox', original, outside, broker, unrelated], {
-        timeout: 8_000, maxBuffer: 4096,
+        '--identifier', bundleID + (nodeSandbox ? '.node' : ''), bundle], { timeout: 15_000 });
+      execFileSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', bundle], { timeout: 10_000 });
+      const { stdout } = await exec(binary, nodeSandbox ?
+        ['--app-sandbox-node', node, test, original, outside, broker] :
+        ['--app-sandbox', original, outside, broker, unrelated], {
+        timeout: 8_000, maxBuffer: 4096, env: {},
       });
-      assert.equal(stdout.trim(), 'fixture pass; App Sandbox temp, file and network boundaries');
+      if (nodeSandbox) assert.match(stdout, /pass 1\b/);
+      else assert.equal(stdout.trim(), 'fixture pass; App Sandbox temp, file and network boundaries');
       assert.equal(await readFile(original, 'utf8'), 'synthetic original content');
       await assert.rejects(readFile(outside), { code: 'ENOENT' });
       assert.deepEqual(hit, [0, 0]);
-      console.log(`Synthetic App Sandbox test runner verified on darwin/${process.arch}`);
+      console.log(`Synthetic App Sandbox ${nodeSandbox ? 'Node project test' : 'test runner'} verified on darwin/${process.arch}`);
     } finally {
       await rm(homeFixture, { recursive: true, force: true });
     }

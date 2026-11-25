@@ -46,3 +46,8 @@ jobs:
         env:
           EXPECTED_ARCH: ${{ matrix.arch }}
         run: node tests/qa/macos-sandbox-runtime.mjs "$EXPECTED_ARCH" app-sandbox
+      - name: Run Node project fixture in the inherited App Sandbox
+        if: always() && !cancelled()
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: node tests/qa/macos-sandbox-runtime.mjs "$EXPECTED_ARCH" app-sandbox-node

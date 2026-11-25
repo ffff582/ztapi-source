@@ -45,8 +45,23 @@ static int app_sandbox_fixture(char **argv) {
     return 0;
 }
 
+static int app_sandbox_node_fixture(char **argv) {
+    char directory[PATH_MAX];
+    size_t length = confstr(_CS_DARWIN_USER_TEMP_DIR, directory, sizeof(directory));
+    if (length < 2 || length > sizeof(directory) || chdir(directory) != 0) return 40;
+    if (setenv("ZTAPI_QA_OUTSIDE", argv[4], 1) != 0 ||
+        setenv("ZTAPI_QA_NEW_OUTSIDE", argv[5], 1) != 0 ||
+        setenv("ZTAPI_QA_PORT", argv[6], 1) != 0 ||
+        setenv("TMPDIR", directory, 1) != 0) return 41;
+    char *const args[] = {argv[2], "--test", "--test-isolation=none", argv[3], NULL};
+    execv(args[0], args);
+    perror("node fixture exec");
+    return 42;
+}
+
 int main(int argc, char **argv) {
     if (argc == 6 && strcmp(argv[1], "--app-sandbox") == 0) return app_sandbox_fixture(argv);
+    if (argc == 7 && strcmp(argv[1], "--app-sandbox-node") == 0) return app_sandbox_node_fixture(argv);
     fputs("fixture entered\n", stderr);
     if (argc != 7) return 90;
     int fd = open(argv[1], O_RDONLY);
