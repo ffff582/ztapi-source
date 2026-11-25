@@ -16,9 +16,11 @@ const outside = await realpath(await mkdtemp(join(homedir(), 'ztapi-qa-engine-ou
 const bundle = join(root, 'Workbench Engine Probe.app');
 const mac = join(bundle, 'Contents', 'MacOS');
 const res = join(bundle, 'Contents', 'Resources');
-const node = join(mac, 'node');
+const bunSource = process.argv[2];
+const runtime = bunSource ? 'bun' : 'node';
+const binary = join(mac, runtime);
 const host = join(mac, 'ZTAPIEngineProbe');
-const id = 'com.ztapi.workbench.qa.engineprobe';
+const id = 'com.ztapi.workbench.qa.engineprobe.' + runtime;
 const fixture = 'darwin-engine-ipc-fixture.mjs';
 const sourceFixture = fileURLToPath(new URL('./' + fixture, import.meta.url));
 let hits = 0;
@@ -31,7 +33,9 @@ let child;
 try {
   await mkdir(mac, { recursive: true });
   await mkdir(res);
-  await copyFile(await realpath(process.execPath), node);
+  const sourceBinary = await realpath(bunSource ?? process.execPath);
+  if (bunSource) assert.equal(execFileSync(sourceBinary, ['--version'], { encoding: 'utf8' }).trim(), '1.4.4');
+  await copyFile(sourceBinary, binary);
   await copyFile(sourceFixture, join(res, fixture));
   for (const file of ['engine-transport.mjs', 'engine-pipe.mjs']) await copyFile(join(source, file), join(res, file));
   await writeFile(join(bundle, 'Contents', 'Info.plist'), enc(kv('CFBundleIdentifier', id) +
@@ -39,8 +43,9 @@ try {
   await writeFile(join(root, 'app.plist'), enc(sandbox));
   await writeFile(join(root, 'helper.plist'), enc(sandbox + '<key>com.apple.security.inherit</key><true/>'));
   call('/usr/bin/clang', ['-Wall', '-Werror', '-std=c11', '-DZTAPI_WORKER_ENTRY="' + fixture + '"',
+    '-DZTAPI_WORKER_RUNTIME="' + runtime + '"',
     join(source, 'ProjectTestHost.c'), '-o', host]);
-  call('/usr/bin/codesign', ['--force', '--sign', '-', '--entitlements', join(root, 'helper.plist'), node]);
+  call('/usr/bin/codesign', ['--force', '--sign', '-', '--entitlements', join(root, 'helper.plist'), binary]);
   call('/usr/bin/codesign', ['--force', '--sign', '-', '--entitlements', join(root, 'app.plist'), bundle]);
   call('/usr/bin/codesign', ['--verify', '--deep', '--strict', bundle]);
   const canary = join(outside, 'file');
@@ -68,9 +73,9 @@ try {
   assert.equal(count, 2);
   assert.equal(hits, 0);
   assert.match(stdout, /Restricted model and tool IPC passed/);
-  console.log(`Dedicated sandbox engine IPC verified on ${process.arch}; no API request`);
+  console.log(`Dedicated sandbox engine IPC verified on ${process.arch}/${runtime}; no API request`);
 } finally {
-  if (child && child.exitCode === null) child.kill('SIGKILL');
+  if (child?.pid && child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
   if (listener.listening) {
     const closed = once(listener, 'close');
     listener.close();

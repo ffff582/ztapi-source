@@ -8,6 +8,9 @@
 #ifndef ZTAPI_WORKER_ENTRY
 #define ZTAPI_WORKER_ENTRY "project-test-worker.mjs"
 #endif
+#ifndef ZTAPI_WORKER_RUNTIME
+#define ZTAPI_WORKER_RUNTIME "node"
+#endif
 
 int main(int argc, char **argv) {
     (void)argv;
@@ -18,7 +21,7 @@ int main(int argc, char **argv) {
     char *last = strrchr(directory, '/');
     if (last == NULL) return 11;
     *last = '\0';
-    if (snprintf(node, sizeof(node), "%s/node", directory) >= sizeof(node) ||
+    if (snprintf(node, sizeof(node), "%s/" ZTAPI_WORKER_RUNTIME, directory) >= sizeof(node) ||
         snprintf(worker, sizeof(worker), "%s/../Resources/" ZTAPI_WORKER_ENTRY, directory) >= sizeof(worker)) return 11;
     size_t length = confstr(_CS_DARWIN_USER_TEMP_DIR, tmp, sizeof(tmp));
     if (length < 2 || length > sizeof(tmp) || chdir(tmp) != 0 || setenv("ZTAPI_TEST_TMPDIR", tmp, 1) != 0) return 12;

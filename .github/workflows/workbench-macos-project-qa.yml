@@ -32,3 +32,8 @@ jobs:
       - run: node --test tests/qa/darwin-engine-pipe.test.mjs tests/qa/darwin-engine-transport.test.mjs
       - name: Verify local IPC from a separate sandboxed engine fixture
         run: node tests/qa/darwin-engine-ipc.mjs
+      - uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76
+        with:
+          bun-version: '1.4.4'
+      - name: Verify inherited engine IPC with the pinned Bun runtime
+        run: node tests/qa/darwin-engine-ipc.mjs "$(command -v bun)"
