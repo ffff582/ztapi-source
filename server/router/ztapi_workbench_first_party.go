@@ -356,7 +356,7 @@ func mountWorkbenchFirstPartyPilot(r gin.IRouter, config workbenchPilotConfig, p
 	account := r.Group("/api/workbench", workbenchPilotNoStore, middleware.RouteTag("api"),
 		middleware.ZTAPIAdminHostGate(), middleware.GlobalAPIRateLimit(), middleware.ZTAPIUserAuth(), p.accountGate)
 	account.GET("/self", p.accountSnapshot)
-	account.GET("/models", p.accountCatalog(config.DrainOnly, !config.ReadOnly))
+	account.GET("/models", p.accountCatalog(config.DrainOnly, !config.ReadOnly, config.AllActiveUsers))
 	budget := r.Group("", workbenchPilotNoStore, middleware.RouteTag("relay"), middleware.GlobalAPIRateLimit(), middleware.BodyStorageCleanup())
 	if config.ReadOnly {
 		account.POST("/keys", workbenchPilotUnavailable)

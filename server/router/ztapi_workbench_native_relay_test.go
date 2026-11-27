@@ -723,7 +723,15 @@ func testZTAPIWorkbenchRelayLoopback(t *testing.T, source, upstreamPath, mode st
 			require.NoError(t, db.Model(&unlisted).Updates(map[string]any{"group": "no-project-models", "quota": 1000}).Error)
 			rec = performZTAPIRouterRequest(engine, "GET", catalogPath, "", outside, "127.0.0.1:1100")
 			require.Equal(t, http.StatusOK, rec.Code)
-			require.NotContains(t, rec.Body.String(), public)
+			var directory struct {
+				Data    []string         `json:"data"`
+				Catalog []map[string]any `json:"catalog"`
+				Market  []map[string]any `json:"market"`
+			}
+			require.NoError(t, common.Unmarshal(rec.Body.Bytes(), &directory))
+			require.Empty(t, directory.Data)
+			require.Empty(t, directory.Catalog)
+			require.Equal(t, []map[string]any{{"model_name": public, "modality": "text", "signal": "unknown"}}, directory.Market)
 			rec = performZTAPIRouterRequest(engine, "POST", "/api/workbench/keys", keyPolicy, outside, "127.0.0.1:1100")
 			require.Equal(t, http.StatusForbidden, rec.Code)
 			require.NoError(t, db.Model(&unlisted).Update("status", common.UserStatusDisabled).Error)

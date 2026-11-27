@@ -250,7 +250,7 @@ func MountZTAPIWorkbenchAcceptance(r gin.IRouter, config WorkbenchAcceptanceConf
 	self := api.Group("", middleware.ZTAPIUserAuth(), p.accountGate)
 	self.GET("/auth/session", controller.ZTAPISession)
 	self.GET("/user/self", p.accountSnapshot)
-	self.GET("/user/models", p.accountCatalog(config.LoginOnly, true))
+	self.GET("/user/models", p.accountCatalog(config.LoginOnly, true, false))
 	if config.LoginOnly {
 		return nil
 	}
@@ -272,7 +272,7 @@ func (p workbenchAcceptancePolicy) accountSnapshot(c *gin.Context) {
 	common.ApiSuccess(c, gin.H{"id": user.Id, "quota": user.Quota})
 }
 
-func (p workbenchAcceptancePolicy) accountCatalog(empty, projectTools bool) gin.HandlerFunc {
+func (p workbenchAcceptancePolicy) accountCatalog(empty, projectTools, showMarket bool) gin.HandlerFunc {
 	contract := "ztapi-workbench-responses-v1"
 	if p.messagesChannelType != 0 {
 		contract = "ztapi-workbench-messages-v1"
@@ -303,7 +303,20 @@ func (p workbenchAcceptancePolicy) accountCatalog(empty, projectTools bool) gin.
 					"contract": contract, "project_tools": projectTools,
 				}})
 		}
-		c.JSON(http.StatusOK, gin.H{"success": true, "data": ids, "catalog": rows})
+		result := gin.H{"success": true, "data": ids, "catalog": rows}
+		if showMarket {
+			signals := model.ZTAPIWorkbenchModelSignals(c.Request.Context())
+			market := make([]gin.H, 0, len(catalog))
+			for _, item := range catalog {
+				signal := signals[item.ModelName]
+				if signal == "" {
+					signal = "unknown"
+				}
+				market = append(market, gin.H{"model_name": item.ModelName, "modality": item.Modality, "signal": signal})
+			}
+			result["market"] = market
+		}
+		c.JSON(http.StatusOK, result)
 	}
 }
 
