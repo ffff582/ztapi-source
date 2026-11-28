@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_commit": "63224c20667fce5c16cf9df39784fc246a699b6e",
+  "release_commit": "4fcf47b8079b2bd863e8dc00a24f10cb2a7a1b0e",
   "source_repository": "https://github.com/ffff582/ztapi-source",
-  "source_tag": "production-63224c20667fce5c16cf9df39784fc246a699b6e",
+  "source_tag": "production-4fcf47b8079b2bd863e8dc00a24f10cb2a7a1b0e",
   "files": [
     {
       "path": ".dockerignore",
@@ -31,8 +31,8 @@
     },
     {
       "path": ".github/workflows/ztapi-financial-ci.yml",
-      "sha256": "dc754f2bb87cef247f9b566fb19dd681afea84bdc71f9a842cf58e54a392c944",
-      "size": 17481
+      "sha256": "8c4cfc4136db8ab8d459a5d0fe4ccd4617e17ebca94d21cfdede45e8708645ae",
+      "size": 17664
     },
     {
       "path": ".github/workflows/ztapi-production-alert-acceptance.yml",
@@ -51,7 +51,7 @@
     },
     {
       "path": "MODIFICATIONS.md",
-      "sha256": "a73686c7b41750828b099f11333a11069a24b8c1083a55400cd0cd8bb1741587",
+      "sha256": "87f63febdfbf0a1e6cfa3a5d7acc7eccf4174d877ee9abe264b22b744ea57858",
       "size": 695
     },
     {
@@ -66,7 +66,7 @@
     },
     {
       "path": "SOURCE-OFFER.md",
-      "sha256": "279dcfbc7912d46a1dcb3a445e3d9feecb81700ccf78272542300366789c1e9c",
+      "sha256": "79144e23879d2b26f335aa824afe400b4604240650c1a9e16fb075f7c079bc47",
       "size": 942
     },
     {
@@ -743,6 +743,21 @@
       "path": "server/cmd/ztapi-telegram-support/storage_windows.go",
       "sha256": "39355f0e59684f61bc1ef95e0cd8aee8f0e3a4f5742fbfba6bbd7ec00feaad79",
       "size": 289
+    },
+    {
+      "path": "server/cmd/ztapi-xcloud-acceptance-20261128/README.md",
+      "sha256": "cb4a0f29b6d7e326c15b4f7e7b2061e912f020e2a1c3d408ea60528586a10fcb",
+      "size": 2962
+    },
+    {
+      "path": "server/cmd/ztapi-xcloud-acceptance-20261128/main.go",
+      "sha256": "8beadedce6584a4ee5da1d08e37d7e6078f0e7c85518b6149fbf6ac8a289031e",
+      "size": 28758
+    },
+    {
+      "path": "server/cmd/ztapi-xcloud-acceptance-20261128/main_test.go",
+      "sha256": "ebc6a857c14c9daf8832e564a147e328b9db51d99d4f8c5e1a338e3e5290cfc5",
+      "size": 26280
     },
     {
       "path": "server/common/admin_permission.go",
@@ -6876,8 +6891,13 @@
     },
     {
       "path": "server/service/ztapi_model_verifier.go",
-      "sha256": "29412e409e54d1188ad034acc9afe229ec6dc8001ac4e197b1ebf655f2b2e2cd",
-      "size": 64144
+      "sha256": "b21f6ef8d76af44e9afeae78284c9d79fd22992e6a7f26be2a4b567c78b19349",
+      "size": 68445
+    },
+    {
+      "path": "server/service/ztapi_model_verifier_operator_credential_test.go",
+      "sha256": "e0283a8194281c856715cc35f3b662d1946462d02a5a2a45ea994ff4f91f91c8",
+      "size": 17360
     },
     {
       "path": "server/service/ztapi_model_verifier_receipt_20261128_test.go",
@@ -12371,8 +12391,8 @@
     },
     {
       "path": "tests/contracts/xcloud-catalog-20261128-ci.test.mjs",
-      "sha256": "65686f09f0ccf896da0ff0f8415f9299baab542d57304467d0e955549e77e495",
-      "size": 753
+      "sha256": "3c1e9e9adb27440f8483bbf97b5e3a630d1c844e2ef7f4899a837de8fa2989ec",
+      "size": 941
     },
     {
       "path": "tests/e2e/media-models-and-guide.spec.ts",

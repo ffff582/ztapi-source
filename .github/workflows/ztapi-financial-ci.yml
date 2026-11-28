@@ -272,6 +272,10 @@ jobs:
       - name: Verify persistent paid acceptance budget
         run: node --test tests/compatibility/budget-journal.test.mjs tests/contracts/xcloud-catalog-20261128-ci.test.mjs
 
+      - name: Verify isolated Xcloud temporary credential operator
+        working-directory: server
+        run: go test ./cmd/ztapi-xcloud-acceptance-20261128 -count=1 -timeout=3m
+
       - name: Stop isolated cached MySQL
         if: always()
         run: bash tools/ci-local-service.sh stop mysql

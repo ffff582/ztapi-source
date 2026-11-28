@@ -17,6 +17,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -1365,6 +1366,9 @@ func runZTAPIModelVerificationProbes(ctx context.Context, channel *model.Channel
 		}
 	}
 	client := &http.Client{Timeout: ztapiVerificationRequestTimeoutForModel(sourceModel)}
+	if modality == model.ZTAPIModalityText {
+		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	}
 	if modality == model.ZTAPIModalityVideo {
 		result.StreamingRequired = false
 		started := time.Now()
@@ -1488,6 +1492,74 @@ func VerifyZTAPIModel(
 	sourceModel string,
 	operatorID int,
 ) (*model.ZTAPIModelVerification, error) {
+	return verifyZTAPIModel(ctx, channelID, sourceModel, operatorID, nil)
+}
+
+// VerifyZTAPIXcloud20261128WithCredential is for the release operator only, not
+// HTTP input. The operator must separately archive the temporary credential ID,
+// exact group and verified supplier cap, and identify acceptance as a temporary-
+// credential probe, not a production-Key probe. A nonempty credential is not cap
+// evidence. This function neither creates keys nor grants publication authority.
+func VerifyZTAPIXcloud20261128WithCredential(ctx context.Context, channelID int, sourceModel string, operatorID int, credential string) (*model.ZTAPIModelVerification, error) {
+	if ctx == nil {
+		return nil, errors.New("operator verification context is required")
+	}
+	return verifyZTAPIModel(ctx, channelID, sourceModel, operatorID, &credential)
+}
+
+func ztapiXcloud20261128CredentialChannel(ctx context.Context, channel *model.Channel, config model.ZTAPIModelConfig, credential string) (*model.Channel, error) {
+	key := strings.TrimSpace(credential)
+	if key == "" || strings.ContainsAny(key, "\r\n\x00") {
+		return nil, errors.New("a nonempty independent operator credential is required")
+	}
+	if key == strings.TrimSpace(channel.Key) {
+		return nil, errors.New("operator credential must differ from the production credential")
+	}
+	for _, original := range channel.GetKeys() {
+		if key == strings.TrimSpace(original) {
+			return nil, errors.New("operator credential must differ from production key-pool members")
+		}
+	}
+	public, provider, protocol, err := model.ZTAPIXcloudPublicIdentity20261128(config.SourceModel)
+	if err != nil || model.ZTAPIModelModality(config.SourceModel) != model.ZTAPIModalityText ||
+		config.PublicNameValue() != public || config.Protocol != protocol || config.ProviderFamily != provider ||
+		channel.Type != constant.ChannelTypeOpenAI || channel.Status != common.ChannelStatusEnabled ||
+		!slices.Equal(config.Groups(), []string{"default"}) || !slices.Contains(channel.GetGroups(), "default") {
+		return nil, errors.New("operator verification requires an exact managed Xcloud text identity and enabled route")
+	}
+	var source model.ZTAPIModelPriceSource
+	if err := model.DB.WithContext(ctx).Where("model_config_id = ?", config.ID).Order("version DESC, id DESC").First(&source).Error; err != nil {
+		return nil, err
+	}
+	group, known := model.ZTAPIXcloudChannelGroup20261128(channel.Id)
+	if !known || source.SpendTier != group || source.SourceModel != config.SourceModel ||
+		source.PricePolicy != string(model.ZTAPIPricePolicyXcloud20261128) || source.Version == 0 ||
+		source.CreatedAt <= 0 || source.CreatedAt > time.Now().UTC().Unix() {
+		return nil, errors.New("operator verification requires the latest staged 20261128 Xcloud source and exact channel group")
+	}
+	if err := model.ValidateZTAPIModelPriceSource(&source); err != nil {
+		return nil, err
+	}
+	rawMapping := strings.TrimSpace(channel.GetModelMapping())
+	if rawMapping != "" && common.RejectDuplicateJsonObjectMembers(strings.NewReader(rawMapping)) != nil {
+		return nil, errors.New("operator verification requires an unambiguous exact physical model mapping")
+	}
+	physical, err := ztapiVerificationUpstreamModel(channel, config.SourceModel)
+	if err != nil {
+		return nil, err
+	}
+	if err := model.ValidateZTAPIXcloudRoute20261128(config.SourceModel, channel.Id, channel.GetBaseURL(), physical); err != nil {
+		return nil, err
+	}
+	// Never hand production credentials or mutable key-pool state to the runner.
+	// GetChannelById returns a DB-owned value; this detached copy is never saved.
+	probeChannel := *channel
+	probeChannel.Key, probeChannel.Keys, probeChannel.ZTAPIKeyCiphertext = key, nil, ""
+	probeChannel.ChannelInfo = model.ChannelInfo{}
+	return &probeChannel, nil
+}
+
+func verifyZTAPIModel(ctx context.Context, channelID int, sourceModel string, operatorID int, credential *string) (*model.ZTAPIModelVerification, error) {
 	if model.DB == nil {
 		return nil, errors.New("ZTAPI database is not initialized")
 	}
@@ -1504,6 +1576,12 @@ func VerifyZTAPIModel(
 	var config model.ZTAPIModelConfig
 	if err := model.DB.Where("source_model = ?", strings.TrimSpace(sourceModel)).First(&config).Error; err != nil {
 		return nil, err
+	}
+	if credential != nil {
+		channel, err = ztapiXcloud20261128CredentialChannel(ctx, channel, config, *credential)
+		if err != nil {
+			return nil, err
+		}
 	}
 	requestTimeout := ztapiVerificationRequestTimeoutForModel(config.SourceModel)
 	boundedContext, cancel := context.WithTimeout(ctx, 2*requestTimeout)
@@ -1533,7 +1611,9 @@ func VerifyZTAPIModel(
 		FableRouteFingerprint:            result.FableRouteFingerprint,
 	}
 	if err := model.DB.Create(verification).Error; err != nil {
-		return nil, err
+		verification.ID = 0
+		verification.StatusCategory = "persistence_failed"
+		return verification, err
 	}
 	if probeErr != nil {
 		return verification, fmt.Errorf("ZTAPI model verification failed: %s", verification.StatusCategory)
