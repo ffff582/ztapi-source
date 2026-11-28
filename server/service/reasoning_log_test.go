@@ -42,3 +42,15 @@ func TestZTAPIReasoningLogPrivacy(t *testing.T) {
 		require.NotContains(t, strings.ToLower(string(encoded)), strings.ToLower(forbidden))
 	}
 }
+
+func TestZTAPIReasoningDroppedLogRecordsBoundedReasonNotRawUnknownValue(t *testing.T) {
+	info := &relaycommon.RelayInfo{ReasoningEffortReceived: "sk-fixture-secret", ReasoningEffortSource: "request", ReasoningEffortDropped: true, ReasoningEffortDropReason: "unrecognized_value"}
+	other := map[string]interface{}{}
+	appendReasoningAuditInfo(info, other)
+	require.Equal(t, true, other["reasoning_effort_dropped"])
+	require.Equal(t, "unrecognized_value", other["reasoning_effort_drop_reason"])
+	require.Equal(t, "unrecognized", other["reasoning_effort_received"])
+	encoded, err := common.Marshal(other)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "sk-fixture-secret")
+}

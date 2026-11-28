@@ -20,6 +20,8 @@ const (
 	PermissionPaymentAddressWrite AdminPermission = "payment.address.write"
 	PermissionFinanceRead         AdminPermission = "finance.read"
 	PermissionFinanceWrite        AdminPermission = "finance.write"
+	PermissionReferralRead        AdminPermission = "finance.referrals.read"
+	PermissionReferralWrite       AdminPermission = "finance.referrals.write"
 	PermissionLogRead             AdminPermission = "log.read"
 	PermissionSystemWrite         AdminPermission = "system.write"
 	PermissionRoleWrite           AdminPermission = "role.write"
@@ -53,7 +55,7 @@ func HasAdminPermission(role int, permission AdminPermission) bool {
 		}
 	case RoleRootUser:
 		switch permission {
-		case PermissionOverviewRead, PermissionChannelRead, PermissionChannelWrite, PermissionModelRead, PermissionModelWrite, PermissionUserRead, PermissionUserStatusWrite, PermissionUserPasswordWrite, PermissionBalanceWrite, PermissionPaymentAddressWrite, PermissionFinanceRead, PermissionFinanceWrite, PermissionLogRead, PermissionSystemWrite, PermissionRoleWrite, PermissionAuditRead:
+		case PermissionOverviewRead, PermissionChannelRead, PermissionChannelWrite, PermissionModelRead, PermissionModelWrite, PermissionUserRead, PermissionUserStatusWrite, PermissionUserPasswordWrite, PermissionBalanceWrite, PermissionPaymentAddressWrite, PermissionFinanceRead, PermissionFinanceWrite, PermissionReferralRead, PermissionReferralWrite, PermissionLogRead, PermissionSystemWrite, PermissionRoleWrite, PermissionAuditRead:
 			return true
 		default:
 			return false

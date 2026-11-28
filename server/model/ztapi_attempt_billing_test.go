@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
 
@@ -480,6 +481,33 @@ func TestZTAPIAttemptBillingWholeNoChargeResolvesAllReviews(t *testing.T) {
 	if err != nil || len(rows) != 0 {
 		t.Fatalf("ghost nocharge reviews: %+v %v", rows, err)
 	}
+}
+
+func TestZTAPIAttemptBillingReconciliationDoesNotStarveOnUnverifiedLegacyRelease(t *testing.T) {
+	f := setupAttemptBillingFixture(t, true)
+	require.NoError(t, f.db.AutoMigrate(&ZTAPIPendingResolution{}, &ZTAPIMediaTask{}))
+	// A historical release has a review but no verified non-billing receipt.
+	require.NoError(t, f.db.Model(&f.row).Update("status", ZTAPISettlementReleased).Error)
+	newer := f.row
+	newer.ID, newer.RequestID, newer.OperationID = 0, "new-upstream-500", "new-upstream-500-op"
+	newer.Status = ZTAPISettlementPending
+	require.NoError(t, f.db.Create(&newer).Error)
+	require.NoError(t, f.db.Create(&ZTAPIRequestAttempt{
+		SettlementID: newer.ID, Attempt: 1, ChannelID: 10, Protocol: "/hub/v1/responses",
+		HTTPStatus: 500, UpstreamRequestID: "supplier-500", CredentialVersion: "cred-v1",
+	}).Error)
+	var before, after int64
+	require.NoError(t, f.db.Model(&BalanceLedger{}).Count(&before).Error)
+	require.NoError(t, ReconcileZTAPIAttemptBillingReviews(1))
+	var legacy, review ZTAPIAttemptBillingReview
+	require.NoError(t, f.db.Where("request_id = ?", f.row.RequestID).First(&legacy).Error)
+	require.NoError(t, f.db.Where("request_id = ?", newer.RequestID).First(&review).Error)
+	require.Equal(t, "pending", legacy.Status)
+	require.Equal(t, "pending", review.Status)
+	require.NoError(t, f.db.First(&newer, newer.ID).Error)
+	require.Equal(t, ZTAPISettlementPending, newer.Status)
+	require.NoError(t, f.db.Model(&BalanceLedger{}).Count(&after).Error)
+	require.Equal(t, before, after)
 }
 
 func TestZTAPIAttemptBillingVerifiedPendingFinalRecoversOriginalHold(t *testing.T) {

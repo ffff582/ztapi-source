@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/QuantumNous/new-api/common"
 	goahocorasick "github.com/anknown/ahocorasick"
 )
 
@@ -64,7 +65,7 @@ func InitAc(dict []string) *goahocorasick.Machine {
 	m := new(goahocorasick.Machine)
 	runes := readRunes(dict)
 	if err := m.Build(runes); err != nil {
-		fmt.Println(err)
+		common.SysError(err.Error())
 		return nil
 	}
 	return m

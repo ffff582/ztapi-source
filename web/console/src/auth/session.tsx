@@ -7,7 +7,7 @@ import {
   type PropsWithChildren,
   type ReactNode,
 } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import {
   login as loginRequest,
   logoutSession,
@@ -17,6 +17,7 @@ import {
 } from '../api/client';
 import type { AuthCredentials, AuthUser } from '../api/contracts';
 import { useLocale } from '../i18n/locale';
+import { consoleReturnTo } from '../features/auth/return-to';
 
 type AuthState =
   | { status: 'loading'; user: null }
@@ -102,13 +103,14 @@ function SessionLoading() {
 
 export function ProtectedRoute({ children }: { children: ReactNode }) {
   const { status } = useAuth();
+  const location = useLocation();
 
   if (status === 'loading') {
     return <SessionLoading />;
   }
 
   if (status === 'unauthenticated') {
-    return <Navigate to="/login" replace />;
+    return <Navigate to={`/login?redirect=${encodeURIComponent(`${location.pathname}${location.search}${location.hash}`)}`} replace />;
   }
 
   return children;
@@ -116,13 +118,14 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
 
 export function PublicOnlyRoute({ children }: { children: ReactNode }) {
   const { status } = useAuth();
+  const location = useLocation();
 
   if (status === 'loading') {
     return <SessionLoading />;
   }
 
   if (status === 'authenticated') {
-    return <Navigate to="/console" replace />;
+    return <Navigate to={consoleReturnTo(location.search)} replace />;
   }
 
   return children;

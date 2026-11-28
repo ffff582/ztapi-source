@@ -73,14 +73,59 @@ describe('ZTAPI public model pricing', () => {
     renderModels(vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/api/status')
       ? statusResponse() : jsonResponse({ ...managedPublicPricing, data: [item] })));
 
-    expect(await screen.findByText('综合优惠约 20%')).toBeVisible();
-    expect(screen.getByText('模型价格对比官方更优惠，充值再额外赠送 5% 使用额度。')).toBeVisible();
+    expect(await screen.findByText('逐项查看实际售价与官网参考')).toBeVisible();
+    expect(screen.queryByText('综合优惠约 20%')).not.toBeInTheDocument();
     const model = screen.getByRole('article', { name: item.model_name });
     expect(within(model).getByText('官方 8 折')).toBeVisible();
     fireEvent.click(within(model).getByText('查看完整价格'));
     expect(within(model).getAllByText('8 U / 1M tokens')[0]).toBeVisible();
     expect(within(model).getByText('10 U / 1M tokens')).toBeVisible();
-    expect(within(model).queryByText(/节省 \d+%/)).not.toBeInTheDocument();
+    expect(within(model).getAllByText('低于官网 20%')).toHaveLength(2);
+  });
+
+  it('discloses upstream resources and shows mixed official comparisons without a blanket discount', async () => {
+    const item = {
+      ...managedPublicPricing.data[0], model_name: 'zt-mixed-reference',
+      input_price_per_million: '6', output_price_per_million: '24', billing_rule: 'multi_dimension',
+      billing_dimensions: ['input_tokens', 'output_tokens', 'cache_read'],
+      sale_usd: { input_tokens: '6', output_tokens: '24', cache_read: '1' },
+      official_usd: { input_tokens: '10', output_tokens: '20' },
+    };
+    renderModels(vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/api/status')
+      ? statusResponse() : jsonResponse({ ...managedPublicPricing, data: [item] })));
+    expect(screen.getByText('部分模型使用上游反代资源，并非全部为原厂 API 直连')).toBeVisible();
+    expect(screen.getByRole('link', { name: '了解资源来源与价格说明' })).toHaveAttribute('href', '/docs/resource-disclosure');
+    await screen.findByText(item.model_name);
+    const model = expandModel(item.model_name);
+    expect(within(model).getByText('高于官网 20%')).toBeVisible();
+    expect(within(model).getByText('低于官网 40%')).toBeVisible();
+    expect(within(model).getByText('暂无官网参考')).toBeVisible();
+    expect(within(model).queryByText(/官方 .* 折/)).not.toBeInTheDocument();
+    expect(model).not.toHaveTextContent('原厂直连认证');
+  });
+
+  it.each(['official_snapshot', 'supplier_quoted_official'])('links and qualifies the model-level %s reference', async (kind) => {
+    const item = {
+      ...managedPublicPricing.data[0],
+      input_price_per_million: '6', output_price_per_million: '12', billing_rule: 'token',
+      billing_dimensions: ['input_tokens', 'output_tokens'],
+      sale_usd: { input_tokens: '6', output_tokens: '12' },
+      official_usd: { input_tokens: '10', output_tokens: '20' },
+      official_reference: { kind, url: 'https://example.com/pricing', checked_at: '2026-11-07', note: '固定高峰基准，非高峰官网价格减半。' },
+    };
+    renderModels(vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/api/status')
+      ? statusResponse() : jsonResponse({ ...managedPublicPricing, data: [item] })));
+    await screen.findByText(item.model_name);
+    const model = expandModel(item.model_name);
+    const link = within(model).getByRole('link', { name: kind === 'official_snapshot' ? '官网价格参考' : '报价表官网基准' });
+    expect(link).toHaveAttribute('href', 'https://example.com/pricing');
+    expect(within(model).getByText('2026-11-07')).toBeVisible();
+    expect(model).toHaveTextContent('固定高峰基准，非高峰官网价格减半。');
+    if (kind === 'supplier_quoted_official') {
+      expect(model).toHaveTextContent('供应商报价基准，不代表当前官网价格已独立核验。');
+      expect(within(model).getAllByText('低于报价基准 40%')).toHaveLength(2);
+      expect(within(model).queryByText(/官方 .* 折/)).not.toBeInTheDocument();
+    }
   });
 
   it('does not claim an official discount without a comparable reference', async () => {
@@ -157,7 +202,7 @@ describe('ZTAPI public model pricing', () => {
 
     await screen.findByText(item.model_name);
     const row = expandModel(item.model_name);
-    expect(priceList(row).getByText('输入超过 200K')).toBeVisible();
+    expect(priceList(row).getByText('输入（输入超过 200K）')).toBeVisible();
     expect(row).not.toHaveTextContent('gt_200k');
   });
 

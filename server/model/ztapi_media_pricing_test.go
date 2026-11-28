@@ -731,6 +731,17 @@ func TestZTAPIExistingPublicationSnapshotsUnchanged(t *testing.T) {
 		return publications[i].ProviderFamily < publications[j].ProviderFamily
 	})
 	current := projectZTAPIPublicPricing(publications)
+	// Official-reference display metadata is additive, not part of the retained
+	// 39-model billing fixture. Keep every original monetary and snapshot check.
+	for i := range current {
+		if current[i].OfficialReference != nil {
+			require.NotEmpty(t, current[i].OfficialReference.URL)
+			require.NotEmpty(t, current[i].OfficialReference.CheckedAt)
+			require.NotEmpty(t, current[i].OfficialUSD)
+		}
+		current[i].OfficialUSD = nil
+		current[i].OfficialReference = nil
+	}
 	require.Equal(t, fixtureRecords, current)
 
 	tuples := make([][]string, 0, len(current))

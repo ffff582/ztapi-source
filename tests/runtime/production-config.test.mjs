@@ -14,6 +14,26 @@ function serverBlock(source, hostname) {
   return source.slice(start, end + 2);
 }
 
+test('CNY payment notices have a dedicated HTTPS receiver without query logging', () => {
+  const source = readFileSync(nginxConfigPath, 'utf8');
+  for (const [host, receiver] of [
+    ['ztapi.vip www.ztapi.vip admin.ztapi.vip', false],
+    ['ztapi.vip www.ztapi.vip', true],
+    ['admin.ztapi.vip', false],
+  ]) {
+    const block = serverBlock(source, host);
+    const location = block.split('location ~ ^/api/payment/cny/notify/?$ {')[1]?.split('\n    }')[0] ?? '';
+    assert.match(location, /access_log off;/);
+    assert.match(location, /error_log \/dev\/null emerg;/);
+    assert.equal(location.includes('proxy_pass http://server:3000;'), receiver);
+    assert.match(location, /return 404;/);
+    if (receiver) assert.match(location, /\$request_method != GET/);
+  }
+  const compose = readFileSync('deploy/docker/docker-compose.prod.yml', 'utf8');
+  assert.match(compose, /path: \/etc\/ztapi\/cny-topup\.env\s+required: false/);
+  assert.doesNotMatch(compose, /ZTAPI_CNY_TOPUP_(KEY|ENABLED|PUBLIC):/);
+});
+
 test('public and administration hosts use distinct static roots', () => {
   const source = readFileSync(nginxConfigPath, 'utf8');
   const publicHost = serverBlock(source, 'ztapi.vip www.ztapi.vip');

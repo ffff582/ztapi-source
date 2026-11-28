@@ -23,6 +23,9 @@ SPEC.loader.exec_module(watchdog)
 
 class WatchdogTests(unittest.TestCase):
     def setUp(self):
+        disk = patch.object(watchdog, "disk_condition", return_value="ok")
+        disk.start()
+        self.addCleanup(disk.stop)
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)

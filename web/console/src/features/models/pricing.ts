@@ -1,4 +1,28 @@
-import type { PricingEnvelope, PricingModel } from '../../api/contracts';
+import type { ImageSale, OfficialPriceReference, PricingEnvelope, PricingModel } from '../../api/contracts';
+
+export interface PriceDisplay {
+  currency: 'CNY' | 'U';
+  cnyPerUnit?: number | null;
+  cnyLabel?: '元' | 'CNY';
+  referenceDate?: string;
+  referenceStale?: boolean;
+}
+
+export function isValidDisplayRate(rate: unknown): rate is number {
+  return typeof rate === 'number' && Number.isFinite(rate) && rate >= 0.000001 && rate <= 1_000_000;
+}
+
+export function priceDisplayFactor(display?: PriceDisplay) {
+  const rate = display?.cnyPerUnit;
+  return display?.currency === 'CNY' && isValidDisplayRate(rate) ? rate : 1;
+}
+
+function isCNYDisplay(display?: PriceDisplay) {
+  const rate = display?.cnyPerUnit;
+  return display?.currency === 'CNY' && isValidDisplayRate(rate);
+}
+
+const unitPriceFormatter = new Intl.NumberFormat('en-US', { maximumSignificantDigits: 6 });
 
 const dimensionDetails: Record<string, { label: string; unit: string }> = {
   input_tokens: { label: '输入', unit: '1M tokens' },
@@ -21,6 +45,7 @@ export interface ModelPriceDetail {
   officialPrice?: string;
   savingsPercent?: number;
   officialDiscount?: number;
+  officialDifferencePercent?: number;
 }
 
 function rankDimension(dimension: string) {
@@ -37,41 +62,57 @@ function orderedDimensions(dimensions: string[]) {
 // Prices are quoted in U, the currency customers top up and are billed in.
 // Billing keeps every published decimal; a reader only needs enough of them to
 // compare models, so the display rounds a long tail away.
-export function formatUnitPrice(value: string, unit: string) {
-  const amount = Number(value);
+export function formatUnitPrice(value: string, unit: string, display?: PriceDisplay) {
+  const amount = Number(value) * priceDisplayFactor(display);
   if (!Number.isFinite(amount)) return `${value} U / ${unit}`;
-  // Six significant digits keep even the cheapest model's price visible while
-  // dropping a ten-decimal tail nobody compares prices with.
-  let text = Math.abs(amount) >= 1e-6 ? amount.toPrecision(6) : amount.toFixed(10);
-  if (text.includes('e')) text = amount.toFixed(10);
-  const [whole, fraction = ''] = text.split('.');
-  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  const trimmed = fraction.replace(/0+$/, '');
-  return `${grouped}${trimmed ? `.${trimmed}` : ''} U / ${unit}`;
+  return `${unitPriceFormatter.format(amount)} ${isCNYDisplay(display) ? display?.cnyLabel ?? '元' : 'U'} / ${unit}`;
 }
 
-function formatSalePrice(value: string | undefined, unit: string) {
+const imagePriceFormatter = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 });
+
+export function formatImageUnitPrice(value: string, display?: PriceDisplay, unit = display?.cnyLabel === 'CNY' ? 'image' : '张') {
+  const amount = Number(value) * priceDisplayFactor(display);
+  return `${imagePriceFormatter.format(amount)} ${isCNYDisplay(display) ? display?.cnyLabel ?? '元' : 'U'} / ${unit}`;
+}
+
+export function imageSalePriceDetails(sale: ImageSale, display?: PriceDisplay): ModelPriceDetail[] {
+  return (sale.version === 2 ? ['1K', '2K'] as const : ['1K', '2K', '4K'] as const).map((resolution) => ({
+    key: `image-${resolution}`, dimension: 'images', label: resolution,
+    price: formatImageUnitPrice(sale.base_prices[resolution]!, display),
+  }));
+}
+
+function formatSalePrice(value: string | undefined, unit: string, display?: PriceDisplay) {
   if (typeof value !== 'string' || value === '') return null;
-  return formatUnitPrice(value, unit);
+  return formatUnitPrice(value, unit, display);
 }
 
-function comparisonFields(saleRaw: string | undefined, officialRaw: string | undefined, unit: string) {
-  if (typeof officialRaw !== 'string' || officialRaw === '') return {};
-  const sale = Number(saleRaw);
-  const official = Number(officialRaw);
-  if (!Number.isFinite(sale) || !Number.isFinite(official) || sale <= 0 || official <= 0) return {};
-  const savingsPercent = Number.isFinite(sale) && Number.isFinite(official) && official > sale
-    ? Math.round((1 - sale / official) * 100)
-    : undefined;
+function comparisonFields(saleRaw: string | undefined, officialRaw: string | undefined, unit: string, display?: PriceDisplay, metadata?: OfficialPriceReference) {
+  if (typeof officialRaw !== 'string' || officialRaw.trim() === '') return {};
+  const sale = Number(saleRaw) * priceDisplayFactor(display);
+  const originalRate = Number(metadata?.original_units_per_usd);
+  const nativeCNY = isCNYDisplay(display) && metadata?.original_currency === 'CNY' && Number.isFinite(originalRate) && originalRate > 0;
+  const official = Number(officialRaw) * (nativeCNY ? originalRate : priceDisplayFactor(display));
+  if (!Number.isFinite(official) || official < 0) return {};
+  if (isCNYDisplay(display) && !metadata?.original_currency) {
+    return { officialPrice: formatUnitPrice(officialRaw, unit) };
+  }
+  const reference = { officialPrice: nativeCNY
+    ? `${unitPriceFormatter.format(official)} ${display?.cnyLabel ?? '元'} / ${unit}` : formatUnitPrice(officialRaw, unit, display) };
+  if (typeof saleRaw !== 'string' || saleRaw.trim() === '' || !Number.isFinite(sale) || sale < 0 || official === 0) return reference;
+  const difference = ((sale - official) / official) * 100;
+  if (!Number.isFinite(difference)) return reference;
   return {
-    officialPrice: formatUnitPrice(officialRaw, unit),
-    ...(savingsPercent === undefined ? {} : { savingsPercent }),
-    ...(official > sale ? { officialDiscount: Math.ceil((sale / official) * 100 - 1e-8) / 10 } : {}),
+    ...reference,
+    officialDifferencePercent: Number(difference.toPrecision(12)),
+    ...(official > sale ? { savingsPercent: Math.round(-difference) } : {}),
+    ...(official > sale ? { officialDiscount: Math.ceil((sale / official) * 1000 - 1e-8) / 100 } : {}),
   };
 }
 
 export function modelOfficialDiscount(prices: ModelPriceDetail[]) {
-  if (prices.length === 0 || prices.some((price) => price.officialDiscount === undefined)) return null;
+  if (prices.length === 0 || prices.some((price) => !price.officialPrice || price.officialDiscount === undefined ||
+    !Number.isFinite(price.officialDiscount) || price.officialDiscount < 0 || price.officialDiscount >= 10)) return null;
   const discounts = prices.map((price) => price.officialDiscount as number);
   const lowest = Math.min(...discounts);
   const highest = Math.max(...discounts);
@@ -101,27 +142,30 @@ function mediaRuleLabel(conditions: Record<string, string>, fallback: string) {
     .map(([key, value]) => mediaConditionLabels[key]?.[value] ?? value)
     .filter(Boolean)
     .join(' · ');
-  return condition || fallback;
+  return condition ? `${fallback}（${condition}）` : fallback;
 }
 
 export function modelPriceDetails(
   model: PricingModel,
   pricing: PricingEnvelope,
   quotaPerUnit: number,
+  display?: PriceDisplay,
 ): ModelPriceDetail[] {
+  if (model.image_sale) return imageSalePriceDetails(model.image_sale, display);
+
   if (model.pricing_rules && model.pricing_rules.length > 0) {
     return model.pricing_rules.flatMap((rule) =>
       orderedDimensions(Object.keys(rule.sale_usd)).flatMap((dimension) => {
         const detail = dimensionDetails[dimension] ?? { label: dimension, unit: '计费单位' };
         const unit = rule.billing_unit === 'usd_per_million_tokens' ? '1M tokens' : rule.billing_unit;
-        const price = formatSalePrice(rule.sale_usd[dimension], unit);
+        const price = formatSalePrice(rule.sale_usd[dimension], unit, display);
         if (price === null) return [];
         return [{
           key: `${rule.id}-${dimension}`,
           dimension,
           label: mediaRuleLabel(rule.conditions, detail.label),
           price,
-          ...comparisonFields(rule.sale_usd[dimension], rule.official_usd?.[dimension], unit),
+          ...comparisonFields(rule.sale_usd[dimension], rule.official_usd?.[dimension], unit, display, model.official_reference),
         }];
       }),
     );
@@ -133,7 +177,7 @@ export function modelPriceDetails(
     return model.token_price_rules.flatMap((rule, index) =>
       orderedDimensions(Object.keys(rule.sale_usd)).flatMap((dimension) => {
         const detail = dimensionDetails[dimension] ?? { label: dimension, unit: '计费单位' };
-        const price = formatSalePrice(rule.sale_usd[dimension], detail.unit);
+        const price = formatSalePrice(rule.sale_usd[dimension], detail.unit, display);
         if (price === null) return [];
         const condition = rule.conditions.join('、');
         return [{
@@ -141,7 +185,7 @@ export function modelPriceDetails(
           dimension,
           label: condition ? `${detail.label}（${condition}）` : detail.label,
           price,
-          ...comparisonFields(rule.sale_usd[dimension], rule.official_usd?.[dimension], detail.unit),
+          ...comparisonFields(rule.sale_usd[dimension], rule.official_usd?.[dimension], detail.unit, display, model.official_reference),
         }];
       }),
     );
@@ -149,7 +193,7 @@ export function modelPriceDetails(
 
   const saleUSD = model.sale_usd;
   if (!saleUSD || !model.billing_dimensions) {
-    const legacy = modelPrices(model, pricing, quotaPerUnit);
+    const legacy = modelPrices(model, pricing, quotaPerUnit, display);
     return [
       { key: 'input_tokens', dimension: 'input_tokens', label: '输入', price: legacy.input },
       { key: 'output_tokens', dimension: 'output_tokens', label: '输出', price: legacy.output },
@@ -157,14 +201,14 @@ export function modelPriceDetails(
   }
   return orderedDimensions(model.billing_dimensions).flatMap((dimension) => {
     const detail = dimensionDetails[dimension] ?? { label: dimension, unit: '计费单位' };
-    const price = formatSalePrice(saleUSD[dimension], detail.unit);
+    const price = formatSalePrice(saleUSD[dimension], detail.unit, display);
     if (price === null) return [];
     return [{
       key: dimension,
       dimension,
       label: detail.label,
       price,
-      ...comparisonFields(saleUSD[dimension], model.official_usd?.[dimension], detail.unit),
+      ...comparisonFields(saleUSD[dimension], model.official_usd?.[dimension], detail.unit, display, model.official_reference),
     }];
   });
 }
@@ -192,6 +236,7 @@ export function modelPrices(
   model: PricingModel,
   pricing: PricingEnvelope,
   quotaPerUnit: number,
+  display?: PriceDisplay,
 ) {
   if (
     (model.billing_mode !== '' && model.billing_mode !== 'ratio') ||
@@ -220,8 +265,8 @@ export function modelPrices(
       return { input: '按规则计费', output: '按规则计费' };
     }
     return {
-      input: `${formatPrice(input)} U / 1M tokens`,
-      output: `${formatPrice(output)} U / 1M tokens`,
+      input: display ? formatUnitPrice(String(input), '1M tokens', display) : `${formatPrice(input)} U / 1M tokens`,
+      output: display ? formatUnitPrice(String(output), '1M tokens', display) : `${formatPrice(output)} U / 1M tokens`,
     };
   }
 
@@ -229,6 +274,6 @@ export function modelPrices(
   if (!Number.isFinite(fixedPrice)) {
     return { input: '按规则计费', output: '按规则计费' };
   }
-  const fixed = `${formatPrice(fixedPrice)} U / 次`;
+  const fixed = display ? formatUnitPrice(String(fixedPrice), '次', display) : `${formatPrice(fixedPrice)} U / 次`;
   return { input: fixed, output: fixed };
 }

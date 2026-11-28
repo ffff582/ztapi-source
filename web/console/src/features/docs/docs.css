@@ -169,12 +169,140 @@
 
 .docs-section {
   padding-top: 32px;
+  scroll-margin-top: calc(var(--header-h) + 20px);
+}
+
+.docs-launch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.docs-launch-actions a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  max-width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--brand-line);
+  border-radius: 6px;
+  color: var(--brand);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+
+.docs-launch-actions a svg {
+  flex: none;
+}
+
+.docs-launch-actions a:hover {
+  background: var(--brand-soft);
+}
+
+.docs-launch-actions a:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 3px;
 }
 
 .docs-section h2 {
   margin-bottom: 16px;
   font-size: var(--fs-xl);
   font-weight: 650;
+}
+
+.docs-section > p {
+  margin: 12px 0;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.docs-codex-notes {
+  display: grid;
+  gap: 12px;
+  padding-left: 20px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.docs-footer {
+  padding-block: 24px;
+  border-top: 1px solid var(--border);
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+
+.docs-footer a,
+.docs-legal-link,
+.docs-source-offer a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  overflow-wrap: anywhere;
+}
+
+.docs-footer a svg,
+.docs-source-offer svg {
+  flex: none;
+}
+
+.docs-source-offer {
+  min-width: 0;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.docs-source-offer p {
+  margin: 0 0 12px;
+}
+
+.docs-source-offer dl {
+  margin: 16px 0 0;
+}
+
+.docs-source-offer dt {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+.docs-source-offer dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.docs-source-offer button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  max-width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.docs-source-offer button:hover {
+  background: var(--surface-2);
+}
+
+.docs-footer a:focus-visible,
+.docs-legal-link:focus-visible,
+.docs-source-offer a:focus-visible,
+.docs-source-offer button:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 3px;
 }
 
 .docs-facts {

@@ -64,6 +64,18 @@ func TestLegacyPaymentRoutesCanBeExplicitlyEnabled(t *testing.T) {
 	assertGovernedAdminTopUpRoutes(t, routes)
 }
 
+func TestCNYNotifyUsesGetWithoutLegacyPayment(t *testing.T) {
+	t.Setenv(legacyPaymentEnabledEnv, "")
+	routes := registeredAPIRoutes()
+	const path = " /api/payment/cny/notify"
+	if _, exists := routes[http.MethodGet+path]; !exists {
+		t.Fatal("CNY GET callback must be available independently of legacy payment")
+	}
+	if _, exists := routes[http.MethodPost+path]; exists {
+		t.Fatal("CNY must not expose the old POST callback")
+	}
+}
+
 func registeredAPIRoutes() map[string]struct{} {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()

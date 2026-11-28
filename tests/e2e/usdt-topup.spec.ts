@@ -90,6 +90,8 @@ test('authenticated user creates and settles a USDT TRC-20 top-up', async ({ pag
       },
     }),
   }));
+  await page.route('**/api/user/topup/cny/info', (route) => route.fulfill({ json: { success: true, data: { enabled: false } } }));
+  await page.route('**/api/user/topup/cny/orders', (route) => route.fulfill({ json: { success: true, data: [] } }));
   await page.route('**/api/user/topup/usdt-trc20/orders**', async (route) => {
     const request = route.request();
     if (request.method() === 'POST' && request.url().endsWith('/orders')) {

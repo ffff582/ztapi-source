@@ -438,6 +438,47 @@ func ZTAPIQuotationEntries() ([]ZTAPIQuotationEntry, error) {
 // ValidateZTAPIQuotationIdentity uses exact audited identities, not provider
 // naming conventions, upstream discovery, mutable aliases or fuzzy matching.
 func ValidateZTAPIQuotationIdentity(sourceModel, publicName, protocol, providerFamily, checksum string) error {
+	if checksum == ZTAPIXcloudQuoteSHA25620261128 {
+		public, provider, transport, err := ZTAPIXcloudPublicIdentity20261128(sourceModel)
+		if err != nil || publicName != public || protocol != transport || providerFamily != provider {
+			return ErrZTAPIQuotationIdentityMismatch
+		}
+		return nil
+	}
+	if checksum == ztapiXcloudEvidence20261114 {
+		quote, err := ztapiXcloudQuote20261114(sourceModel)
+		if err != nil || publicName != quote.public || protocol != ZTAPIProtocolOpenAICompatible || providerFamily != quote.family {
+			return ErrZTAPIQuotationIdentityMismatch
+		}
+		return nil
+	}
+	if checksum == ZTAPIXcloudGLM53EvidenceSHA256 {
+		if sourceModel != "glm-5.3" || publicName != "zt-glm-5.3" || protocol != ZTAPIProtocolOpenAICompatible || providerFamily != ZTAPIProviderGLM {
+			return ErrZTAPIQuotationIdentityMismatch
+		}
+		return nil
+	}
+	if checksum == ZTAPISupplierWorkbook20261019SHA256 {
+		if name, _, found := ztapiSupplierAdmissionPriceForSource20261019(sourceModel); found {
+			identity, err := FindZTAPISupplierAdmissionModel20261019(name)
+			if err != nil || identity.SourceModel != sourceModel || identity.PublicName != publicName ||
+				identity.ProviderFamily != providerFamily || protocol != ZTAPIProtocolOpenAICompatible {
+				return ErrZTAPIQuotationIdentityMismatch
+			}
+			return nil
+		}
+		if _, err := ztapiSupplierPriceEntryFor20261019(sourceModel); err != nil {
+			return err
+		}
+		if sourceModel == "claude-opus-5" {
+			return ValidateZTAPIQuotationIdentity(sourceModel, publicName, protocol, providerFamily, ZTAPIQuotation929SHA256)
+		}
+		quote, err := ZTAPIQuotationABEntries()
+		if err != nil {
+			return err
+		}
+		return ValidateZTAPIQuotationIdentity(sourceModel, publicName, protocol, providerFamily, quote.WorkbookSHA256)
+	}
 	if checksum == ZTAPIQuotation929SHA256 {
 		quote, ok := ztapi929TextQuotes["Claude Opus 5"]
 		if !ok || sourceModel != quote.SourceModel || publicName != quote.PublicName ||
@@ -555,7 +596,21 @@ func ztapiQuotationChecksumsAllowingStaleABPrice(db *gorm.DB, ids []int64, allow
 	for _, row := range evidence {
 		preview, err := BuildZTAPIModelPricePreview(&row.ZTAPIModelPriceSource)
 		basisPermitted := ztapiEnterprisePriceBasis(row.SourceModel, row.ResourceType)
-		if row.SourceDocumentChecksum == ZTAPIQuotation929SHA256 {
+		if isZTAPIDatedRetailPolicy20261107(row.PricePolicy) {
+			basisPermitted = ValidateZTAPIPriceReductionSource20261107(db, &row.ZTAPIModelPriceSource) == nil
+		} else if isZTAPICashMarginPolicy20261030(row.PricePolicy) {
+			basisPermitted = ValidateZTAPICashMarginSource20261030(db, &row.ZTAPIModelPriceSource) == nil
+		} else if row.PricePolicy == string(ZTAPIPricePolicyXcloudGLM53) {
+			basisPermitted = validateZTAPIXcloudGLM53Price(&row.ZTAPIModelPriceSource) == nil
+		} else if row.PricePolicy == string(ZTAPIPricePolicyXcloud20261114) {
+			_, quoteErr := ztapiXcloudRules20261114(&row.ZTAPIModelPriceSource)
+			basisPermitted = quoteErr == nil
+		} else if row.PricePolicy == string(ZTAPIPricePolicyXcloud20261128) {
+			_, quoteErr := ztapiXcloudRules20261128(&row.ZTAPIModelPriceSource)
+			basisPermitted = quoteErr == nil
+		} else if row.SourceDocumentChecksum == ZTAPISupplierWorkbook20261019SHA256 {
+			basisPermitted = ValidateZTAPISupplierPriceSource20261019(db, &row.ZTAPIModelPriceSource) == nil
+		} else if row.SourceDocumentChecksum == ZTAPIQuotation929SHA256 {
 			basisPermitted = validateZTAPI929PriceSource(&row.ZTAPIModelPriceSource) == nil
 		} else if quote, quoteErr := ZTAPIQuotationABEntries(); quoteErr == nil && row.SourceDocumentChecksum == quote.WorkbookSHA256 {
 			basisPermitted = allowStaleABPrice || validateZTAPIABPriceSource(&row.ZTAPIModelPriceSource) == nil

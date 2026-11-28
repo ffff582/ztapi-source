@@ -8,7 +8,7 @@ import {
   within,
 } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { UsageGuidePage } from './UsageGuidePage';
 
 function renderGuide() {
@@ -34,10 +34,17 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+beforeEach(() => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+    success: true, data: [], catalog: [],
+  }))));
+});
+
 afterEach(() => {
   cleanup();
   Reflect.deleteProperty(navigator, 'clipboard');
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe('UsageGuidePage', () => {

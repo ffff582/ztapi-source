@@ -185,7 +185,8 @@ async function performRequest(config, retryUnauthorized, attachSession) {
   if (!response.ok || (body && body.success === false)) {
     if (
       response.status === 401 &&
-      sessionAtRequest?.access_token === memorySession?.access_token
+      sessionAtRequest &&
+      sessionAtRequest.access_token === memorySession?.access_token
     ) {
       clearAdminSession();
     }

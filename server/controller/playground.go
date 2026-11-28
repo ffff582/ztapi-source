@@ -70,7 +70,7 @@ func writePlaygroundError(c *gin.Context, newAPIError *types.NewAPIError) {
 	if newAPIError == nil {
 		return
 	}
-	c.JSON(newAPIError.StatusCode, gin.H{"error": newAPIError.ToOpenAIError()})
+	c.JSON(newAPIError.StatusCode, gin.H{"error": newAPIError.ToPublicOpenAIError()})
 }
 
 func preparePlayground(c *gin.Context, requireBalance bool) *types.NewAPIError {

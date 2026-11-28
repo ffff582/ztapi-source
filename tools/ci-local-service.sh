@@ -18,11 +18,22 @@ if [[ "$action" != start ]]; then
 fi
 
 password=${3:?isolated CI password required}
+ensure_cached_image() {
+  if docker image inspect "$1" >/dev/null 2>&1; then
+    return 0
+  fi
+  if [[ "${ZTAPI_CI_ALLOW_IMAGE_PULL:-false}" != true ]]; then
+    echo "required isolated CI image is not cached: $1" >&2
+    return 1
+  fi
+  docker pull "$1" >/dev/null
+}
+
 case "$kind" in
   mysql)
     database=${4:?isolated CI database required}
     image=mysql:8.4
-    docker image inspect "$image" >/dev/null
+    ensure_cached_image "$image"
     docker run --pull=never --rm -d --name "$name" \
       --label ztapi-ci-service=true \
       -e "MYSQL_ROOT_PASSWORD=$password" -e "MYSQL_DATABASE=$database" \
@@ -33,7 +44,7 @@ case "$kind" in
     ;;
   redis)
     image=redis:7.4-alpine
-    docker image inspect "$image" >/dev/null
+    ensure_cached_image "$image"
     docker run --pull=never --rm -d --name "$name" \
       --label ztapi-ci-service=true \
       -e "REDIS_PASSWORD=$password" -p 127.0.0.1:6379:6379 \

@@ -42,11 +42,15 @@ import AdminUsersPage from './features/users/AdminUsersPage.jsx';
 import { QuotaPerUnitProvider } from './quota.jsx';
 import StaffRolesPage from './features/users/StaffRolesPage.jsx';
 import OrdersPage from './features/finance/OrdersPage.jsx';
+import CNYOrdersPage from './features/finance/CNYOrdersPage.jsx';
+import FinanceOverviewPage from './features/finance/OverviewPage.jsx';
+import ReferralWithdrawalsPage from './features/finance/ReferralWithdrawalsPage.jsx';
 import LedgerPage from './features/finance/LedgerPage.jsx';
 import ReconciliationPage from './features/finance/ReconciliationPage.jsx';
 import WatchedAddressesPage from './features/finance/WatchedAddressesPage.jsx';
 import AdminLogsPage from './features/logs/AdminLogsPage.jsx';
 import AuditLogPage from './features/logs/AuditLogPage.jsx';
+import SupportTicketsPage from './features/support/SupportTicketsPage.jsx';
 import AdminSettingsPage from './features/settings/AdminSettingsPage.jsx';
 import './styles/admin.css';
 
@@ -230,6 +234,14 @@ function AdminRoutes() {
         }
       />
       <Route
+        path='/finance/overview'
+        element={
+          <ProtectedPage permission={AdminPermission.financeRead} title='财务总览'>
+            <FinanceOverviewPage canWrite={financeCanWrite} />
+          </ProtectedPage>
+        }
+      />
+      <Route
         path='/finance/orders'
         element={
           <ProtectedPage
@@ -237,6 +249,30 @@ function AdminRoutes() {
             title='财务管理'
           >
             <OrdersPage canWrite={financeCanWrite} />
+          </ProtectedPage>
+        }
+      />
+      <Route
+        path='/finance/cny-orders'
+        element={
+          <ProtectedPage permission={AdminPermission.financeRead} title='人民币订单'>
+            <CNYOrdersPage />
+          </ProtectedPage>
+        }
+      />
+      <Route
+        path='/finance/referrals'
+        element={
+          <ProtectedPage permission={AdminPermission.referralsRead} title='推广返利'>
+            <ReferralWithdrawalsPage view='commissions' />
+          </ProtectedPage>
+        }
+      />
+      <Route
+        path='/finance/referrals/withdrawals'
+        element={
+          <ProtectedPage permission={AdminPermission.referralsRead} title='提现审核'>
+            <ReferralWithdrawalsPage canWrite={hasAdminPermission(auth.session?.user?.role, AdminPermission.referralsWrite)} />
           </ProtectedPage>
         }
       />
@@ -270,6 +306,14 @@ function AdminRoutes() {
             title='收款地址监听'
           >
             <WatchedAddressesPage canWrite={canWatchPaymentAddresses} />
+          </ProtectedPage>
+        }
+      />
+      <Route
+        path='/support/tickets'
+        element={
+          <ProtectedPage permission={AdminPermission.userRead} title='客服工单'>
+            <SupportTicketsPage key={auth.session?.user?.id} />
           </ProtectedPage>
         }
       />

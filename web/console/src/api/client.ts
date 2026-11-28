@@ -11,6 +11,9 @@ export type AuthErrorKind =
   | 'invalid_credentials'
   | 'username_unavailable'
   | 'invalid_registration'
+  | 'invalid_captcha'
+  | 'invalid_invitation'
+  | 'invitation_unavailable'
   | 'unauthorized'
   | 'unknown';
 
@@ -28,6 +31,7 @@ type AuthListener = (user: AuthUser | null) => void;
 
 let memorySession: AuthSessionData | null = null;
 let sessionGeneration = 0;
+let sessionLifecycle = 0;
 let refreshAttempt: {
   generation: number;
   controller: AbortController;
@@ -55,8 +59,14 @@ export function getAuthSession() {
   return memorySession;
 }
 
+// JWT refreshes retain this identity; explicit login/logout never do.
+export function getAuthSessionLifecycle() {
+  return sessionLifecycle;
+}
+
 export function setAuthSession(session: AuthSessionData) {
   sessionGeneration += 1;
+  sessionLifecycle += 1;
   refreshAttempt?.controller.abort();
   refreshAttempt = null;
   memorySession = session;
@@ -65,6 +75,7 @@ export function setAuthSession(session: AuthSessionData) {
 
 export function clearAuthSession() {
   sessionGeneration += 1;
+  sessionLifecycle += 1;
   refreshAttempt?.controller.abort();
   refreshAttempt = null;
   memorySession = null;
@@ -81,6 +92,18 @@ export function subscribeAuthSession(listener: AuthListener) {
 
 function classifyServerError(message: unknown, status: number): AuthErrorKind {
   const normalized = typeof message === 'string' ? message.trim().toLowerCase() : '';
+
+  if (status === 400 && normalized === 'invalid captcha') {
+    return 'invalid_captcha';
+  }
+
+  if (status === 400 && normalized === 'invalid invitation code') {
+    return 'invalid_invitation';
+  }
+
+  if (status === 409 && normalized === 'invitation temporarily unavailable') {
+    return 'invitation_unavailable';
+  }
 
   if (
     normalized.includes('invalid credentials') ||
@@ -363,6 +386,7 @@ export function refreshSession(): Promise<AuthSessionData> {
     .then((session) => {
       if (generation === sessionGeneration) {
         sessionGeneration += 1;
+        if (memorySession?.user.id !== session.user.id) sessionLifecycle += 1;
         memorySession = session;
         notifyAuthListeners();
       }
@@ -372,6 +396,7 @@ export function refreshSession(): Promise<AuthSessionData> {
     .catch((error: unknown) => {
       if (generation === sessionGeneration) {
         sessionGeneration += 1;
+        sessionLifecycle += 1;
         memorySession = null;
         notifyAuthListeners();
       }
@@ -459,6 +484,12 @@ export function authErrorMessage(error: unknown) {
         return '账号不可用，请更换后重试';
       case 'invalid_registration':
         return '账号格式或密码不符合要求';
+      case 'invalid_captcha':
+        return '验证码错误或已过期，请输入新的验证码';
+      case 'invalid_invitation':
+        return '邀请码无效，请核对或清除邀请码后普通注册。';
+      case 'invitation_unavailable':
+        return '推广活动暂不可用，可移除邀请码后继续注册';
       case 'unauthorized':
       case 'unknown':
         break;

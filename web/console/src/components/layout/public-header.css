@@ -59,6 +59,7 @@
 .public-header__link {
   display: inline-flex;
   align-items: center;
+  gap: 6px;
   height: 36px;
   padding: 0 12px;
   border-radius: var(--r-sm);

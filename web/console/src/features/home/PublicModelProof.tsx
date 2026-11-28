@@ -11,7 +11,8 @@ import {
   type PublicModelFamily,
 } from '../../api/contracts';
 import { useLocale } from '../../i18n/locale';
-import { formatUnitPrice, modelPrices } from '../models/pricing';
+import { formatUnitPrice, modelPrices, type PriceDisplay } from '../models/pricing';
+import { PriceCurrencyControl, usePriceDisplay } from '../models/PriceCurrencyControl';
 
 const families: PublicModelFamily[] = ['OpenAI', 'Claude', 'Gemini'];
 const preferredModels: Record<PublicModelFamily, string> = {
@@ -31,16 +32,18 @@ function chooseFeaturedModels(models: PricingModel[]) {
   });
 }
 
-function managedPrice(value: string | undefined) {
+function managedPrice(value: string | undefined, display?: PriceDisplay) {
   // A dimension a model does not charge for has no published price.
   if (typeof value !== 'string' || value === '') return null;
-  return formatUnitPrice(value, '1M tokens');
+  return formatUnitPrice(value, '1M tokens', display);
 }
 
 export function PublicModelProof() {
   const { t } = useLocale();
   const [pricing, setPricing] = useState<PricingEnvelope | null>(null);
   const [quotaPerUnit, setQuotaPerUnit] = useState<number | null>(null);
+  const [displayRate, setDisplayRate] = useState<number | undefined>();
+  const { display, setCurrency } = usePriceDisplay(displayRate);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
 
   useEffect(() => {
@@ -53,6 +56,7 @@ export function PublicModelProof() {
         if (!active) return;
         setPricing(pricingValue);
         setQuotaPerUnit(statusValue.quota_per_unit);
+        setDisplayRate(statusValue.usd_exchange_rate);
         setStatus('ready');
       })
       .catch(() => {
@@ -93,16 +97,17 @@ export function PublicModelProof() {
           ))}
         </div>
 
-        <aside className="model-proof__offer" aria-label={t('综合优惠约 20%')}>
+        <aside className="model-proof__offer" aria-label={t('价格说明')}>
           <div>
-            <strong>{t('综合优惠约 20%')}</strong>
-            <span>{t('模型价格对比官方更优惠，充值再额外赠送 5% 使用额度。')}</span>
+            <strong>{t('逐项查看实际售价与官网参考')}</strong>
+            <span>{t('售价以当前公开目录为准；不同规格、阶梯和缓存分别计价，不承诺全站统一折扣。')}</span>
           </div>
           <Link to="/models">
             {t('查看价格对比')}
             <ArrowUpRight aria-hidden="true" size={18} />
           </Link>
         </aside>
+        <PriceCurrencyControl display={display} onChange={setCurrency} />
 
         {status === 'loading' && (
           <>
@@ -140,10 +145,10 @@ export function PublicModelProof() {
               {featuredModels.map((model) => {
                 const family = model.vendor_name ?? getPublicModelFamily(model.model_name, model.owner_by);
                 const media = model.modality === 'image' || model.modality === 'video';
-                const managedInput = media ? null : managedPrice(model.sale_usd?.input_tokens);
+                const managedInput = media ? null : managedPrice(model.sale_usd?.input_tokens, display);
                 const prices = managedInput !== null && !model.token_price_rules
-                  ? { input: managedInput, output: managedPrice(model.sale_usd?.output_tokens) }
-                  : !media ? modelPrices(model, pricing, quotaPerUnit) : null;
+                  ? { input: managedInput, output: managedPrice(model.sale_usd?.output_tokens, display) }
+                  : !media ? modelPrices(model, pricing, quotaPerUnit, display) : null;
                 return (
                   <article key={model.model_name}>
                     <div className="model-proof__card-top">
@@ -162,8 +167,8 @@ export function PublicModelProof() {
                           <div className="model-proof__token-tier" key={`${model.model_name}-tier-${index}`}>
                             <dt>{rule.conditions.length === 0 ? t('默认价格') : rule.conditions.map((condition) => t(condition)).join(' · ')}</dt>
                             <dd>
-                              <span>{t('输入')} <strong>{managedPrice(rule.sale_usd.input_tokens) ?? t('按规则计费')}</strong></span>
-                              <span>{t('输出')} <strong>{managedPrice(rule.sale_usd.output_tokens) ?? t('按规则计费')}</strong></span>
+                              <span>{t('输入')} <strong>{managedPrice(rule.sale_usd.input_tokens, display) ?? t('按规则计费')}</strong></span>
+                              <span>{t('输出')} <strong>{managedPrice(rule.sale_usd.output_tokens, display) ?? t('按规则计费')}</strong></span>
                             </dd>
                           </div>
                         ))

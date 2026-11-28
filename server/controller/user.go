@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -591,12 +592,17 @@ func GetUserModels(c *gin.Context) {
 		return
 	}
 	catalog = model.FilterZTAPIPublicCatalogByGroups(catalog, groups)
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data":    model.ZTAPIPublicCatalogNames(catalog),
-		"catalog": catalog,
-	})
+	response := gin.H{
+		"success":    true,
+		"message":    "",
+		"data":       model.ZTAPIPublicCatalogNames(catalog),
+		"catalog":    catalog,
+		"display_fx": service.CurrentZTAPIDisplayFX(),
+	}
+	if rate := operation_setting.USDExchangeRate; !math.IsNaN(rate) && !math.IsInf(rate, 0) && rate >= 0.000001 && rate <= 1000000 {
+		response["display_cny_per_unit"] = rate
+	}
+	c.JSON(http.StatusOK, response)
 	return
 }
 
@@ -879,14 +885,18 @@ func DeleteUser(c *gin.Context) {
 
 func DeleteSelf(c *gin.Context) {
 	id := c.GetInt("id")
-	user, _ := model.GetUserById(id, false)
+	user, err := model.GetUserById(id, false)
+	if err != nil || user == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "请重新登录"})
+		return
+	}
 
 	if user.Role == common.RoleRootUser {
 		common.ApiErrorI18n(c, i18n.MsgUserCannotDeleteRootUser)
 		return
 	}
 
-	err := model.DeleteUserById(id)
+	err = model.DeleteUserById(id)
 	if err != nil {
 		common.ApiError(c, err)
 		return

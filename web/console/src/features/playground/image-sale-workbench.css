@@ -1,0 +1,9 @@
+@media (max-width: 480px) {
+  .zt-workbench--media .zt-workbench__reference-heading {
+    flex-wrap: wrap;
+  }
+
+  .zt-workbench--media .zt-workbench__reference-heading > div {
+    flex-basis: 100%;
+  }
+}

@@ -39,19 +39,24 @@ func GetCurrentLogPath() string {
 	return currentLogPath
 }
 
+type standardLogWriter struct{}
+
+func (standardLogWriter) Write(p []byte) (int, error) {
+	common.LogWriterMu.RLock()
+	defer common.LogWriterMu.RUnlock()
+	return gin.DefaultErrorWriter.Write(p)
+}
+
 func SetupLogger() {
+	if !setupLogLock.TryLock() {
+		log.Println("setup log is already working")
+		return
+	}
+	defer setupLogLock.Unlock()
 	defer func() {
 		setupLogWorking = false
 	}()
 	if *common.LogDir != "" {
-		ok := setupLogLock.TryLock()
-		if !ok {
-			log.Println("setup log is already working")
-			return
-		}
-		defer func() {
-			setupLogLock.Unlock()
-		}()
 		logPath := filepath.Join(*common.LogDir, fmt.Sprintf("oneapi-%s.log", time.Now().Format("20060102150405")))
 		fd, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
@@ -64,13 +69,20 @@ func SetupLogger() {
 		currentLogPathMu.Unlock()
 
 		common.LogWriterMu.Lock()
-		gin.DefaultWriter = io.MultiWriter(os.Stdout, fd)
-		gin.DefaultErrorWriter = io.MultiWriter(os.Stderr, fd)
+		gin.DefaultWriter = common.NewSecretLogWriter(io.MultiWriter(os.Stdout, fd))
+		gin.DefaultErrorWriter = common.NewSecretLogWriter(io.MultiWriter(os.Stderr, fd))
 		if oldFile != nil {
 			_ = oldFile.Close()
 		}
 		common.LogWriterMu.Unlock()
+	} else {
+		common.LogWriterMu.Lock()
+		gin.DefaultWriter = common.NewSecretLogWriter(gin.DefaultWriter)
+		gin.DefaultErrorWriter = common.NewSecretLogWriter(gin.DefaultErrorWriter)
+		common.LogWriterMu.Unlock()
 	}
+	// SetOutput takes the standard logger's mutex; never hold LogWriterMu here.
+	log.SetOutput(standardLogWriter{})
 }
 
 func LogInfo(ctx context.Context, msg string) {
@@ -95,12 +107,13 @@ func LogDebug(ctx context.Context, msg string, args ...any) {
 }
 
 func logHelper(ctx context.Context, level string, msg string) {
-	var id any = "SYSTEM"
+	id := "SYSTEM"
 	if ctx != nil {
 		if requestID := ctx.Value(common.RequestIdKey); requestID != nil {
-			id = requestID
+			id = common.RedactSecrets(fmt.Sprint(requestID))
 		}
 	}
+	msg = common.RedactSecrets(msg)
 	now := time.Now()
 	common.LogWriterMu.RLock()
 	writer := gin.DefaultErrorWriter

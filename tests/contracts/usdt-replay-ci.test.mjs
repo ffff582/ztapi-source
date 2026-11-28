@@ -7,7 +7,7 @@ test('settled replay CI owns an isolated MySQL database and cannot silently skip
   const workflow = YAML.parse(readFileSync('.github/workflows/ztapi-financial-ci.yml', 'utf8'));
   const job = workflow.jobs['usdt-settled-replay'];
   assert.ok(job, 'a dedicated replay job is required');
-  assert.deepEqual(job['runs-on'], ['self-hosted', 'ztapi-local']);
+  assert.equal(job['runs-on'], '${{ github.repository == \'ffff582/ztapi-source\' && \'ubuntu-24.04\' || fromJSON(\'["self-hosted","ztapi-local"]\') }}');
   assert.ok(job.steps.some((step) => step.run?.includes('start mysql ztapi_replay_ci_only ztapi_usdt_replay_test')));
   assert.ok(job.steps.some((step) => step.if === 'always()' && step.run?.includes('stop mysql')));
   assert.notEqual(job['continue-on-error'], true);

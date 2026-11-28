@@ -29,5 +29,6 @@ describe('WorkbenchShell navigation', () => {
     const productMode = screen.getByRole('group', { name: '产品模式' });
     expect(within(productMode).getByRole('link', { name: '控制台' })).toHaveAttribute('href', '/console');
     expect(within(productMode).getByRole('link', { name: '工作台' })).toHaveAttribute('href', '/console/workbench/text');
+    expect(screen.getByRole('link', { name: '平台客服' })).toHaveAttribute('href', '/console/support');
   });
 });

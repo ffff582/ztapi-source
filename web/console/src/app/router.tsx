@@ -21,6 +21,9 @@ import { PlaygroundPage } from '../features/playground/PlaygroundPage';
 import { SupportedModelsPage } from '../features/models/SupportedModelsPage';
 import { WalletPage } from '../features/wallet/WalletPage';
 import { AccountPage } from '../features/account/AccountPage';
+import { SupportPage } from '../features/support/SupportPage';
+import { SpendingPage } from '../features/spending/SpendingPage';
+import { ReferralPage } from '../features/referrals/ReferralPage';
 
 const routes: RouteObject[] = [
   {
@@ -121,12 +124,24 @@ const routes: RouteObject[] = [
         element: <LogsPage />,
       },
       {
+        path: 'spending',
+        element: <SpendingPage />,
+      },
+      {
         path: 'wallet',
         element: <WalletPage />,
       },
       {
+        path: 'referrals',
+        element: <ReferralPage />,
+      },
+      {
         path: 'account',
         element: <AccountPage />,
+      },
+      {
+        path: 'support',
+        element: <SupportPage />,
       },
     ],
   },

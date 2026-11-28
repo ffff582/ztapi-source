@@ -104,7 +104,8 @@ func ztapiRepriceDoesNotRaise(oldSource, target *ZTAPIModelPriceSource) error {
 		for dimension, saleRaw := range rule.Sale {
 			sale, saleErr := decimal.NewFromString(saleRaw)
 			old, oldErr := decimal.NewFromString(oldRules[tier].Sale[dimension])
-			if saleErr != nil || oldErr != nil || sale.Mul(newMultiplier).GreaterThan(old.Mul(oldMultiplier)) {
+			// Compare the same precision frozen by ztapiDiscountTokenPriceRules.
+			if saleErr != nil || oldErr != nil || sale.Mul(newMultiplier).Round(10).GreaterThan(old.Mul(oldMultiplier).Round(10)) {
 				return fmt.Errorf("%s tier %d would increase the customer price", dimension, tier)
 			}
 		}
@@ -384,6 +385,16 @@ func applyZTAPIABCommercialPricingTxMode(tx *gorm.DB, quote ZTAPIABQuotationMani
 		var oldSource ZTAPIModelPriceSource
 		if err := tx.First(&oldSource, publication.PriceSourceID).Error; err != nil {
 			return err
+		}
+		if preserve, err := ztapiLegacyRepricingPreservesSource(tx, &oldSource); err != nil {
+			return err
+		} else if preserve {
+			result.Skipped = append(result.Skipped, config.PublicNameValue())
+			continue
+		}
+		if oldSource.SourceDocumentChecksum == ZTAPISupplierWorkbook20261019SHA256 {
+			result.Skipped = append(result.Skipped, config.PublicNameValue())
+			continue
 		}
 		effectivePool78 := pool78 || oldSource.PricePolicy == string(ZTAPIPricePolicyPoolOfficial78Sep2026)
 		firstPoolSwitch := effectivePool78 && oldSource.PricePolicy != string(ZTAPIPricePolicyPoolOfficial78Sep2026)

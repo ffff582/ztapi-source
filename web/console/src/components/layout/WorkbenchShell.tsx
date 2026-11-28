@@ -1,4 +1,4 @@
-import { Image, MessageSquareText, Video } from 'lucide-react';
+import { Image, LifeBuoy, MessageSquareText, Video } from 'lucide-react';
 import { Link, NavLink, Outlet } from 'react-router-dom';
 import { useLocale } from '../../i18n/locale';
 import { ConsoleHeader } from './ConsoleHeader';
@@ -35,6 +35,12 @@ export function WorkbenchShell() {
                 <span>{t(label)}</span>
               </NavLink>
             ))}
+          </div>
+          <div className="console-nav-group" role="group" aria-label={t('平台支持')}>
+            <NavLink className="console-nav__link" to="/console/support">
+              <LifeBuoy size={18} aria-hidden="true" />
+              <span>{t('平台客服')}</span>
+            </NavLink>
           </div>
         </nav>
 

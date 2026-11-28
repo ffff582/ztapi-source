@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -173,6 +174,14 @@ func ClaimZTAPIFinanceAlerts(ctx context.Context, db *gorm.DB, now time.Time, li
 					"status": "cancelled", "last_reason": reason, "lease_token": "", "lease_until": 0,
 				}).Error
 			}
+			handled, err := ztapiFinanceMergeBillingAlert(tx, &job, now)
+			if err != nil {
+				retryReason = "alert_pair_lookup_failed"
+				return err
+			}
+			if handled {
+				return nil
+			}
 			if err := tx.Model(&job).UpdateColumn("attempts", gorm.Expr("attempts + 1")).Error; err != nil {
 				return err
 			}
@@ -201,6 +210,79 @@ func ClaimZTAPIFinanceAlerts(ctx context.Context, db *gorm.DB, now time.Time, li
 		}
 	}
 	return claimed, errors.Join(failures...)
+}
+
+const (
+	ztapiFinanceParentBillingReason  = "upstream_billing_unconfirmed"
+	ztapiFinanceAttemptBillingReason = "upstream_attempt_billing_unconfirmed"
+)
+
+// Keep both reconciliation sources. Only their notification jobs share a
+// delivery, with the settlement job owning the lease and retry.
+func ztapiFinanceMergeBillingAlert(tx *gorm.DB, job *ZTAPIFinanceAlertOutbox, now time.Time) (bool, error) {
+	settlementID := job.SourceRecordID
+	switch {
+	case job.SourceKind == "settlement" && job.Reason == ztapiFinanceParentBillingReason:
+	case job.SourceKind == "attempt_review" && job.Reason == ztapiFinanceAttemptBillingReason:
+		settlementID = job.SourceSettlementID
+	default:
+		return false, nil
+	}
+	if settlementID == 0 {
+		return false, nil
+	}
+	var parent ZTAPIRequestSettlement
+	err := tx.Select("id", "request_id", "status", "missing_dimensions_json").Take(&parent, settlementID).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	var reviews []ZTAPIAttemptBillingReview
+	if err := tx.Where("settlement_id = ?", settlementID).Limit(2).Find(&reviews).Error; err != nil {
+		return false, err
+	}
+	matches := len(reviews) == 1 && reviews[0].Status == "pending" &&
+		reviews[0].RequestID != "" && reviews[0].RequestID == parent.RequestID && reviews[0].Attempt > 0 &&
+		ztapiFinanceSourceReason("attempt_review", reviews[0].PendingReason) == ztapiFinanceAttemptBillingReason
+	parentMatches := parent.Status == ZTAPISettlementPending &&
+		ztapiFinanceSourceReason("settlement", parent.MissingDimensionsJSON) == ztapiFinanceParentBillingReason
+	if job.SourceKind == "settlement" {
+		job.SourceSettlementID, job.SourceAttempt, job.RequestReference = 0, 0, ""
+		if matches && parentMatches {
+			job.SourceSettlementID, job.SourceAttempt = settlementID, reviews[0].Attempt
+			job.RequestReference = ZTAPIFinanceAlertRequestReference(parent.RequestID)
+		}
+		return false, tx.Model(job).Updates(map[string]any{
+			"source_settlement_id": job.SourceSettlementID, "source_attempt": job.SourceAttempt,
+			"request_reference": job.RequestReference,
+		}).Error
+	}
+	if !matches || reviews[0].ID != job.SourceRecordID || reviews[0].Attempt != job.SourceAttempt ||
+		ZTAPIFinanceAlertRequestReference(parent.RequestID) != job.RequestReference {
+		return false, nil
+	}
+	var primary ZTAPIFinanceAlertOutbox
+	err = tx.Where("source_kind = ? AND source_record_id = ? AND reason = ?",
+		"settlement", settlementID, ztapiFinanceParentBillingReason).Take(&primary).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, err
+	}
+	wasCombined := primary.SourceSettlementID == settlementID && primary.SourceAttempt == job.SourceAttempt &&
+		primary.RequestReference == job.RequestReference
+	updates := map[string]any{"lease_token": "", "lease_until": 0}
+	switch {
+	case primary.Status == "sent" && (wasCombined || parentMatches):
+		updates["status"], updates["last_reason"] = "cancelled", "alert_merged_delivery"
+	case parentMatches && primary.Status != "cancelled" && primary.Status != "sent":
+		// The scan may not have queued the settlement yet when the batch is full.
+		updates["status"], updates["last_reason"] = "pending", "alert_waiting_for_merged_delivery"
+		updates["next_attempt_at"] = now.Add(time.Minute).Unix()
+	default:
+		return false, nil
+	}
+	return true, tx.Model(job).Updates(updates).Error
 }
 
 // Only an observed terminal state cancels a warning.
@@ -331,7 +413,7 @@ awaiting_approval evidence_conflict approval_conflict original_request_missing o
 	}
 	for _, code := range strings.Split(raw, ",") {
 		code = strings.TrimSpace(code)
-		if !known[code] {
+		if !known[code] && len(types.SanitizeZTAPIUsageIntegrityReasons([]string{code})) == 0 {
 			code = "unclassified_pending_reason"
 		}
 		set[code] = true

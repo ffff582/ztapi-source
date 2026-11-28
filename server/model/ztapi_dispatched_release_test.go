@@ -73,6 +73,62 @@ func assertDispatchedStillHeld(t *testing.T, db *gorm.DB, row ZTAPIRequestSettle
 	assertZTAPISettlementBalances(t, db, row, 800, 800)
 }
 
+func TestZTAPILocalUnsentFirstAttemptOnlyReleasesProvenHold(t *testing.T) {
+	for name, block := range map[string]string{"before client.Do": "", "has response": "response", "earlier attempt": "earlier", "already held": "pending", "different channel": "channel"} {
+		t.Run(name, func(t *testing.T) {
+			db, input := setupZTAPISettlement(t)
+			if err := db.AutoMigrate(&ZTAPIRequestAttempt{}, &Channel{}); err != nil {
+				t.Fatal(err)
+			}
+			row, err := BeginZTAPIRequestSettlement(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			first, err := BeginZTAPIRequestAttempt(row.OperationID, 31, "cred-one", "responses")
+			if err != nil {
+				t.Fatal(err)
+			}
+			index, channel := first.Attempt, first.ChannelID
+			switch block {
+			case "response":
+				err = RecordZTAPIRequestAttemptResponse(row.OperationID, index, channel, 200, "fixture-response")
+			case "earlier":
+				_, err = BeginZTAPIRequestAttempt(row.OperationID, 32, "cred-two", "responses")
+			case "pending":
+				_, err = PendZTAPIRequestSettlement(row.OperationID, "{}", ZTAPIMissingUpstreamBillingUnconfirmed)
+			case "channel":
+				channel++
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = ReleaseZTAPILocalUnsentFirstAttempt(row.OperationID, index, channel)
+			if block != "" {
+				if !errors.Is(err, ErrZTAPISettlementPending) {
+					t.Fatalf("unsafe release was not rejected: %v", err)
+				}
+				assertZTAPISettlementBalances(t, db, *row, 800, 800)
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = ReleaseZTAPILocalUnsentFirstAttempt(row.OperationID, index, channel); err != nil {
+				t.Fatal(err)
+			}
+			assertDispatchedReleased(t, db, *row)
+			var saved ZTAPIRequestSettlement
+			if err = db.First(&saved, row.ID).Error; err != nil || saved.Dispatched {
+				t.Fatalf("local unsent evidence was not committed: %v", err)
+			}
+			var attempts int64
+			if err = db.Model(&ZTAPIRequestAttempt{}).Where("settlement_id = ?", row.ID).Count(&attempts).Error; err != nil || attempts != 1 {
+				t.Fatalf("attempt audit row lost: count=%d err=%v", attempts, err)
+			}
+		})
+	}
+}
+
 // 503 is the gateway declining to route the request. This is the status behind
 // the bulk of the 2026-10-12 Claude holds.
 func TestZTAPIDispatchedReleaseReturnsReservationOnUpstreamUnavailable(t *testing.T) {

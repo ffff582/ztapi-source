@@ -128,11 +128,19 @@ it.each([
   ['/console/test', '文本工作台'],
   ['/console/guide', '使用说明'],
   ['/console/logs', '使用日志'],
+  ['/console/spending', '消费预警'],
+  ['/console/support', '平台客服'],
   ['/console/wallet', '余额充值'],
 ])('renders the authenticated %s route', async (path, heading) => {
   renderWithProviders(path, true);
 
   expect(await screen.findByRole('heading', { name: heading })).toBeInTheDocument();
+});
+
+it('protects the standalone support route from unauthenticated access', async () => {
+  renderWithProviders('/console/support', false);
+  expect(await screen.findByRole('heading', { name: '登录 ZTAPI' })).toBeVisible();
+  expect(screen.queryByLabelText('客服聊天')).toBeNull();
 });
 
 it('keeps model support and integration guidance in the console navigation', async () => {
@@ -171,14 +179,14 @@ it('switches the public site to English and persists the language without changi
   expect(document.documentElement.lang).toBe('en');
 });
 
-it('selects English from navigator.language for a first-time visitor', async () => {
+it('defaults to Chinese for a first-time visitor without a saved preference', async () => {
   vi.spyOn(window.navigator, 'language', 'get').mockReturnValue('fr-FR');
 
   renderWithProviders('/register', false);
 
-  expect(await screen.findByRole('heading', { name: 'Create a ZTAPI account' })).toBeVisible();
-  expect(screen.getByRole('navigation', { name: 'Public navigation' })).toBeVisible();
-  expect(document.documentElement.lang).toBe('en');
+  expect(await screen.findByRole('heading', { name: '创建 ZTAPI 账号' })).toBeVisible();
+  expect(screen.getByRole('navigation', { name: '公共导航' })).toBeVisible();
+  expect(document.documentElement.lang).toBe('zh-CN');
   expect(localStorage.getItem('ztapi.locale')).toBeNull();
 });
 
@@ -218,6 +226,7 @@ it.each([
   ['/console/test', true, 'Text workbench'],
   ['/console/guide', true, 'Integration guide'],
   ['/console/logs', true, 'Usage logs'],
+  ['/console/spending', true, 'Spending alerts'],
   ['/console/wallet', true, 'Add funds'],
 ])('renders fixed copy in English on %s', async (path, authenticated, heading) => {
   localStorage.setItem('ztapi.locale', 'en');

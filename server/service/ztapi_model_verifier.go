@@ -12,6 +12,7 @@ import (
 	"image"
 	"image/png"
 	"io"
+	"math"
 	"mime/multipart"
 	"net"
 	"net/http"
@@ -31,6 +32,7 @@ import (
 const (
 	ztapiVerificationRequestTimeout       = 20 * time.Second
 	ztapiVerificationSlowRequestTimeout   = 60 * time.Second
+	ztapiVerificationGPT61SolTimeout      = 120 * time.Second
 	ztapiVerificationVideoTimeout         = 5 * time.Minute
 	ztapiVerificationBodyLimit            = 1 << 20
 	ztapiVerificationFailureMetadataLimit = 2048
@@ -64,6 +66,8 @@ type ztapiModelProbeResult struct {
 	UpstreamStatusCode               int
 	UpstreamRequestID                string
 	UpstreamErrorMetadata            string
+	FableRouteFingerprint            string
+	ProbeReceipts                    []model.ZTAPIModelProbeReceipt20261128
 }
 
 type ztapiUpstreamFailureEvidence struct {
@@ -245,6 +249,9 @@ func ztapiVerificationUsesResponses(sourceModel string) bool {
 
 func ztapiVerificationRequestTimeoutForModel(sourceModel string) time.Duration {
 	normalized := strings.ToLower(strings.TrimSpace(sourceModel))
+	if normalized == "gpt-6.1-sol" {
+		return ztapiVerificationGPT61SolTimeout
+	}
 	if model.ZTAPIModelModality(normalized) == model.ZTAPIModalityVideo {
 		return ztapiVerificationVideoTimeout
 	}
@@ -455,7 +462,7 @@ func ztapiGPTImage2ProtocolContract(requestIDHeader string) (types.ZTAPIImagePro
 		ProviderPath:  "/v1/images/generations",
 		Capabilities: types.ZTAPIImageCapabilities{
 			Sizes: []string{
-				"1024x1024", "1024x576", "576x1024", "1024x768", "768x1024", "1152x768", "768x1152",
+				"1024x1024", "1280x720", "720x1280", "1024x768", "768x1024", "1152x768", "768x1152",
 				"2048x2048", "2048x1152", "1152x2048", "2048x1536", "1536x2048", "2304x1536", "1536x2304",
 				"3840x2160", "2160x3840", "3072x2304", "2304x3072", "3456x2304", "2304x3456",
 			},
@@ -514,8 +521,8 @@ func ztapiGPTImage2ProtocolContract(requestIDHeader string) (types.ZTAPIImagePro
 func ztapiGPTImage2RenderOptions() []types.ZTAPIImageRenderOption {
 	return []types.ZTAPIImageRenderOption{
 		{AspectRatio: "1:1", Resolution: "1K", Size: "1024x1024", Quality: "low"},
-		{AspectRatio: "16:9", Resolution: "1K", Size: "1024x576", Quality: "low"},
-		{AspectRatio: "9:16", Resolution: "1K", Size: "576x1024", Quality: "low"},
+		{AspectRatio: "16:9", Resolution: "1K", Size: "1280x720", Quality: "low"},
+		{AspectRatio: "9:16", Resolution: "1K", Size: "720x1280", Quality: "low"},
 		{AspectRatio: "4:3", Resolution: "1K", Size: "1024x768", Quality: "low"},
 		{AspectRatio: "3:4", Resolution: "1K", Size: "768x1024", Quality: "low"},
 		{AspectRatio: "3:2", Resolution: "1K", Size: "1152x768", Quality: "low"},
@@ -539,7 +546,7 @@ func ztapiGPTImage2RenderOptions() []types.ZTAPIImageRenderOption {
 func ztapiGPTImage2MaximumImageOutput(size string, count int) string {
 	const (
 		basePixels      = int64(1024 * 1024)
-		baseImageTokens = int64(196)
+		baseImageTokens = int64(16384)
 		maximumTokens   = int64(200000)
 	)
 	parts := strings.Split(size, "x")
@@ -881,12 +888,26 @@ func performZTAPIOpenAIProbe(
 	key string,
 	sourceModel string,
 	stream bool,
+	receipts ...*[]model.ZTAPIModelProbeReceipt20261128,
 ) (ztapiProbeUsage, int, error) {
-	embedding := model.ZTAPIModelModality(sourceModel) == model.ZTAPIModalityEmbedding
+	modality := model.ZTAPIModelModality(sourceModel)
+	embedding := modality == model.ZTAPIModalityEmbedding
 	if embedding && stream {
 		return ztapiProbeUsage{}, 0, errors.New("embedding verification does not support streaming")
 	}
 	usesResponses := ztapiVerificationUsesResponses(sourceModel)
+	receipt := model.ZTAPIModelProbeReceipt20261128{Mode: "nonstream"}
+	if stream {
+		receipt.Mode = "stream"
+	}
+	collectReceipt := modality == model.ZTAPIModalityText && strings.TrimSpace(key) != "" && key != "ztapi-deliberately-invalid-credential" &&
+		len(receipts) > 0 && receipts[0] != nil
+	dispatched := false
+	defer func() {
+		if collectReceipt && dispatched {
+			*receipts[0] = append(*receipts[0], receipt)
+		}
+	}()
 	payload := map[string]any{"model": sourceModel, "stream": stream}
 	const question = "What is 35+42? Reply with only the integer answer."
 	const system = "You are a helpful assistant."
@@ -913,19 +934,38 @@ func performZTAPIOpenAIProbe(
 	}
 	request.Header.Set("Authorization", "Bearer "+key)
 	request.Header.Set("Content-Type", "application/json")
+	dispatched = true
 	response, err := client.Do(request)
 	if err != nil {
 		return ztapiProbeUsage{}, 0, err
 	}
 	defer response.Body.Close()
+	if collectReceipt {
+		receipt.StatusCode = response.StatusCode
+		for _, name := range []string{"X-Request-ID", "Request-ID", "X-Aihub-Request-ID"} {
+			if id := ztapiProbeReceiptID20261128(response.Header.Get(name), key); id != "" {
+				receipt.RequestID = id
+				break
+			}
+		}
+	}
 	if embedding && strings.Contains(strings.ToLower(response.Header.Get("Content-Type")), "text/event-stream") {
 		return ztapiProbeUsage{}, response.StatusCode, errors.New("embedding verification cannot accept a streaming response")
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, ztapiVerificationBodyLimit))
+		if collectReceipt {
+			partial, _ := io.ReadAll(io.LimitReader(response.Body, ztapiVerificationBodyLimit+1))
+			captureZTAPIProbeReceipt20261128(&receipt, partial, usesResponses, stream, key)
+		} else {
+			_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, ztapiVerificationBodyLimit))
+		}
 		return ztapiProbeUsage{}, response.StatusCode, errors.New("upstream rejected verification request")
 	}
 	body, err = io.ReadAll(io.LimitReader(response.Body, ztapiVerificationBodyLimit+1))
+	metadataValid := true
+	if collectReceipt {
+		metadataValid = captureZTAPIProbeReceipt20261128(&receipt, body, usesResponses, stream, key)
+	}
 	if err != nil || len(body) > ztapiVerificationBodyLimit {
 		return ztapiProbeUsage{}, response.StatusCode, errors.New("upstream verification response is incomplete or too large")
 	}
@@ -934,7 +974,211 @@ func performZTAPIOpenAIProbe(
 		return ztapiProbeUsage{PromptTokens: tokens, TotalTokens: tokens}, response.StatusCode, err
 	}
 	usage, err := parseZTAPIVerificationProbe(body, usesResponses, stream)
+	if collectReceipt {
+		receipt.Complete = err == nil && metadataValid && receipt.RequestID != "" && receipt.UsageJSON != ""
+	}
 	return usage, response.StatusCode, err
+}
+
+func ztapiProbeReceiptID20261128(value, key string) string {
+	value = strings.TrimSpace(value)
+	if !safeUpstreamRequestID(value) || strings.HasPrefix(strings.ToLower(value), "sk-") || (key != "" && strings.Contains(value, key)) {
+		return ""
+	}
+	return value
+}
+
+// Keep native counter names: generic cache creation must never imply a TTL.
+func captureZTAPIProbeReceiptFrame20261128(receipt *model.ZTAPIModelProbeReceipt20261128, raw []byte, responses bool, key string) bool {
+	if common.RejectDuplicateJsonObjectMembers(bytes.NewReader(raw)) != nil {
+		return false
+	}
+	frame := gjson.ParseBytes(raw)
+	if !frame.IsObject() {
+		return false
+	}
+	valid := true
+	for _, path := range []string{"request_id", "response.request_id", "error.request_id"} {
+		value := frame.Get(path)
+		if !value.Exists() || value.Type == gjson.Null {
+			continue
+		}
+		id := ztapiProbeReceiptID20261128(value.String(), key)
+		if value.Type != gjson.String || id == "" {
+			valid = false
+			continue
+		}
+		if receipt.RequestID != "" && receipt.RequestID != id {
+			valid = false
+			continue
+		}
+		receipt.RequestID = id
+	}
+	usage := frame.Get("usage")
+	if responses && frame.Get("response").IsObject() {
+		usage = frame.Get("response.usage")
+	}
+	if !usage.Exists() || usage.Type == gjson.Null {
+		return valid
+	}
+	if !usage.IsObject() {
+		return false
+	}
+	safe := map[string]any{}
+	if billing := usage.Get("billing_usage"); billing.Exists() {
+		if !billing.IsObject() {
+			valid = false
+		} else {
+			billing.ForEach(func(name, _ gjson.Result) bool {
+				switch name.String() {
+				case "source", "semantic", "claude_usage":
+				default:
+					valid = false
+				}
+				return true
+			})
+			enums := map[string]any{}
+			for field, expected := range map[string]string{"source": "claude_messages", "semantic": "anthropic"} {
+				value := billing.Get(field)
+				if value.Type != gjson.String || value.String() != expected {
+					valid = false
+					continue
+				}
+				enums[field] = expected
+			}
+			if len(enums) > 0 {
+				safe["billing_usage"] = enums
+			}
+			claude := billing.Get("claude_usage")
+			if !claude.IsObject() {
+				valid = false
+			} else {
+				claude.ForEach(func(name, _ gjson.Result) bool {
+					switch name.String() {
+					case "input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens",
+						"cache_creation", "claude_cache_creation_5_m_tokens", "claude_cache_creation_1_h_tokens":
+					default:
+						valid = false
+					}
+					return true
+				})
+				for _, field := range []string{"input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"} {
+					if !claude.Get(field).Exists() {
+						valid = false
+					}
+				}
+				if split := claude.Get("cache_creation"); split.Exists() {
+					if !split.IsObject() {
+						valid = false
+					} else {
+						split.ForEach(func(name, _ gjson.Result) bool {
+							if name.String() != "ephemeral_5m_input_tokens" && name.String() != "ephemeral_1h_input_tokens" {
+								valid = false
+							}
+							return true
+						})
+					}
+				}
+			}
+		}
+	}
+	for _, path := range []string{
+		"prompt_tokens", "completion_tokens", "total_tokens", "input_tokens", "output_tokens",
+		"cache_read_input_tokens", "cache_creation_input_tokens", "cache_write_tokens", "cache_write_5m_tokens", "cache_write_1h_tokens",
+		"claude_cache_creation_5_m_tokens", "claude_cache_creation_1_h_tokens",
+		"cache_creation.ephemeral_5m_input_tokens", "cache_creation.ephemeral_1h_input_tokens",
+		"prompt_tokens_details.cached_tokens", "prompt_tokens_details.cache_creation_tokens",
+		"prompt_tokens_details.cache_creation.ephemeral_5m_input_tokens", "prompt_tokens_details.cache_creation.ephemeral_1h_input_tokens",
+		"input_tokens_details.cached_tokens", "input_tokens_details.cache_creation_tokens",
+		"input_tokens_details.cache_creation.ephemeral_5m_input_tokens", "input_tokens_details.cache_creation.ephemeral_1h_input_tokens",
+		"completion_tokens_details.reasoning_tokens", "output_tokens_details.reasoning_tokens",
+		"billing_usage.claude_usage.input_tokens", "billing_usage.claude_usage.output_tokens",
+		"billing_usage.claude_usage.cache_read_input_tokens", "billing_usage.claude_usage.cache_creation_input_tokens",
+		"billing_usage.claude_usage.cache_creation.ephemeral_5m_input_tokens", "billing_usage.claude_usage.cache_creation.ephemeral_1h_input_tokens",
+		"billing_usage.claude_usage.claude_cache_creation_5_m_tokens", "billing_usage.claude_usage.claude_cache_creation_1_h_tokens",
+	} {
+		value := usage.Get(path)
+		if !value.Exists() {
+			continue
+		}
+		billingQuantity := strings.HasPrefix(path, "billing_usage.")
+		if value.Type == gjson.Null {
+			if billingQuantity {
+				valid = false
+			}
+			continue
+		}
+		quantity, err := strconv.ParseInt(value.Raw, 10, 64)
+		if value.Type != gjson.Number || err != nil || quantity < 0 ||
+			(billingQuantity && (quantity > math.MaxInt64/8 || quantity > int64(math.MaxInt))) {
+			valid = false
+			continue
+		}
+		parts := strings.Split(path, ".")
+		parent := safe
+		for _, part := range parts[:len(parts)-1] {
+			child, ok := parent[part].(map[string]any)
+			if !ok {
+				child = map[string]any{}
+				parent[part] = child
+			}
+			parent = child
+		}
+		parent[parts[len(parts)-1]] = quantity
+	}
+	if billing, ok := safe["billing_usage"].(map[string]any); ok {
+		if claude, ok := billing["claude_usage"].(map[string]any); ok {
+			input, inputOK := claude["input_tokens"].(int64)
+			output, outputOK := claude["output_tokens"].(int64)
+			read, readOK := claude["cache_read_input_tokens"].(int64)
+			write, writeOK := claude["cache_creation_input_tokens"].(int64)
+			// Match the parser's overflow bounds without rewriting any counters.
+			if inputOK && outputOK && readOK && writeOK &&
+				(input > math.MaxInt64/8-read-write || input+read+write > int64(math.MaxInt)-output) {
+				valid = false
+			}
+		}
+	}
+	if len(safe) > 0 {
+		encoded, err := common.Marshal(safe)
+		if err != nil {
+			return false
+		}
+		// SSE usage snapshots are cumulative, never sum them across frames.
+		receipt.UsageJSON = string(encoded)
+	}
+	return valid
+}
+
+func captureZTAPIProbeReceipt20261128(receipt *model.ZTAPIModelProbeReceipt20261128, body []byte, responses, stream bool, key string) bool {
+	if !stream || gjson.ValidBytes(body) {
+		return captureZTAPIProbeReceiptFrame20261128(receipt, body, responses, key)
+	}
+	valid := true
+	scanner := bufio.NewScanner(bytes.NewReader(body))
+	scanner.Buffer(make([]byte, 4096), ztapiVerificationBodyLimit+2)
+	var data []string
+	flush := func() {
+		if len(data) == 0 {
+			return
+		}
+		payload := strings.Join(data, "\n")
+		data = nil
+		if payload != "[DONE]" && !captureZTAPIProbeReceiptFrame20261128(receipt, []byte(payload), responses, key) {
+			valid = false
+		}
+	}
+	for scanner.Scan() {
+		line := strings.TrimSuffix(scanner.Text(), "\r")
+		if strings.HasPrefix(line, "data:") {
+			data = append(data, strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " "))
+		} else if line == "" {
+			flush()
+		}
+	}
+	// Salvage a complete JSON payload even if its SSE delimiter was truncated.
+	flush()
+	return valid && scanner.Err() == nil
 }
 
 func ztapiUsageReconciled(usage ztapiProbeUsage) bool {
@@ -1113,6 +1357,13 @@ func runZTAPIModelVerificationProbes(ctx context.Context, channel *model.Channel
 		result.StatusCategory = "configuration"
 		return result, errors.New("managed verification channel credential is unavailable")
 	}
+	if sourceModel == "claude-fable-5" {
+		result.FableRouteFingerprint, err = model.ZTAPIFableVerificationRouteFingerprint(channel, upstreamModel)
+		if err != nil {
+			result.StatusCategory = "configuration"
+			return result, err
+		}
+	}
 	client := &http.Client{Timeout: ztapiVerificationRequestTimeoutForModel(sourceModel)}
 	if modality == model.ZTAPIModalityVideo {
 		result.StreamingRequired = false
@@ -1189,7 +1440,11 @@ func runZTAPIModelVerificationProbes(ctx context.Context, channel *model.Channel
 		return result, nil
 	}
 	started := time.Now()
-	usage, status, err := performZTAPIOpenAIProbe(ctx, client, endpoint, key, upstreamModel, false)
+	var receiptSinks []*[]model.ZTAPIModelProbeReceipt20261128
+	if modality == model.ZTAPIModalityText {
+		receiptSinks = append(receiptSinks, &result.ProbeReceipts)
+	}
+	usage, status, err := performZTAPIOpenAIProbe(ctx, client, endpoint, key, upstreamModel, false, receiptSinks...)
 	result.LatencyMilliseconds = time.Since(started).Milliseconds()
 	if err != nil {
 		result.StatusCategory = classifyZTAPIVerificationFailure(status, err)
@@ -1203,7 +1458,7 @@ func runZTAPIModelVerificationProbes(ctx context.Context, channel *model.Channel
 	if embedding {
 		result.UsageReconciled = usage.PromptTokens > 0 && usage.TotalTokens == usage.PromptTokens && usage.CompletionTokens == 0
 	} else {
-		streamUsage, status, err := performZTAPIOpenAIProbe(ctx, client, endpoint, key, upstreamModel, true)
+		streamUsage, status, err := performZTAPIOpenAIProbe(ctx, client, endpoint, key, upstreamModel, true, receiptSinks...)
 		if err != nil {
 			result.StatusCategory = classifyZTAPIVerificationFailure(status, err)
 			return result, fmt.Errorf("streaming verification failed: %s", result.StatusCategory)
@@ -1274,6 +1529,8 @@ func VerifyZTAPIModel(
 		UpstreamStatusCode:               result.UpstreamStatusCode,
 		UpstreamRequestID:                result.UpstreamRequestID,
 		UpstreamErrorMetadata:            result.UpstreamErrorMetadata,
+		ProbeReceipts:                    result.ProbeReceipts,
+		FableRouteFingerprint:            result.FableRouteFingerprint,
 	}
 	if err := model.DB.Create(verification).Error; err != nil {
 		return nil, err

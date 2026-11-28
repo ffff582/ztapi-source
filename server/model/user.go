@@ -339,8 +339,8 @@ func HardDeleteUserById(id int) error {
 	if id == 0 {
 		return errors.New("id 为空！")
 	}
-	err := DB.Unscoped().Delete(&User{}, "id = ?", id).Error
-	return err
+	user := User{Id: id}
+	return user.HardDelete()
 }
 
 func inviteUser(inviterId int) (err error) {
@@ -478,7 +478,24 @@ func CreateZTAPIUserWithEncodedPasswordAndEmail(username string, encodedPassword
 // CreateZTAPIUserWithEncodedPasswordAndPendingEmail records an optional
 // registration email without granting password-recovery authority. The
 // address moves to User.Email only after the signed-in user verifies it.
-func CreateZTAPIUserWithEncodedPasswordAndPendingEmail(username string, encodedPassword string, pendingEmail string) (*User, error) {
+func CreateZTAPIUserWithEncodedPasswordAndPendingEmail(username string, encodedPassword string, pendingEmail string, inviteCodes ...string) (*User, error) {
+	if len(inviteCodes) > 1 {
+		return nil, ErrZTAPIReferralInvalid
+	}
+	inviteCode := ""
+	if len(inviteCodes) == 1 {
+		inviteCode = inviteCodes[0]
+	}
+	if inviteCode != "" {
+		if len(inviteCode) < 4 || len(inviteCode) > 32 {
+			return nil, ErrZTAPIReferralInvalid
+		}
+		for _, c := range inviteCode {
+			if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-') {
+				return nil, ErrZTAPIReferralInvalid
+			}
+		}
+	}
 	user := &User{
 		Username:    username,
 		Password:    encodedPassword,
@@ -492,6 +509,28 @@ func CreateZTAPIUserWithEncodedPasswordAndPendingEmail(username string, encodedP
 	setting := dto.UserSetting{PendingEmail: strings.TrimSpace(pendingEmail)}
 	user.SetSetting(setting)
 	sensitiveDB := DB.Session(&gorm.Session{Logger: DB.Logger.LogMode(gormlogger.Silent)})
+	if inviteCode != "" {
+		err := sensitiveDB.Transaction(func(tx *gorm.DB) error {
+			var inviter User
+			if err := tx.Select("id", "status").Where("aff_code = ?", inviteCode).First(&inviter).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return ErrZTAPIReferralInvalid
+				}
+				return err
+			}
+			if inviter.Status != common.UserStatusEnabled {
+				return ErrZTAPIReferralInvalid
+			}
+			if err := tx.Create(user).Error; err != nil {
+				return err
+			}
+			return RecordZTAPIReferralBindingTx(tx, user.Id, inviter.Id, time.Now().UTC())
+		})
+		if err != nil {
+			return nil, err
+		}
+		return user, nil
+	}
 	if err := sensitiveDB.Create(user).Error; err != nil {
 		return nil, err
 	}
@@ -632,6 +671,11 @@ func (user *User) InsertWithTx(tx *gorm.DB, inviterId int) error {
 		return result.Error
 	}
 
+	if inviterId > 0 && tx.Migrator().HasTable(&ZTAPIReferralCampaign{}) {
+		if err := RecordZTAPIReferralBindingTx(tx, user.Id, inviterId, time.Now().UTC()); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -786,8 +830,14 @@ func (user *User) Delete() error {
 	if user.Id == 0 {
 		return errors.New("id 为空！")
 	}
-	if err := DB.Delete(user).Error; err != nil {
+	handled, err := deleteZTAPIUserWithReferralGuard(user.Id, false)
+	if err != nil {
 		return err
+	}
+	if !handled {
+		if err := DB.Delete(user).Error; err != nil {
+			return err
+		}
 	}
 
 	// 清除缓存
@@ -798,8 +848,14 @@ func (user *User) HardDelete() error {
 	if user.Id == 0 {
 		return errors.New("id 为空！")
 	}
-	err := DB.Unscoped().Delete(user).Error
-	return err
+	handled, err := deleteZTAPIUserWithReferralGuard(user.Id, true)
+	if err != nil {
+		return err
+	}
+	if handled {
+		return nil
+	}
+	return DB.Unscoped().Delete(user).Error
 }
 
 // ValidateAndFill check password & user status

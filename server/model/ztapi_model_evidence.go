@@ -68,6 +68,7 @@ type ZTAPIModelPriceSource struct {
 	ResourceType           string `json:"resource_type" gorm:"size:32;not null;index"`
 	PricePolicy            string `json:"price_policy" gorm:"size:32;not null;default:enterprise_40_margin"`
 	SaleMultiplier         string `json:"sale_multiplier" gorm:"type:decimal(12,10);not null;default:1"`
+	CashMarginBaseSourceID int64  `json:"cash_margin_base_source_id,omitempty" gorm:"not null;default:0;index"`
 	TokenPriceRulesJSON    string `json:"token_price_rules,omitempty" gorm:"column:token_price_rules_json;type:text"`
 	MediaPriceContractJSON string `json:"media_price_contract,omitempty" gorm:"column:media_price_contract_json;type:text"`
 	SpendTier              string `json:"spend_tier" gorm:"size:32;not null"`
@@ -218,6 +219,9 @@ func ValidateZTAPIModelPriceSource(source *ZTAPIModelPriceSource) error {
 	if source == nil {
 		return errors.New("price source is nil")
 	}
+	if source.CashMarginBaseSourceID != 0 && !isZTAPICashMarginPolicy20261030(source.PricePolicy) && !isZTAPIDatedRetailPolicy20261107(source.PricePolicy) {
+		return errors.New("only cash margin sources may reference a cash margin parent")
+	}
 	if source.ModelConfigID <= 0 || strings.TrimSpace(source.SourceModel) == "" {
 		return errors.New("price source model identity is required")
 	}
@@ -274,7 +278,7 @@ func ValidateZTAPIModelPriceSource(source *ZTAPIModelPriceSource) error {
 	}
 	for _, dimension := range dimensions {
 		value, _ := decimal.NewFromString(strings.TrimSpace(values[dimension]))
-		if !value.IsPositive() {
+		if !value.IsPositive() && !(value.IsZero() && ztapiXcloudKnownZeroCost20261128(source, dimension)) {
 			return fmt.Errorf("missing positive cost for billed dimension %s", dimension)
 		}
 	}
@@ -305,6 +309,41 @@ func ValidateZTAPIModelPriceSource(source *ZTAPIModelPriceSource) error {
 			return err
 		}
 	}
+	if ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicyQuoteFrozenRetail20261019 {
+		if _, _, err := ztapiSupplierFrozenRules20261019(source); err != nil {
+			return err
+		}
+	}
+	if ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicySupplierAdmission20261019 {
+		if _, _, err := ztapiSupplierAdmissionFrozenRules20261019(source); err != nil {
+			return err
+		}
+	}
+	if ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicyXcloudGLM53 {
+		if err := validateZTAPIXcloudGLM53Price(source); err != nil {
+			return err
+		}
+	}
+	if source.PricePolicy == string(ZTAPIPricePolicyXcloud20261114) {
+		if _, err := ztapiXcloudRules20261114(source); err != nil {
+			return err
+		}
+	}
+	if source.PricePolicy == string(ZTAPIPricePolicyXcloud20261128) {
+		if _, err := ztapiXcloudRules20261128(source); err != nil {
+			return err
+		}
+	}
+	if isZTAPICashMarginPolicy20261030(source.PricePolicy) {
+		if _, _, err := ztapiCashMarginRules20261030(source); err != nil {
+			return err
+		}
+	}
+	if isZTAPIDatedRetailPolicy20261107(source.PricePolicy) {
+		if _, _, err := ztapiReductionRules20261107(source); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -326,6 +365,25 @@ func BuildZTAPIModelPricePreview(source *ZTAPIModelPriceSource) (*ZTAPIModelPric
 	values := ztapiPriceSourceValues(source)
 	poolOfficial, _, poolOfficialOK := ztapiPoolOfficialPriceContractFromManifest(ztapiQuotation, source.SourceModel)
 	var firstParty78 map[string]decimal.Decimal
+	var frozenRetail map[string]decimal.Decimal
+	if source.PricePolicy == string(ZTAPIPricePolicyXcloud20261114) {
+		frozenRetail, _ = ztapiXcloudRules20261114(source)
+	}
+	if source.PricePolicy == string(ZTAPIPricePolicyXcloud20261128) {
+		frozenRetail, _ = ztapiXcloudRules20261128(source)
+	}
+	if isZTAPIDatedRetailPolicy20261107(source.PricePolicy) {
+		_, frozenRetail, _ = ztapiReductionRules20261107(source)
+	}
+	if isZTAPICashMarginPolicy20261030(source.PricePolicy) {
+		_, frozenRetail, _ = ztapiCashMarginRules20261030(source)
+	}
+	if ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicyQuoteFrozenRetail20261019 {
+		_, frozenRetail, _ = ztapiSupplierFrozenRules20261019(source)
+	}
+	if ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicySupplierAdmission20261019 {
+		_, frozenRetail, _ = ztapiSupplierAdmissionFrozenRules20261019(source)
+	}
 	if ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicyPoolOfficial78Sep2026 {
 		firstParty78 = map[string]decimal.Decimal{}
 		price, ok := ztapiOfficialTextPrices20260929[source.SourceModel]
@@ -356,7 +414,10 @@ func BuildZTAPIModelPricePreview(source *ZTAPIModelPriceSource) (*ZTAPIModelPric
 		}
 		preview.CostUSD[dimension] = cost.StringFixed(10)
 		var sale decimal.Decimal
-		if ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicyPoolOfficial78Sep2026 {
+		if source.PricePolicy == string(ZTAPIPricePolicyXcloud20261128) || source.PricePolicy == string(ZTAPIPricePolicyXcloud20261114) || isZTAPIDatedRetailPolicy20261107(source.PricePolicy) || isZTAPICashMarginPolicy20261030(source.PricePolicy) || ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicyQuoteFrozenRetail20261019 ||
+			ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicySupplierAdmission20261019 {
+			sale = frozenRetail[dimension]
+		} else if ZTAPIPricePolicy(source.PricePolicy) == ZTAPIPricePolicyPoolOfficial78Sep2026 {
 			var ok bool
 			sale, ok = firstParty78[dimension]
 			if !ok {
@@ -544,6 +605,12 @@ func UpdateZTAPIModelIdentity(update ZTAPIModelIdentityUpdate) (*ZTAPIModelConfi
 }
 
 func ImportZTAPIModelPriceSource(input ZTAPIModelPriceSourceImport) (*ZTAPIModelConfig, *ZTAPIModelPriceSource, *ZTAPIModelPricePreview, error) {
+	if isZTAPIDatedRetailPolicy20261107(input.Source.PricePolicy) {
+		return nil, nil, nil, errors.New("dated reduction sources require the controlled dated publisher")
+	}
+	if input.Source.PricePolicy == string(ZTAPIPricePolicyXcloud20261114) || input.Source.PricePolicy == string(ZTAPIPricePolicyXcloud20261128) {
+		return nil, nil, nil, errors.New("Xcloud price source requires its controlled publisher")
+	}
 	input.Source.SourceModel = strings.TrimSpace(input.Source.SourceModel)
 	input.Source.ResourceType = strings.TrimSpace(input.Source.ResourceType)
 	input.Source.SpendTier = strings.TrimSpace(input.Source.SpendTier)
@@ -645,37 +712,39 @@ func ImportZTAPIModelPriceSource(input ZTAPIModelPriceSourceImport) (*ZTAPIModel
 }
 
 type ZTAPIModelVerification struct {
-	Modality                         string `json:"modality" gorm:"size:32;not null;default:text"`
-	ID                               int64  `json:"id" gorm:"primaryKey"`
-	ModelConfigID                    int    `json:"model_config_id" gorm:"not null;index"`
-	ChannelID                        int    `json:"channel_id" gorm:"not null;index"`
-	Protocol                         string `json:"protocol" gorm:"size:32;not null"`
-	NonStreamingPassed               bool   `json:"non_streaming_passed" gorm:"not null;default:false"`
-	StreamingRequired                bool   `json:"streaming_required" gorm:"not null;default:false"`
-	StreamingPassed                  bool   `json:"streaming_passed" gorm:"not null;default:false"`
-	UsageReconciled                  bool   `json:"usage_reconciled" gorm:"not null;default:false"`
-	MediaResultValid                 bool   `json:"media_result_valid" gorm:"not null;default:false"`
-	VideoCreatePassed                bool   `json:"video_create_passed" gorm:"not null;default:false"`
-	VideoFetchPassed                 bool   `json:"video_fetch_passed" gorm:"not null;default:false"`
-	VideoTerminalPassed              bool   `json:"video_terminal_passed" gorm:"not null;default:false"`
-	VideoRestartRecoveryPassed       bool   `json:"video_restart_recovery_passed" gorm:"not null;default:false"`
-	VideoSettlementIdempotencePassed bool   `json:"video_settlement_idempotence_passed" gorm:"not null;default:false"`
-	InvalidKeyClassified             bool   `json:"invalid_key_classified" gorm:"not null;default:false"`
-	InsufficientBalanceClassified    bool   `json:"insufficient_balance_classified" gorm:"not null;default:false"`
-	RateLimitClassified              bool   `json:"rate_limit_classified" gorm:"not null;default:false"`
-	TimeoutClassified                bool   `json:"timeout_classified" gorm:"not null;default:false"`
-	StatusCategory                   string `json:"status_category" gorm:"size:32;not null;default:''"`
-	LatencyMilliseconds              int64  `json:"latency_milliseconds" gorm:"bigint;not null;default:0"`
-	PromptTokens                     int    `json:"prompt_tokens" gorm:"not null;default:0"`
-	CompletionTokens                 int    `json:"completion_tokens" gorm:"not null;default:0"`
-	TotalTokens                      int    `json:"total_tokens" gorm:"not null;default:0"`
-	ImageProtocolContractJSON        string `json:"image_protocol_contract,omitempty" gorm:"column:image_protocol_contract_json;type:mediumtext"`
-	VideoProtocolContractJSON        string `json:"video_protocol_contract,omitempty" gorm:"column:video_protocol_contract_json;type:text"`
-	UpstreamStatusCode               int    `json:"upstream_status_code,omitempty" gorm:"-"`
-	UpstreamRequestID                string `json:"upstream_request_id,omitempty" gorm:"-"`
-	UpstreamErrorMetadata            string `json:"upstream_error_metadata,omitempty" gorm:"-"`
-	OperatorID                       int    `json:"operator_id" gorm:"not null"`
-	VerifiedAt                       int64  `json:"verified_at" gorm:"bigint;not null;index"`
+	Modality                         string                           `json:"modality" gorm:"size:32;not null;default:text"`
+	ID                               int64                            `json:"id" gorm:"primaryKey"`
+	ModelConfigID                    int                              `json:"model_config_id" gorm:"not null;index"`
+	ChannelID                        int                              `json:"channel_id" gorm:"not null;index"`
+	Protocol                         string                           `json:"protocol" gorm:"size:32;not null"`
+	NonStreamingPassed               bool                             `json:"non_streaming_passed" gorm:"not null;default:false"`
+	StreamingRequired                bool                             `json:"streaming_required" gorm:"not null;default:false"`
+	StreamingPassed                  bool                             `json:"streaming_passed" gorm:"not null;default:false"`
+	UsageReconciled                  bool                             `json:"usage_reconciled" gorm:"not null;default:false"`
+	MediaResultValid                 bool                             `json:"media_result_valid" gorm:"not null;default:false"`
+	VideoCreatePassed                bool                             `json:"video_create_passed" gorm:"not null;default:false"`
+	VideoFetchPassed                 bool                             `json:"video_fetch_passed" gorm:"not null;default:false"`
+	VideoTerminalPassed              bool                             `json:"video_terminal_passed" gorm:"not null;default:false"`
+	VideoRestartRecoveryPassed       bool                             `json:"video_restart_recovery_passed" gorm:"not null;default:false"`
+	VideoSettlementIdempotencePassed bool                             `json:"video_settlement_idempotence_passed" gorm:"not null;default:false"`
+	InvalidKeyClassified             bool                             `json:"invalid_key_classified" gorm:"not null;default:false"`
+	InsufficientBalanceClassified    bool                             `json:"insufficient_balance_classified" gorm:"not null;default:false"`
+	RateLimitClassified              bool                             `json:"rate_limit_classified" gorm:"not null;default:false"`
+	TimeoutClassified                bool                             `json:"timeout_classified" gorm:"not null;default:false"`
+	StatusCategory                   string                           `json:"status_category" gorm:"size:32;not null;default:''"`
+	LatencyMilliseconds              int64                            `json:"latency_milliseconds" gorm:"bigint;not null;default:0"`
+	PromptTokens                     int                              `json:"prompt_tokens" gorm:"not null;default:0"`
+	CompletionTokens                 int                              `json:"completion_tokens" gorm:"not null;default:0"`
+	TotalTokens                      int                              `json:"total_tokens" gorm:"not null;default:0"`
+	ImageProtocolContractJSON        string                           `json:"image_protocol_contract,omitempty" gorm:"column:image_protocol_contract_json;type:mediumtext"`
+	VideoProtocolContractJSON        string                           `json:"video_protocol_contract,omitempty" gorm:"column:video_protocol_contract_json;type:text"`
+	UpstreamStatusCode               int                              `json:"upstream_status_code,omitempty" gorm:"-"`
+	UpstreamRequestID                string                           `json:"upstream_request_id,omitempty" gorm:"-"`
+	UpstreamErrorMetadata            string                           `json:"upstream_error_metadata,omitempty" gorm:"-"`
+	ProbeReceipts                    []ZTAPIModelProbeReceipt20261128 `json:"probe_receipts,omitempty" gorm:"-"`
+	OperatorID                       int                              `json:"operator_id" gorm:"not null"`
+	VerifiedAt                       int64                            `json:"verified_at" gorm:"bigint;not null;index"`
+	FableRouteFingerprint            string                           `json:"-" gorm:"size:64;not null;default:''"`
 }
 
 func (ZTAPIModelVerification) TableName() string { return "ztapi_model_verifications" }
@@ -846,7 +915,9 @@ type ZTAPIModelPublicationSnapshot struct {
 	PricePolicy               string  `json:"price_policy" gorm:"size:32;not null;default:enterprise_40_margin"`
 	SaleMultiplier            string  `json:"sale_multiplier" gorm:"type:decimal(12,10);not null;default:1"`
 	TokenPriceRulesJSON       string  `json:"token_price_rules,omitempty" gorm:"column:token_price_rules_json;type:text"`
+	CacheWritePricingMode     string  `json:"cache_write_pricing_mode,omitempty" gorm:"size:32;not null;default:''"`
 	MediaPriceContractJSON    string  `json:"media_price_contract,omitempty" gorm:"column:media_price_contract_json;type:text"`
+	ImageSaleContractJSON     string  `json:"image_sale_contract,omitempty" gorm:"column:image_sale_contract_json;type:text"`
 	ImageProtocolContractJSON string  `json:"image_protocol_contract,omitempty" gorm:"column:image_protocol_contract_json;type:mediumtext"`
 	VideoProtocolContractJSON string  `json:"video_protocol_contract,omitempty" gorm:"column:video_protocol_contract_json;type:text"`
 	InputPricePerMillion      float64 `json:"input_price_per_million" gorm:"type:decimal(20,8);not null;default:0"`
@@ -867,6 +938,12 @@ func (snapshot *ZTAPIModelPublicationSnapshot) BeforeCreate(tx *gorm.DB) error {
 	if snapshot == nil {
 		return nil
 	}
+	if err := validateZTAPICacheWritePricingMode(snapshot); err != nil {
+		return err
+	}
+	if err := validateZTAPIImageSaleSnapshot(snapshot); err != nil {
+		return err
+	}
 	modality := ZTAPIModelModality(snapshot.SourceModel)
 	imageRequired := modality == ZTAPIModalityImage
 	videoRequired := modality == ZTAPIModalityVideo
@@ -877,8 +954,82 @@ func (snapshot *ZTAPIModelPublicationSnapshot) BeforeCreate(tx *gorm.DB) error {
 		return nil
 	}
 	var source ZTAPIModelPriceSource
-	if err := tx.Select("model_config_id", "source_model", "resource_type", "price_policy", "sale_multiplier", "token_price_rules_json", "media_price_contract_json").First(&source, snapshot.PriceSourceID).Error; err != nil {
+	if err := tx.Select("model_config_id", "source_model", "resource_type", "price_policy", "sale_multiplier", "token_price_rules_json", "media_price_contract_json", "cash_margin_base_source_id").First(&source, snapshot.PriceSourceID).Error; err != nil {
 		return err
+	}
+	if err := validateZTAPICashSnapshotMode20261030(&source, snapshot); err != nil {
+		return err
+	}
+	if source.PricePolicy == string(ZTAPIPricePolicyXcloud20261114) {
+		if err := tx.First(&source, snapshot.PriceSourceID).Error; err != nil {
+			return err
+		}
+		if err := ztapiValidateXcloudSnapshot20261114(&source, snapshot); err != nil {
+			return err
+		}
+	}
+	if source.PricePolicy == string(ZTAPIPricePolicyXcloud20261128) {
+		if err := tx.First(&source, snapshot.PriceSourceID).Error; err != nil {
+			return err
+		}
+		if snapshot.ID == 0 {
+			if snapshot.PricePolicy == "" {
+				snapshot.PricePolicy = source.PricePolicy
+			}
+			if snapshot.TokenPriceRulesJSON == "" {
+				snapshot.TokenPriceRulesJSON = source.TokenPriceRulesJSON
+			}
+			if snapshot.SaleMultiplier == "" {
+				snapshot.SaleMultiplier = "1"
+			}
+		}
+		if err := ztapiValidateXcloudSnapshot20261128(&source, snapshot); err != nil {
+			return err
+		}
+	}
+	if isZTAPIDatedRetailPolicy20261107(source.PricePolicy) {
+		if err := tx.First(&source, snapshot.PriceSourceID).Error; err != nil {
+			return err
+		}
+		if err := ValidateZTAPIPriceReductionSource20261107(tx, &source); err != nil {
+			return err
+		}
+		if source.ModelConfigID != snapshot.ModelConfigID || source.SourceModel != snapshot.SourceModel {
+			return errors.New("dated reduction snapshot identity mismatch")
+		}
+		if err := ValidateZTAPIPriceReductionRoute20261107(&source, snapshot.PublicName, snapshot.ChannelIDs()); err != nil {
+			return err
+		}
+		preview, err := BuildZTAPIModelPricePreview(&source)
+		if err != nil {
+			return err
+		}
+		if !ztapiStoredPriceMatchesPreview(snapshot.InputPricePerMillion, preview.InputSaleUSDPerMillion) || !ztapiStoredPriceMatchesPreview(snapshot.OutputPricePerMillion, preview.OutputSaleUSDPerMillion) ||
+			!ztapiCacheRatiosMatchPreview(&ZTAPIModelConfig{CacheReadRatio: snapshot.CacheReadRatio, CacheCreationRatio: snapshot.CacheCreationRatio, CacheCreation5mRatio: snapshot.CacheCreation5mRatio, CacheCreation1hRatio: snapshot.CacheCreation1hRatio}, preview) {
+			return errors.New("dated reduction snapshot price mismatch")
+		}
+	}
+	if isZTAPICashMarginPolicy20261030(source.PricePolicy) {
+		if err := tx.First(&source, snapshot.PriceSourceID).Error; err != nil {
+			return err
+		}
+		if err := ValidateZTAPICashMarginSource20261030(tx, &source); err != nil {
+			return err
+		}
+		if source.ModelConfigID != snapshot.ModelConfigID || source.SourceModel != snapshot.SourceModel {
+			return errors.New("cash margin snapshot identity mismatch")
+		}
+		if err := validateZTAPICashMarginRoute20261030(&source, snapshot.PublicName, snapshot.ChannelIDs()); err != nil {
+			return err
+		}
+		preview, err := BuildZTAPIModelPricePreview(&source)
+		if err != nil {
+			return err
+		}
+		if !ztapiStoredPriceMatchesPreview(snapshot.InputPricePerMillion, preview.InputSaleUSDPerMillion) ||
+			!ztapiStoredPriceMatchesPreview(snapshot.OutputPricePerMillion, preview.OutputSaleUSDPerMillion) {
+			return errors.New("cash margin snapshot differs from deterministic prices")
+		}
 	}
 	if err := ValidateZTAPIPricePolicy(source.ResourceType, ZTAPIPricePolicy(source.PricePolicy)); err != nil {
 		return err

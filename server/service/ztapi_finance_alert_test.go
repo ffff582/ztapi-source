@@ -40,6 +40,163 @@ func setupZTAPIFinanceServiceTest(t *testing.T, count int) (*gorm.DB, ZTAPIHealt
 	return db, c, &now
 }
 
+func TestZTAPIFinanceAlertsClassifyRejectedReceipts(t *testing.T) {
+	for reason, label := range map[string]string{
+		"usage_incomplete":              "上游回执未通过用量完整性检查",
+		"usage_unsupported_cache_field": "上游回执包含尚不能识别的缓存计量字段",
+		"usage_missing_cache_split":     "上游回执缺少缓存写入分档",
+		"usage_missing_token_counts":    "上游回执缺少输入或输出用量",
+		"usage_alias_conflict":          "上游回执的用量字段互相矛盾",
+	} {
+		safe := model.ZTAPIFinanceAlertSafeReason(reason + ",usage_zero_unconfirmed,usage_incomplete")
+		require.NotContains(t, safe, "unclassified")
+		meaning, _ := ztapiFinanceAlertMeaning("settlement", safe)
+		require.Contains(t, meaning, label)
+		require.NotContains(t, meaning, "无法自动分类")
+		require.NotContains(t, meaning, "上游用量或扣费情况尚未确认")
+	}
+	meaning, _ := ztapiFinanceAlertMeaning("settlement", "usage_zero_unconfirmed")
+	require.Contains(t, meaning, "上游用量或扣费情况尚未确认")
+}
+
+func TestZTAPIFinanceAlertsDeliverClassifiedReceiptOnceWithoutCompletingSettlement(t *testing.T) {
+	db, c, now := setupZTAPIFinanceServiceTest(t, 0)
+	row := model.ZTAPIRequestSettlement{
+		OperationID: "receipt-review", RequestID: "receipt-review-request", Status: model.ZTAPISettlementPending,
+		ReservedQuota: 10385, MissingDimensionsJSON: `["usage_incomplete","usage_zero_unconfirmed"]`, UpdatedAt: *now,
+	}
+	require.NoError(t, db.Create(&row).Error)
+	calls := 0
+	c.AlertTransport = healthWorkerTransport(func(r *http.Request) (*http.Response, error) {
+		calls++
+		var body map[string]any
+		require.NoError(t, common.DecodeJson(r.Body, &body))
+		text := body["text"].(string)
+		require.Contains(t, text, "上游回执未通过用量完整性检查")
+		require.NotContains(t, text, "无法自动分类")
+		require.NotContains(t, text, "上游用量或扣费情况尚未确认")
+		return workerResponse(200, `{"ok":true,"result":{"message_id":9,"date":2000000000}}`), nil
+	})
+	require.NoError(t, RunZTAPIFinanceAlertsOnce(context.Background(), db, c))
+	require.NoError(t, RunZTAPIFinanceAlertsOnce(context.Background(), db, c))
+	require.Equal(t, 1, calls)
+	var saved model.ZTAPIRequestSettlement
+	require.NoError(t, db.First(&saved, row.ID).Error)
+	require.Equal(t, model.ZTAPISettlementPending, saved.Status)
+	require.EqualValues(t, 10385, saved.ReservedQuota)
+	require.Zero(t, saved.ChargedQuota)
+	require.Zero(t, saved.RefundedQuota)
+}
+
+func TestZTAPIFinanceAlertsMergeMatchingSettlementAndAttempt(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		parentCodes string
+		attempts    int
+		late        bool
+		failFirst   bool
+		delivered   int
+	}{
+		{name: "same cause", parentCodes: model.ZTAPIMissingUpstreamBillingUnconfirmed, attempts: 1, delivered: 1},
+		{name: "send retry", parentCodes: model.ZTAPIMissingUpstreamBillingUnconfirmed, attempts: 1, failFirst: true, delivered: 1},
+		{name: "late review", parentCodes: model.ZTAPIMissingUpstreamBillingUnconfirmed, attempts: 1, late: true, delivered: 1},
+		{name: "distinct cause", parentCodes: `["cache_write"]`, attempts: 1, delivered: 2},
+		{name: "additional cause", parentCodes: `["upstream_billing_unconfirmed","cache_write"]`, attempts: 1, delivered: 2},
+		{name: "distinct attempts", parentCodes: model.ZTAPIMissingUpstreamBillingUnconfirmed, attempts: 2, delivered: 3},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			db, c, now := setupZTAPIFinanceServiceTest(t, 0)
+			*now = now.UTC()
+			parent := model.ZTAPIRequestSettlement{OperationID: "paired-alert", RequestID: "0a35fdc3-1ed1-44a8-ad47-02d7656fb7ac",
+				Status: model.ZTAPISettlementPending, ReservedQuota: 8768, MissingDimensionsJSON: test.parentCodes, CreatedAt: *now, UpdatedAt: *now}
+			require.NoError(t, db.Create(&parent).Error)
+			reviews := make([]model.ZTAPIAttemptBillingReview, 0, test.attempts)
+			addReviews := func() {
+				for i := 1; i <= test.attempts; i++ {
+					review := model.ZTAPIAttemptBillingReview{SettlementID: parent.ID, RequestID: parent.RequestID, Attempt: i,
+						Status: "pending", PendingReason: "upstream_attempt_billing_unconfirmed", CreatedAt: *now, UpdatedAt: *now}
+					require.NoError(t, db.Create(&review).Error)
+					reviews = append(reviews, review)
+				}
+			}
+			if !test.late {
+				addReviews()
+			}
+			calls, delivered := 0, []string{}
+			c.AlertTransport = healthWorkerTransport(func(r *http.Request) (*http.Response, error) {
+				calls++
+				var body map[string]any
+				require.NoError(t, common.DecodeJson(r.Body, &body))
+				text := body["text"].(string)
+				if test.failFirst && calls == 1 {
+					return nil, errors.New("test delivery failure")
+				}
+				delivered = append(delivered, text)
+				return workerResponse(200, `{"ok":true,"result":{"message_id":9,"date":2000000000}}`), nil
+			})
+			ctx := context.Background()
+			require.NoError(t, RunZTAPIFinanceAlertsOnce(ctx, db, c))
+			if test.failFirst {
+				require.Empty(t, delivered, "the sibling must not send while the combined alert is retrying")
+			}
+			if test.late {
+				require.Len(t, delivered, 1)
+				addReviews()
+			}
+			for i := 0; i < 4; i++ {
+				*now = now.Add(61 * time.Second)
+				require.NoError(t, RunZTAPIFinanceAlertsOnce(ctx, db, c))
+			}
+			require.Len(t, delivered, test.delivered)
+			for _, message := range delivered {
+				require.NotContains(t, message, "备用线路")
+			}
+			if test.delivered == 1 && !test.late {
+				require.Contains(t, delivered[0], "客户请求结算、上游尝试计费")
+				require.Contains(t, delivered[0], parent.RequestID)
+				require.Contains(t, delivered[0], "第 1 次上游尝试")
+			}
+			var saved model.ZTAPIRequestSettlement
+			require.NoError(t, db.First(&saved, parent.ID).Error)
+			require.Equal(t, parent, saved)
+			var savedReviews []model.ZTAPIAttemptBillingReview
+			require.NoError(t, db.Where("settlement_id = ?", parent.ID).Order("attempt").Find(&savedReviews).Error)
+			require.Equal(t, reviews, savedReviews)
+		})
+	}
+}
+
+func TestZTAPIFinanceAlertsTwoWorkersClaimOneMergedDelivery(t *testing.T) {
+	db, c, now := setupZTAPIFinanceServiceTest(t, 0)
+	parent := model.ZTAPIRequestSettlement{OperationID: "concurrent-pair", RequestID: "88544a8f-e85a-48a6-81c7-81cffc222141",
+		Status: model.ZTAPISettlementPending, MissingDimensionsJSON: model.ZTAPIMissingUpstreamBillingUnconfirmed}
+	require.NoError(t, db.Create(&parent).Error)
+	require.NoError(t, db.Create(&model.ZTAPIAttemptBillingReview{SettlementID: parent.ID, RequestID: parent.RequestID,
+		Attempt: 1, Status: "pending", PendingReason: "upstream_attempt_billing_unconfirmed"}).Error)
+	var calls atomic.Int32
+	c.AlertTransport = healthWorkerTransport(func(*http.Request) (*http.Response, error) {
+		calls.Add(1)
+		return workerResponse(200, `{"ok":true,"result":{"message_id":9,"date":2000000000}}`), nil
+	})
+	ctx := context.Background()
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		go func() { <-start; results <- RunZTAPIFinanceAlertsOnce(ctx, db, c) }()
+	}
+	close(start)
+	require.NoError(t, <-results)
+	require.NoError(t, <-results)
+	*now = now.Add(61 * time.Second)
+	require.NoError(t, RunZTAPIFinanceAlertsOnce(ctx, db, c))
+	require.EqualValues(t, 1, calls.Load())
+	var duplicate model.ZTAPIFinanceAlertOutbox
+	require.NoError(t, db.Where("source_kind = ?", "attempt_review").Take(&duplicate).Error)
+	require.Equal(t, "alert_merged_delivery", duplicate.LastReason)
+	require.Equal(t, "cancelled", duplicate.Status)
+	require.Zero(t, duplicate.Attempts)
+}
+
 func TestZTAPIFinanceAlertsAttemptReviewRetriesAfterParentSettled(t *testing.T) {
 	db, c, now := setupZTAPIFinanceServiceTest(t, 0)
 	parent := model.ZTAPIRequestSettlement{OperationID: "attempt-alert-service", RequestID: "01a07c2d-1d46-44a1-b294-2c3bea4912fd",
@@ -55,7 +212,8 @@ func TestZTAPIFinanceAlertsAttemptReviewRetriesAfterParentSettled(t *testing.T) 
 		require.NoError(t, common.DecodeJson(r.Body, &body))
 		text := body["text"].(string)
 		require.Contains(t, text, "【ZTAPI 账单待核对】")
-		require.Contains(t, text, "情况：号池请求结果不确定，备用线路可能已接管；需要确认这次号池请求是否扣费")
+		require.Contains(t, text, "情况：未能确认本次上游尝试是否扣费")
+		require.NotContains(t, text, "备用线路")
 		require.Contains(t, text, "请求编号："+parent.RequestID)
 		require.Contains(t, text, "第 1 次上游尝试")
 		require.Contains(t, text, fmt.Sprintf("结算编号：%d", parent.ID))

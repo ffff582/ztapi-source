@@ -199,14 +199,14 @@ func GetContextKeyType[T any](c *gin.Context, key constant.ContextKey) (T, bool)
 func ApiError(c *gin.Context, err error) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": false,
-		"message": err.Error(),
+		"message": RedactSecrets(err.Error()),
 	})
 }
 
 func ApiErrorMsg(c *gin.Context, msg string) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": false,
-		"message": msg,
+		"message": RedactSecrets(msg),
 	})
 }
 
@@ -221,7 +221,7 @@ func ApiSuccess(c *gin.Context, data any) {
 // ApiErrorI18n returns a translated error message based on the user's language preference
 // key is the i18n message key, args is optional template data
 func ApiErrorI18n(c *gin.Context, key string, args ...map[string]any) {
-	msg := TranslateMessage(c, key, args...)
+	msg := RedactSecrets(TranslateMessage(c, key, args...))
 	c.JSON(http.StatusOK, gin.H{
 		"success": false,
 		"message": msg,

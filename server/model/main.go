@@ -15,6 +15,7 @@ import (
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	gormlogger "gorm.io/gorm/logger"
 )
 
 var commonGroupCol string
@@ -115,6 +116,21 @@ func CheckSetup() {
 	}
 }
 
+func openDatabaseWithSecretSQLLogger(dialector gorm.Dialector) (*gorm.DB, error) {
+	databaseLogger := common.NewSecretSQLLogger(gormlogger.Default)
+	db, err := gorm.Open(dialector, &gorm.Config{
+		PrepareStmt: true,
+		Logger:      databaseLogger,
+	})
+	if err != nil {
+		return db, err
+	}
+	if err := db.Use(databaseLogger); err != nil {
+		return nil, err
+	}
+	return db, nil
+}
+
 func chooseDB(envName string, isLog bool) (*gorm.DB, error) {
 	defer func() {
 		initCol()
@@ -129,12 +145,10 @@ func chooseDB(envName string, isLog bool) (*gorm.DB, error) {
 			} else {
 				common.LogSqlType = common.DatabaseTypePostgreSQL
 			}
-			return gorm.Open(postgres.New(postgres.Config{
+			return openDatabaseWithSecretSQLLogger(postgres.New(postgres.Config{
 				DSN:                  dsn,
 				PreferSimpleProtocol: true, // disables implicit prepared statement usage
-			}), &gorm.Config{
-				PrepareStmt: true, // precompile SQL
-			})
+			}))
 		}
 		if strings.HasPrefix(dsn, "local") {
 			common.SysLog("SQL_DSN not set, using SQLite as database")
@@ -143,9 +157,7 @@ func chooseDB(envName string, isLog bool) (*gorm.DB, error) {
 			} else {
 				common.LogSqlType = common.DatabaseTypeSQLite
 			}
-			return gorm.Open(sqlite.Open(common.SQLitePath), &gorm.Config{
-				PrepareStmt: true, // precompile SQL
-			})
+			return openDatabaseWithSecretSQLLogger(sqlite.Open(common.SQLitePath))
 		}
 		// Use MySQL
 		common.SysLog("using MySQL as database")
@@ -162,16 +174,12 @@ func chooseDB(envName string, isLog bool) (*gorm.DB, error) {
 		} else {
 			common.LogSqlType = common.DatabaseTypeMySQL
 		}
-		return gorm.Open(mysql.Open(dsn), &gorm.Config{
-			PrepareStmt: true, // precompile SQL
-		})
+		return openDatabaseWithSecretSQLLogger(mysql.Open(dsn))
 	}
 	// Use SQLite
 	common.SysLog("SQL_DSN not set, using SQLite as database")
 	common.UsingSQLite = true
-	return gorm.Open(sqlite.Open(common.SQLitePath), &gorm.Config{
-		PrepareStmt: true, // precompile SQL
-	})
+	return openDatabaseWithSecretSQLLogger(sqlite.Open(common.SQLitePath))
 }
 
 func InitDB() (err error) {
@@ -184,6 +192,10 @@ func InitDB() (err error) {
 		if err := registerBalanceLedgerImmutability(DB); err != nil {
 			return err
 		}
+		if err := RegisterZTAPIReferralImmutability(DB); err != nil {
+			return err
+		}
+		RegisterZTAPIReferralProductionAdmissionGuard()
 		if err := registerZTAPIMediaTaskMutationGuard(DB); err != nil {
 			return err
 		}
@@ -316,6 +328,7 @@ func migrateDB() error {
 		&Log{},
 		&Midjourney{},
 		&TopUp{},
+		&CNYTopUpOrder{},
 		&USDTTopUpOrder{},
 		&USDTTopUpAmountLock{},
 		&USDTWatcherLease{},
@@ -375,6 +388,9 @@ func migrateDB() error {
 		return err
 	}
 	if err := MigrateZTAPISupplierReconciliation(DB); err != nil {
+		return err
+	}
+	if err := MigrateZTAPIReferral(DB); err != nil {
 		return err
 	}
 	if err := ensureZTAPICatalogLockRow(); err != nil {
@@ -458,6 +474,7 @@ func migrateDBFast() error {
 		{&Log{}, "Log"},
 		{&Midjourney{}, "Midjourney"},
 		{&TopUp{}, "TopUp"},
+		{&CNYTopUpOrder{}, "CNYTopUpOrder"},
 		{&USDTTopUpOrder{}, "USDTTopUpOrder"},
 		{&USDTTopUpAmountLock{}, "USDTTopUpAmountLock"},
 		{&USDTWatcherLease{}, "USDTWatcherLease"},
@@ -537,6 +554,9 @@ func migrateDBFast() error {
 		return err
 	}
 	if err := MigrateZTAPISupplierReconciliation(DB); err != nil {
+		return err
+	}
+	if err := MigrateZTAPIReferral(DB); err != nil {
 		return err
 	}
 	if err := ensureZTAPICatalogLockRow(); err != nil {

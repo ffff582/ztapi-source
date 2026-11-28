@@ -31,6 +31,7 @@ type ztAPIAuthRequest struct {
 	VerificationCode string `json:"verification_code"`
 	CaptchaID        string `json:"captcha_id"`
 	CaptchaCode      string `json:"captcha_code"`
+	InviteCode       string `json:"invite_code"`
 }
 
 type ZTAPIUserDTO struct {
@@ -41,9 +42,10 @@ type ZTAPIUserDTO struct {
 }
 
 type ztAPIAuthData struct {
-	AccessToken string       `json:"access_token"`
-	ExpiresIn   int          `json:"expires_in"`
-	User        ZTAPIUserDTO `json:"user"`
+	AccessToken   string       `json:"access_token"`
+	ExpiresIn     int          `json:"expires_in"`
+	User          ZTAPIUserDTO `json:"user"`
+	ReferralBound *bool        `json:"referral_bound,omitempty"`
 }
 
 type ztAPIPasswordResetRequest struct {
@@ -88,8 +90,16 @@ func ZTAPIRegister(c *gin.Context) {
 		writeZTAPIAuthError(c, http.StatusBadRequest, "invalid registration")
 		return
 	}
-	user, err := model.CreateZTAPIUserWithEncodedPasswordAndPendingEmail(username, encodedPassword, pendingEmail)
+	user, err := model.CreateZTAPIUserWithEncodedPasswordAndPendingEmail(username, encodedPassword, pendingEmail, request.InviteCode)
 	if err != nil {
+		if errors.Is(err, model.ErrZTAPIReferralNotReady) {
+			writeZTAPIAuthError(c, http.StatusConflict, "invitation temporarily unavailable")
+			return
+		}
+		if errors.Is(err, model.ErrZTAPIReferralInvalid) || errors.Is(err, model.ErrZTAPIReferralConflict) {
+			writeZTAPIAuthError(c, http.StatusBadRequest, "invalid invitation code")
+			return
+		}
 		exists, lookupErr := model.CheckUserExistOrDeleted(username, "")
 		if lookupErr == nil && exists {
 			writeZTAPIAuthError(c, http.StatusConflict, "username unavailable")
@@ -97,6 +107,12 @@ func ZTAPIRegister(c *gin.Context) {
 		}
 		writeZTAPIAuthError(c, http.StatusInternalServerError, "internal server error")
 		return
+	}
+	if request.InviteCode != "" {
+		var count int64
+		if err := model.DB.WithContext(c.Request.Context()).Model(&model.ZTAPIReferralBinding{}).Where("user_id = ?", user.Id).Count(&count).Error; err == nil {
+			c.Set("ztapi_referral_bound", count == 1)
+		}
 	}
 	issueZTAPIAuthSession(c, user)
 }
@@ -405,11 +421,18 @@ func issueZTAPIAuthSession(c *gin.Context, user *model.User) {
 }
 
 func writeZTAPIAuthSuccess(c *gin.Context, tokens service.ZTAPISessionTokens, user *model.User) {
+	var referralBound *bool
+	if value, exists := c.Get("ztapi_referral_bound"); exists {
+		if bound, ok := value.(bool); ok {
+			referralBound = &bound
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": ztAPIAuthData{
-			AccessToken: tokens.AccessToken,
-			ExpiresIn:   tokens.ExpiresIn,
+			AccessToken:   tokens.AccessToken,
+			ExpiresIn:     tokens.ExpiresIn,
+			ReferralBound: referralBound,
 			User: ZTAPIUserDTO{
 				ID:       user.Id,
 				Username: user.Username,

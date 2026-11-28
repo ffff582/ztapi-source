@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { LoaderCircle, RefreshCw, UserPlus } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { LoaderCircle, RefreshCw, UserPlus, X } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { apiClient, authErrorMessage } from '../../api/client';
 import { parseRegistrationCaptcha, type RegistrationCaptcha } from '../../api/contracts';
 import { useAuth } from '../../auth/session';
@@ -8,6 +8,9 @@ import { AuthShell } from './AuthShell';
 import { InlineNotice } from './InlineNotice';
 import { PasswordField } from './PasswordField';
 import { useLocale } from '../../i18n/locale';
+import { captureInvitation, clearInvitation } from '../referrals/invitation';
+import { consoleReturnTo } from './return-to';
+import { referralsApi } from '../../api/referrals';
 
 const USERNAME_ERROR =
   '账号需为 3-32 字节，仅可使用字母、数字、下划线或连字符';
@@ -62,6 +65,9 @@ export function validateRegistrationInput({
 export function RegisterPage() {
   const { t } = useLocale();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [inviteCode, setInviteCode] = useState(() => captureInvitation(location.search));
+  const [invitationStatus, setInvitationStatus] = useState<{ code: string; state: 'open' | 'closed' | 'unknown' } | null>(null);
   const { register } = useAuth();
   const usernameRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
@@ -94,6 +100,23 @@ export function RegisterPage() {
     void loadCaptcha();
   }, [loadCaptcha]);
 
+  useEffect(() => {
+    setInviteCode(captureInvitation(location.search));
+  }, [location.search]);
+
+  useEffect(() => {
+    if (!inviteCode) return;
+    const code = inviteCode;
+    const controller = new AbortController();
+    void referralsApi.status(controller.signal).then(
+      (campaign) => {
+        if (!controller.signal.aborted) setInvitationStatus({ code, state: campaign.enabled && campaign.accepting_invites && campaign.blocked_reasons.length === 0 ? 'open' : 'closed' });
+      },
+      () => { if (!controller.signal.aborted) setInvitationStatus({ code, state: 'unknown' }); },
+    );
+    return () => controller.abort();
+  }, [inviteCode]);
+
   function updateRegistrationUsername(value: string) {
     setUsername(value);
     setServerError(null);
@@ -110,6 +133,15 @@ export function RegisterPage() {
     setEmail(value);
     setServerError(null);
     setFieldErrors((current) => ({ ...current, email: undefined }));
+  }
+
+  function removeInvitation() {
+    clearInvitation();
+    setInviteCode(undefined);
+    setServerError(null);
+    const params = new URLSearchParams(location.search);
+    params.delete('invite');
+    navigate({ pathname: location.pathname, search: params.size ? `?${params}` : '' }, { replace: true });
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -159,10 +191,12 @@ export function RegisterPage() {
         captcha_id: captcha.captcha_id,
         captcha_code: captchaCode.trim(),
         ...(normalizedEmail === '' ? {} : { email: normalizedEmail }),
+        ...(inviteCode === undefined ? {} : { invite_code: inviteCode }),
       });
-      navigate('/console', { replace: true });
+      clearInvitation();
+      navigate(consoleReturnTo(location.search), { replace: true });
     } catch (error) {
-      setServerError(authErrorMessage(error));
+      setServerError(t(authErrorMessage(error)));
       // Every challenge is single use, so a failed attempt needs a fresh one.
       void loadCaptcha();
       captchaRef.current?.focus();
@@ -179,6 +213,11 @@ export function RegisterPage() {
     >
       <form className="auth-form" onSubmit={handleSubmit} noValidate>
         <InlineNotice message={serverError} />
+        {inviteCode !== undefined && <div className="auth-field">
+          <p className="auth-field__help">{t('已携带邀请码，邀请是否生效以后台活动与绑定状态为准。活动关闭时可正常注册，不承诺计佣。')}</p>
+          <p className="auth-field__help" role="status" aria-live="polite">{t(invitationStatus?.code !== inviteCode ? '正在确认推广活动状态...' : invitationStatus.state === 'closed' ? '推广活动当前未开放，暂不接受现金返佣绑定；本次是否绑定以注册结果为准。' : invitationStatus.state === 'unknown' ? '当前无法确认推广活动状态，是否建立返佣关系以注册结果为准。' : '活动状态允许接收新邀请，是否绑定仍以本次注册结果为准。')}</p>
+          <button type="button" className="auth-invitation-remove" disabled={pending} onClick={removeInvitation}><X size={15} aria-hidden="true" />{t('清除邀请码并普通注册')}</button>
+        </div>}
         <div className="auth-field">
           <label htmlFor="register-username">{t('账号')}</label>
           <input
@@ -290,7 +329,7 @@ export function RegisterPage() {
         </button>
       </form>
       <p className="auth-switch">
-        {t('已有账号？')} <Link to="/login">{t('登录')}</Link>
+        {t('已有账号？')} <Link to={`/login${new URLSearchParams(location.search).has('redirect') ? `?redirect=${encodeURIComponent(consoleReturnTo(location.search))}` : ''}`}>{t('登录')}</Link>
       </p>
     </AuthShell>
   );

@@ -71,6 +71,14 @@ afterEach(() => {
 });
 
 describe('ZTAPI public homepage', () => {
+  it('shows the global source disclosure before the hero with a public explanation link', () => {
+    renderHomePage();
+    const notice = screen.getByRole('note', { name: '资源来源说明' });
+    expect(within(notice).getByText('部分模型使用上游反代资源，并非全部为原厂 API 直连')).toBeVisible();
+    expect(within(notice).getByRole('link', { name: '了解资源来源与价格说明' })).toHaveAttribute('href', '/docs/resource-disclosure');
+    expect(notice.compareDocumentPosition(screen.getByRole('region', { name: 'ZTAPI' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('makes the brand the hero and shows the signed-in console as the product proof', async () => {
     renderHomePage();
 
@@ -171,6 +179,7 @@ describe('ZTAPI public homepage', () => {
     expect(within(quickstart).getByRole('link', { name: /创建 API Key/ })).toHaveAttribute('href', '/register');
     expect(within(quickstart).getByRole('link', { name: /查看使用日志/ })).toHaveAttribute('href', '/register');
     expect(within(quickstart).getByRole('link', { name: /在线测试/ })).toHaveAttribute('href', '/register');
+    expect(within(quickstart).getByRole('link', { name: /Codex 一键启动脚本/ })).toHaveAttribute('href', '/docs/codex#quick-launch');
     expect(screen.queryByRole('button', { name: '复制代码' })).toBeNull();
     expect(screen.queryByText(/import OpenAI/)).toBeNull();
   });

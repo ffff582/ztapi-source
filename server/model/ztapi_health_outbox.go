@@ -228,15 +228,20 @@ func (s *ZTAPIHealthStore) unpublishTx(tx *gorm.DB, state *ZTAPIHealthState, now
 		return nil, err
 	}
 	if c.Published {
+		// Retain the current image retail policy through health-only unpublishing.
+		snapshotID := int64(0)
+		if c.ID == 85 {
+			snapshotID = c.PublicationSnapshotID
+		}
 		result := tx.Model(&ZTAPIModelConfig{}).Where("id = ? AND version = ?", c.ID, c.Version).
-			Updates(map[string]any{"published": false, "publication_snapshot_id": 0, "version": c.Version + 1, "updated_at": now})
+			Updates(map[string]any{"published": false, "publication_snapshot_id": snapshotID, "version": c.Version + 1, "updated_at": now})
 		if result.Error != nil {
 			return nil, result.Error
 		}
 		if result.RowsAffected != 1 {
 			return nil, ErrZTAPIModelVersionConflict
 		}
-		c.Published, c.PublicationSnapshotID, c.Version, c.UpdatedAt = false, 0, c.Version+1, now
+		c.Published, c.PublicationSnapshotID, c.Version, c.UpdatedAt = false, snapshotID, c.Version+1, now
 	}
 	if err := tx.Model(&ZTAPIHealthIncident{}).Where("id = ? AND unpublished_at = ?", state.IncidentID, 0).
 		Updates(map[string]any{"unpublished_at": now, "unpublished_version": c.Version}).Error; err != nil {

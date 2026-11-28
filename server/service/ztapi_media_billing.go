@@ -2,6 +2,9 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"math"
 	"sort"
 	"strconv"
@@ -28,16 +31,20 @@ type ZTAPIMediaReservationInput struct {
 	QuotaPerUnit         string
 	MaximumDimensions    map[string]string
 	MaximumQuota         int64
+	ImageSaleQuote       *types.ZTAPIImageSaleQuote
+	ImageSaleInputSHA256 string
 }
 
 type ztapiFrozenMediaReservation struct {
 	relaycommon.ZTAPIPublicationSnapshot
-	SelectorJSON              string            `json:"ztapi_media_selector"`
-	ImageProtocolContractJSON string            `json:"ztapi_image_protocol_contract"`
-	ProtocolEvidenceHash      string            `json:"ztapi_protocol_evidence_hash"`
-	QuotaPerUnit              string            `json:"ztapi_quota_per_unit"`
-	MaximumDimensions         map[string]string `json:"ztapi_maximum_dimensions"`
-	MaximumQuota              int64             `json:"ztapi_maximum_quota"`
+	SelectorJSON              string                     `json:"ztapi_media_selector"`
+	ImageProtocolContractJSON string                     `json:"ztapi_image_protocol_contract"`
+	ProtocolEvidenceHash      string                     `json:"ztapi_protocol_evidence_hash"`
+	QuotaPerUnit              string                     `json:"ztapi_quota_per_unit"`
+	MaximumDimensions         map[string]string          `json:"ztapi_maximum_dimensions"`
+	MaximumQuota              int64                      `json:"ztapi_maximum_quota"`
+	ImageSaleQuote            *types.ZTAPIImageSaleQuote `json:"ztapi_image_sale_quote,omitempty"`
+	ImageSaleInputSHA256      string                     `json:"ztapi_image_sale_input_sha256,omitempty"`
 }
 
 type ztapiMediaSelector struct {
@@ -84,6 +91,14 @@ func BeginZTAPIMediaReservation(input ZTAPIMediaReservationInput) (*model.ZTAPIR
 	maximumDimensions, maximumQuota, err := deriveZTAPIImageMaximumReservation(
 		snapshot.MediaPriceContractJSON, protocol, selector, quotaPerUnit,
 	)
+	if snapshot.ImageSaleContractJSON != "" && err == nil {
+		if !validZTAPIImageSaleInputSHA256(input.ImageSaleInputSHA256) {
+			return nil, model.ErrZTAPISettlementInvalid
+		}
+		maximumDimensions, maximumQuota, err = deriveZTAPIImageSaleReservation(snapshot.ImageSaleContractJSON, protocol, selector, input.ImageSaleQuote, quotaPerUnit)
+	} else if input.ImageSaleQuote != nil || input.ImageSaleInputSHA256 != "" {
+		return nil, model.ErrZTAPISettlementInvalid
+	}
 	if err != nil || !equalZTAPIStringMaps(maximumDimensions, input.MaximumDimensions) || maximumQuota != input.MaximumQuota {
 		return nil, model.ErrZTAPISettlementInvalid
 	}
@@ -95,6 +110,8 @@ func BeginZTAPIMediaReservation(input ZTAPIMediaReservationInput) (*model.ZTAPIR
 		QuotaPerUnit:              quotaPerUnit.String(),
 		MaximumDimensions:         maximumDimensions,
 		MaximumQuota:              input.MaximumQuota,
+		ImageSaleQuote:            input.ImageSaleQuote,
+		ImageSaleInputSHA256:      input.ImageSaleInputSHA256,
 	})
 	if err != nil {
 		return nil, model.ErrZTAPISettlementInvalid
@@ -158,6 +175,8 @@ type ztapiImmutableMediaUsage struct {
 	SelectedRuleID    string            `json:"selected_rule_id,omitempty"`
 	Dimensions        map[string]string `json:"dimensions,omitempty"`
 	PriceRuleIDs      map[string]string `json:"price_rule_ids,omitempty"`
+	RawUsageSHA256    string            `json:"raw_usage_sha256,omitempty"`
+	RawUsageBytes     int               `json:"raw_usage_bytes,omitempty"`
 }
 
 type ztapiMediaLogDimension struct {
@@ -169,11 +188,13 @@ type ztapiMediaLogDimension struct {
 }
 
 type ztapiMediaLogMetadata struct {
-	BillingSource      string                   `json:"billing_source"`
-	BillingStatus      string                   `json:"billing_status"`
-	PublicationVersion uint64                   `json:"publication_version"`
-	PriceSourceVersion uint64                   `json:"price_source_version"`
-	BillingDimensions  []ztapiMediaLogDimension `json:"billing_dimensions"`
+	BillingSource      string                     `json:"billing_source"`
+	BillingStatus      string                     `json:"billing_status"`
+	PublicationVersion uint64                     `json:"publication_version"`
+	PriceSourceVersion uint64                     `json:"price_source_version"`
+	BillingDimensions  []ztapiMediaLogDimension   `json:"billing_dimensions"`
+	ImageSaleQuote     *types.ZTAPIImageSaleQuote `json:"image_sale_quote,omitempty"`
+	SupplierCostStatus string                     `json:"supplier_cost_status,omitempty"`
 }
 
 type ztapiMediaChargePart struct {
@@ -191,13 +212,31 @@ func FinalizeZTAPIImageSettlement(operationID string, evidence relaycommon.ZTAPI
 		return nil, err
 	}
 	usageJSON, err := marshalZTAPIImageEvidence(evidence)
-	if err != nil || evidence.Pending || !evidence.ResultAvailable || evidence.ResultCount <= 0 || strings.TrimSpace(evidence.UpstreamRequestID) == "" {
+	usageCompacted := false
+	if frozen.ImageSaleQuote != nil {
+		usageJSON, usageCompacted, err = marshalZTAPIImageSaleEvidence(evidence)
+	}
+	if err != nil || !evidence.ResultAvailable || evidence.ResultCount <= 0 || strings.TrimSpace(evidence.UpstreamRequestID) == "" {
 		return nil, model.ErrZTAPISettlementPending
 	}
-	if !ztapiImageUsageWithinMaximum(evidence.GetDimensions(), frozen.MaximumDimensions) {
-		return nil, model.ErrZTAPISettlementPending
+	var actual int64
+	var dimensions []model.ZTAPISupplierRefundDimension
+	var logDimensions []ztapiMediaLogDimension
+	if frozen.ImageSaleQuote != nil {
+		if int64(evidence.ResultCount) != frozen.ImageSaleQuote.Images {
+			return nil, model.ErrZTAPISettlementPending
+		}
+		actual = frozen.MaximumQuota
+		quotaPerUnit, _ := parseCanonicalZTAPIQuotaPerUnit(frozen.QuotaPerUnit)
+		unitQuota := decimal.RequireFromString(frozen.ImageSaleQuote.UnitPriceUSD).Mul(quotaPerUnit)
+		dimensions = []model.ZTAPISupplierRefundDimension{{Dimension: "images", Units: strconv.Itoa(evidence.ResultCount), UnitQuota: unitQuota.String(), ChargedQuota: actual}}
+		logDimensions = []ztapiMediaLogDimension{{Dimension: "images", Quantity: int64(evidence.ResultCount), Unit: "image", QuoteState: "quoted", UnitPriceUSD: frozen.ImageSaleQuote.UnitPriceUSD}}
+	} else {
+		if evidence.Pending || !ztapiImageUsageWithinMaximum(evidence.GetDimensions(), frozen.MaximumDimensions) {
+			return nil, model.ErrZTAPISettlementPending
+		}
+		actual, dimensions, logDimensions, err = calculateZTAPIImageCharge(frozen.MediaPriceContractJSON, frozen.QuotaPerUnit, evidence)
 	}
-	actual, dimensions, logDimensions, err := calculateZTAPIImageCharge(frozen.MediaPriceContractJSON, frozen.QuotaPerUnit, evidence)
 	if err != nil || actual > row.InitialReservedQuota {
 		return nil, model.ErrZTAPISettlementPending
 	}
@@ -211,6 +250,16 @@ func FinalizeZTAPIImageSettlement(operationID string, evidence relaycommon.ZTAPI
 		PublicationVersion: frozen.Version,
 		PriceSourceVersion: frozen.PriceSourceVersion,
 		BillingDimensions:  logDimensions,
+		ImageSaleQuote:     frozen.ImageSaleQuote,
+		SupplierCostStatus: func() string {
+			if frozen.ImageSaleQuote == nil {
+				return ""
+			}
+			if evidence.Pending || usageCompacted {
+				return "usage_pending"
+			}
+			return "quoted_tokens"
+		}(),
 	})
 	if err != nil {
 		return nil, model.ErrZTAPISettlementInvalid
@@ -222,6 +271,10 @@ func FinalizeZTAPIImageSettlement(operationID string, evidence relaycommon.ZTAPI
 		Other: string(metadata),
 	}
 	usageDimensions := evidence.GetDimensions()
+	if frozen.ImageSaleQuote != nil {
+		logEntry.PromptTokens = int(usageDimensions["text_input"].IntPart() + usageDimensions["image_input"].IntPart())
+		logEntry.CompletionTokens = int(usageDimensions["image_output"].IntPart())
+	}
 	if promptTokens, ok := usageDimensions["input_tokens"]; ok {
 		logEntry.PromptTokens = int(promptTokens.IntPart())
 	}
@@ -247,10 +300,14 @@ func pendZTAPIImageSettlement(operationID string, evidence relaycommon.ZTAPIMedi
 	if strings.TrimSpace(reason) == "" || len(reason) > 256 {
 		return nil, model.ErrZTAPISettlementInvalid
 	}
-	if _, _, err := loadZTAPIMediaSettlement(operationID); err != nil {
+	_, frozen, err := loadZTAPIMediaSettlement(operationID)
+	if err != nil {
 		return nil, err
 	}
 	usageJSON, err := marshalZTAPIImageEvidence(evidence)
+	if frozen.ImageSaleQuote != nil {
+		usageJSON, _, err = marshalZTAPIImageSaleEvidence(evidence)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -301,10 +358,23 @@ func loadZTAPIMediaSettlement(operationID string) (*model.ZTAPIRequestSettlement
 	maximumDimensions, maximumQuota, err := deriveZTAPIImageMaximumReservation(
 		frozen.MediaPriceContractJSON, protocol, selector, quotaPerUnit,
 	)
+	if frozen.ImageSaleContractJSON != "" && err == nil {
+		if !validZTAPIImageSaleInputSHA256(frozen.ImageSaleInputSHA256) {
+			return nil, frozen, model.ErrZTAPISettlementConflict
+		}
+		maximumDimensions, maximumQuota, err = deriveZTAPIImageSaleReservation(frozen.ImageSaleContractJSON, protocol, selector, frozen.ImageSaleQuote, quotaPerUnit)
+	} else if frozen.ImageSaleQuote != nil || frozen.ImageSaleInputSHA256 != "" {
+		return nil, frozen, model.ErrZTAPISettlementConflict
+	}
 	if err != nil || !equalZTAPIStringMaps(maximumDimensions, frozen.MaximumDimensions) || maximumQuota != frozen.MaximumQuota {
 		return nil, frozen, model.ErrZTAPISettlementConflict
 	}
 	return &row, frozen, nil
+}
+
+func validZTAPIImageSaleInputSHA256(value string) bool {
+	decoded, err := hex.DecodeString(value)
+	return err == nil && len(decoded) == sha256.Size && hex.EncodeToString(decoded) == value
 }
 
 func marshalZTAPIImageEvidence(evidence relaycommon.ZTAPIMediaUsageEvidence) (string, error) {
@@ -328,6 +398,24 @@ func marshalZTAPIImageEvidence(evidence relaycommon.ZTAPIMediaUsageEvidence) (st
 		return "", model.ErrZTAPISettlementInvalid
 	}
 	return string(raw), nil
+}
+
+func marshalZTAPIImageSaleEvidence(evidence relaycommon.ZTAPIMediaUsageEvidence) (string, bool, error) {
+	if len(evidence.RawUsageJSON) <= 32768 {
+		if encoded, err := marshalZTAPIImageEvidence(evidence); err == nil {
+			return encoded, false, nil
+		}
+	}
+	// Keep the identity and receipt digest, never fabricate missing Token usage.
+	hash := sha256.Sum256(evidence.GetRawUsageJSON())
+	encoded, err := common.Marshal(ztapiImmutableMediaUsage{
+		UpstreamRequestID: evidence.UpstreamRequestID, ResultCount: evidence.ResultCount, ResultAvailable: evidence.ResultAvailable,
+		Pending: true, Reason: "supplier_usage_oversized", RawUsageSHA256: fmt.Sprintf("%x", hash), RawUsageBytes: len(evidence.RawUsageJSON),
+	})
+	if err != nil || len(encoded) > 65536 {
+		return "", true, model.ErrZTAPISettlementInvalid
+	}
+	return string(encoded), true, nil
 }
 
 func canonicalZTAPIQuotaPerUnit(value float64) (string, error) {

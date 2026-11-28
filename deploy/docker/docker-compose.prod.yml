@@ -1,7 +1,14 @@
 name: ztapi
 
+x-ztapi-logging: &ztapi-logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
+
 services:
   nginx:
+    logging: *ztapi-logging
     image: "${ZTAPI_NGINX_IMAGE:?set ZTAPI_NGINX_IMAGE}"
     build:
       context: ../..
@@ -31,12 +38,17 @@ services:
       - app
 
   server:
+    logging: *ztapi-logging
     image: "${ZTAPI_SERVER_IMAGE:?set ZTAPI_SERVER_IMAGE}"
     build:
       context: ../../server
       dockerfile: Dockerfile.ztapi
+      args:
+        GOPROXY: ${ZTAPI_DOCKER_GOPROXY:-https://proxy.golang.org,direct}
     env_file:
       - path: /etc/ztapi/health.env
+        required: false
+      - path: /etc/ztapi/cny-topup.env
         required: false
     environment:
       ZTAPI_ENV: production
@@ -84,6 +96,7 @@ services:
       - egress
 
   mysql:
+    logging: *ztapi-logging
     image: mysql:8.4
     environment:
       MYSQL_DATABASE: ${MYSQL_DATABASE:?set MYSQL_DATABASE}
@@ -104,6 +117,7 @@ services:
       - data
 
   redis:
+    logging: *ztapi-logging
     image: redis:7.4-alpine
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}

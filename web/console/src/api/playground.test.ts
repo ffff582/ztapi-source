@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { clearAuthSession, setAuthSession } from './client';
+import { clearAuthSession, getAuthSession, refreshSession, setAuthSession } from './client';
 import { PlaygroundClientError, playgroundClient } from './playground';
 
 function response(body: unknown, status = 200, requestID = '') {
@@ -27,6 +27,238 @@ afterEach(() => {
 });
 
 describe('playgroundClient.chat', () => {
+  it('preserves long Chinese, emoji, whitespace and tail sentinels in every chat turn', async () => {
+    setAuthSession(session());
+    const fetchMock = vi.fn().mockResolvedValue(response({ choices: [{ message: { content: 'OK' } }] }));
+    vi.stubGlobal('fetch', fetchMock);
+    const prior = `  ${'历史中文🚀'.repeat(1200)}HISTORY_TAIL  `;
+    const prompt = `\n ${'当前中文😀'.repeat(1500)}PROMPT_TAIL \n`;
+    const history = [{ role: 'user' as const, content: prior }, { role: 'assistant' as const, content: 'Prior answer' }];
+
+    await playgroundClient.chat({ model: 'zt-model', prompt, history });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    expect(body.messages).toEqual([
+      { role: 'system', content: '你是一个简洁、可靠的助手。' },
+      ...history,
+      { role: 'user', content: prompt },
+    ]);
+    expect(body.max_tokens).toBe(256);
+    expect(body.stream).toBe(false);
+  });
+
+  it.each(['Chinese', 'emoji', 'JSON escapes', 'history', 'model'] as const)(
+    'rejects a full serialized chat over 4 MiB before dispatch: %s', async (part) => {
+      setAuthSession(session());
+      const fetchMock = vi.fn().mockResolvedValue(response({ choices: [{ message: { content: 'Must not send' } }] }));
+      vi.stubGlobal('fetch', fetchMock);
+      const history = Object.freeze([
+        Object.freeze({ role: 'user' as const, content: part === 'history' ? 'h'.repeat(2_100_000) : 'Saved question' }),
+        Object.freeze({ role: 'assistant' as const, content: 'Saved answer' }),
+      ]);
+      const prompt = part === 'Chinese' ? '中'.repeat(1_400_000)
+        : part === 'emoji' ? '🚀'.repeat(1_050_000)
+          : part === 'JSON escapes' ? '\u0000'.repeat(700_000)
+            : part === 'history' ? 'd'.repeat(2_100_000) : 'Short prompt';
+      const model = part === 'model' ? 'm'.repeat(4_194_304) : 'zt-model';
+
+      await expect(playgroundClient.chat({ model, prompt, history })).rejects.toMatchObject({
+        name: 'PlaygroundClientError', kind: 'request_too_large',
+      });
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(history[1].content).toBe('Saved answer');
+    },
+  );
+
+  it('accepts exactly 4 MiB but rejects one extra byte including the JSON envelope', async () => {
+    setAuthSession(session());
+    const fetchMock = vi.fn<typeof fetch>(async () => response({ choices: [{ message: { content: 'At the boundary' } }] }));
+    vi.stubGlobal('fetch', fetchMock);
+    // UTF-8 envelope: 125 ASCII bytes plus 39 bytes for the 13-character system prompt.
+    const prompt = 'a'.repeat(4_194_304 - 164);
+    await playgroundClient.chat({ model: 'zt-model', prompt });
+    const serialized = String(fetchMock.mock.calls[0][1]?.body);
+    expect(new TextEncoder().encode(serialized).byteLength).toBe(4_194_304);
+    expect(JSON.parse(serialized).messages[1].content === prompt).toBe(true);
+    fetchMock.mockClear();
+
+    await expect(playgroundClient.chat({ model: 'zt-model', prompt: `${prompt}b` }))
+      .rejects.toMatchObject({ kind: 'request_too_large' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each(['imageGeneration', 'createVideo'] as const)('does not apply the chat body budget to %s', async (method) => {
+    setAuthSession(session());
+    const fetchMock = vi.fn<typeof fetch>(async () => method === 'imageGeneration'
+      ? response({ data: [{ url: '/synthetic.png' }] })
+      : response({ id: 'synthetic-video', status: 'queued' }));
+    vi.stubGlobal('fetch', fetchMock);
+    const prompt = `${'m'.repeat(4_194_304)}MEDIA_TAIL`;
+    await playgroundClient[method]({ model: 'zt-media', prompt });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).prompt === prompt).toBe(true);
+  });
+
+  it.each(['chat', 'imageEdit'] as const)('retries %s with unchanged input after another request refreshed the same login', async (method) => {
+    setAuthSession(session('expired-token'));
+    let finish!: (value: Response) => void;
+    let requests = 0;
+    const fetchMock = vi.fn(async (...args: [RequestInfo | URL, RequestInit?]) => {
+      const input = args[0];
+      if (input.toString() === '/api/auth/refresh') return response({ success: true, data: session('fresh-token') });
+      if (++requests === 1) return new Promise<Response>((resolve) => { finish = resolve; });
+      return method === 'chat'
+        ? response({ choices: [{ message: { content: 'Remembered' }, finish_reason: 'stop' }] })
+        : response({ data: [{ url: '/edited.png' }] });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const file = new File(['synthetic reference'], 'reference.png', { type: 'image/png' });
+    const result = method === 'chat'
+      ? playgroundClient.chat({ model: 'zt-model', prompt: 'Follow-up', history: [{ role: 'user', content: 'Prior turn' }, { role: 'assistant', content: 'Prior reply' }] })
+      : playgroundClient.imageEdit([file], { model: 'zt-image', prompt: 'Edit reference', n: 2 });
+    const settled = result.catch((error: unknown) => error);
+    await refreshSession();
+    finish(response({}, 401));
+    expect(await settled).toMatchObject(method === 'chat' ? { text: 'Remembered' } : { images: [{ url: '/edited.png' }] });
+    const calls = fetchMock.mock.calls.filter(([input]) => input.toString() !== '/api/auth/refresh');
+    expect(calls).toHaveLength(2);
+    const first = calls[0][1] as RequestInit;
+    const retry = calls[1][1] as RequestInit;
+    expect(new Headers(retry.headers).get('Authorization')).toBe('Bearer fresh-token');
+    expect(retry.body).toBe(first.body);
+    if (method === 'chat') {
+      expect(JSON.parse(String(retry.body)).messages).toEqual([
+        { role: 'system', content: '你是一个简洁、可靠的助手。' },
+        { role: 'user', content: 'Prior turn' },
+        { role: 'assistant', content: 'Prior reply' },
+        { role: 'user', content: 'Follow-up' },
+      ]);
+    } else {
+      expect((retry.body as FormData).getAll('image')).toEqual([file]);
+      expect((retry.body as FormData).get('prompt')).toBe('Edit reference');
+      expect((retry.body as FormData).get('n')).toBe('2');
+      expect(new Headers(retry.headers).has('Content-Type')).toBe(false);
+    }
+    expect(fetchMock.mock.calls.filter(([input]) => input.toString() === '/api/auth/refresh')).toHaveLength(1);
+  });
+
+  it.each(['chat', 'imageEdit'] as const)('does not retry %s more than once when the replacement JWT is also rejected', async (method) => {
+    setAuthSession(session('expired-token'));
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => input.toString() === '/api/auth/refresh'
+      ? response({ success: true, data: session('fresh-token') }) : response({}, 401));
+    vi.stubGlobal('fetch', fetchMock);
+    const result = method === 'chat'
+      ? playgroundClient.chat({ model: 'zt-model', prompt: 'Synthetic prompt' })
+      : playgroundClient.imageEdit([new File(['reference'], 'reference.png', { type: 'image/png' })], { model: 'zt-image', prompt: 'Synthetic edit' });
+    await expect(result).rejects.toMatchObject({ kind: 'unauthorized' });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls.filter(([input]) => input.toString() === '/api/auth/refresh')).toHaveLength(1);
+  });
+
+  it.each(['same-account login', 'same-object login', 'account round trip'] as const)('does not replay chat or media after a %s', async (boundary) => {
+    setAuthSession(session());
+    const original = getAuthSession()!;
+    const finishes: Array<(value: Response) => void> = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (input.toString() === '/api/auth/refresh') return response({ success: true, data: session('unexpected-refresh') });
+      if (finishes.length >= 2) return response({}, 401);
+      return new Promise<Response>((resolve) => { finishes.push(resolve); });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const chat = playgroundClient.chat({ model: 'zt-model', prompt: 'Private draft' }).catch((error: unknown) => error);
+    const media = playgroundClient.createVideo({ model: 'zt-video', prompt: 'Private video' }).catch((error: unknown) => error);
+    if (boundary === 'account round trip') setAuthSession({ ...session('bob'), user: { ...original.user, id: 10 } });
+    clearAuthSession();
+    setAuthSession(boundary === 'same-object login' ? original : session('new-login'));
+    finishes.forEach((finish) => finish(response({}, 401)));
+    expect(await chat).toMatchObject({ kind: 'unauthorized' });
+    expect(await media).toMatchObject({ kind: 'unauthorized' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not replay a request when the same account logs in while refresh is pending', async () => {
+    setAuthSession(session('expired-token'));
+    let finishRefresh!: (value: Response) => void;
+    let started!: () => void;
+    const refreshing = new Promise<void>((resolve) => { started = resolve; });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (input.toString() === '/api/auth/refresh') {
+        started();
+        return new Promise<Response>((resolve) => { finishRefresh = resolve; });
+      }
+      return response({}, 401);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const result = playgroundClient.chat({ model: 'zt-model', prompt: 'Private draft' }).catch((error: unknown) => error);
+    await refreshing;
+    clearAuthSession();
+    setAuthSession(session('new-login'));
+    finishRefresh(response({ success: true, data: session('stale-refresh') }));
+    expect(await result).toMatchObject({ kind: 'unauthorized' });
+    expect(getAuthSession()?.access_token).toBe('new-login');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(['chat', 'imageGeneration'] as const)('does not retry %s under another signed-in account after a late 401', async (method) => {
+    setAuthSession(session());
+    let resolveFirst!: (value: Response) => void;
+    const fetchMock = vi.fn(async () => {
+      if (fetchMock.mock.calls.length === 1) return new Promise<Response>((resolve) => { resolveFirst = resolve; });
+      if (fetchMock.mock.calls.length === 2) return response({ success: true, data: { ...session('bob'), user: { ...session().user, id: 10 } } });
+      return response({ choices: [{ message: { content: 'Wrong account' }, finish_reason: 'stop' }], data: [{ url: '/synthetic.png' }] });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const result = playgroundClient[method]({ model: 'zt-model', prompt: 'Alice private question' }).catch((error: unknown) => error);
+    setAuthSession({ ...session('bob'), user: { ...session().user, id: 10 } });
+    resolveFirst(response({ error: { code: 'unauthorized' } }, 401));
+    expect(await result).toMatchObject({ kind: 'unauthorized' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not replay old history when the account changes while refresh is pending', async () => {
+    setAuthSession(session());
+    let resolveRefresh!: (value: Response) => void;
+    let markRefreshing!: () => void;
+    const refreshing = new Promise<void>((resolve) => { markRefreshing = resolve; });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (input.toString() === '/api/auth/refresh') {
+        markRefreshing();
+        return new Promise<Response>((resolve) => { resolveRefresh = resolve; });
+      }
+      if (fetchMock.mock.calls.length === 1) return response({ error: { code: 'unauthorized' } }, 401);
+      return response({ choices: [{ message: { content: 'Wrong account' }, finish_reason: 'stop' }] });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const result = playgroundClient.chat({ model: 'zt-model', prompt: 'Follow-up', history: [{ role: 'user', content: 'Alice private context' }] }).catch((error: unknown) => error);
+    await refreshing;
+    setAuthSession({ ...session('bob'), user: { ...session().user, id: 10 } });
+    resolveRefresh(response({ success: true, data: session('alice-refreshed') }));
+    expect(await result).toMatchObject({ kind: 'unauthorized' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('sends ordered conversation history followed by the current user turn exactly once', async () => {
+    setAuthSession(session());
+    const fetchMock = vi.fn().mockResolvedValue(response({
+      choices: [{ message: { content: 'Remembered' }, finish_reason: 'stop' }],
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const history = [
+      { role: 'user' as const, content: 'My project is Atlas.' },
+      { role: 'assistant' as const, content: 'I will remember Atlas.' },
+    ];
+
+    await playgroundClient.chat({ model: 'zt-model', prompt: 'What is its name?', history });
+
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).messages).toEqual([
+      { role: 'system', content: '你是一个简洁、可靠的助手。' },
+      ...history,
+      { role: 'user', content: 'What is its name?' },
+    ]);
+    expect(history).toHaveLength(2);
+  });
+
   it('sends the signed-in identity to the billable playground and parses the result', async () => {
     setAuthSession(session());
     const fetchMock = vi.fn().mockResolvedValue(response({

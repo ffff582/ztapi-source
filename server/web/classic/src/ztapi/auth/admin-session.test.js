@@ -118,6 +118,21 @@ describe('ZTAPI admin session', () => {
     expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 
+  it('does not invalidate bootstrap refresh when an anonymous status request returns 401', async () => {
+    let finishRefresh;
+    const refreshed = { ...sessionFixture(), access_token: 'bootstrap-token' };
+    fetchMock.mockImplementation((url) => {
+      if (url === '/api/auth/refresh') return new Promise((resolve) => { finishRefresh = resolve; });
+      return Promise.resolve(jsonResponse({ success: false, message: 'authentication required' }, 401));
+    });
+    const refresh = adminRefresh();
+    await vi.waitFor(() => expect(finishRefresh).toBeTypeOf('function'));
+    await expect(adminRequest({ url: '/api/status' })).rejects.toMatchObject({ status: 401 });
+    finishRefresh(jsonResponse({ success: true, data: refreshed }));
+    await expect(refresh).resolves.toEqual(refreshed);
+    expect(getAdminSession()).toEqual(refreshed);
+  });
+
   it('clears the memory session when refresh fails', async () => {
     const secret = 'refresh-secret-token';
     setAdminSession(sessionFixture({ role: 100 }));

@@ -417,30 +417,65 @@ func ReleaseZTAPIRequestSettlement(op string) (*ZTAPIRequestSettlement, error) {
 		if row.Status == ZTAPISettlementPending || row.Dispatched {
 			return ErrZTAPISettlementPending
 		}
-		if exists, err := HasZTAPISettlementFinalizationIntentTx(tx, row.RequestID); err != nil {
-			return err
-		} else if exists {
-			return ErrZTAPISettlementConflict
-		}
-		user, token, err := ztapiSettlementOwners(tx, row)
-		if err != nil {
-			return err
-		}
-		entry, err := ztapiSettlementWalletDeltaTx(tx, user, row.ReservedQuota, row.RequestID, "ztapi:"+op+":release", "undispatched request reservation release", BalanceLedgerSourceBillingRefund, false)
-		if err != nil {
-			return err
-		}
-		if !row.TokenUnlimited {
-			if _, err = ztapiSettlementTokenDeltaTx(tx, token, row.TokenReservedQuota, false); err != nil {
-				return err
-			}
-		}
-		if entry != nil {
-			row.LastLedgerID = entry.ID
-		}
-		row.Status = ZTAPISettlementReleased
-		return nil
+		return releaseZTAPIUndispatchedSettlementTx(tx, row)
 	})
+}
+
+// Call only on the in-process path that never passed the request to HTTP.
+// Absence of response metadata alone is not proof that an attempt was unsent.
+func ReleaseZTAPILocalUnsentFirstAttempt(op string, index, channelID int) (*ZTAPIRequestSettlement, error) {
+	if index != 1 || channelID <= 0 {
+		return nil, ErrZTAPISettlementPending
+	}
+	return mutateZTAPISettlement(op, func(tx *gorm.DB, row *ZTAPIRequestSettlement) error {
+		if row.Status == ZTAPISettlementReleased && !row.Dispatched {
+			return nil
+		}
+		if row.Status != ZTAPISettlementReserved || !row.Dispatched || row.FinalAttempt != 0 ||
+			row.ChargedQuota != 0 || row.TokenChargedQuota != 0 || row.RefundedQuota != 0 {
+			return ErrZTAPISettlementPending
+		}
+		var attempts []ZTAPIRequestAttempt
+		if err := tx.Where("settlement_id = ?", row.ID).Limit(2).Find(&attempts).Error; err != nil {
+			return err
+		}
+		if len(attempts) != 1 {
+			return ErrZTAPISettlementPending
+		}
+		attempt := attempts[0]
+		if attempt.Attempt != index || attempt.ChannelID != channelID || attempt.HTTPStatus != 0 ||
+			attempt.UpstreamRequestID != "" || attempt.SafetyOutcome {
+			return ErrZTAPISettlementPending
+		}
+		row.Dispatched = false
+		return releaseZTAPIUndispatchedSettlementTx(tx, row)
+	})
+}
+
+func releaseZTAPIUndispatchedSettlementTx(tx *gorm.DB, row *ZTAPIRequestSettlement) error {
+	if exists, err := HasZTAPISettlementFinalizationIntentTx(tx, row.RequestID); err != nil {
+		return err
+	} else if exists {
+		return ErrZTAPISettlementConflict
+	}
+	user, token, err := ztapiSettlementOwners(tx, row)
+	if err != nil {
+		return err
+	}
+	entry, err := ztapiSettlementWalletDeltaTx(tx, user, row.ReservedQuota, row.RequestID, "ztapi:"+row.OperationID+":release", "undispatched request reservation release", BalanceLedgerSourceBillingRefund, false)
+	if err != nil {
+		return err
+	}
+	if !row.TokenUnlimited {
+		if _, err = ztapiSettlementTokenDeltaTx(tx, token, row.TokenReservedQuota, false); err != nil {
+			return err
+		}
+	}
+	if entry != nil {
+		row.LastLedgerID = entry.ID
+	}
+	row.Status = ZTAPISettlementReleased
+	return nil
 }
 
 type ZTAPISettlementEvidence struct {

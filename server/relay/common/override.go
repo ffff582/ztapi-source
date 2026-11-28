@@ -105,6 +105,7 @@ func NewAPIErrorFromParamOverride(err *ParamOverrideReturnError) *types.NewAPIEr
 			errors.New("param override return error is nil"),
 			types.ErrorCodeChannelParamOverrideInvalid,
 			types.ErrOptionWithSkipRetry(),
+			types.ErrOptionWithLocalOrigin(),
 		)
 	}
 
@@ -128,7 +129,7 @@ func NewAPIErrorFromParamOverride(err *ParamOverrideReturnError) *types.NewAPIEr
 		message = "request blocked by param override"
 	}
 
-	opts := make([]types.NewAPIErrorOptions, 0, 1)
+	opts := []types.NewAPIErrorOptions{types.ErrOptionWithLocalOrigin()}
 	if err.SkipRetry {
 		opts = append(opts, types.ErrOptionWithSkipRetry())
 	}
@@ -196,6 +197,24 @@ func ApplyParamOverrideWithRelayInfo(jsonData []byte, info *RelayInfo) ([]byte, 
 	if err != nil {
 		return nil, err
 	}
+	if requiresFrozenUpstreamModel(info) {
+		if info.ChannelMeta == nil || info.UpstreamModelName == "" {
+			return nil, errors.New("supplier_admission_model_override_forbidden")
+		}
+		modelFields, invalidModel := 0, false
+		gjson.ParseBytes(result).ForEach(func(key, value gjson.Result) bool {
+			if strings.EqualFold(key.String(), "model") {
+				modelFields++
+				if key.String() != "model" || value.Type != gjson.String || value.String() != info.UpstreamModelName {
+					invalidModel = true
+				}
+			}
+			return true
+		})
+		if modelFields != 1 || invalidModel {
+			return nil, errors.New("supplier_admission_model_override_forbidden")
+		}
+	}
 	syncRuntimeHeaderOverrideFromContext(info, overrideCtx)
 	if info != nil {
 		if recorder != nil {
@@ -205,6 +224,18 @@ func ApplyParamOverrideWithRelayInfo(jsonData []byte, info *RelayInfo) ([]byte, 
 		}
 	}
 	return result, nil
+}
+
+func requiresFrozenUpstreamModel(info *RelayInfo) bool {
+	if info == nil || info.ZTAPIPublicationSnapshot == nil {
+		return false
+	}
+	snapshot := info.ZTAPIPublicationSnapshot
+	return snapshot.PricePolicy == types.ZTAPISupplierAdmissionPricePolicy20261019 ||
+		snapshot.PricePolicy == types.ZTAPIXcloudPricePolicy20261114 ||
+		snapshot.PricePolicy == types.ZTAPIXcloudPricePolicy20261128 ||
+		(snapshot.SourceModel == "claude-fable-5" &&
+			(snapshot.PricePolicy == "reduction_15_12_20261107" || snapshot.PricePolicy == "referral_floor_10_20261107"))
 }
 
 func shouldEnableParamOverrideAudit(paramOverride map[string]interface{}) bool {

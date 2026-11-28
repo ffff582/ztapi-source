@@ -9,16 +9,18 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/types"
 	"gorm.io/gorm"
 )
 
 func ztapiFinanceAlertMeaning(kind, reason string) (string, string) {
 	reasons := strings.Split(model.ZTAPIFinanceAlertSafeReason(reason), ",")
+	rejectedReceipt := len(types.SanitizeZTAPIUsageIntegrityReasons(reasons)) != 0
 	labels := make([]string, 0, len(reasons))
 	for _, value := range reasons {
 		switch strings.TrimSpace(value) {
 		case "upstream_attempt_billing_unconfirmed":
-			labels = append(labels, "号池请求结果不确定，备用线路可能已接管；需要确认这次号池请求是否扣费")
+			labels = append(labels, "未能确认本次上游尝试是否扣费")
 		case "stale_reserved_hold":
 			labels = append(labels, "预留费用超过 24 小时仍未结算")
 		case "cache_write":
@@ -29,8 +31,24 @@ func ztapiFinanceAlertMeaning(kind, reason string) (string, string) {
 			labels = append(labels, "输入用量缺少可信计费证据")
 		case "output_tokens":
 			labels = append(labels, "输出用量缺少可信计费证据")
-		case "upstream_billing_unconfirmed", "upstream_usage_missing", "usage_zero_unconfirmed":
+		case "usage_zero_unconfirmed":
+			if !rejectedReceipt {
+				labels = append(labels, "上游用量或扣费情况尚未确认")
+			}
+		case "upstream_billing_unconfirmed", "upstream_usage_missing":
 			labels = append(labels, "上游用量或扣费情况尚未确认")
+		case "usage_incomplete":
+			labels = append(labels, "上游回执未通过用量完整性检查")
+		case "usage_unsupported_cache_field":
+			labels = append(labels, "上游回执包含尚不能识别的缓存计量字段")
+		case "usage_missing_cache_split":
+			labels = append(labels, "上游回执缺少缓存写入分档")
+		case "usage_missing_token_counts":
+			labels = append(labels, "上游回执缺少输入或输出用量")
+		case "usage_alias_conflict", "usage_total_mismatch", "usage_semantic_conflict", "usage_snapshot_conflict":
+			labels = append(labels, "上游回执的用量字段互相矛盾")
+		case "usage_invalid_json", "usage_invalid_type", "usage_invalid_quantity":
+			labels = append(labels, "上游回执的用量格式或数值无效")
 		case "awaiting_approval":
 			labels = append(labels, "已有凭证，等待财务复核批准")
 		case "evidence_conflict", "approval_conflict", "attempt_evidence_conflict":
@@ -111,13 +129,18 @@ func RunZTAPIFinanceAlertsOnce(ctx context.Context, db *gorm.DB, config ZTAPIHea
 			kind = job.SourceKind
 		}
 		identity := ""
-		if kind == "attempt_review" {
+		label := ztapiFinanceSourceLabel(kind)
+		if kind == "attempt_review" || (kind == "settlement" && job.SourceAttempt > 0) {
 			identity = fmt.Sprintf("\n请求编号：%s\n结算编号：%d\n范围：第 %d 次上游尝试",
 				model.ZTAPIFinanceAlertRequestReference(job.RequestReference), job.SourceSettlementID, job.SourceAttempt)
 		}
 		meaning, action := ztapiFinanceAlertMeaning(kind, job.Reason)
+		if kind == "settlement" && job.SourceAttempt > 0 {
+			label = "客户请求结算、上游尝试计费"
+			action = "请在管理后台“财务对账”核对本笔请求的结算记录及对应尝试记录"
+		}
 		text := fmt.Sprintf("【ZTAPI 账单待核对】\n类型：%s\n情况：%s%s\n时间（北京时间）：%s\n\n建议处理：%s\n重要：本通知不会自动修改客户余额，核验前不要手工改余额。\n\n记录编号：%d\n通知编号：%d",
-			ztapiFinanceSourceLabel(kind), meaning, identity, time.Unix(job.CreatedAt, 0).In(ztapiBeijingTime).Format("2006-01-02 15:04:05"), action, job.SourceRecordID, job.ID)
+			label, meaning, identity, time.Unix(job.CreatedAt, 0).In(ztapiBeijingTime).Format("2006-01-02 15:04:05"), action, job.SourceRecordID, job.ID)
 		ok, reason, receipt := sendZTAPITelegramText(ctx, config, text)
 		// Invalid configuration and delivery failures remain quiet but durable.
 		if err := model.FinishZTAPIFinanceAlert(ctx, db, job, config.Now(), ok, reason, receipt); err != nil {

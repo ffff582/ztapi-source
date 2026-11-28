@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"encoding/json"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -16,6 +17,77 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+func normalizeChatUsage(info *relaycommon.RelayInfo, usage *dto.Usage) bool {
+	if usage == nil {
+		return false
+	}
+	modified := false
+	if usage.PromptTokens == 0 && usage.InputTokens != 0 {
+		usage.PromptTokens = usage.InputTokens
+		modified = true
+	}
+	if usage.CompletionTokens == 0 && usage.OutputTokens != 0 {
+		usage.CompletionTokens = usage.OutputTokens
+		modified = true
+	}
+	if modified && usage.TotalTokens == 0 {
+		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+	}
+	if info != nil && info.ZTAPIPublicationSnapshot != nil {
+		modified = modified || (usage.UsageSource != "" && usage.UsageSource != "upstream_reported")
+		modified = modified || (usage.UsageSemantic != "" && usage.UsageSemantic != "openai")
+		usage.UsageSource = "upstream_reported"
+		usage.UsageSemantic = "openai"
+	}
+	return modified
+}
+
+// Keep unknown fields and integer precision when canonicalizing usage aliases.
+func replaceChatUsage(data string, usage *dto.Usage) (string, error) {
+	var body map[string]json.RawMessage
+	if err := common.UnmarshalJsonStr(data, &body); err != nil {
+		return "", err
+	}
+	if usage == nil {
+		delete(body, "usage")
+		encoded, err := common.Marshal(body)
+		return string(encoded), err
+	}
+	var rawUsage map[string]json.RawMessage
+	if raw := body["usage"]; len(raw) != 0 {
+		if err := common.Unmarshal(raw, &rawUsage); err != nil {
+			return "", err
+		}
+	}
+	if rawUsage == nil {
+		rawUsage = make(map[string]json.RawMessage)
+	}
+	for key, value := range map[string]any{
+		"prompt_tokens": usage.PromptTokens, "completion_tokens": usage.CompletionTokens,
+		"total_tokens": usage.TotalTokens, "usage_source": usage.UsageSource,
+	} {
+		encoded, err := common.Marshal(value)
+		if err != nil {
+			return "", err
+		}
+		rawUsage[key] = encoded
+	}
+	if usage.UsageSemantic != "" {
+		encoded, err := common.Marshal(usage.UsageSemantic)
+		if err != nil {
+			return "", err
+		}
+		rawUsage["usage_semantic"] = encoded
+	}
+	encodedUsage, err := common.Marshal(rawUsage)
+	if err != nil {
+		return "", err
+	}
+	body["usage"] = encodedUsage
+	encoded, err := common.Marshal(body)
+	return string(encoded), err
+}
 
 // 辅助函数
 func HandleStreamFormat(c *gin.Context, info *relaycommon.RelayInfo, data string, forceFormat bool, thinkToContent bool) error {
@@ -131,8 +203,11 @@ func handleLastResponse(lastStreamData string, responseId *string, createAt *int
 	*model = lastStreamResponse.Model
 
 	if service.ValidUsage(lastStreamResponse.Usage) {
-		*containStreamUsage = true
-		*usage = lastStreamResponse.Usage
+		if info.ZTAPIPublicationSnapshot == nil {
+			normalizeChatUsage(info, lastStreamResponse.Usage)
+			*containStreamUsage = true
+			*usage = lastStreamResponse.Usage
+		}
 		if !info.ShouldIncludeUsage {
 			*shouldSendLastResp = lo.SomeBy(lastStreamResponse.Choices, func(choice dto.ChatCompletionsStreamResponseChoice) bool {
 				return choice.Delta.GetContentString() != "" || choice.Delta.GetReasoningContent() != ""
@@ -164,6 +239,9 @@ func HandleFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, lastStream
 		}
 
 		info.ClaudeConvertInfo.Usage = usage
+		if info.ZTAPIPublicationSnapshot != nil {
+			streamResponse.Usage = usage
+		}
 
 		claudeResponses := service.StreamResponseOpenAI2Claude(&streamResponse, info)
 		for _, resp := range claudeResponses {

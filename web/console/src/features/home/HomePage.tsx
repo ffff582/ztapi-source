@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { ArrowRight, CircleDollarSign, Gift, ListTree, Route, Send } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { PublicHeader } from '../../components/layout/PublicHeader';
+import { ResourceDisclosureNotice } from '../../components/ResourceDisclosureNotice';
 import { GatewayStatusRail } from './GatewayStatusRail';
 import { PublicModelProof } from './PublicModelProof';
 import { useLocale } from '../../i18n/locale';
@@ -25,6 +26,7 @@ export function HomePage() {
     <div className="public-home">
       <PublicHeader />
       <main>
+        <ResourceDisclosureNotice />
         <section className="gateway-hero" aria-label={t('ZTAPI')}>
           <div className="gateway-hero__content public-shell">
             <div className="gateway-hero__copy">

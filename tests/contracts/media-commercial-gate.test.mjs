@@ -14,7 +14,7 @@ function loadMediaGateJob() {
 
 test('media commercial CI uses isolated cached MySQL and password-protected Redis', () => {
   const job = loadMediaGateJob();
-  assert.deepEqual(job['runs-on'], ['self-hosted', 'ztapi-local']);
+  assert.equal(job['runs-on'], '${{ github.repository == \'ffff582/ztapi-source\' && \'ubuntu-24.04\' || fromJSON(\'["self-hosted","ztapi-local"]\') }}');
   const start = job.steps.find((step) => step.run?.includes('start mysql ztapi_media_ci_only ztapi_commercial_test'));
   assert.ok(start, 'the real MySQL service must use its isolated database');
   assert.match(start.run, /start redis ztapi_media_ci_only/);
@@ -46,6 +46,27 @@ test('media commercial CI makes database and Redis integration suites non-skippa
   assert.match(commands, /go test \.\/router .*\^TestZTAPIRealRedisAuthAdmissionIsolation/);
   assert.doesNotMatch(commands, /\|\|\s*true/);
   for (const step of job.steps) assert.notEqual(step['continue-on-error'], true);
+});
+
+test('media commercial CI isolates offline Go fixture writes from the runner disk', () => {
+  const job = loadMediaGateJob();
+  const fixture = job.steps.find((step) => step.id === 'offline-fixtures');
+  assert.ok(fixture, 'SQLite fixtures need a fresh per-job directory');
+  assert.match(fixture.run, /mktemp -d \/dev\/shm\/ztapi-media-ci\.XXXXXXXX/);
+  const users = job.steps.filter((step) => step.env?.TMPDIR);
+  assert.deepEqual(users.map((step) => step.name), [
+    'Run offline media Go suites',
+    'Run hosted tool billing and receipt regressions',
+    'Run price reduction and official comparison integrity',
+  ]);
+  for (const step of users) {
+    assert.equal(step.env.TMPDIR, '${{ steps.offline-fixtures.outputs.path }}');
+    assert.equal(step.env.GOTMPDIR, '${{ runner.temp }}');
+  }
+  const cleanup = job.steps.find((step) => step.name === 'Remove isolated Go fixture storage');
+  assert.ok(cleanup, 'temporary fixture storage must be cleaned even on failure');
+  assert.match(cleanup.if, /always\(\)/);
+  assert.match(cleanup.run, /\^\/dev\/shm\/ztapi-media-ci/);
 });
 
 test('media commercial CI runs offline UI suites and the responsive browser acceptance', () => {

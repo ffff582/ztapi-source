@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { LoaderCircle, LogIn } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { apiClient, authErrorMessage } from '../../api/client';
 import { useAuth } from '../../auth/session';
 import { AuthShell } from './AuthShell';
@@ -8,10 +8,12 @@ import { InlineNotice } from './InlineNotice';
 import { PasswordField } from './PasswordField';
 import { validateRegistrationInput } from './RegisterPage';
 import { useLocale } from '../../i18n/locale';
+import { consoleReturnTo } from './return-to';
 
 export function LoginPage() {
   const { t } = useLocale();
   const navigate = useNavigate();
+  const location = useLocation();
   const { login } = useAuth();
   const usernameRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
@@ -73,7 +75,7 @@ export function LoginPage() {
 
     try {
       await login({ username: username.trim(), password });
-      navigate('/console', { replace: true });
+      navigate(consoleReturnTo(location.search), { replace: true });
     } catch (error) {
       setServerError(authErrorMessage(error));
     } finally {
@@ -137,7 +139,7 @@ export function LoginPage() {
         </button>
       </form>
       <p className="auth-switch">
-        {t('还没有账号？')} <Link to="/register">{t('创建账号')}</Link>
+        {t('还没有账号？')} <Link to={`/register${new URLSearchParams(location.search).has('redirect') ? `?redirect=${encodeURIComponent(consoleReturnTo(location.search))}` : ''}`}>{t('创建账号')}</Link>
       </p>
     </AuthShell>
   );

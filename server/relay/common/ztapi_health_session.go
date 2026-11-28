@@ -319,6 +319,28 @@ func (s *ZTAPIHealthSession) Finalize(requestContext context.Context, relayFaile
 	return err
 }
 
+// ConfirmZTAPINativeResponsesStreamTerminal is called only after the native
+// Responses adapter validates and flushes response.completed to the client.
+func ConfirmZTAPINativeResponsesStreamTerminal(c *gin.Context, data string) {
+	s := GetZTAPIHealthSession(c)
+	if s == nil || s.collector == nil || len(data) > ztapiHealthMaxEvent {
+		return
+	}
+	collector := s.collector
+	collector.mu.Lock()
+	defer collector.mu.Unlock()
+	a := collector.current
+	if collector.sealed || a == nil || a.summary.Protocol != "responses" || !a.stream || !a.summary.Dispatched ||
+		a.summary.HTTPStatus < 200 || a.summary.HTTPStatus >= 300 || a.native || a.closed || a.eof || a.transportError || a.malformed || a.failed || a.limit {
+		return
+	}
+	// The line-oriented relay can stop upstream before the wire observer reads
+	// the separating blank line. Only promote the exact frame already read.
+	if bytes.Equal(bytes.TrimSpace(a.event), []byte(data)) {
+		a.endEvent()
+	}
+}
+
 type ztapiHealthResponseWriter struct {
 	gin.ResponseWriter
 	mu              sync.Mutex

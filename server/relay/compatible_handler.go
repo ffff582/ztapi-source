@@ -77,10 +77,14 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 	passThrough := info.ZTAPIPublicationSnapshot == nil && (passThroughGlobal || info.ChannelSetting.PassThroughBodyEnabled)
 	if info.RelayMode == relayconstant.RelayModeChatCompletions &&
 		!passThrough &&
-		service.ShouldChatCompletionsUseResponsesGlobal(info.ChannelId, info.ChannelType, info.OriginModelName) {
+		(service.ShouldChatCompletionsUseResponsesGlobal(info.ChannelId, info.ChannelType, info.OriginModelName) ||
+			helper.ZTAPIManagedToolsRequireResponses(info, len(request.Tools) > 0)) {
 		applySystemPromptIfNeeded(c, info, request)
 		usage, newApiErr := chatCompletionsViaResponses(c, info, adaptor, request)
 		if newApiErr != nil {
+			if usage != nil && info.ZTAPIPublicationSnapshot != nil {
+				service.PostTextConsumeQuota(c, info, usage, nil)
+			}
 			return newApiErr
 		}
 
@@ -101,7 +105,7 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 		}
 		if common.DebugEnabled {
 			if debugBytes, bErr := storage.Bytes(); bErr == nil {
-				logger.LogDebug(c, "requestBody: %s", debugBytes)
+				logger.LogDebug(c, "request body bytes: %d", len(debugBytes))
 			}
 		}
 		if body, bodyErr := storage.Bytes(); bodyErr == nil {
@@ -180,8 +184,11 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 			return types.NewErrorWithStatusCode(err, types.ErrorCode(helper.ZTAPIInvalidReasoningEffortCode), http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 		}
 		relaycommon.CaptureReasoningEffortForwardedJSON(info, jsonData, info.GetFinalRequestRelayFormat())
+		if apiErr := helper.ValidateZTAPIHostedToolPricing(info, jsonData); apiErr != nil {
+			return apiErr
+		}
 
-		logger.LogDebug(c, "text request body: %s", jsonData)
+		logger.LogDebug(c, "text request body bytes: %d", len(jsonData))
 
 		body, size, closer, err := relaycommon.NewOutboundJSONBody(jsonData)
 		if err != nil {

@@ -5,6 +5,7 @@ import (
 	"regexp"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/shopspring/decimal"
 )
 
@@ -17,19 +18,24 @@ type ztapiSettlementLogDimension struct {
 }
 
 type ztapiSettlementLogMetadata struct {
-	BillingSource            string                        `json:"billing_source,omitempty"`
-	BillingStatus            string                        `json:"billing_status,omitempty"`
-	PublicationVersion       uint64                        `json:"publication_version,omitempty"`
-	PriceSourceVersion       uint64                        `json:"price_source_version,omitempty"`
-	UsageSemantic            string                        `json:"usage_semantic,omitempty"`
-	BillingDimensions        []ztapiSettlementLogDimension `json:"billing_dimensions,omitempty"`
-	ModelRatio               *float64                      `json:"model_ratio,omitempty"`
-	ReasoningEffortReceived  string                        `json:"reasoning_effort_received,omitempty"`
-	ReasoningEffortForwarded string                        `json:"reasoning_effort_forwarded,omitempty"`
-	ReasoningEffortSource    string                        `json:"reasoning_effort_source,omitempty"`
-	ReasoningTokensReported  *int                          `json:"reasoning_tokens_reported,omitempty"`
-	RequestPath              string                        `json:"request_path,omitempty"`
-	ClientUserAgent          string                        `json:"client_user_agent,omitempty"`
+	BillingSource             string                        `json:"billing_source,omitempty"`
+	BillingStatus             string                        `json:"billing_status,omitempty"`
+	PublicationVersion        uint64                        `json:"publication_version,omitempty"`
+	PriceSourceVersion        uint64                        `json:"price_source_version,omitempty"`
+	UsageSemantic             string                        `json:"usage_semantic,omitempty"`
+	BillingDimensions         []ztapiSettlementLogDimension `json:"billing_dimensions,omitempty"`
+	ModelRatio                *float64                      `json:"model_ratio,omitempty"`
+	ReasoningEffortReceived   string                        `json:"reasoning_effort_received,omitempty"`
+	ReasoningEffortForwarded  string                        `json:"reasoning_effort_forwarded,omitempty"`
+	ReasoningEffortSource     string                        `json:"reasoning_effort_source,omitempty"`
+	ReasoningEffortDropped    bool                          `json:"reasoning_effort_dropped,omitempty"`
+	ReasoningEffortDropReason string                        `json:"reasoning_effort_drop_reason,omitempty"`
+	ReasoningTokensReported   *int                          `json:"reasoning_tokens_reported,omitempty"`
+	RequestPath               string                        `json:"request_path,omitempty"`
+	ClientUserAgent           string                        `json:"client_user_agent,omitempty"`
+	MeteringEvidence          *types.ZTAPIMeteringEvidence  `json:"ztapi_metering_evidence,omitempty"`
+	ImageSaleQuote            *types.ZTAPIImageSaleQuote    `json:"image_sale_quote,omitempty"`
+	SupplierCostStatus        string                        `json:"supplier_cost_status,omitempty"`
 }
 
 var ztapiSettlementLogDimensionName = regexp.MustCompile(`^[a-z][a-z0-9_:.-]{0,127}$`)
@@ -70,16 +76,33 @@ func sanitizeZTAPISettlementLogMetadata(log *Log) error {
 		(metadata.BillingStatus != "" && metadata.BillingStatus != "settled") ||
 		(metadata.UsageSemantic != "" && metadata.UsageSemantic != "openai" && metadata.UsageSemantic != "anthropic" && metadata.UsageSemantic != ZTAPIAttemptBillingUsageSemanticImage) ||
 		len(metadata.BillingDimensions) > 128 ||
-		!validZTAPIReasoningEffort(metadata.ReasoningEffortReceived) ||
+		(!validZTAPIReasoningEffort(metadata.ReasoningEffortReceived) && !(metadata.ReasoningEffortDropped && metadata.ReasoningEffortReceived == "unrecognized")) ||
 		!validZTAPIReasoningEffort(metadata.ReasoningEffortForwarded) ||
 		!validZTAPIReasoningSource(metadata.ReasoningEffortSource) ||
+		(metadata.ReasoningEffortDropped && !IsZTAPIReasoningEffortDropReason(metadata.ReasoningEffortDropReason)) ||
+		(!metadata.ReasoningEffortDropped && metadata.ReasoningEffortDropReason != "") ||
 		(metadata.ReasoningTokensReported != nil && *metadata.ReasoningTokensReported < 0) {
 		return ErrZTAPISettlementLogInvalid
 	}
 	if metadata.ModelRatio != nil && (math.IsNaN(*metadata.ModelRatio) || math.IsInf(*metadata.ModelRatio, 0) || *metadata.ModelRatio < 0) {
 		return ErrZTAPISettlementLogInvalid
 	}
+	if metadata.ImageSaleQuote != nil {
+		contract := types.ZTAPIImageSaleContract20261109JSON()
+		if metadata.ImageSaleQuote.Version == 2 {
+			contract = types.ZTAPIImageSalePartial20261109JSON()
+		}
+		if types.ValidateZTAPIImageSaleQuote(contract, *metadata.ImageSaleQuote) != nil ||
+			(metadata.SupplierCostStatus != "usage_pending" && metadata.SupplierCostStatus != "quoted_tokens") {
+			return ErrZTAPISettlementLogInvalid
+		}
+	} else if metadata.SupplierCostStatus != "" {
+		return ErrZTAPISettlementLogInvalid
+	}
 	// Diagnostic fields are optional; a malformed one is dropped, not fatal.
+	if metadata.MeteringEvidence != nil {
+		metadata.MeteringEvidence = metadata.MeteringEvidence.Sanitized()
+	}
 	if !ztapiSettlementLogRequestPath.MatchString(metadata.RequestPath) {
 		metadata.RequestPath = ""
 	}

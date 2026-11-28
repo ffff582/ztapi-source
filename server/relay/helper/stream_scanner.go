@@ -58,10 +58,12 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	info.StreamStatus = relaycommon.NewStreamStatus()
 
 	streamingTimeout := streamingTimeoutDuration(constant.StreamingTimeout)
+	clientCtx := c.Request.Context()
+	drain := info.ZTAPIResponsesReceiptDrain
 
 	var (
 		stopChan   = make(chan bool, 3) // 增加缓冲区避免阻塞
-		scanner    = NewStreamScanner(resp.Body)
+		scanner    = NewStreamScanner(drain.LimitReader(clientCtx, resp.Body))
 		ticker     = time.NewTicker(streamingTimeout)
 		pingTicker *time.Ticker
 		writeMutex sync.Mutex     // Mutex to protect concurrent writes
@@ -235,20 +237,24 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			logger.LogDebug(c, "scanner goroutine exited")
 		}()
 
+		drainedBytes := 0
 		for scanner.Scan() {
 			// 检查是否需要停止
 			select {
 			case <-ctx.Done():
 				return
-			case <-c.Request.Context().Done():
-				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, c.Request.Context().Err())
-				return
+			case <-clientCtx.Done():
+				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, clientCtx.Err())
+				drainedBytes += len(scanner.Bytes()) + 1
+				if drain.Remaining(clientCtx) <= 0 || drainedBytes > relaycommon.ZTAPIResponsesReceiptBytes {
+					return
+				}
 			default:
 			}
 
 			ticker.Reset(streamingTimeout)
 			data := scanner.Text()
-			logger.LogDebug(c, "stream scanner data: %s", data)
+			logger.LogDebug(c, "stream scanner bytes: %d", len(data))
 
 			if len(data) < 6 {
 				continue
@@ -292,7 +298,15 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonTimeout, nil)
 	case <-stopChan:
 		// EndReason already set by the goroutine that triggered stopChan
-	case <-c.Request.Context().Done():
-		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, c.Request.Context().Err())
+	case <-clientCtx.Done():
+		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, clientCtx.Err())
+		if remaining := drain.Remaining(clientCtx); remaining > 0 {
+			timer := time.NewTimer(remaining)
+			defer timer.Stop()
+			select {
+			case <-timer.C:
+			case <-stopChan:
+			}
+		}
 	}
 }

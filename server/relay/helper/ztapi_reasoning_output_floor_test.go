@@ -21,13 +21,18 @@ func TestReasoningOutputFloorRaisesTinyCapsOfReasoningModels(t *testing.T) {
 		{"gpt-5.5", `{"max_tokens":5}`, "max_tokens", types.RelayFormatOpenAI},
 		{"gpt-5-mini", `{"max_completion_tokens":16}`, "max_completion_tokens", types.RelayFormatOpenAI},
 		{"glm-5.3", `{"max_tokens":32}`, "max_tokens", types.RelayFormatOpenAI},
+		{"claude-sonnet-5", `{"max_tokens":64}`, "max_tokens", types.RelayFormatOpenAI},
+		{"claude-opus-5", `{"max_completion_tokens":64}`, "max_completion_tokens", types.RelayFormatOpenAI},
+		{"claude-fable-5", `{"max_tokens":16}`, "max_tokens", types.RelayFormatOpenAI},
 		{"deepseek-v4-pro", `{"max_output_tokens":100}`, "max_output_tokens", types.RelayFormatOpenAIResponses},
 		{"gemini-3.1-pro-preview", `{"generationConfig":{"maxOutputTokens":8}}`, "generationConfig.maxOutputTokens", types.RelayFormatGemini},
 	} {
 		t.Run(tc.model, func(t *testing.T) {
-			out, err := ValidateAndNormalizeZTAPIReasoningJSON(managedInfo(tc.model), []byte(tc.body), tc.format)
+			info := managedInfo(tc.model)
+			out, err := ValidateAndNormalizeZTAPIReasoningJSON(info, []byte(tc.body), tc.format)
 			require.NoError(t, err)
 			require.EqualValues(t, ZTAPIReasoningOutputFloor, gjson.GetBytes(out, tc.path).Int())
+			require.Equal(t, ZTAPIReasoningOutputFloor, info.ZTAPIReasoningOutputBudget, "every raised outbound budget must be reserved before dispatch")
 		})
 	}
 }
@@ -39,6 +44,12 @@ func TestReasoningOutputFloorLeavesDeliberateLimitsAlone(t *testing.T) {
 		format types.RelayFormat
 	}{
 		"claude reasons only on request": {managedInfo("claude-sonnet-5"), `{"max_tokens":5}`, types.RelayFormatClaude},
+		"native opus limit":              {managedInfo("claude-opus-5"), `{"max_tokens":64}`, types.RelayFormatClaude},
+		"haiku chat does not reason":     {managedInfo("claude-haiku-4.5"), `{"max_tokens":64}`, types.RelayFormatOpenAI},
+		"claude responses is not chat":   {managedInfo("claude-sonnet-5"), `{"max_output_tokens":64}`, types.RelayFormatOpenAIResponses},
+		"claude no cap requested":        {managedInfo("claude-sonnet-5"), `{"messages":[]}`, types.RelayFormatOpenAI},
+		"claude sufficiently large cap":  {managedInfo("claude-sonnet-5"), `{"max_tokens":2048}`, types.RelayFormatOpenAI},
+		"claude invalid zero cap":        {managedInfo("claude-sonnet-5"), `{"max_tokens":0}`, types.RelayFormatOpenAI},
 		"non-reasoning model":            {managedInfo("gpt-4.1-mini"), `{"max_tokens":5}`, types.RelayFormatOpenAI},
 		"cap already large enough":       {managedInfo("gpt-5.5"), `{"max_tokens":4096}`, types.RelayFormatOpenAI},
 		"no cap requested":               {managedInfo("gpt-5.5"), `{"messages":[]}`, types.RelayFormatOpenAI},
@@ -59,7 +70,7 @@ func TestClaudeChatRequestsDropReasoningControls(t *testing.T) {
 	body := `{"model":"claude-sonnet-5","max_tokens":64,"reasoning_effort":"high","thinking":{"type":"enabled","budget_tokens":1024},"messages":[{"role":"user","content":"hi"}]}`
 	out, err := ValidateAndNormalizeZTAPIReasoningJSON(managedInfo("claude-sonnet-5"), []byte(body), types.RelayFormatOpenAI)
 	require.NoError(t, err)
-	require.JSONEq(t, `{"model":"claude-sonnet-5","max_tokens":64,"messages":[{"role":"user","content":"hi"}]}`, string(out))
+	require.JSONEq(t, `{"model":"claude-sonnet-5","max_tokens":1024,"messages":[{"role":"user","content":"hi"}]}`, string(out))
 
 	// Other models and non-chat formats keep their reasoning controls.
 	gpt := `{"max_tokens":4096,"reasoning_effort":"high"}`

@@ -33,6 +33,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/types"
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
 
@@ -685,6 +686,15 @@ func UpdateZTAPIModelConfigAndBilling(next *ZTAPIModelConfig, expectedVersion ui
 			committed = current
 			return ErrZTAPIModelVersionConflict
 		}
+		if next.Published {
+			var latest ZTAPIModelPriceSource
+			if err := tx.Where("model_config_id = ?", current.ID).Order("version DESC, id DESC").Limit(1).Find(&latest).Error; err != nil {
+				return err
+			}
+			if latest.PricePolicy == string(ZTAPIPricePolicyXcloud20261128) {
+				return errors.New("Xcloud price source requires its controlled publisher")
+			}
+		}
 		if err := ValidateZTAPISourceModelNames(tx, []string{next.SourceModel}); err != nil {
 			return err
 		}
@@ -699,6 +709,10 @@ func UpdateZTAPIModelConfigAndBilling(next *ZTAPIModelConfig, expectedVersion ui
 			return err
 		}
 		publicationSnapshotID := int64(0)
+		// Preserve only GPT Image 2's explicit retail authority while unpublished.
+		if current.ID == 85 && current.SourceModel == "gpt-image-2" && next.SourceModel == current.SourceModel && next.PublicNameValue() == current.PublicNameValue() {
+			publicationSnapshotID = current.PublicationSnapshotID
+		}
 		if next.Published {
 			blockers, evidence, err := ztapiPublicationBlockersTx(tx, next)
 			if err != nil {
@@ -707,6 +721,7 @@ func UpdateZTAPIModelConfigAndBilling(next *ZTAPIModelConfig, expectedVersion ui
 			if len(blockers) > 0 {
 				return &ZTAPIPublicationBlockedError{Blockers: blockers}
 			}
+			evidence.PreviousPublicationSnapshotID = current.PublicationSnapshotID
 			snapshot, err := createZTAPIModelPublicationSnapshotTx(tx, next, expectedVersion+1, evidence)
 			if err != nil {
 				return err
@@ -771,6 +786,7 @@ func UpdateZTAPIModelConfigAndBilling(next *ZTAPIModelConfig, expectedVersion ui
 }
 
 type ztapiPublishedModel struct {
+	PricePolicy            string
 	ModelConfigID          int
 	SnapshotID             int64
 	PriceSourceID          int64
@@ -800,6 +816,7 @@ type ztapiPublishedModel struct {
 	MediaOfficialUSD       map[string]map[string]string
 	TokenPriceRulesJSON    string
 	MediaPriceContractJSON string
+	ImageSaleContractJSON  string
 	InputPriceDisplay      string
 	OutputPriceDisplay     string
 	ImageProtocolContract  *types.ZTAPIImageProtocolContract
@@ -870,6 +887,7 @@ func refreshZTAPIAliasCache() error {
 	}
 	for i := range publications {
 		publication := ztapiPublishedModel{
+			PricePolicy:   publications[i].PricePolicy,
 			ModelConfigID: publications[i].ModelConfigID, SnapshotID: publications[i].SnapshotID,
 			PriceSourceID: publications[i].PriceSourceID, PriceSourceVersion: publications[i].PriceSourceVersion,
 			SaleMultiplier: publications[i].SaleMultiplier,
@@ -893,6 +911,7 @@ func refreshZTAPIAliasCache() error {
 			MediaOfficialUSD:       copyZTAPINestedStringMap(publications[i].MediaOfficialUSD),
 			TokenPriceRulesJSON:    publications[i].TokenPriceRulesJSON,
 			MediaPriceContractJSON: publications[i].MediaPriceContractJSON,
+			ImageSaleContractJSON:  publications[i].ImageSaleContractJSON,
 			InputPriceDisplay:      publications[i].InputPriceDisplay, OutputPriceDisplay: publications[i].OutputPriceDisplay,
 			ImageProtocolContract: cloneZTAPIImageProtocolContract(publications[i].ImageProtocolContract),
 			VideoProtocolContract: cloneZTAPIVideoProtocolContract(publications[i].VideoProtocolContract),
@@ -1131,6 +1150,18 @@ func projectZTAPIPublicPricing(publications []ZTAPIRuntimePublication) []Pricing
 		}
 		cacheReadRatio := publication.CacheReadRatio
 		cacheCreationRatio := publication.CacheCreationRatio
+		if input, err := decimal.NewFromString(publication.SaleUSD[ZTAPIBillingDimensionInputTokens]); err == nil && input.IsPositive() {
+			if cached, err := decimal.NewFromString(publication.SaleUSD[ZTAPIBillingDimensionCacheRead]); err == nil && cached.IsPositive() {
+				cacheReadRatio = cached.Div(input).Round(8).InexactFloat64()
+			}
+			write := publication.SaleUSD[ZTAPIBillingDimensionCacheWrite]
+			if write == "" {
+				write = publication.SaleUSD[ZTAPIBillingDimensionCacheWrite5m]
+			}
+			if cached, err := decimal.NewFromString(write); err == nil && cached.IsPositive() {
+				cacheCreationRatio = cached.Div(input).Round(8).InexactFloat64()
+			}
+		}
 		imageRatio := publication.ImageRatio
 		audioRatio := publication.AudioRatio
 		audioCompletionRatio := publication.AudioCompletionRatio
@@ -1149,6 +1180,10 @@ func projectZTAPIPublicPricing(publications []ZTAPIRuntimePublication) []Pricing
 		item.OutputPricePerMillion = public.OutputPricePerMillion
 		item.BillingDimensions = append([]string{}, public.BillingDimensions...)
 		item.SaleUSD = copyZTAPIStringMap(public.SaleUSD)
+		if public.OfficialReference != nil {
+			reference := *public.OfficialReference
+			item.OfficialReference = &reference
+		}
 		if len(public.OfficialUSD) > 0 {
 			item.OfficialUSD = copyZTAPIStringMap(public.OfficialUSD)
 		}
@@ -1175,6 +1210,11 @@ func projectZTAPIPublicPricing(publications []ZTAPIRuntimePublication) []Pricing
 		}
 		item.PricingRules = append([]ZTAPIPublicPricingRule(nil), public.PricingRules...)
 		item.BillingUnit = public.BillingUnit
+		if public.ImageSale != nil {
+			contract := *public.ImageSale
+			contract.BasePrices = copyZTAPIStringMap(public.ImageSale.BasePrices)
+			item.ImageSale = &contract
+		}
 		result = append(result, item)
 	}
 	return result

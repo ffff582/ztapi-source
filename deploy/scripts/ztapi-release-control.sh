@@ -67,9 +67,12 @@ write_receipt() {
   mv "$receipt_tmp" "$receipt_dir/$phase.receipt"
 }
 
-remove_rollback_tags() {
-  [ -z "${rollback_server_image:-}" ] || docker image rm "$rollback_server_image" >/dev/null 2>&1 || true
-  [ -z "${rollback_nginx_image:-}" ] || docker image rm "$rollback_nginx_image" >/dev/null 2>&1 || true
+run_release_cleanup() {
+  cleanup=/usr/local/lib/ztapi-maintenance/ztapi_cleanup.py
+  if [ -f "$cleanup" ]; then
+    /usr/bin/python3 "$cleanup" --apply > "$receipt_dir/cleanup.json" ||
+      printf 'cleanup deferred; active release and rollback resources retained\n' >&2
+  fi
 }
 
 stop_watchdog() {
@@ -159,7 +162,7 @@ case "$action" in
     else
       write_receipt completed "external_acceptance=passed"
     fi
-    remove_rollback_tags
+    run_release_cleanup
     rm -f "${gemini_channel_backup:-}"
     rm -f "${media_publication_backup:-}"
     rm -f "$state_file"
